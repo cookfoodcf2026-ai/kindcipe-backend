@@ -795,7 +795,7 @@ const sessionToken = await sdk.createSessionToken(created.openId, { name: input.
 const cookieOptions = getSessionCookieOptions(ctx.req);
 ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 return { success: true, token: sessionToken };
-
+      }),
 
     // ── Email Login ───────────────────────────────────────────────────────────
     emailLogin: publicProcedure
