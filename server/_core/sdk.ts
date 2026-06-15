@@ -198,16 +198,16 @@ class SDKServer {
   }
 
   async verifySession(
-    cookieValue: string | undefined | null
+    token: string | undefined | null
   ): Promise<{ openId: string; appId: string; name: string } | null> {
-    if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
+    if (!token) {
+      console.warn("[Auth] Missing session token");
       return null;
     }
 
     try {
       const secretKey = this.getSessionSecret();
-      const { payload } = await jwtVerify(cookieValue, secretKey, {
+      const { payload } = await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
@@ -257,24 +257,24 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
-    // Regular authentication flow
-    // Try to get token from Authorization header first (for React Native)
-let sessionCookie = req.headers.authorization?.replace("Bearer ", "");
+    const authHeader = req.headers.authorization;
+    let sessionToken: string | undefined;
+    if (authHeader?.startsWith("Bearer ")) {
+      sessionToken = authHeader.slice(7).trim();
+    }
+    if (!sessionToken) {
+      const cookies = this.parseCookies(req.headers.cookie);
+      sessionToken = cookies.get(COOKIE_NAME);
+    }
 
-// If no Authorization header, try cookies (for web browsers)
-if (!sessionCookie) {
-  const cookies = this.parseCookies(req.headers.cookie);
-  sessionCookie = cookies.get(COOKIE_NAME);
-}
-
-const session = await this.verifySession(sessionCookie);
+    const session = await this.verifySession(sessionToken);
 
     if (!session) {
-      throw ForbiddenError("Invalid session cookie");
+      throw ForbiddenError("Invalid or missing session token");
     }
 
     if (session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
-      const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
+      const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
       const taskUid = userInfo.taskUid ?? null;
       if (!taskUid) {
         throw ForbiddenError("Cron session missing task_uid");
@@ -289,7 +289,7 @@ const session = await this.verifySession(sessionCookie);
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
       try {
-        const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
+        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
         await db.upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,

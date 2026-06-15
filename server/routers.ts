@@ -789,12 +789,11 @@ export const appRouter = router({
           console.error("[Auth] Auto-create family failed", err);
         }
 
-        // Create session token (for React Native)
-const sessionToken = await sdk.createSessionToken(created.openId, { name: input.name, expiresInMs: ONE_YEAR_MS });
-// Also set cookie for web browsers
-const cookieOptions = getSessionCookieOptions(ctx.req);
-ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-return { success: true, token: sessionToken };
+        // Create session token (for React Native / Bearer auth)
+        const sessionToken = await sdk.createSessionToken(created.openId, { name: input.name, expiresInMs: ONE_YEAR_MS });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true, token: sessionToken };
       }),
 
     // ── Email Login ───────────────────────────────────────────────────────────

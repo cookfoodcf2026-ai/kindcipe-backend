@@ -242,7 +242,7 @@ export async function parseRecipeFromImage(imageBase64: string, mimeType = "imag
             tags: { type: "array" },
             error: { type: "string" },
           },
-          additionalProperties: false,
+
         },
       },
     },

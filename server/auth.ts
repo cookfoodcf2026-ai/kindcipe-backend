@@ -134,14 +134,13 @@ async function handleSocialLogin(
     }
   }
 
-  // Issue session cookie
   const sessionToken = await sdk.createSessionToken(user.openId, {
     name: params.name,
     expiresInMs: ONE_YEAR_MS,
   });
   const cookieOptions = getSessionCookieOptions(req);
   res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-  res.json({ success: true });
+  res.json({ success: true, token: sessionToken });
 }
 
 // ─── Register Routes ──────────────────────────────────────────────────────────
