@@ -499,7 +499,7 @@ Platform: ${sourceType}
       type: "json_schema",
       json_schema: {
         name: "recipe_parse",
-        strict: true,
+        strict: false,
         schema: {
           type: "object",
           properties: {
@@ -519,7 +519,7 @@ Platform: ${sourceType}
                   unit: { type: "string" },
                   category: { type: "string" },
                 },
-                required: ["name", "quantity", "unit", "category"],
+                required: ["name"],
               },
             },
             steps: {
