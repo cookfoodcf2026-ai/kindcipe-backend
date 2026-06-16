@@ -71,7 +71,7 @@ export const customRecipeRouter = router({
       const recipe = await insertCustomRecipe({
         ...input,
         familyId: ctx.user.familyId,
-        createdByUserId: ctx.user.id,
+        createdByUserId: String(ctx.user.id),
       });
 
       // Push notification to all family members when a recipe is imported

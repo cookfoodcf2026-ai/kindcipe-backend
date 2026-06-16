@@ -851,7 +851,7 @@ export const recipesRouter = router({
       }
 
       const [inserted] = await db.insert(officialRecipes).values({
-        importedByUserId: ctx.user.id,
+        importedByUserId: String(ctx.user.id),
         name: input.name,
         description: input.description,
         image: resolvedOfficialThumbnailUrl,
@@ -897,7 +897,7 @@ export const recipesRouter = router({
             }
           }
           await db.insert(officialRecipes).values({
-            importedByUserId: ctx.user.id,
+            importedByUserId: String(ctx.user.id),
             name: recipe.name,
             description: recipe.description,
             image: recipe.image || recipe.thumbnailUrl,
@@ -979,7 +979,7 @@ export const recipesRouter = router({
 
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.user.familyId,
-        createdByUserId: ctx.user.id,
+        createdByUserId: String(ctx.user.id),
         name: input.name,
         description: input.description,
         image: resolvedThumbnailUrl,
@@ -1135,7 +1135,7 @@ export const recipesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await db.update(customRecipes)
-        .set({ visibility: "public", approvedByUserId: ctx.user.id, approvedAt: new Date() })
+        .set({ visibility: "public", approvedByUserId: String(ctx.user.id), approvedAt: new Date() })
         .where(eq(customRecipes.id, input.id));
       return { success: true };
     }),
@@ -1164,7 +1164,7 @@ export const recipesRouter = router({
 
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.user.familyId,
-        createdByUserId: ctx.user.id,
+        createdByUserId: String(ctx.user.id),
         name: input.name,
         description: input.description ?? "",
         image: input.image ?? "",
@@ -1198,7 +1198,7 @@ export const recipesRouter = router({
         .where(eq(customRecipes.id, input.id))
         .limit(1);
       if (!recipe) throw new TRPCError({ code: "NOT_FOUND" });
-      if (recipe.createdByUserId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (recipe.createdByUserId !== String(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN" });
 
       await db.update(customRecipes).set({
         name: input.name,
@@ -1247,7 +1247,7 @@ export const recipesRouter = router({
         .where(eq(customRecipes.id, input.id))
         .limit(1);
       if (!recipe) throw new TRPCError({ code: "NOT_FOUND" });
-      if (recipe.createdByUserId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (recipe.createdByUserId !== String(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN" });
       await db.delete(customRecipes).where(eq(customRecipes.id, input.id));
       return { success: true };
     }),
@@ -1273,7 +1273,7 @@ export const recipesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
       const [inserted] = await db.insert(officialRecipes).values({
-        importedByUserId: ctx.user.id,
+        importedByUserId: String(ctx.user.id),
         name: input.name,
         description: input.description ?? '',
         image: input.image ?? '',

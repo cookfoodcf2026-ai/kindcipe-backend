@@ -584,7 +584,7 @@ export async function getPurchaseFrequency(familyId: number) {
 
 export async function insertCustomRecipe(data: {
   familyId: number;
-  createdByUserId: number;
+  createdByUserId: string;
   name: string;
   description?: string;
   image?: string;

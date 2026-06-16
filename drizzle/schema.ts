@@ -140,7 +140,7 @@ export type InsertMealPlan = typeof mealPlans.$inferInsert;
 export const customRecipes = pgTable("custom_recipes", {
   id: serial("id").primaryKey(),
   familyId: integer("family_id").notNull(),
-  createdByUserId: integer("created_by_user_id").notNull(),
+  createdByUserId: text("created_by_user_id").notNull(),
   name: varchar("name", { length: 128 }).notNull(),
   description: text("description"),
   image: text("image"),
@@ -157,7 +157,7 @@ export const customRecipes = pgTable("custom_recipes", {
   sourceUrlHash: varchar("source_url_hash", { length: 64 }),
   sourceAuthor: varchar("source_author", { length: 128 }),
   visibility: visibilityEnum("visibility").default("private").notNull(),
-  approvedByUserId: integer("approved_by_user_id"),
+  approvedByUserId: text("approved_by_user_id"),
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -170,7 +170,7 @@ export type InsertCustomRecipe = typeof customRecipes.$inferInsert;
 // ─── Official Recipes ─────────────────────────────────────────────────────────
 export const officialRecipes = pgTable("official_recipes", {
   id: serial("id").primaryKey(),
-  importedByUserId: integer("imported_by_user_id").notNull(),
+  importedByUserId: text("imported_by_user_id").notNull(),
   name: varchar("name", { length: 128 }).notNull(),
   description: text("description"),
   image: text("image"),
