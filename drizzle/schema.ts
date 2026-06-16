@@ -45,7 +45,7 @@ export const families = pgTable("families", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 128 }).notNull(),
   inviteCode: varchar("invite_code", { length: 16 }).notNull().unique(),
-  ownerId: integer("owner_id").notNull(),
+  ownerId: text("owner_id").notNull(),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").default("trial").notNull(),
   trialStartedAt: timestamp("trial_started_at").defaultNow().notNull(),
   trialEndsAt: timestamp("trial_ends_at"),
