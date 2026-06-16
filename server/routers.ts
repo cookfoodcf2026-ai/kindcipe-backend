@@ -97,8 +97,8 @@ const familyRouter = router({
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       // Initialise 7-day free trial for this new family
       await initFamilyTrial(family.id);
-      await updateUserFamily(ctx.user.id, family.id, "housewife");
-      await addFamilyMember({ familyId: family.id, userId: ctx.user.id, familyRole: "housewife", nickname: ctx.user.name || "Madam" });
+      await updateUserFamily(String(ctx.user.id), family.id, "housewife");
+      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "housewife", nickname: ctx.user.name || "Madam" });
       return family;
     }),
 
@@ -112,7 +112,7 @@ const familyRouter = router({
       if (ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Already in a family" });
       const family = await getFamilyByInviteCode(input.inviteCode);
       if (!family) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite code" });
-      const existing = await getFamilyMemberByUserId(family.id, ctx.user.id);
+      const existing = await getFamilyMemberByUserId(family.id, String(ctx.user.id));
       if (existing) throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
       // Check member limit based on subscription
       const sub = await getFamilySubscription(family.id);
@@ -125,8 +125,8 @@ const familyRouter = router({
             : `Free plan allows up to 2 members. The kitchen owner needs to upgrade to add more members.`,
         });
       }
-      await updateUserFamily(ctx.user.id, family.id, input.familyRole);
-      await addFamilyMember({ familyId: family.id, userId: ctx.user.id, familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
+      await updateUserFamily(String(ctx.user.id), family.id, input.familyRole);
+      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
       return { success: true, family };
     }),
 
@@ -782,8 +782,8 @@ export const appRouter = router({
           const inviteCode = nanoid(6).toUpperCase();
           const family = await createFamily({ name: kitchenName, inviteCode, ownerId: String(created.id) });
           if (family) {
-            await addFamilyMember({ familyId: family.id, userId: created.id, familyRole: "housewife", nickname: input.name });
-            await updateUserFamily(created.id, family.id, "housewife");
+            await addFamilyMember({ familyId: family.id, userId: String(created.id), familyRole: "housewife", nickname: input.name });
+            await updateUserFamily(String(created.id), family.id, "housewife");
           }
         } catch (err) {
           console.error("[Auth] Auto-create family failed", err);

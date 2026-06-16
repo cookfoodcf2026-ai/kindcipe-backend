@@ -123,11 +123,11 @@ async function handleSocialLogin(
       if (family) {
         await db.addFamilyMember({
           familyId: family.id,
-          userId: user.id,
+          userId: String(user.id),
           familyRole: "housewife",
           nickname: params.name,
         });
-        await db.updateUserFamily(user.id, family.id, "housewife");
+        await db.updateUserFamily(String(user.id), family.id, "housewife");
       }
     } catch (err) {
       console.error("[Social Auth] Auto-create family failed:", err);

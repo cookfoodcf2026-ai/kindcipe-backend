@@ -64,7 +64,7 @@ export type InsertFamily = typeof families.$inferInsert;
 export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),
   familyId: integer("family_id").notNull(),
-  userId: integer("user_id").notNull(),
+  userId: text("user_id").notNull(),
   familyRole: familyRoleEnum("family_role").default("member").notNull(),
   nickname: varchar("nickname", { length: 64 }),
   joinedAt: timestamp("joined_at").defaultNow().notNull(),

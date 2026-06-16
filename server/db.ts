@@ -79,17 +79,17 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getUserById(id: number) {
+export async function getUserById(id: string | number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  const result = await db.select().from(users).where(eq((users.id as any), String(id))).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function updateUserFamily(userId: number, familyId: number, familyRole: "housewife" | "helper" | "member") {
+export async function updateUserFamily(userId: string | number, familyId: number, familyRole: "housewife" | "helper" | "member") {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ familyId, familyRole }).where(eq(users.id, userId));
+  await db.update(users).set({ familyId, familyRole }).where(eq((users.id as any), String(userId)));
 }
 
 // ─── Families ─────────────────────────────────────────────────────────────────
@@ -132,13 +132,13 @@ export async function getFamilyMembers(familyId: number) {
     .where(eq(familyMembers.familyId, familyId));
 }
 
-export async function getFamilyMemberByUserId(familyId: number, userId: number) {
+export async function getFamilyMemberByUserId(familyId: number, userId: string | number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db
     .select()
     .from(familyMembers)
-    .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, userId)))
+    .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, String(userId))))
     .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
