@@ -867,10 +867,9 @@ export const recipesRouter = router({
         sourceUrl: input.sourceUrl,
         sourceUrlHash: urlHash ?? undefined,
         sourceAuthor: input.sourceAuthor,
-        isActive: true,
-      });
+      }).returning();
 
-      return { success: true, id: (inserted as { insertId: number }).insertId };
+      return { success: true, id: inserted.id };
     }),
 
   // ── Batch import official recipes (Admin only) ─────────────────────────────
@@ -996,9 +995,9 @@ export const recipesRouter = router({
         sourceUrlHash: urlHash ?? undefined,
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
-      });
+      }).returning();
 
-      return { success: true, id: (inserted as { insertId: number }).insertId };
+      return { success: true, id: inserted.id };
     }),
 
   // ── List user's own recipes ─────────────────────────────────────────────────
