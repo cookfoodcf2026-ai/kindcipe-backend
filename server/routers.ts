@@ -93,7 +93,7 @@ const familyRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Already in a family" });
       const inviteCode = nanoid(6).toUpperCase();
-      const family = await createFamily({ name: input.name, inviteCode, ownerId: ctx.user.id });
+      const family = await createFamily({ name: input.name, inviteCode, ownerId: String(ctx.user.id) });
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       // Initialise 7-day free trial for this new family
       await initFamilyTrial(family.id);
@@ -780,7 +780,7 @@ export const appRouter = router({
         try {
           const kitchenName = `${input.name}'s Kitchen`;
           const inviteCode = nanoid(6).toUpperCase();
-          const family = await createFamily({ name: kitchenName, inviteCode, ownerId: created.id });
+          const family = await createFamily({ name: kitchenName, inviteCode, ownerId: String(created.id) });
           if (family) {
             await addFamilyMember({ familyId: family.id, userId: created.id, familyRole: "housewife", nickname: input.name });
             await updateUserFamily(created.id, family.id, "housewife");

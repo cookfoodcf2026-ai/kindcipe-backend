@@ -118,7 +118,7 @@ async function handleSocialLogin(
       const family = await db.createFamily({
         name: kitchenName,
         inviteCode,
-        ownerId: user.id,
+        ownerId: String(user.id),
       });
       if (family) {
         await db.addFamilyMember({
