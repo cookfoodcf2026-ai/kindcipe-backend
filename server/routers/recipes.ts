@@ -467,6 +467,8 @@ Platform: ${sourceType}
 
 請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : "YouTube"} 複製食譜文字後貼入。"`;
 
+  const thumbnailUrlPlaceholder = fetchedThumbnail || "";
+
   const userPrompt = `${contentSection}
 
 請回傳以下 JSON 格式：
@@ -485,8 +487,8 @@ Platform: ${sourceType}
   ],
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱",
-  "thumbnailUrl": "${{}}"
-}`.replace('${{}}', fetchedThumbnail);
+  "thumbnailUrl": "${thumbnailUrlPlaceholder}"
+}`;
 
   const response = await invokeLLM({
     messages: [
