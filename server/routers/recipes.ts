@@ -731,7 +731,7 @@ export const recipesRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const urlHash = input.sourceUrl ? hashUrl(input.sourceUrl) : null;
-      const familyId = input.familyId ?? ctx.user?.familyId ?? null;
+      const familyId = input.familyId ?? ctx.activeFamilyId ?? null;
       const db = await getDb();
       if (!db) return { hasDuplicate: false, duplicates: [] };
 
@@ -935,7 +935,7 @@ export const recipesRouter = router({
       visibility: z.enum(["private", "pending_public"]).default("private"),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -943,7 +943,7 @@ export const recipesRouter = router({
       if (urlHash) {
         const existing = await db.select({ id: customRecipes.id })
           .from(customRecipes)
-          .where(and(eq(customRecipes.familyId, ctx.user.familyId), eq(customRecipes.sourceUrlHash, urlHash)))
+          .where(and(eq(customRecipes.familyId, ctx.activeFamilyId), eq(customRecipes.sourceUrlHash, urlHash)))
           .limit(1);
         if (existing.length > 0) {
           throw new TRPCError({ code: "CONFLICT", message: "此食譜已在你的食譜庫中" });
@@ -977,7 +977,7 @@ export const recipesRouter = router({
       }
 
       const [inserted] = await db.insert(customRecipes).values({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
         name: input.name,
         description: input.description,
@@ -1007,11 +1007,11 @@ export const recipesRouter = router({
       offset: z.number().int().min(0).default(0),
     }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) return [];
+      if (!ctx.activeFamilyId) return [];
       const db = await getDb();
       if (!db) return [];
       const rows = await db.select().from(customRecipes)
-        .where(eq(customRecipes.familyId, ctx.user.familyId))
+        .where(eq(customRecipes.familyId, ctx.activeFamilyId))
         .orderBy(desc(customRecipes.createdAt))
         .limit(input.limit)
         .offset(input.offset);
@@ -1096,11 +1096,11 @@ export const recipesRouter = router({
   requestPublic: protectedProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST" });
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const [recipe] = await db.select().from(customRecipes)
-        .where(and(eq(customRecipes.id, input.id), eq(customRecipes.familyId, ctx.user.familyId)))
+        .where(and(eq(customRecipes.id, input.id), eq(customRecipes.familyId, ctx.activeFamilyId)))
         .limit(1);
       if (!recipe) throw new TRPCError({ code: "NOT_FOUND" });
       await db.update(customRecipes)
@@ -1157,12 +1157,12 @@ export const recipesRouter = router({
       visibility: z.enum(["private", "pending_public"]).default("private"),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房，才能儲存食譜" });
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房，才能儲存食譜" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
       const [inserted] = await db.insert(customRecipes).values({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
         name: input.name,
         description: input.description ?? "",
@@ -1189,7 +1189,7 @@ export const recipesRouter = router({
       visibility: z.enum(["private", "pending_public"]).default("private"),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房" });
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const [recipe] = await db.select({ id: customRecipes.id, createdByUserId: customRecipes.createdByUserId })

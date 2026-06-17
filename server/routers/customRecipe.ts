@@ -20,8 +20,8 @@ import { sendPushNotifications } from "../pushNotification";
 export const customRecipeRouter = router({
   /** List all custom recipes for the current user's family */
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return [];
-    return getCustomRecipes(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return [];
+    return getCustomRecipes(ctx.activeFamilyId);
   }),
 
   /** Create a new custom recipe */
@@ -46,12 +46,12 @@ export const customRecipeRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) {
+      if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
 
       // Check import limits for non-paid families
-      const sub = await getFamilySubscription(ctx.user.familyId);
+      const sub = await getFamilySubscription(ctx.activeFamilyId);
       if (sub && !sub.isPaid) {
         const usage = await getImportUsage(ctx.user.id);
         if (usage >= 5) {
@@ -70,13 +70,13 @@ export const customRecipeRouter = router({
 
       const recipe = await insertCustomRecipe({
         ...input,
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
       });
 
       // Push notification to all family members when a recipe is imported
-      if (isImport && ctx.user.familyId) {
-        const tokens = await getPushTokensByFamily(ctx.user.familyId);
+      if (isImport && ctx.activeFamilyId) {
+        const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
         const importerName = ctx.user.name || "家庭成員";
         sendPushNotifications(tokens, {
           title: "🍳 新食譜加入廚房",
@@ -106,21 +106,21 @@ export const customRecipeRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) {
+      if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
       const { id, ...data } = input;
-      return updateCustomRecipeById(id, ctx.user.familyId, data);
+      return updateCustomRecipeById(id, ctx.activeFamilyId, data);
     }),
 
   /** Delete a custom recipe (must belong to same family) */
   delete: protectedProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) {
+      if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
-      await deleteCustomRecipeById(input.id, ctx.user.familyId);
+      await deleteCustomRecipeById(input.id, ctx.activeFamilyId);
       return { success: true };
     }),
 });

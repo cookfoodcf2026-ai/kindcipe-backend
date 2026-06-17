@@ -110,28 +110,26 @@ async function handleSocialLogin(
     return;
   }
 
-  // Auto-create family kitchen for first-time users
-  if (!user.familyId) {
-    try {
-      const kitchenName = `${params.name}'s Kitchen`;
-      const inviteCode = nanoid(6).toUpperCase();
-      const family = await db.createFamily({
-        name: kitchenName,
-        inviteCode,
-        ownerId: String(user.id),
+  // Auto-create family kitchen for new users (always)
+  try {
+    const kitchenName = `${params.name}'s Kitchen`;
+    const inviteCode = nanoid(6).toUpperCase();
+    const family = await db.createFamily({
+      name: kitchenName,
+      inviteCode,
+      ownerId: String(user.id),
+    });
+    if (family) {
+      await db.addFamilyMember({
+        familyId: family.id,
+        userId: String(user.id),
+        familyRole: "owner",
+        nickname: params.name,
+        isDefault: true,
       });
-      if (family) {
-        await db.addFamilyMember({
-          familyId: family.id,
-          userId: String(user.id),
-          familyRole: "housewife",
-          nickname: params.name,
-        });
-        await db.updateUserFamily(String(user.id), family.id, "housewife");
-      }
-    } catch (err) {
-      console.error("[Social Auth] Auto-create family failed:", err);
     }
+  } catch (err) {
+    console.error("[Social Auth] Auto-create family failed:", err);
   }
 
   const sessionToken = await sdk.createSessionToken(user.openId, {

@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   serial,
@@ -11,7 +12,7 @@ import {
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 export const roleEnum = pgEnum("role", ["user", "admin"]);
-export const familyRoleEnum = pgEnum("family_role", ["housewife", "helper", "member"]);
+export const familyRoleEnum = pgEnum("family_role", ["owner", "admin", "helper", "member"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["free", "trial", "active", "expired"]);
 export const shoppingStatusEnum = pgEnum("shopping_status", ["pending", "active", "bought"]);
 export const mealTypeEnum = pgEnum("meal_type", ["breakfast", "lunch", "dinner", "snack"]);
@@ -30,8 +31,6 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   loginMethod: varchar("login_method", { length: 64 }),
   role: roleEnum("role").default("user").notNull(),
-  familyId: integer("family_id"),
-  familyRole: familyRoleEnum("family_role").default("member"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   lastSignedIn: timestamp("last_signed_in").defaultNow().notNull(),
@@ -46,6 +45,7 @@ export const families = pgTable("families", {
   name: varchar("name", { length: 128 }).notNull(),
   inviteCode: varchar("invite_code", { length: 16 }).notNull().unique(),
   ownerId: text("owner_id").notNull(),
+  settings: jsonb("settings").default({ approvalRequired: true }).notNull(),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").default("trial").notNull(),
   trialStartedAt: timestamp("trial_started_at").defaultNow().notNull(),
   trialEndsAt: timestamp("trial_ends_at"),
@@ -67,6 +67,7 @@ export const familyMembers = pgTable("family_members", {
   userId: text("user_id").notNull(),
   familyRole: familyRoleEnum("family_role").default("member").notNull(),
   nickname: varchar("nickname", { length: 64 }),
+  isDefault: boolean("is_default").default(false).notNull(),
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
 });
 
@@ -261,6 +262,7 @@ export type InsertRecipeNote = typeof recipeNotes.$inferInsert;
 // ─── Weekly Menu ──────────────────────────────────────────────────────────────
 export const weeklyMenu = pgTable("weekly_menu", {
   id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
   weekStart: varchar("week_start", { length: 16 }).notNull(),
   dayOfWeek: integer("day_of_week").notNull(),
   meatId: varchar("meat_id", { length: 64 }),

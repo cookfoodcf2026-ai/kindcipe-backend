@@ -98,6 +98,7 @@ export const weeklyMenuRouter = router({
       if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
       }
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active family" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -111,6 +112,7 @@ export const weeklyMenuRouter = router({
         );
 
       await db.insert(weeklyMenu).values({
+        familyId: ctx.activeFamilyId,
         weekStart: input.weekStart,
         dayOfWeek: input.dayOfWeek,
         meatId: input.meat?.id ?? null,
@@ -191,6 +193,7 @@ export const weeklyMenuRouter = router({
       if (input.days.length > 0) {
         await db.insert(weeklyMenu).values(
           input.days.map((d) => ({
+            familyId: ctx.activeFamilyId,
             weekStart: input.weekStart,
             dayOfWeek: d.dayOfWeek,
             meatId: d.meat?.id ?? null,
@@ -243,13 +246,13 @@ export const weeklyMenuRouter = router({
       const endDate = today.toISOString().slice(0, 10);
 
       let recentMeals: string[] = [];
-      if (ctx.user.familyId) {
+      if (ctx.activeFamilyId) {
         const { gte: gteOp, lte: lteOp } = await import("drizzle-orm");
         const plans = await db.select({ recipeName: mealPlans.recipeName })
           .from(mealPlans)
           .where(
             and(
-              eq(mealPlans.familyId, ctx.user.familyId),
+              eq(mealPlans.familyId, ctx.activeFamilyId),
               eq(mealPlans.mealType, "dinner"),
               gteOp(mealPlans.date, startDate),
               lteOp(mealPlans.date, endDate)
