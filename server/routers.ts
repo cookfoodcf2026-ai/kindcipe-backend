@@ -36,11 +36,20 @@ import {
   incrementImportUsage,
   upsertPushToken,
   getPushTokensByFamily,
+  getPushTokensByUserIds,
   getPushTokensByUser,
   getFamilyById,
   getFamilyByInviteCode,
   getFamilyMemberByUserId,
   getFamilyMembers,
+  getUserFamilies,
+  setDefaultFamily,
+  updateFamilyMemberRole,
+  removeFamilyMember,
+  getFamilySettings,
+  updateFamilySettings,
+  renameFamily,
+  deleteFamily,
   getFavoriteItems,
   getMealPlans,
   getMealPlansByDateRange,
@@ -51,7 +60,6 @@ import {
   updateMealPlanStatus,
   updatePantryItem,
   updateShoppingItemStatus,
-  updateUserFamily,
   insertRecipeEvent,
   getTrendingRecipes,
   recordPurchase,
@@ -70,10 +78,10 @@ import {
 
 const familyRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return null;
-    const family = await getFamilyById(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return null;
+    const family = await getFamilyById(ctx.activeFamilyId);
     if (!family) return null;
-    const members = await getFamilyMembers(ctx.user.familyId);
+    const members = await getFamilyMembers(ctx.activeFamilyId);
     return {
       ...family,
       members: members.map((m) => ({
@@ -88,33 +96,48 @@ const familyRouter = router({
     };
   }),
 
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const families = await getUserFamilies(String(ctx.user.id));
+    return families.map((f) => ({
+      id: f.family.id,
+      name: f.family.name,
+      role: f.member.familyRole,
+      isDefault: f.member.isDefault,
+      memberCount: 0,
+    }));
+  }),
+
+  setActive: protectedProcedure
+    .input(z.object({ familyId: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await getFamilyMemberByUserId(input.familyId, String(ctx.user.id));
+      if (!member) throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this kitchen" });
+      await setDefaultFamily(String(ctx.user.id), input.familyId);
+      return { success: true };
+    }),
+
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Already in a family" });
       const inviteCode = nanoid(6).toUpperCase();
       const family = await createFamily({ name: input.name, inviteCode, ownerId: String(ctx.user.id) });
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      // Initialise 7-day free trial for this new family
       await initFamilyTrial(family.id);
-      await updateUserFamily(String(ctx.user.id), family.id, "housewife");
-      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "housewife", nickname: ctx.user.name || "Madam" });
-      return family;
+      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: ctx.user.name || "Owner", isDefault: true });
+      return { ...family, role: "owner" };
     }),
 
   join: protectedProcedure
     .input(z.object({
       inviteCode: z.string().min(4).max(16),
-      familyRole: z.enum(["helper", "member"]).default("helper"),
+      familyRole: z.enum(["helper", "member"]).default("member"),
       nickname: z.string().max(64).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Already in a family" });
       const family = await getFamilyByInviteCode(input.inviteCode);
       if (!family) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite code" });
       const existing = await getFamilyMemberByUserId(family.id, String(ctx.user.id));
       if (existing) throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
-      // Check member limit based on subscription
       const sub = await getFamilySubscription(family.id);
       const currentMembers = await getFamilyMembers(family.id);
       if (sub && currentMembers.length >= sub.maxMembers) {
@@ -125,33 +148,102 @@ const familyRouter = router({
             : `Free plan allows up to 2 members. The kitchen owner needs to upgrade to add more members.`,
         });
       }
-      await updateUserFamily(String(ctx.user.id), family.id, input.familyRole);
       await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
       return { success: true, family };
     }),
 
-  // Returns subscription status for the current user's family
   subscription: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return null;
-    return getFamilySubscription(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return null;
+    return getFamilySubscription(ctx.activeFamilyId);
   }),
 
-  // Register push token for this device
   registerPushToken: protectedProcedure
     .input(z.object({
       token: z.string().min(10),
       platform: z.enum(["ios", "android"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      await upsertPushToken(ctx.user.id, ctx.user.familyId ?? null, input.token, input.platform);
+      await upsertPushToken(ctx.user.id, ctx.activeFamilyId ?? null, input.token, input.platform);
+      return { success: true };
+    }),
+
+  updateMemberRole: protectedProcedure
+    .input(z.object({
+      familyId: z.number().int(),
+      userId: z.string(),
+      role: z.enum(["owner", "admin", "helper", "member"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change roles" });
+      await updateFamilyMemberRole(input.familyId, input.userId, input.role);
+      return { success: true };
+    }),
+
+  removeMember: protectedProcedure
+    .input(z.object({ familyId: z.number().int(), userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can remove members" });
+      await removeFamilyMember(input.familyId, input.userId);
+      return { success: true };
+    }),
+
+  leave: protectedProcedure
+    .input(z.object({ familyId: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await getFamilyMemberByUserId(input.familyId, String(ctx.user.id));
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Not a member" });
+      if (member.familyRole === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Owner cannot leave. Transfer ownership or disband instead." });
+      await removeFamilyMember(input.familyId, String(ctx.user.id));
+      return { success: true };
+    }),
+
+  settings: protectedProcedure
+    .input(z.object({}).optional())
+    .query(async ({ ctx }) => {
+      if (!ctx.activeFamilyId) return null;
+      return getFamilySettings(ctx.activeFamilyId);
+    }),
+
+  updateSettings: protectedProcedure
+    .input(z.object({
+      approvalRequired: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a kitchen" });
+      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner/admin can change kitchen settings" });
+      }
+      const current = await getFamilySettings(ctx.activeFamilyId) as Record<string, unknown>;
+      await updateFamilySettings(ctx.activeFamilyId, { ...current, ...input });
+      return { success: true };
+    }),
+
+  rename: protectedProcedure
+    .input(z.object({ name: z.string().min(1).max(64) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a kitchen" });
+      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner/admin can rename kitchen" });
+      }
+      await renameFamily(ctx.activeFamilyId, input.name);
+      return { success: true };
+    }),
+
+  dissolve: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a kitchen" });
+      if (ctx.activeFamilyRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can dissolve the kitchen" });
+      }
+      await deleteFamily(ctx.activeFamilyId);
       return { success: true };
     }),
 });
 
 const shoppingRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return [];
-    return getShoppingItems(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return [];
+    return getShoppingItems(ctx.activeFamilyId);
   }),
 
   add: protectedProcedure
@@ -168,11 +260,11 @@ const shoppingRouter = router({
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      const isHelper = ctx.user.familyRole === "helper";
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      const isHelper = ctx.activeFamilyRole === "helper";
       const status = isHelper ? "pending" : (input.status || "active");
       await addShoppingItem({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         name: input.name,
         nameEn: input.nameEn,
         category: input.category,
@@ -186,16 +278,7 @@ const shoppingRouter = router({
         fromRecipeName: input.fromRecipeName,
         plannedDate: input.plannedDate,
       });
-      broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
-      // Notify owner when helper proposes a shopping item
-      if (isHelper) {
-        const helperName = ctx.user.name || "Helper";
-        const itemDesc = input.quantity ? `${input.name} × ${input.quantity}${input.unit ?? ''}` : input.name;
-        notifyOwner({
-          title: `🛒 ${helperName} 提議採購`,
-          content: `${helperName} 提議加入採購清單：${itemDesc}，請確認。`,
-        }).catch(() => {});
-      }
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
 
@@ -213,24 +296,20 @@ const shoppingRouter = router({
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      const isHelper = ctx.user.familyRole === "helper";
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      const isHelper = ctx.activeFamilyRole === "helper";
       const status = isHelper ? "pending" : "active";
 
-      // 去重合併：先查詢家庭已有未購買的食材，同名稱+單位的自動合併數量
-      const existingItems = await getShoppingItems(ctx.user.familyId);
+      const existingItems = await getShoppingItems(ctx.activeFamilyId);
       const activeItems = existingItems.filter(i => i.status !== "bought");
 
-      // Helper: merge numeric quantities for same name+unit
       function mergeQty(existing: string | null | undefined, adding: string | undefined): string {
         const a = parseFloat(existing ?? "");
         const b = parseFloat(adding ?? "");
         if (!isNaN(a) && !isNaN(b)) {
-          // Keep up to 2 decimal places, strip trailing zeros
           const sum = parseFloat((a + b).toFixed(2));
           return String(sum);
         }
-        // Non-numeric (e.g. "適量"): keep existing
         return existing || adding || "";
       }
 
@@ -249,15 +328,13 @@ const shoppingRouter = router({
         }
       }
 
-      // Update merged items
       for (const u of toUpdate) {
         await updateShoppingItemDetails(u.id, { quantity: u.quantity });
       }
 
-      // Insert new items
       if (toInsert.length > 0) {
         const rows = toInsert.map((item) => ({
-          familyId: ctx.user.familyId!,
+          familyId: ctx.activeFamilyId!,
           name: item.name,
           nameEn: item.nameEn,
           category: item.category,
@@ -273,7 +350,7 @@ const shoppingRouter = router({
         await addShoppingItems(rows);
       }
 
-      broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true, count: toInsert.length + toUpdate.length, merged: toUpdate.length };
     }),
 
@@ -282,13 +359,12 @@ const shoppingRouter = router({
     .mutation(async ({ ctx, input }) => {
       const status = input.bought ? "bought" : "active";
       await updateShoppingItemStatus(input.id, status, input.bought ? ctx.user.id : undefined, input.bought ? (ctx.user.name || "Someone") : undefined);
-      // Auto-record purchase history when item is marked as bought
-      if (input.bought && ctx.user.familyId) {
-        const items = await getShoppingItems(ctx.user.familyId);
+      if (input.bought && ctx.activeFamilyId) {
+        const items = await getShoppingItems(ctx.activeFamilyId);
         const item = items.find(i => i.id === input.id);
         if (item) {
           recordPurchase({
-            familyId: ctx.user.familyId,
+            familyId: ctx.activeFamilyId,
             userId: ctx.user.id,
             userName: ctx.user.name || 'Someone',
             name: item.name,
@@ -297,10 +373,10 @@ const shoppingRouter = router({
             quantity: item.quantity ?? undefined,
             shoppingItemId: input.id,
             actualPrice: input.actualPrice,
-          }).catch(() => {}); // fire-and-forget
+          }).catch(() => {});
         }
       }
-      broadcastToFamily(ctx.user.familyId ?? 0, "shopping", ctx.user.id);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId ?? 0, "shopping", ctx.user.id);
       return { success: true };
     }),
   updateItem: protectedProcedure
@@ -322,14 +398,16 @@ const shoppingRouter = router({
   approve: protectedProcedure
     .input(z.object({ id: z.number().int(), itemName: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.familyRole !== "housewife") throw new TRPCError({ code: "FORBIDDEN", message: "Only housewife can approve" });
+      if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner/admin can approve" });
+      }
       await approveShoppingItem(input.id);
-      if (ctx.user.familyId) {
-        broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
-        const tokens = await getPushTokensByFamily(ctx.user.familyId);
+      if (ctx.activeFamilyId) {
+        broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+        const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
         sendPushNotifications(tokens, {
           title: '✅ 採購已批准',
-          body: input.itemName ? `主婦已批准採購：${input.itemName}` : '主婦已批准你的採購提議',
+          body: input.itemName ? `Owner已批准採購：${input.itemName}` : 'Owner已批准你的採購提議',
           data: { type: 'shopping_approved' },
         }).catch(() => {});
       }
@@ -339,14 +417,16 @@ const shoppingRouter = router({
   reject: protectedProcedure
     .input(z.object({ id: z.number().int(), itemName: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.familyRole !== "housewife") throw new TRPCError({ code: "FORBIDDEN", message: "Only housewife can reject" });
+      if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner/admin can reject" });
+      }
       await rejectShoppingItem(input.id);
-      if (ctx.user.familyId) {
-        broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
-        const tokens = await getPushTokensByFamily(ctx.user.familyId);
+      if (ctx.activeFamilyId) {
+        broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+        const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
         sendPushNotifications(tokens, {
           title: '❌ 採購未批准',
-          body: input.itemName ? `主婦未批准採購：${input.itemName}` : '主婦未批准你的採購提議',
+          body: input.itemName ? `Owner未批准採購：${input.itemName}` : 'Owner未批准你的採購提議',
           data: { type: 'shopping_rejected' },
         }).catch(() => {});
       }
@@ -357,39 +437,39 @@ const shoppingRouter = router({
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       await deleteShoppingItem(input.id);
-      if (ctx.user.familyId) broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
 
   deleteMany: protectedProcedure
     .input(z.object({ ids: z.array(z.number().int()) }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      await deleteShoppingItemsByIds(input.ids, ctx.user.familyId);
-      broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      await deleteShoppingItemsByIds(input.ids, ctx.activeFamilyId);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
 
   clearBought: protectedProcedure
     .mutation(async ({ ctx }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      await clearBoughtItems(ctx.user.familyId);
-      broadcastToFamily(ctx.user.familyId, "shopping", ctx.user.id);
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      await clearBoughtItems(ctx.activeFamilyId);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
 });
 
 const mealPlanRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return [];
-    return getMealPlans(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return [];
+    return getMealPlans(ctx.activeFamilyId);
   }),
 
   listByDateRange: protectedProcedure
     .input(z.object({ startDate: z.string(), endDate: z.string() }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) return [];
-      return getMealPlansByDateRange(ctx.user.familyId, input.startDate, input.endDate);
+      if (!ctx.activeFamilyId) return [];
+      return getMealPlansByDateRange(ctx.activeFamilyId, input.startDate, input.endDate);
     }),
 
   add: protectedProcedure
@@ -408,11 +488,13 @@ const mealPlanRouter = router({
       })).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      const isHelper = ctx.user.familyRole === "helper";
-      const status = isHelper ? "pending" : "confirmed";
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      const familySettings = await getFamilySettings(ctx.activeFamilyId) as { approvalRequired?: boolean };
+      const isMember = ctx.activeFamilyRole === "member";
+      const needsApproval = isMember && (familySettings.approvalRequired !== false);
+      const status = needsApproval ? "pending" : "confirmed";
       await addMealPlan({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         date: input.date,
         mealType: input.mealType,
         recipeId: input.recipeId,
@@ -420,45 +502,43 @@ const mealPlanRouter = router({
         recipeImage: input.recipeImage,
         status,
         proposedByUserId: ctx.user.id,
-        proposedByName: ctx.user.name || (isHelper ? "Helper" : "Madam"),
+        proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
         note: input.note,
       });
       if (input.autoAddIngredients && input.ingredients && input.ingredients.length > 0) {
-        // Housewife's own ingredients go directly to active; helper's proposals need confirmation
-        const ingredientStatus = isHelper ? "pending" as const : "active" as const;
+        const ingredientStatus = needsApproval ? "pending" as const : "active" as const;
         const rows = input.ingredients.map((ing) => ({
-          familyId: ctx.user.familyId!,
+          familyId: ctx.activeFamilyId!,
           name: ing.name,
           quantity: ing.quantity,
           unit: ing.unit,
           status: ingredientStatus,
           proposedByUserId: ctx.user.id,
-          proposedByName: ctx.user.name || (isHelper ? "Helper" : "Madam"),
+          proposedByName: ctx.user.name || (needsApproval ? "Member" : "Owner"),
           fromRecipeId: input.recipeId,
           fromRecipeName: input.recipeName,
-          plannedDate: input.date,  // Link shopping items to the meal plan date
+          plannedDate: input.date,
         }));
         await addShoppingItems(rows);
       }
-      broadcastToFamily(ctx.user.familyId, "mealPlan", ctx.user.id);
-      // Push notification to family members
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       const mealTypeLabels: Record<string, string> = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '小食' };
       const mealLabel = mealTypeLabels[input.mealType] ?? input.mealType;
-      const actorName = ctx.user.name || (isHelper ? 'Helper' : 'Madam');
-      const pushTokens = await getPushTokensByFamily(ctx.user.familyId);
-      if (isHelper) {
-        // Notify owner when helper proposes a meal plan
-        notifyOwner({
-          title: `🍽️ ${actorName} 提議排餐`,
-          content: `${actorName} 提議 ${input.date} ${mealLabel}：${input.recipeName}，請確認。`,
-        }).catch(() => {});
-        sendPushNotifications(pushTokens, {
+      const actorName = ctx.user.name || 'Member';
+      if (needsApproval) {
+        const adminTokens = await getPushTokensByUserIds(
+          (await getFamilyMembers(ctx.activeFamilyId))
+            .filter(m => m.member.familyRole === "owner" || m.member.familyRole === "admin")
+            .map(m => m.user.id)
+        );
+        sendPushNotifications(adminTokens, {
           title: `🍽️ ${actorName} 提議排餐`,
           body: `${input.date} ${mealLabel}：${input.recipeName}（待確認）`,
           data: { type: 'meal_plan_proposed' },
         }).catch(() => {});
       } else {
-        sendPushNotifications(pushTokens, {
+        const allTokens = await getPushTokensByFamily(ctx.activeFamilyId);
+        sendPushNotifications(allTokens, {
           title: '📅 排餐已更新',
           body: `${input.date} ${mealLabel}：${input.recipeName}`,
           data: { type: 'meal_plan_updated' },
@@ -470,41 +550,43 @@ const mealPlanRouter = router({
   confirm: protectedProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.familyRole !== "housewife") throw new TRPCError({ code: "FORBIDDEN" });
+      if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       await updateMealPlanStatus(input.id, "confirmed", ctx.user.id);
-      if (ctx.user.familyId) broadcastToFamily(ctx.user.familyId, "mealPlan", ctx.user.id);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
     }),
 
   reject: protectedProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.familyRole !== "housewife") throw new TRPCError({ code: "FORBIDDEN" });
+      if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       await updateMealPlanStatus(input.id, "rejected", ctx.user.id);
-      if (ctx.user.familyId) broadcastToFamily(ctx.user.familyId, "mealPlan", ctx.user.id);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      // 先查出排餐資料，以便連動刪除購物清單
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       const plan = await getMealPlanById(input.id);
       await deleteMealPlan(input.id);
-      // 連動刪除由此排餐加入、且尚未購買的購物清單食材
       if (plan?.recipeId && plan?.date) {
-        await deleteShoppingItemsByMealPlan(ctx.user.familyId, plan.recipeId, plan.date);
+        await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.recipeId, plan.date);
       }
-      broadcastToFamily(ctx.user.familyId, "mealPlan", ctx.user.id);
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
     }),
 });
 
 const pantryRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return [];
-    return getPantryItems(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return [];
+    return getPantryItems(ctx.activeFamilyId);
   }),
 
   add: protectedProcedure
@@ -516,9 +598,9 @@ const pantryRouter = router({
       expiryDate: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new Error('No family');
+      if (!ctx.activeFamilyId) throw new Error('No family');
       await addPantryItem({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         name: input.name,
         category: input.category ?? null,
         quantity: input.quantity ?? null,
@@ -537,9 +619,9 @@ const pantryRouter = router({
       unit: z.string().optional(),
     })))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new Error('No family');
+      if (!ctx.activeFamilyId) throw new Error('No family');
       const items = input.map(i => ({
-        familyId: ctx.user.familyId!,
+        familyId: ctx.activeFamilyId!,
         name: i.name,
         category: i.category ?? null,
         quantity: i.quantity ?? null,
@@ -582,9 +664,9 @@ const pantryRouter = router({
       unit: z.string().optional(),
     })))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new Error('No family');
+      if (!ctx.activeFamilyId) throw new Error('No family');
       const items = input.map(i => ({
-        familyId: ctx.user.familyId!,
+        familyId: ctx.activeFamilyId!,
         name: i.name,
         category: i.category ?? null,
         quantity: i.quantity ?? null,
@@ -602,13 +684,13 @@ const purchaseHistoryRouter = router({
   list: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(200).default(100) }).optional())
     .query(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) return [];
-      return getPurchaseHistory(ctx.user.familyId, input?.limit ?? 100);
+      if (!ctx.activeFamilyId) return [];
+      return getPurchaseHistory(ctx.activeFamilyId, input?.limit ?? 100);
     }),
   /** Get purchase frequency stats for smart restock suggestions */
   frequency: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.familyId) return [];
-    return getPurchaseFrequency(ctx.user.familyId);
+    if (!ctx.activeFamilyId) return [];
+    return getPurchaseFrequency(ctx.activeFamilyId);
   }),
   /**
    * Batch query: returns last purchase price for a list of item names.
@@ -617,8 +699,8 @@ const purchaseHistoryRouter = router({
   lastPrices: protectedProcedure
     .input(z.object({ itemNames: z.array(z.string().min(1)).max(100) }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) return {};
-      return getLastPurchasePrices(ctx.user.familyId, input.itemNames);
+      if (!ctx.activeFamilyId) return {};
+      return getLastPurchasePrices(ctx.activeFamilyId, input.itemNames);
     }),
   /**
    * Save a manually-entered price for a shopping item (without marking it as bought).
@@ -634,12 +716,12 @@ const purchaseHistoryRouter = router({
       quantity: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not in a family' });
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not in a family' });
       // Update the estimatedPrice on the shopping item
       await updateShoppingItemDetails(input.itemId, { estimatedPrice: input.price });
       // Record to purchase history for future price diff display
       await recordPurchase({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         userId: ctx.user.id,
         userName: ctx.user.name || 'Someone',
         name: input.itemName,
@@ -712,8 +794,8 @@ const recipeNotesRouter = router({
   list: protectedProcedure
     .input(z.object({ recipeId: z.string() }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) return [];
-      return getRecipeNotes(ctx.user.familyId, input.recipeId);
+      if (!ctx.activeFamilyId) return [];
+      return getRecipeNotes(ctx.activeFamilyId, input.recipeId);
     }),
   add: protectedProcedure
     .input(z.object({
@@ -722,9 +804,9 @@ const recipeNotesRouter = router({
       content: z.string().min(1).max(500),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new Error('No family');
+      if (!ctx.activeFamilyId) throw new Error('No family');
       await addRecipeNote({
-        familyId: ctx.user.familyId,
+        familyId: ctx.activeFamilyId,
         recipeId: input.recipeId,
         recipeName: input.recipeName,
         userId: ctx.user.id,
@@ -736,8 +818,8 @@ const recipeNotesRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.user.familyId) throw new Error('No family');
-      await deleteRecipeNote(input.id, ctx.user.id, ctx.user.familyId);
+      if (!ctx.activeFamilyId) throw new Error('No family');
+      await deleteRecipeNote(input.id, ctx.user.id, ctx.activeFamilyId);
       return { ok: true };
     }),
 });
@@ -776,14 +858,13 @@ export const appRouter = router({
         });
         if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "建立帳號失敗，請稍後再試" });
 
-        // Auto-create family kitchen
+        // Auto-create family kitchen for new users
         try {
           const kitchenName = `${input.name}'s Kitchen`;
           const inviteCode = nanoid(6).toUpperCase();
           const family = await createFamily({ name: kitchenName, inviteCode, ownerId: String(created.id) });
           if (family) {
-            await addFamilyMember({ familyId: family.id, userId: String(created.id), familyRole: "housewife", nickname: input.name });
-            await updateUserFamily(String(created.id), family.id, "housewife");
+            await addFamilyMember({ familyId: family.id, userId: String(created.id), familyRole: "owner", nickname: input.name, isDefault: true });
           }
         } catch (err) {
           console.error("[Auth] Auto-create family failed", err);

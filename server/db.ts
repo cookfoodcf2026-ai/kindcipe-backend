@@ -86,10 +86,91 @@ export async function getUserById(id: string | number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function updateUserFamily(userId: string | number, familyId: number, familyRole: "housewife" | "helper" | "member") {
+// ─── Family Members (multi-kitchen helpers) ──────────────────────────────────
+
+export async function getUserFamilies(userId: string | number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ family: families, member: familyMembers })
+    .from(familyMembers)
+    .innerJoin(families, eq(familyMembers.familyId, families.id))
+    .where(eq(familyMembers.userId, String(userId)));
+}
+
+export async function getUserDefaultFamily(userId: string | number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select({ family: families, member: familyMembers })
+    .from(familyMembers)
+    .innerJoin(families, eq(familyMembers.familyId, families.id))
+    .where(and(eq(familyMembers.userId, String(userId)), eq(familyMembers.isDefault, true)))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function setDefaultFamily(userId: string | number, familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ familyId, familyRole }).where(eq((users.id as any), String(userId)));
+  await db.update(familyMembers).set({ isDefault: false }).where(eq(familyMembers.userId, String(userId)));
+  await db.update(familyMembers).set({ isDefault: true })
+    .where(and(eq(familyMembers.userId, String(userId)), eq(familyMembers.familyId, familyId)));
+}
+
+export async function updateFamilyMemberRole(familyId: number, userId: string | number, role: "owner" | "admin" | "helper" | "member") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(familyMembers).set({ familyRole: role })
+    .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, String(userId))));
+}
+
+export async function removeFamilyMember(familyId: number, userId: string | number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(familyMembers)
+    .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, String(userId))));
+}
+
+export async function getFamilyAdmins(familyId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(familyMembers)
+    .where(and(
+      eq(familyMembers.familyId, familyId),
+      inArray(familyMembers.familyRole, ["owner", "admin"])
+    ));
+}
+
+export async function getFamilySettings(familyId: number) {
+  const family = await getFamilyById(familyId);
+  return family?.settings ?? { approvalRequired: true };
+}
+
+export async function updateFamilySettings(familyId: number, settings: Record<string, unknown>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(families).set({ settings }).where(eq(families.id, familyId));
+}
+
+export async function renameFamily(familyId: number, newName: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(families).set({ name: newName }).where(eq(families.id, familyId));
+}
+
+export async function deleteFamily(familyId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(shoppingItems).where(eq(shoppingItems.familyId, familyId));
+  await db.delete(pantryItems).where(eq(pantryItems.familyId, familyId));
+  await db.delete(mealPlans).where(eq(mealPlans.familyId, familyId));
+  await db.delete(purchaseHistory).where(eq(purchaseHistory.familyId, familyId));
+  await db.delete(pushTokens).where(eq(pushTokens.familyId, familyId));
+  await db.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
+  await db.delete(families).where(eq(families.id, familyId));
 }
 
 // ─── Families ─────────────────────────────────────────────────────────────────
@@ -128,7 +209,7 @@ export async function getFamilyMembers(familyId: number) {
   return db
     .select({ member: familyMembers, user: users })
     .from(familyMembers)
-    .innerJoin(users, eq(familyMembers.userId, users.id))
+    .innerJoin(users, eq(familyMembers.userId, sql`${users.id}::text`))
     .where(eq(familyMembers.familyId, familyId));
 }
 
@@ -251,6 +332,25 @@ export async function addMealPlan(data: InsertMealPlan) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.insert(mealPlans).values(data);
+}
+
+export async function getPendingMealPlans() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(mealPlans)
+    .where(eq(mealPlans.status, "pending"));
+}
+
+export async function getPendingMealPlansCount(familyId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(mealPlans)
+    .where(and(eq(mealPlans.familyId, familyId), eq(mealPlans.status, "pending")));
+  return result[0]?.count ?? 0;
 }
 
 export async function updateMealPlanStatus(
@@ -795,6 +895,16 @@ export async function upsertPushToken(userId: number, familyId: number | null, t
       platform: platform ?? null,
     });
   }
+}
+
+export async function getPushTokensByUserIds(userIds: number[]): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  if (userIds.length === 0) return [];
+  const result = await db.select({ token: pushTokens.token })
+    .from(pushTokens)
+    .where(inArray(pushTokens.userId, userIds));
+  return result.map((r) => r.token);
 }
 
 export async function getPushTokensByFamily(familyId: number): Promise<string[]> {
