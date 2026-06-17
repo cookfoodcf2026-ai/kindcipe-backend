@@ -190,10 +190,10 @@ export const weeklyMenuRouter = router({
 
       await db.delete(weeklyMenu).where(eq(weeklyMenu.weekStart, input.weekStart));
 
-      if (input.days.length > 0) {
+      if (input.days.length > 0 && ctx.activeFamilyId) {
         await db.insert(weeklyMenu).values(
           input.days.map((d) => ({
-            familyId: ctx.activeFamilyId,
+            familyId: ctx.activeFamilyId!,
             weekStart: input.weekStart,
             dayOfWeek: d.dayOfWeek,
             meatId: d.meat?.id ?? null,
