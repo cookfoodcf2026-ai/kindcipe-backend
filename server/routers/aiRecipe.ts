@@ -45,7 +45,7 @@ export const aiRecipeRouter = router({
         })),
       ];
 
-      const response = await invokeLLM({ messages: llmMessages });
+      const response = await invokeLLM({ messages: llmMessages, maxTokens: 2048, temperature: 0.5 });
       const rawContent = response.choices?.[0]?.message?.content;
       const content: string = typeof rawContent === "string"
         ? rawContent
