@@ -13,9 +13,8 @@
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-// gemini-2.5-flash 速度較慢，改用 gemini-1.5-flash 提升回應速度
 // 完整模型列表：https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY
-const DEFAULT_MODEL = "gemini-1.5-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -150,7 +149,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   const url = `${GEMINI_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const timeout = setTimeout(() => controller.abort(), 45000);
 
   const response = await fetch(url, {
     method: "POST",
