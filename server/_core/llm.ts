@@ -1,20 +1,38 @@
 /**
- * Google Gemini API Helper
- * 替換 Manus 內建 LLM
+ * Vertex AI Gemini API Helper
+ * 使用 Google Vertex AI（而非 Google AI Studio），解決香港地區被阻擋的問題
  *
  * 需要的環境變數：
- *   GEMINI_API_KEY - Google AI Studio API Key（格式：AIzaSy...）
+ *   GCP_PROJECT_ID           - GCP 專案 ID
+ *   GCP_LOCATION             - Vertex AI 區域（預設 asia-east2）
+ *   GCP_SERVICE_ACCOUNT_JSON - Service Account 金鑰 JSON 內容
  *
- * 取得方式：https://aistudio.google.com → Get API key
+ * 設定方式：https://console.cloud.google.com → IAM → Service Accounts
+ * 角色：Vertex AI User
  *
- * 定價（2026年）：
- *   Gemini 2.0 Flash: $0.10/1M input tokens, $0.40/1M output tokens
- *   免費方案：每天 1,500 次請求
+ * 定價：https://cloud.google.com/vertex-ai/generative-ai/pricing
  */
 
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-// 完整模型列表：https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY
+import { GoogleAuth } from "google-auth-library";
+
 const DEFAULT_MODEL = "gemini-2.5-flash";
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getVertexToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.token;
+  }
+  const creds = process.env.GCP_SERVICE_ACCOUNT_JSON;
+  const auth = new GoogleAuth({
+    credentials: creds ? JSON.parse(creds) : undefined,
+    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+  });
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  cachedToken = { token: token.token!, expiresAt: Date.now() + 1800000 };
+  return token.token!;
+}
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -26,7 +44,7 @@ export interface TextContent {
 export interface ImageContent {
   type: "image_url";
   image_url: {
-    url: string; // base64 data URL 或 https URL
+    url: string;
     detail?: "auto" | "low" | "high";
   };
 }
@@ -68,16 +86,12 @@ export interface LLMResult {
   };
 }
 
-/**
- * 將 OpenAI 格式的 messages 轉換為 Gemini 格式
- */
 function convertToGeminiMessages(messages: Message[]) {
   const systemParts: string[] = [];
   const contents: Array<{ role: string; parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> }> = [];
 
   for (const msg of messages) {
     if (msg.role === "system") {
-      // Gemini 用 systemInstruction 處理 system messages
       const text = typeof msg.content === "string" ? msg.content : msg.content.map(c => c.type === "text" ? c.text : "").join("");
       systemParts.push(text);
       continue;
@@ -95,13 +109,11 @@ function convertToGeminiMessages(messages: Message[]) {
         } else if (content.type === "image_url") {
           const url = content.image_url.url;
           if (url.startsWith("data:")) {
-            // base64 data URL
             const [header, data] = url.split(",");
             const mimeType = header.split(":")[1].split(";")[0];
             parts.push({ inline_data: { mime_type: mimeType, data } });
           } else {
-            // 外部 URL — Gemini 支援直接傳入 URL
-            parts.push({ text: `[Image: ${url}]` }); // fallback
+            parts.push({ text: `[Image: ${url}]` });
           }
         }
       }
@@ -113,16 +125,19 @@ function convertToGeminiMessages(messages: Message[]) {
   return { systemParts, contents };
 }
 
-/**
- * 呼叫 Gemini API（相容 OpenAI 格式輸入輸出）
- */
 export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not set. Get your key at https://aistudio.google.com");
+  const projectId = process.env.GCP_PROJECT_ID;
+  if (!projectId) {
+    throw new Error("GCP_PROJECT_ID is not set. Create a GCP project and enable Vertex AI API.");
   }
 
+  const region = process.env.GCP_LOCATION || "asia-east2";
   const model = params.model ?? DEFAULT_MODEL;
+
+  if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
+    throw new Error("GCP_SERVICE_ACCOUNT_JSON is not set. Create a service account with Vertex AI User role.");
+  }
+
   const { systemParts, contents } = convertToGeminiMessages(params.messages);
 
   const payload: Record<string, unknown> = {
@@ -133,27 +148,29 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     },
   };
 
-  // System instruction
   if (systemParts.length > 0) {
     payload.systemInstruction = {
       parts: [{ text: systemParts.join("\n\n") }],
     };
   }
 
-  // JSON schema response format
   if (params.responseFormat?.type === "json_schema") {
     (payload.generationConfig as Record<string, unknown>).responseMimeType = "application/json";
     (payload.generationConfig as Record<string, unknown>).responseSchema = params.responseFormat.json_schema.schema;
   }
 
-  const url = `${GEMINI_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+  const token = await getVertexToken();
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
 
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
     body: JSON.stringify(payload),
     signal: controller.signal,
   });
@@ -162,7 +179,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Gemini API failed: ${response.status} ${response.statusText} – ${errorText}`);
+    throw new Error(`Vertex AI API failed: ${response.status} – ${errorText}`);
   }
 
   const result = await response.json() as {
@@ -177,7 +194,6 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     };
   };
 
-  // 轉換回 OpenAI 格式
   return {
     choices: result.candidates.map(c => ({
       message: {
@@ -196,9 +212,6 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   };
 }
 
-/**
- * 便捷函數：解析圖片中的食譜（用於 Instagram 截圖匯入）
- */
 export async function parseRecipeFromImage(imageBase64: string, mimeType = "image/jpeg"): Promise<string> {
   const result = await invokeLLM({
     messages: [
