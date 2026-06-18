@@ -18,8 +18,10 @@ export const ENV = {
   r2BucketName: process.env.R2_BUCKET_NAME ?? "",
   r2PublicUrl: process.env.R2_PUBLIC_URL ?? "",
 
-  // Google Gemini LLM
-  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  // Google Vertex AI (replaces GEMINI_API_KEY)
+  gcpProjectId: process.env.GCP_PROJECT_ID ?? "",
+  gcpLocation: process.env.GCP_LOCATION ?? "asia-east2",
+  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
 
   // External APIs
   rapidApiKey: process.env.RAPIDAPI_KEY ?? "",
