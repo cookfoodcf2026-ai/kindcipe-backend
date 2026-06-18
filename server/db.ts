@@ -696,7 +696,7 @@ export async function insertCustomRecipe(data: {
   ingredients?: string;
   steps?: string;
   tags?: string;
-  sourceType?: "instagram" | "youtube" | "xiaohongshu" | "manual";
+  sourceType?: "instagram" | "youtube" | "xiaohongshu" | "threads" | "manual";
   sourceUrl?: string;
   sourceUrlHash?: string;
   sourceAuthor?: string;

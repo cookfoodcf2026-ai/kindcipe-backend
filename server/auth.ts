@@ -110,28 +110,6 @@ async function handleSocialLogin(
     return;
   }
 
-  // Auto-create family kitchen for new users (always)
-  try {
-    const kitchenName = `${params.name}'s Kitchen`;
-    const inviteCode = nanoid(6).toUpperCase();
-    const family = await db.createFamily({
-      name: kitchenName,
-      inviteCode,
-      ownerId: String(user.id),
-    });
-    if (family) {
-      await db.addFamilyMember({
-        familyId: family.id,
-        userId: String(user.id),
-        familyRole: "owner",
-        nickname: params.name,
-        isDefault: true,
-      });
-    }
-  } catch (err) {
-    console.error("[Social Auth] Auto-create family failed:", err);
-  }
-
   const sessionToken = await sdk.createSessionToken(user.openId, {
     name: params.name,
     expiresInMs: ONE_YEAR_MS,

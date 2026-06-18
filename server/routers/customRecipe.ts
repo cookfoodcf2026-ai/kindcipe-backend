@@ -39,7 +39,7 @@ export const customRecipeRouter = router({
         ingredients: z.string().optional(), // JSON string
         steps: z.string().optional(),       // JSON string
         tags: z.string().optional(),        // JSON string
-        sourceType: z.enum(["instagram", "youtube", "xiaohongshu", "manual"]).optional(),
+        sourceType: z.enum(["instagram", "youtube", "xiaohongshu", "threads", "manual"]).optional(),
         sourceUrl: z.string().optional(),
         sourceUrlHash: z.string().optional(),
         sourceAuthor: z.string().optional(),

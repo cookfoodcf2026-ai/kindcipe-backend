@@ -48,10 +48,11 @@ function hashUrl(url: string): string {
   return crypto.createHash("md5").update(normaliseUrl(url)).digest("hex");
 }
 
-function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "manual" {
+function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "manual" {
   if (url.includes("instagram.com")) return "instagram";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
   if (url.includes("xiaohongshu.com") || url.includes("xhslink.com")) return "xiaohongshu";
+  if (url.includes("threads.net")) return "threads";
   return "manual";
 }
 
@@ -388,6 +389,144 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       return { text: parts.join("\n\n").slice(0, 4000), thumbnail: igThumbnail };
     }
 
+    if (sourceType === "xiaohongshu") {
+      let noteUrl = url;
+      let xhsTitle = "";
+      let xhsDesc = "";
+      let xhsAuthor = "";
+      let xhsThumbnail = "";
+
+      // Step 1: Resolve xhslink.com short URL → full xiaohongshu.com URL
+      if (noteUrl.includes("xhslink.com")) {
+        try {
+          const followResp = await fetch(noteUrl, {
+            method: "HEAD",
+            headers: {
+              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            },
+            redirect: "manual",
+            signal: AbortSignal.timeout(10000),
+          });
+          const location = followResp.headers.get("location");
+          if (location) noteUrl = location;
+        } catch { /* use original URL */ }
+      }
+
+      // Step 2: Fetch page HTML and extract meta tags
+      try {
+        const resp = await fetch(noteUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Cache-Control": "no-cache",
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (resp.ok) {
+          const html = await resp.text();
+
+          // og:title
+          const titleMatch = html.match(/property="og:title"\s*content="([^"]+)"/) ||
+                             html.match(/property="twitter:title"\s*content="([^"]+)"/) ||
+                             html.match(/"title":"([^"]+)"/);
+          if (titleMatch) xhsTitle = titleMatch[1].replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
+
+          // og:description
+          const descMatch = html.match(/property="og:description"\s*content="([\s\S]*?)"/) ||
+                            html.match(/name="description"\s*content="([^"]+)"/);
+          if (descMatch) {
+            xhsDesc = descMatch[1]
+              .replace(/&#x([0-9a-fA-F]+);/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+              .replace(/&quot;/g, '"')
+              .replace(/&amp;/g, "&")
+              .replace(/&#x27;/g, "'")
+              .trim();
+          }
+
+          // og:image
+          const imgMatch = html.match(/property="og:image"\s*content="([^"]+)"/);
+          if (imgMatch) xhsThumbnail = imgMatch[1];
+
+          // Try to extract author from URL or page content
+          const authorMatch = html.match(/"nickname":"([^"]+)"/) ||
+                              html.match(/"user_name":"([^"]+)"/);
+          if (authorMatch) xhsAuthor = authorMatch[1];
+
+          // Try to extract note text content (from JSON-LD or script data)
+          const noteTextMatch = html.match(/"desc":"([^"]+)"/) ||
+                                html.match(/"content":"([^"]+)"/);
+          if (noteTextMatch) {
+            const extraText = noteTextMatch[1]
+              .replace(/\\n/g, "\n")
+              .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+              .replace(/&amp;/g, "&")
+              .replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">");
+            if (extraText.length > xhsDesc.length) xhsDesc = extraText;
+          }
+        }
+      } catch { /* use whatever we got */ }
+
+      const parts: string[] = [];
+      if (xhsTitle) parts.push(`Title: ${xhsTitle}`);
+      if (xhsAuthor) parts.push(`Author: ${xhsAuthor}`);
+      if (xhsDesc) parts.push(`Description:\n${xhsDesc}`);
+      return { text: parts.join("\n\n").slice(0, 4000), thumbnail: xhsThumbnail };
+    }
+
+    if (sourceType === "threads") {
+      let threadText = "";
+      let threadAuthor = "";
+      let threadThumbnail = "";
+
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (resp.ok) {
+          const html = await resp.text();
+
+          // og:title
+          const titleMatch = html.match(/property="og:title"\s*content="([^"]+)"/) ||
+                             html.match(/name="twitter:title"\s*content="([^"]+)"/);
+          if (titleMatch) threadText = `Title: ${titleMatch[1].replace(/&amp;/g, "&")}`;
+
+          // og:description (usually contains the post text)
+          const descMatch = html.match(/property="og:description"\s*content="([\s\S]*?)"/) ||
+                            html.match(/name="description"\s*content="([^"]+)"/);
+          if (descMatch) {
+            const desc = descMatch[1]
+              .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+              .replace(/&quot;/g, '"')
+              .replace(/&amp;/g, "&")
+              .trim();
+            threadText += threadText ? `\n\nDescription:\n${desc}` : `Description: ${desc}`;
+          }
+
+          // og:image
+          const imgMatch = html.match(/property="og:image"\s*content="([^"]+)"/);
+          if (imgMatch) threadThumbnail = imgMatch[1];
+
+          // Author from og:title (format "username on Threads")
+          if (url.includes("/@")) {
+            const userMatch = url.match(/threads\.net\/@?([^/\?]+)/);
+            if (userMatch) threadAuthor = userMatch[1];
+          }
+        }
+      } catch { /* use whatever we got */ }
+
+      const parts: string[] = [];
+      if (threadAuthor) parts.push(`Author: @${threadAuthor}`);
+      parts.push(threadText);
+      return { text: parts.join("\n\n").slice(0, 4000), thumbnail: threadThumbnail };
+    }
+
     return { text: "", thumbnail: "" };
   } catch {
     return { text: "", thumbnail: "" };
@@ -445,15 +584,15 @@ async function parseRecipeFromUrl(url: string): Promise<{
 - 食材分類：肉類/海鮮/蔬菜/調味料/乾貨/其他
 - 所有文字使用繁體中文`;
 
-  // For YouTube: even if we have title/author, the description may not contain recipe steps.
-  const hasYouTubeTitleOnly = sourceType === "youtube" && hasRealContent && !hasRecipeKeywords;
+  // For YouTube/Xiaohongshu: even if we have title/author, the description may not contain full recipe steps.
+  const hasTitleOnly = (sourceType === "youtube" || sourceType === "xiaohongshu" || sourceType === "threads") && hasRealContent && !hasRecipeKeywords;
 
-  const contentSection = hasYouTubeTitleOnly
-    ? `以下是從 YouTube 影片頁面提取的資訊：
+  const contentSection = hasTitleOnly
+    ? `以下是從${sourceType === "youtube" ? "YouTube 影片" : sourceType === "threads" ? "Threads 帖子" : "小紅書筆記"}頁面提取的資訊：
 
 ${pageContent}
 
-注意：影片描述欄沒有食譜詳細資訊。請根據影片標題推斷這是什麼類型的食譜，並生成合理的食材和步驟（標記為「根據標題推斷」）。sourceAuthor 使用上面的 Author 欄位。`
+注意：內容可能沒有完整食譜詳細資訊。請根據標題和描述推斷這是什麼類型的食譜，並生成合理的食材和步驟（標記為「根據標題推斷」）。sourceAuthor 使用上面的 Author 欄位。`
     : hasRealContent
     ? `以下是從網頁提取的實際內容：
 
@@ -465,7 +604,7 @@ ${pageContent}
 URL: ${url}
 Platform: ${sourceType}
 
-請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : "YouTube"} 複製食譜文字後貼入。"`;
+請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : sourceType === "xiaohongshu" ? "小紅書" : sourceType === "threads" ? "Threads" : "YouTube"} 複製食譜文字後貼入。"`;
 
   const thumbnailUrlPlaceholder = fetchedThumbnail || "";
 

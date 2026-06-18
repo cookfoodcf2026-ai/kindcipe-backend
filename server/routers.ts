@@ -117,13 +117,13 @@ const familyRouter = router({
     }),
 
   create: protectedProcedure
-    .input(z.object({ name: z.string().min(1).max(64) }))
+    .input(z.object({ name: z.string().min(1).max(64), nickname: z.string().max(64).optional() }))
     .mutation(async ({ ctx, input }) => {
       const inviteCode = nanoid(6).toUpperCase();
       const family = await createFamily({ name: input.name, inviteCode, ownerId: String(ctx.user.id) });
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await initFamilyTrial(family.id);
-      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: ctx.user.name || "Owner", isDefault: true });
+      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: input.nickname || ctx.user.name || "Owner", isDefault: true });
       return { ...family, role: "owner" };
     }),
 
@@ -830,7 +830,15 @@ export const appRouter = router({
   priceWatch: priceWatchRouter,
   recipes: recipesRouter,
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query((opts) => {
+      const user = opts.ctx.user;
+      if (!user) return null;
+      return {
+        ...user,
+        activeFamilyId: opts.ctx.activeFamilyId,
+        activeFamilyRole: opts.ctx.activeFamilyRole,
+      };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -857,18 +865,6 @@ export const appRouter = router({
           name: input.name,
         });
         if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "建立帳號失敗，請稍後再試" });
-
-        // Auto-create family kitchen for new users
-        try {
-          const kitchenName = `${input.name}'s Kitchen`;
-          const inviteCode = nanoid(6).toUpperCase();
-          const family = await createFamily({ name: kitchenName, inviteCode, ownerId: String(created.id) });
-          if (family) {
-            await addFamilyMember({ familyId: family.id, userId: String(created.id), familyRole: "owner", nickname: input.name, isDefault: true });
-          }
-        } catch (err) {
-          console.error("[Auth] Auto-create family failed", err);
-        }
 
         // Create session token (for React Native / Bearer auth)
         const sessionToken = await sdk.createSessionToken(created.openId, { name: input.name, expiresInMs: ONE_YEAR_MS });

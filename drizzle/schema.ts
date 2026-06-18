@@ -17,7 +17,7 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", ["free", "tr
 export const shoppingStatusEnum = pgEnum("shopping_status", ["pending", "active", "bought"]);
 export const mealTypeEnum = pgEnum("meal_type", ["breakfast", "lunch", "dinner", "snack"]);
 export const mealStatusEnum = pgEnum("meal_status", ["pending", "confirmed", "rejected"]);
-export const sourceTypeEnum = pgEnum("source_type", ["instagram", "youtube", "xiaohongshu", "manual"]);
+export const sourceTypeEnum = pgEnum("source_type", ["instagram", "youtube", "xiaohongshu", "threads", "manual"]);
 export const visibilityEnum = pgEnum("visibility", ["private", "pending_public", "public"]);
 export const eventTypeEnum = pgEnum("event_type", ["view", "plan", "save", "cook"]);
 
