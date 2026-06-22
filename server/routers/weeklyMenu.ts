@@ -4,7 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { getDb } from "../db";
 import { weeklyMenu, officialRecipes, mealPlans } from "../../drizzle/schema";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
-import { invokeLLM } from "../_core/llm";
+import { invokeLLM, extractJSON } from "../_core/llm";
 
 // ─── Weather helper (Open-Meteo, no API key needed) ─────────────────────────
 async function getHKWeather(): Promise<{ tempC: number; weatherCode: number; description: string; season: string }> {
@@ -469,7 +469,7 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
         }>;
       };
       try {
-        parsed = JSON.parse(content);
+        parsed = extractJSON(content);
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 返回格式錯誤" });
       }

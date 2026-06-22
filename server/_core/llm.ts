@@ -217,3 +217,12 @@ export async function parseRecipeFromImage(
 
   return result.choices[0]?.message.content ?? "{}";
 }
+
+export function extractJSON<T = Record<string, unknown>>(raw: string): T {
+  let content = raw.trim();
+  // Strip markdown code fences
+  if (content.startsWith("```")) {
+    content = content.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+  }
+  return JSON.parse(content) as T;
+}

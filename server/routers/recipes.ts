@@ -15,7 +15,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
-import { invokeLLM, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
 import { eq, and, desc, like } from "drizzle-orm";
@@ -164,7 +164,7 @@ ${text}
   const rawContent = response.choices[0]?.message?.content;
   const content = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!content) throw new Error("AI returned empty response");
-  return JSON.parse(content);
+  return extractJSON(content) as any;
 }
 
 // ─── Ingredient / Step schemas ────────────────────────────────────────────────
@@ -748,7 +748,7 @@ Platform: ${sourceType}
   const rawContent = response.choices[0]?.message?.content;
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
-  const result = JSON.parse(parsedContent);
+  const result: any = extractJSON(parsedContent);
   if (!result.thumbnailUrl && fetchedThumbnail) result.thumbnailUrl = fetchedThumbnail;
   // Determine parseReason based on result name
   if (!hasRealContent) {
@@ -905,7 +905,7 @@ export const recipesRouter = router({
       const rawContent = response.choices[0]?.message?.content;
       const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
       if (!parsedContent) throw new Error("AI returned empty response");
-      const result = JSON.parse(parsedContent);
+  const result: any = extractJSON(parsedContent);
 
       // Use real storage URL as thumbnail if AI didn't extract one
       if (!result.thumbnailUrl) {
