@@ -85,17 +85,6 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     params.model ?? (hasVision ? DEFAULT_VISION_MODEL : DEFAULT_TEXT_MODEL);
   const baseUrl = ENV.dashScopeBaseUrl;
 
-  const responseFormat = params.responseFormat
-    ? {
-        type: "json_schema" as const,
-        json_schema: {
-          name: params.responseFormat.json_schema.name,
-          strict: params.responseFormat.json_schema.strict,
-          schema: params.responseFormat.json_schema.schema,
-        },
-      }
-    : undefined;
-
   const body: Record<string, unknown> = {
     model,
     messages: params.messages,
@@ -103,8 +92,8 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     temperature: params.temperature ?? 0.7,
   };
 
-  if (responseFormat) {
-    body.response_format = responseFormat;
+  if (params.responseFormat) {
+    body.response_format = { type: "json_object" };
   }
 
   const controller = new AbortController();
