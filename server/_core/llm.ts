@@ -96,6 +96,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   const timeout = setTimeout(() => controller.abort(), 45000);
 
   try {
+    console.log(`[LLM] Calling ${model} with ${params.messages.length} messages`);
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -107,9 +108,11 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     });
 
     clearTimeout(timeout);
+    console.log(`[LLM] Response status: ${response.status}`);
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.log(`[LLM] Error body: ${errorText.slice(0, 200)}`);
       throw new Error(
         `DashScope API failed: ${response.status} – ${errorText}`
       );
@@ -147,6 +150,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     };
   } catch (err) {
     clearTimeout(timeout);
+    console.log(`[LLM] Error: ${(err as Error).message}`);
     throw err;
   }
 }
