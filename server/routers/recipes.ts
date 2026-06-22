@@ -88,7 +88,9 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
     const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const { url } = await storagePut(key, buf, contentType);
     console.log(`[rehost] uploaded to R2: ${url.slice(0, 60)}...`);
-    return url;
+    const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+    const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
+    return fullUrl;
   } catch (err) {
     console.log(`[rehost] error: ${(err as Error).message}`);
     return imageUrl;
@@ -850,7 +852,8 @@ export const recipesRouter = router({
       const buffer = Buffer.from(input.base64, "base64");
       const ext = input.mimeType.split("/")[1] || "jpg";
       const { key, url } = await storagePut(`recipe-screenshots/screenshot.${ext}`, buffer, input.mimeType);
-      return { key, url };
+      const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+      return { key, url: url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url };
     }),
 
   // ── Parse Image (Vision AI: extract recipe from uploaded screenshot) ────────
@@ -1094,7 +1097,8 @@ export const recipesRouter = router({
             const buf = Buffer.from(arrayBuf);
             const key = `recipe-thumbnails/official-${ctx.user.id}-${Date.now()}.${ext}`;
             const { url } = await storagePut(key, buf, contentType);
-            resolvedOfficialThumbnailUrl = url;
+            const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+            resolvedOfficialThumbnailUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
           }
         } catch {
           // If download fails, keep original URL as fallback
@@ -1225,7 +1229,8 @@ export const recipesRouter = router({
             const buf = Buffer.from(arrayBuf);
             const key = `recipe-thumbnails/user-${ctx.user.id}-${Date.now()}.${ext}`;
             const { url } = await storagePut(key, buf, contentType);
-            resolvedThumbnailUrl = url;
+            const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+            resolvedThumbnailUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
           }
         } catch {
           // If download fails, keep original URL as fallback

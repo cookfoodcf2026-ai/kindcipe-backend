@@ -48,6 +48,18 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // R2 storage proxy — serve images stored in R2 via signed URLs
+  app.get("/r2-storage/:key(*)", async (req, res) => {
+    try {
+      const { storageGet } = await import("./storage");
+      const { url } = await storageGet(req.params.key);
+      // Redirect to signed URL
+      res.redirect(302, url);
+    } catch {
+      res.status(404).send("Not found");
+    }
+  });
+
   const port = parseInt(process.env.PORT ?? "3000");
 
   server.listen(port, () => {
