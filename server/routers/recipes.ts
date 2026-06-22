@@ -911,8 +911,12 @@ export const recipesRouter = router({
       if (!parsedContent) throw new Error("AI returned empty response");
       const result = JSON.parse(parsedContent);
 
-      // Use storage URL as thumbnail if AI didn't extract one
-      if (!result.thumbnailUrl) result.thumbnailUrl = `/manus-storage/${input.storageKey}`;
+      // Use real storage URL as thumbnail if AI didn't extract one
+      if (!result.thumbnailUrl) {
+        const { storageGet } = await import("../storage");
+        const { url: realUrl } = await storageGet(input.storageKey);
+        result.thumbnailUrl = realUrl;
+      }
 
       const parseReason = (result.name === "需要手動輸入" || result.name === "無法解析")
         ? "no_recipe_content" as const
@@ -1155,10 +1159,12 @@ export const recipesRouter = router({
         }
       }
 
-      // Download and re-upload thumbnail to S3 to avoid IG/external CDN hotlink protection
+      // Download and re-upload thumbnail to avoid IG/external CDN hotlink protection
       let resolvedThumbnailUrl = input.image || input.thumbnailUrl || "";
       const rawThumb = input.thumbnailUrl || input.image || "";
-      if (rawThumb && !rawThumb.startsWith("/manus-storage/")) {
+      const isManusStorage = rawThumb.includes(".r2.cloudflarestorage.com/") ||
+        (process.env.R2_PUBLIC_URL && rawThumb.startsWith(process.env.R2_PUBLIC_URL));
+      if (rawThumb && !isManusStorage && !rawThumb.startsWith("/r2-storage/")) {
         try {
           const imgResp = await fetch(rawThumb, {
             headers: {
