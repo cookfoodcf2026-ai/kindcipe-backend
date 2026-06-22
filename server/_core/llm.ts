@@ -1,38 +1,17 @@
 /**
- * Vertex AI Gemini API Helper
- * 使用 Google Vertex AI（而非 Google AI Studio），解決香港地區被阻擋的問題
+ * DashScope (Qwen) LLM Helper
+ * 使用阿里雲 DashScope OpenAI-compatible API，支援文字 + 圖片 Vision
  *
  * 需要的環境變數：
- *   GCP_PROJECT_ID           - GCP 專案 ID
- *   GCP_LOCATION             - Vertex AI 區域（預設 asia-east2）
- *   GCP_SERVICE_ACCOUNT_JSON - Service Account 金鑰 JSON 內容
- *
- * 設定方式：https://console.cloud.google.com → IAM → Service Accounts
- * 角色：Vertex AI User
- *
- * 定價：https://cloud.google.com/vertex-ai/generative-ai/pricing
+ *   DASHSCOPE_API_KEY  - API Key（必填）
+ *   DASHSCOPE_BASE_URL - API endpoint（選填，預設新加坡 region）
  */
 
-import { GoogleAuth } from "google-auth-library";
+import { ENV } from "./env";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
-
-let cachedToken: { token: string; expiresAt: number } | null = null;
-
-async function getVertexToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt > Date.now()) {
-    return cachedToken.token;
-  }
-  const creds = process.env.GCP_SERVICE_ACCOUNT_JSON;
-  const auth = new GoogleAuth({
-    credentials: creds ? JSON.parse(creds) : undefined,
-    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-  });
-  const client = await auth.getClient();
-  const token = await client.getAccessToken();
-  cachedToken = { token: token.token!, expiresAt: Date.now() + 1800000 };
-  return token.token!;
-}
+const DEFAULT_TEXT_MODEL = "qwen3-plus";
+const DEFAULT_VISION_MODEL = "qwen3-vl-max";
+const DEFAULT_MAX_TOKENS = 8192;
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -86,138 +65,117 @@ export interface LLMResult {
   };
 }
 
-function convertToGeminiMessages(messages: Message[]) {
-  const systemParts: string[] = [];
-  const contents: Array<{ role: string; parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> }> = [];
-
-  for (const msg of messages) {
-    if (msg.role === "system") {
-      const text = typeof msg.content === "string" ? msg.content : msg.content.map(c => c.type === "text" ? c.text : "").join("");
-      systemParts.push(text);
-      continue;
-    }
-
-    const role = msg.role === "assistant" ? "model" : "user";
-    const parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> = [];
-
-    if (typeof msg.content === "string") {
-      parts.push({ text: msg.content });
-    } else {
-      for (const content of msg.content) {
-        if (content.type === "text") {
-          parts.push({ text: content.text });
-        } else if (content.type === "image_url") {
-          const url = content.image_url.url;
-          if (url.startsWith("data:")) {
-            const [header, data] = url.split(",");
-            const mimeType = header.split(":")[1].split(";")[0];
-            parts.push({ inline_data: { mime_type: mimeType, data } });
-          } else {
-            parts.push({ text: `[Image: ${url}]` });
-          }
-        }
-      }
-    }
-
-    contents.push({ role, parts });
-  }
-
-  return { systemParts, contents };
+function hasImageContent(messages: Message[]): boolean {
+  return messages.some((msg) => {
+    if (typeof msg.content === "string") return false;
+    return msg.content.some((c) => c.type === "image_url");
+  });
 }
 
 export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
-  const projectId = process.env.GCP_PROJECT_ID;
-  if (!projectId) {
-    throw new Error("GCP_PROJECT_ID is not set. Create a GCP project and enable Vertex AI API.");
+  const apiKey = ENV.dashScopeApiKey;
+  if (!apiKey) {
+    throw new Error(
+      "DASHSCOPE_API_KEY is not set. Get one from https://modelstudio.console.alibabacloud.com"
+    );
   }
 
-  const region = process.env.GCP_LOCATION || "asia-east2";
-  const model = params.model ?? DEFAULT_MODEL;
+  const hasVision = hasImageContent(params.messages);
+  const model =
+    params.model ?? (hasVision ? DEFAULT_VISION_MODEL : DEFAULT_TEXT_MODEL);
+  const baseUrl = ENV.dashScopeBaseUrl;
 
-  if (!process.env.GCP_SERVICE_ACCOUNT_JSON) {
-    throw new Error("GCP_SERVICE_ACCOUNT_JSON is not set. Create a service account with Vertex AI User role.");
-  }
+  const responseFormat = params.responseFormat
+    ? {
+        type: "json_schema" as const,
+        json_schema: {
+          name: params.responseFormat.json_schema.name,
+          strict: params.responseFormat.json_schema.strict,
+          schema: params.responseFormat.json_schema.schema,
+        },
+      }
+    : undefined;
 
-  const { systemParts, contents } = convertToGeminiMessages(params.messages);
-
-  const payload: Record<string, unknown> = {
-    contents,
-    generationConfig: {
-      maxOutputTokens: params.maxTokens ?? 8192,
-      temperature: params.temperature ?? 0.7,
-    },
+  const body: Record<string, unknown> = {
+    model,
+    messages: params.messages,
+    max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+    temperature: params.temperature ?? 0.7,
   };
 
-  if (systemParts.length > 0) {
-    payload.systemInstruction = {
-      parts: [{ text: systemParts.join("\n\n") }],
-    };
+  if (responseFormat) {
+    body.response_format = responseFormat;
   }
-
-  if (params.responseFormat?.type === "json_schema") {
-    (payload.generationConfig as Record<string, unknown>).responseMimeType = "application/json";
-    (payload.generationConfig as Record<string, unknown>).responseSchema = params.responseFormat.json_schema.schema;
-  }
-
-  const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
-  const token = await getVertexToken();
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-    signal: controller.signal,
-  });
-
-  clearTimeout(timeout);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Vertex AI API failed: ${response.status} – ${errorText}`);
-  }
-
-  const result = await response.json() as {
-    candidates: Array<{
-      content: { parts: Array<{ text: string }>; role: string };
-      finishReason: string;
-    }>;
-    usageMetadata?: {
-      promptTokenCount: number;
-      candidatesTokenCount: number;
-      totalTokenCount: number;
-    };
-  };
-
-  return {
-    choices: result.candidates.map(c => ({
-      message: {
-        role: "assistant",
-        content: c.content.parts.map(p => p.text).join(""),
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
-      finish_reason: c.finishReason?.toLowerCase() ?? "stop",
-    })),
-    usage: result.usageMetadata
-      ? {
-          prompt_tokens: result.usageMetadata.promptTokenCount,
-          completion_tokens: result.usageMetadata.candidatesTokenCount,
-          total_tokens: result.usageMetadata.totalTokenCount,
-        }
-      : undefined,
-  };
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `DashScope API failed: ${response.status} – ${errorText}`
+      );
+    }
+
+    const result = (await response.json()) as {
+      id?: string;
+      choices: Array<{
+        index: number;
+        message: { role: string; content: string };
+        finish_reason: string;
+      }>;
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      };
+    };
+
+    return {
+      choices: result.choices.map((c) => ({
+        message: {
+          role: c.message.role ?? "assistant",
+          content: c.message.content ?? "",
+        },
+        finish_reason: c.finish_reason?.toLowerCase() ?? "stop",
+      })),
+      usage: result.usage
+        ? {
+            prompt_tokens: result.usage.prompt_tokens,
+            completion_tokens: result.usage.completion_tokens,
+            total_tokens: result.usage.total_tokens,
+          }
+        : undefined,
+    };
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
 }
 
-export async function parseRecipeFromImage(imageBase64: string, mimeType = "image/jpeg"): Promise<string> {
+export async function parseRecipeFromImage(
+  imageBase64: string,
+  mimeType = "image/jpeg"
+): Promise<string> {
   const result = await invokeLLM({
     messages: [
       {
         role: "system",
-        content: "你是一個專業的食譜解析助手，專門從圖片中提取食譜資訊。請用繁體中文回答，並以 JSON 格式輸出。",
+        content:
+          "你是一個專業的食譜解析助手，專門從圖片中提取食譜資訊。請用繁體中文回答，並以 JSON 格式輸出。",
       },
       {
         role: "user",

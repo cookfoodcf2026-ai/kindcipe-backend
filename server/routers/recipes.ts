@@ -15,7 +15,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
-import { invokeLLM } from "../_core/llm";
+import { invokeLLM, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
 import { eq, and, desc, like } from "drizzle-orm";
@@ -48,11 +48,12 @@ function hashUrl(url: string): string {
   return crypto.createHash("md5").update(normaliseUrl(url)).digest("hex");
 }
 
-function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "manual" {
+function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "manual" {
   if (url.includes("instagram.com")) return "instagram";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
   if (url.includes("xiaohongshu.com") || url.includes("xhslink.com")) return "xiaohongshu";
   if (url.includes("threads.net")) return "threads";
+  if (url.includes("tiktok.com")) return "tiktok";
   return "manual";
 }
 
@@ -349,7 +350,23 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
         } catch { /* continue to fallback */ }
       }
 
-      // Step 2: Fallback — try fetching og:description from the page
+      // Step 2: Fallback — Instagram oEmbed API (free, no key)
+      if (!igCaption) {
+        try {
+          const oResp = await fetch(
+            `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}`,
+            { signal: AbortSignal.timeout(5000) }
+          );
+          if (oResp.ok) {
+            const oData = await oResp.json() as { title?: string; author_name?: string; thumbnail_url?: string };
+            igCaption = oData.title ?? "";
+            igAuthor = oData.author_name ?? "";
+            if (!igThumbnail) igThumbnail = oData.thumbnail_url ?? "";
+          }
+        } catch { /* continue to page scrape */ }
+      }
+
+      // Step 3: Fallback — try fetching og:description from the page
       if (!igCaption) {
         try {
           const resp = await fetch(url, {
@@ -480,6 +497,22 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       let threadAuthor = "";
       let threadThumbnail = "";
 
+      // Step 1: Threads oEmbed API (free, no key)
+      try {
+        const oResp = await fetch(
+          `https://www.threads.net/oembed?url=${encodeURIComponent(url)}`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+        if (oResp.ok) {
+          const oData = await oResp.json() as { title?: string; author_name?: string; thumbnail_url?: string };
+          threadText = oData.title ?? "";
+          threadAuthor = oData.author_name ?? "";
+          threadThumbnail = oData.thumbnail_url ?? "";
+        }
+      } catch { /* continue to page scrape */ }
+
+      // Step 2: Fallback — page scrape og:description
+      if (!threadText) {
       try {
         const resp = await fetch(url, {
           headers: {
@@ -520,11 +553,37 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
           }
         }
       } catch { /* use whatever we got */ }
+      }
 
       const parts: string[] = [];
       if (threadAuthor) parts.push(`Author: @${threadAuthor}`);
       parts.push(threadText);
       return { text: parts.join("\n\n").slice(0, 4000), thumbnail: threadThumbnail };
+    }
+
+    if (sourceType === "tiktok") {
+      let ttCaption = "";
+      let ttAuthor = "";
+      let ttThumbnail = "";
+
+      // Step 1: TikTok oEmbed API (free, no key)
+      try {
+        const oResp = await fetch(
+          `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+        if (oResp.ok) {
+          const oData = await oResp.json() as { title?: string; author_name?: string; thumbnail_url?: string };
+          ttCaption = oData.title ?? "";
+          ttAuthor = oData.author_name ?? "";
+          ttThumbnail = oData.thumbnail_url ?? "";
+        }
+      } catch { /* continue */ }
+
+      const parts: string[] = [];
+      if (ttAuthor) parts.push(`Author: @${ttAuthor}`);
+      if (ttCaption) parts.push(`Caption:\n${ttCaption}`);
+      return { text: parts.join("\n\n").slice(0, 4000), thumbnail: ttThumbnail };
     }
 
     return { text: "", thumbnail: "" };
@@ -558,8 +617,8 @@ async function parseRecipeFromUrl(url: string): Promise<{
   // Detect if content has actual recipe info (ingredients/steps keywords)
   const hasRecipeKeywords = /材料|食材|做法|步驟|ingredient|step|recipe|gram|ml|tbsp|tsp|大匙|小匙|克|公克|毫升|份量|人份|準備|醃|炒|煮|蒸|烤|炸/i.test(pageContent);
 
-  // If we have content but NO recipe keywords → this is a lifestyle/diary post, not a recipe
-  if (hasRealContent && !hasRecipeKeywords && sourceType === "instagram") {
+  // If we have text but NO recipe keywords AND no thumbnail to try Vision → return early
+  if (hasRealContent && !hasRecipeKeywords && sourceType === "instagram" && !fetchedThumbnail) {
     return {
       name: "帖子沒有食譜內容",
       description: `這個 Instagram 帖子只有分享文字，沒有食材清單或烹飪步驟。請嘗試：\n1. 複製帖子文字，使用「貼上文字」功能\n2. 手動新增食譜`,
@@ -629,10 +688,17 @@ Platform: ${sourceType}
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
 }`;
 
+  const userContent: MessageContent = fetchedThumbnail
+    ? [
+        { type: "image_url", image_url: { url: fetchedThumbnail } },
+        { type: "text", text: userPrompt },
+      ]
+    : userPrompt;
+
   const response = await invokeLLM({
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      { role: "user", content: userContent },
     ],
     responseFormat: {
       type: "json_schema",

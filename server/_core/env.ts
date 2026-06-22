@@ -18,10 +18,9 @@ export const ENV = {
   r2BucketName: process.env.R2_BUCKET_NAME ?? "",
   r2PublicUrl: process.env.R2_PUBLIC_URL ?? "",
 
-  // Google Vertex AI (replaces GEMINI_API_KEY)
-  gcpProjectId: process.env.GCP_PROJECT_ID ?? "",
-  gcpLocation: process.env.GCP_LOCATION ?? "asia-east2",
-  gcpServiceAccountJson: process.env.GCP_SERVICE_ACCOUNT_JSON ?? "",
+  // Alibaba Cloud DashScope (Qwen LLM)
+  dashScopeApiKey: process.env.DASHSCOPE_API_KEY ?? "",
+  dashScopeBaseUrl: process.env.DASHSCOPE_BASE_URL ?? "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
 
   // External APIs
   rapidApiKey: process.env.RAPIDAPI_KEY ?? "",

@@ -3,3 +3,4 @@ dist/
 .env
 *.bak
 drizzle/migrations/
+.DS_Store
