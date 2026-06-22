@@ -688,7 +688,7 @@ Platform: ${sourceType}
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
 }`;
 
-  // Download thumbnail on server before sending to Vision LLM (DashScope can't fetch IG CDN)
+  // Download thumbnail and convert to base64 (DashScope can't fetch IG CDN directly)
   let visionImage: MessageContent = userPrompt;
   if (fetchedThumbnail) {
     try {
@@ -697,7 +697,7 @@ Platform: ${sourceType}
           "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
           "Referer": "https://www.instagram.com/",
         },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(8000),
       });
       if (imgResp.ok) {
         const contentType = imgResp.headers.get("content-type") || "image/jpeg";
