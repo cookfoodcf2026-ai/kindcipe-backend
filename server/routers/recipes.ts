@@ -341,13 +341,14 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       let igAuthor = "";
       let igThumbnail = "";
 
+      // Extract shortcode from URL (e.g. /reel/DYtC5HfIEEU/ → DYtC5HfIEEU)
+      const shortcodeMatch = url.match(/\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
+      const shortcode = shortcodeMatch?.[1] ?? "";
+
       // Step 1: RapidAPI Instagram Scraper (primary method)
       const rapidApiKey = ENV.rapidApiKey;
       if (rapidApiKey) {
         try {
-          // Extract shortcode from URL (e.g. /reel/DYtC5HfIEEU/ → DYtC5HfIEEU)
-          const shortcodeMatch = url.match(/\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
-          const shortcode = shortcodeMatch?.[1] ?? "";
           if (shortcode) {
             const rapidResp = await fetch(
               "https://instagram120.p.rapidapi.com/api/instagram/mediaByShortcode",
@@ -434,6 +435,11 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
             }
           }
         } catch { /* continue */ }
+      }
+
+      // Use Instagram's own media endpoint (more reliable than CDN URL)
+      if (shortcode) {
+        igThumbnail = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
       }
 
       const parts: string[] = [];
