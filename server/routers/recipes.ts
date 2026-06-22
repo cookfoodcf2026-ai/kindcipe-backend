@@ -688,28 +688,8 @@ Platform: ${sourceType}
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
 }`;
 
-  // Download thumbnail and convert to base64 (DashScope can't fetch IG CDN directly)
-  let visionImage: MessageContent = userPrompt;
-  if (fetchedThumbnail) {
-    try {
-      const imgResp = await fetch(fetchedThumbnail, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-          "Referer": "https://www.instagram.com/",
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (imgResp.ok) {
-        const contentType = imgResp.headers.get("content-type") || "image/jpeg";
-        const buf = Buffer.from(await imgResp.arrayBuffer());
-        const b64 = buf.toString("base64");
-        visionImage = [
-          { type: "image_url", image_url: { url: `data:${contentType};base64,${b64}` } },
-          { type: "text", text: userPrompt },
-        ];
-      }
-    } catch { /* if download fails, fall back to text-only */ }
-  }
+  // Text-only parsing (thumbnail is video cover, not recipe card — no need for Vision LLM)
+  const visionImage: MessageContent = userPrompt;
 
   const response = await invokeLLM({
     messages: [
