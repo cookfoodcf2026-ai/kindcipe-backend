@@ -688,17 +688,33 @@ Platform: ${sourceType}
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
 }`;
 
-  const userContent: MessageContent = fetchedThumbnail
-    ? [
-        { type: "image_url", image_url: { url: fetchedThumbnail } },
-        { type: "text", text: userPrompt },
-      ]
-    : userPrompt;
+  // Download thumbnail on server before sending to Vision LLM (DashScope can't fetch IG CDN)
+  let visionImage: MessageContent = userPrompt;
+  if (fetchedThumbnail) {
+    try {
+      const imgResp = await fetch(fetchedThumbnail, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+          "Referer": "https://www.instagram.com/",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (imgResp.ok) {
+        const contentType = imgResp.headers.get("content-type") || "image/jpeg";
+        const buf = Buffer.from(await imgResp.arrayBuffer());
+        const b64 = buf.toString("base64");
+        visionImage = [
+          { type: "image_url", image_url: { url: `data:${contentType};base64,${b64}` } },
+          { type: "text", text: userPrompt },
+        ];
+      }
+    } catch { /* if download fails, fall back to text-only */ }
+  }
 
   const response = await invokeLLM({
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: userContent },
+      { role: "user", content: visionImage },
     ],
     responseFormat: {
       type: "json_schema",
