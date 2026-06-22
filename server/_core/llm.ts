@@ -92,10 +92,6 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     temperature: params.temperature ?? 0.7,
   };
 
-  if (params.responseFormat) {
-    body.response_format = { type: "json_object" };
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
 
