@@ -59,6 +59,33 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
 
 // ─── parseText helper ───────────────────────────────────────────────────────
 
+async function rehostExternalImage(imageUrl: string): Promise<string> {
+  if (!imageUrl) return "";
+  const isR2 = imageUrl.includes(".r2.cloudflarestorage.com/") ||
+    (process.env.R2_PUBLIC_URL && imageUrl.startsWith(process.env.R2_PUBLIC_URL)) ||
+    imageUrl.startsWith("/r2-storage/");
+  if (isR2) return imageUrl;
+  try {
+    const resp = await fetch(imageUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "Referer": "https://www.instagram.com/",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return imageUrl;
+    const contentType = resp.headers.get("content-type") || "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+    const arrayBuf = await resp.arrayBuffer();
+    const buf = Buffer.from(arrayBuf);
+    const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { url } = await storagePut(key, buf, contentType);
+    return url;
+  } catch {
+    return imageUrl;
+  }
+}
+
 async function parseTextToRecipe(text: string): Promise<{
   name: string;
   description: string;
@@ -100,7 +127,7 @@ ${text}
     { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
   "steps": [
-    { "instruction": "步驟說明", "duration": 秒數（可選）, "tip": "小貼士（可選）" }
+    { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱（如文字中有提及）",
@@ -681,7 +708,7 @@ Platform: ${sourceType}
     { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
   "steps": [
-    { "instruction": "步驟說明", "duration": 秒數（可選）, "tip": "小貼士（可選）" }
+    { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱",
@@ -750,6 +777,10 @@ Platform: ${sourceType}
   if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
   if (!result.thumbnailUrl && fetchedThumbnail) result.thumbnailUrl = fetchedThumbnail;
+  // Re-host external thumbnail to R2 so it works in preview
+  if (result.thumbnailUrl) {
+    result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl);
+  }
   // Determine parseReason based on result name
   if (!hasRealContent) {
     result.parseReason = "cannot_read";
@@ -835,7 +866,7 @@ export const recipesRouter = router({
     { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
   "steps": [
-    { "instruction": "步驟說明", "duration": 秒數（可選）, "tip": "小貼士（可選）" }
+    { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱（如圖片中有顯示）",
