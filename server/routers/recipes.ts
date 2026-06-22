@@ -69,8 +69,11 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
   try {
     const resp = await fetch(imageUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
         "Referer": "https://www.instagram.com/",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "no-cors",
       },
       signal: AbortSignal.timeout(10000),
     });
@@ -1201,8 +1204,11 @@ export const recipesRouter = router({
         try {
           const imgResp = await fetch(rawThumb, {
             headers: {
-              "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
               "Referer": "https://www.instagram.com/",
+              "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+              "Sec-Fetch-Site": "cross-site",
+              "Sec-Fetch-Mode": "no-cors",
             },
             signal: AbortSignal.timeout(10000),
           });
