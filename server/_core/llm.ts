@@ -90,6 +90,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     messages: params.messages,
     max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
     temperature: params.temperature ?? 0.7,
+    enable_thinking: false,
   };
 
   const controller = new AbortController();
