@@ -65,6 +65,7 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
     (process.env.R2_PUBLIC_URL && imageUrl.startsWith(process.env.R2_PUBLIC_URL)) ||
     imageUrl.startsWith("/r2-storage/");
   if (isR2) return imageUrl;
+  console.log(`[rehost] downloading ${imageUrl.slice(0, 80)}...`);
   try {
     const resp = await fetch(imageUrl, {
       headers: {
@@ -73,15 +74,20 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
       },
       signal: AbortSignal.timeout(10000),
     });
-    if (!resp.ok) return imageUrl;
+    if (!resp.ok) {
+      console.log(`[rehost] fetch failed: ${resp.status}`);
+      return imageUrl;
+    }
     const contentType = resp.headers.get("content-type") || "image/jpeg";
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
     const arrayBuf = await resp.arrayBuffer();
     const buf = Buffer.from(arrayBuf);
     const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const { url } = await storagePut(key, buf, contentType);
+    console.log(`[rehost] uploaded to R2: ${url.slice(0, 60)}...`);
     return url;
-  } catch {
+  } catch (err) {
+    console.log(`[rehost] error: ${(err as Error).message}`);
     return imageUrl;
   }
 }
