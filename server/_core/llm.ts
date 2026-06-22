@@ -9,8 +9,8 @@
 
 import { ENV } from "./env";
 
-const DEFAULT_TEXT_MODEL = "qwen3-plus";
-const DEFAULT_VISION_MODEL = "qwen3-vl-max";
+const DEFAULT_TEXT_MODEL = "qwen3.5-plus";
+const DEFAULT_VISION_MODEL = "qwen3.5-plus";
 const DEFAULT_MAX_TOKENS = 8192;
 
 export type MessageRole = "user" | "assistant" | "system";
