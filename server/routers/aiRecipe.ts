@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, or, like, desc } from "drizzle-orm";
 import { publicProcedure, router } from "../_core/trpc";
-import { invokeLLM, invokeLLMStream, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, invokeLLMStream, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { officialRecipes, customRecipes, pantryItems, mealPlans, shoppingItems } from "../../drizzle/schema";
 
@@ -107,6 +107,21 @@ const TOOLS: Array<{
           mealType: { type: "string", description: "餐次：breakfast/lunch/dinner/snack，預設dinner" },
         },
         required: ["recipeName", "cookTime", "servings", "difficulty", "ingredients"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fetchRecipeFromUrl",
+      description: "從食譜網址獲取完整食譜內容（食材、步驟、圖片）。當搜尋結果有食譜網址時，使用此工具讀取詳細內容以確保步驟完整。",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "食譜網頁的完整 URL" },
+        },
+        required: ["url"],
         additionalProperties: false,
       },
     },
@@ -260,6 +275,74 @@ async function execAddMealPlanRecipe(
   return { success: true, recipeId: recipe.id, recipeName, date, mealType };
 }
 
+async function execFetchRecipeFromUrl(args: { url: string }) {
+  if (!args.url) return { error: "缺少 URL" };
+  try {
+    const resp = await fetch(args.url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return { error: `HTTP ${resp.status}` };
+    const html = await resp.text();
+
+    // Clean HTML: remove scripts, styles, tags, collapse whitespace
+    const cleaned = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s{2,}/g, "\n")
+      .trim()
+      .slice(0, 8000);
+
+    if (cleaned.length < 50) return { error: "網頁內容太短或無法讀取" };
+
+    const llmResp = await invokeLLM({
+      messages: [
+        { role: "system", content: "從以下網頁內容提取食譜。以 JSON 格式返回：name, cookTime (整數分鐘), servings (整數), difficulty (簡單/中等/困難), description, recipeCategory (中菜/西餐/日式/韓式/東南亞/甜品/飲品/其他), ingredients [{name, quantity, unit}], steps [string] (至少3步詳細做法), tags [string]。如果網頁內容不是食譜，返回 {error: 'no_recipe'}。" },
+        { role: "user", content: cleaned },
+      ],
+      maxTokens: 4096, temperature: 0.3,
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "web_recipe_extract",
+          strict: false,
+          schema: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              cookTime: { type: "integer" },
+              servings: { type: "integer" },
+              difficulty: { type: "string" },
+              description: { type: "string" },
+              recipeCategory: { type: "string" },
+              ingredients: { type: "array", items: { type: "object", properties: { name: { type: "string" }, quantity: { type: "string" }, unit: { type: "string" } }, required: ["name", "quantity", "unit"], additionalProperties: false } },
+              steps: { type: "array", items: { type: "string" } },
+              tags: { type: "array", items: { type: "string" } },
+              error: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const raw = llmResp.choices[0]?.message?.content || "{}";
+    const result = extractJSON<Record<string, unknown>>(raw);
+    if (result.error) return result;
+    return { url: args.url, recipe: result };
+  } catch (e: unknown) {
+    return { error: String(e) };
+  }
+}
+
 async function executeToolCall(
   db: Db, name: string, args: Record<string, unknown>,
   familyId?: number, userId?: number
@@ -268,6 +351,7 @@ async function executeToolCall(
     case "searchRecipes": return execSearchRecipes(db, args as any, familyId);
     case "getPantryItems": return execGetPantryItems(db, familyId);
     case "getWeather": return execGetWeather();
+    case "fetchRecipeFromUrl": return execFetchRecipeFromUrl(args as any);
     case "addMealPlanRecipe":
       if (!familyId || !userId) return { error: "需要登入先可以加排餐" };
       return execAddMealPlanRecipe(db, args as any, familyId, userId);
@@ -285,6 +369,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 食譜助手，幫香港家庭
 - searchRecipes: 搜尋已有的食譜
 - getPantryItems: 查看用戶雪櫃有咩食材
 - getWeather: 查看香港天氣
+- fetchRecipeFromUrl: 從食譜網頁讀取完整食材同步驟（當搜尋結果有食譜網址時使用，確保步驟完整）
 - addMealPlanRecipe: 直接將食譜加入排餐計劃（用戶明確要求加入排餐時先用）
 
 回覆時必須用以下結構化格式，每個食譜獨立列出，食材同做法缺一不可：
@@ -394,7 +479,7 @@ async function extractRecipes(messages: Message[], fallbackContent: string) {
     const extractionMsgs: Message[] = [
       { role: "system", content: EXTRACTION_PROMPT },
       ...messages.slice(1),
-      { role: "user", content: "請根據以上所有對話內容，以 JSON 格式整理出你的最終回覆（message）和推薦食譜（recipes）。" },
+      { role: "user", content: "請根據以上所有對話內容（包括 tool 回應，特別是 fetchRecipeFromUrl 返回嘅食譜），以 JSON 格式整理出你的最終回覆（message）和推薦食譜（recipes）。每個食譜必須有完整 steps。" },
     ];
     if (extraMsg) extractionMsgs.push(extraMsg);
 
