@@ -296,7 +296,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 食譜助手，幫香港家庭
 - quantity 和 unit 要具體（例如 "500" "克"）
 - 用戶發送圖片時，幫佢睇圖入面有咩食材或菜式`;
 
-const EXTRACTION_PROMPT = `你係「Kindcipe」的 AI 食譜助手。根據對話歷史，以指定 JSON 格式整理出你的最終回覆和推薦食譜。每個食譜必須包含 name、cookTime、servings、difficulty、description、recipeCategory、ingredients（帶 name/quantity/unit）、steps（烹飪步驟陣列）同 tags。如果對話中冇推薦食譜，recipes 可以是空陣列。`;
+const EXTRACTION_PROMPT = `你係「Kindcipe」的 AI 食譜助手。根據對話歷史，以指定 JSON 格式整理出你的最終回覆和推薦食譜。每個食譜的 steps 陣列必須包含至少 3 步詳細烹飪步驟（具體說明煮法、時間、火候），嚴禁返回空 steps。如果對話中真係完全冇提到煮法，先可以留空 steps。如果冇推薦食譜，recipes 可以是空陣列。`;
 
 const responseSchema: Record<string, unknown> = {
   type: "object", properties: {
@@ -340,7 +340,7 @@ async function runToolsLoop(
   for (let i = 0; i < MAX_ITER; i++) {
     const llmResp = await invokeLLM({
       messages,
-      maxTokens: 4096, temperature: 0.7,
+      maxTokens: 4096, temperature: 0.9,
       enableSearch: true,
       tools: i === 0 ? TOOLS as any : undefined,
     });
@@ -376,27 +376,68 @@ async function runToolsLoop(
 // ─── Structured extraction ───────────────────────────────
 
 async function extractRecipes(messages: Message[], fallbackContent: string) {
-  const extractionMsgs: Message[] = [
-    { role: "system", content: EXTRACTION_PROMPT },
-    ...messages.slice(1),
-    { role: "user", content: "請根據以上所有對話內容，以 JSON 格式整理出你的最終回覆（message）和推薦食譜（recipes）。如果冇推薦食譜，recipes 可以是空陣列。" },
-  ];
+  const doExtract = async (extraMsg?: Message): Promise<{ content: string; recipes: SuggestedRecipe[] }> => {
+    const extractionMsgs: Message[] = [
+      { role: "system", content: EXTRACTION_PROMPT },
+      ...messages.slice(1),
+      { role: "user", content: "請根據以上所有對話內容，以 JSON 格式整理出你的最終回覆（message）和推薦食譜（recipes）。" },
+    ];
+    if (extraMsg) extractionMsgs.push(extraMsg);
 
-  const resp = await invokeLLM({
-    messages: extractionMsgs, maxTokens: 4096, temperature: 0.3,
-    responseFormat: { type: "json_schema", json_schema: { name: "chef_response", strict: true, schema: responseSchema } },
-  });
+    const resp = await invokeLLM({
+      messages: extractionMsgs, maxTokens: 8192, temperature: 0.3,
+      responseFormat: { type: "json_schema", json_schema: { name: "chef_response", strict: true, schema: responseSchema } },
+    });
 
-  const raw = resp.choices[0]?.message?.content || "{}";
-  let cleaned = raw.trim();
-  if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+    const raw = resp.choices[0]?.message?.content || "{}";
+    let cleaned = raw.trim();
+    if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
 
-  try {
-    const parsed = JSON.parse(cleaned) as { response: { message: string; recipes: SuggestedRecipe[] } };
-    return { content: parsed.response.message || fallbackContent, recipes: parsed.response.recipes ?? [] };
-  } catch {
-    return { content: fallbackContent, recipes: [] };
+    try {
+      const parsed = JSON.parse(cleaned) as { response: { message: string; recipes: SuggestedRecipe[] } };
+      return { content: parsed.response.message || fallbackContent, recipes: parsed.response.recipes ?? [] };
+    } catch {
+      // Retry once with higher temperature if JSON parse fails
+      try {
+        const retryResp = await invokeLLM({
+          messages: [...extractionMsgs, { role: "user", content: "剛才 JSON 格式錯誤，請嚴格按照 JSON schema 重新整理，確保所有欄位齊全。" }],
+          maxTokens: 8192, temperature: 0.5,
+          responseFormat: { type: "json_schema", json_schema: { name: "chef_response", strict: true, schema: responseSchema } },
+        });
+        const retryRaw = retryResp.choices[0]?.message?.content || "{}";
+        let retryCleaned = retryRaw.trim();
+        if (retryCleaned.startsWith("```")) retryCleaned = retryCleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+        const retryParsed = JSON.parse(retryCleaned) as { response: { message: string; recipes: SuggestedRecipe[] } };
+        return { content: retryParsed.response.message || fallbackContent, recipes: retryParsed.response.recipes ?? [] };
+      } catch {
+        return { content: fallbackContent, recipes: [] };
+      }
+    }
+  };
+
+  let result = await doExtract();
+
+  // Check if any recipes have empty/missing steps — force fix
+  const missingSteps = result.recipes.filter(r => !r.steps || r.steps.length === 0);
+  if (missingSteps.length > 0) {
+    const fixMsg: Message = {
+      role: "user",
+      content: `以下食譜缺少烹飪步驟，請為每個食譜補充至少 3 步詳細做法（只返回 JSON，保持其他欄位不變）：\n${missingSteps.map(r => `- ${r.name}`).join("\n")}`,
+    };
+    try {
+      const fixed = await doExtract(fixMsg);
+      // Merge steps from fixed back into original
+      result.recipes = result.recipes.map(r => {
+        const fixedR = fixed.recipes.find(fr => fr.name === r.name);
+        if (fixedR?.steps?.length) return { ...r, steps: fixedR.steps };
+        return r;
+      });
+    } catch {
+      // Keep original result if step-fix fails
+    }
   }
+
+  return result;
 }
 
 // ─── Helper: convert frontend messages to LLM format ─────
