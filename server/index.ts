@@ -48,6 +48,38 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // AI Chef SSE streaming endpoint
+  app.post("/api/ai-chef/stream", async (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const { messages = [], familyId, userId } = req.body || {};
+    if (!messages.length) {
+      res.write("event: error\ndata: {\"message\":\"No messages\"}\n\n");
+      res.end();
+      return;
+    }
+
+    try {
+      const { streamAIChefChat } = await import("./routers/aiRecipe");
+      for await (const event of streamAIChefChat(messages, familyId, userId)) {
+        if (event.type === "text") {
+          res.write(`event: text\ndata: ${JSON.stringify({ token: event.value })}\n\n`);
+        } else if (event.type === "recipes") {
+          res.write(`event: recipes\ndata: ${JSON.stringify(event.value)}\n\n`);
+        } else if (event.type === "done") {
+          res.write("event: done\ndata: {}\n\n");
+        }
+      }
+    } catch (err) {
+      console.log("[AIChef] SSE error:", err);
+      res.write("event: error\ndata: {\"message\":\"Server error\"}\n\n");
+    }
+    res.end();
+  });
+
   // R2 storage proxy — serve images stored in R2 via signed URLs
   app.get("/r2-storage/:key(*)", async (req, res) => {
     try {

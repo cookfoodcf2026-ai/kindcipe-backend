@@ -13,7 +13,16 @@ const DEFAULT_TEXT_MODEL = "qwen3.5-plus";
 const DEFAULT_VISION_MODEL = "qwen3.5-plus";
 const DEFAULT_MAX_TOKENS = 8192;
 
-export type MessageRole = "user" | "assistant" | "system";
+export type MessageRole = "user" | "assistant" | "system" | "tool";
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
 
 export interface TextContent {
   type: "text";
@@ -33,6 +42,8 @@ export type MessageContent = string | Array<TextContent | ImageContent>;
 export interface Message {
   role: MessageRole;
   content: MessageContent;
+  tool_call_id?: string;
+  tool_calls?: ToolCall[];
 }
 
 export interface LLMParams {
@@ -48,13 +59,23 @@ export interface LLMParams {
       schema: object;
     };
   };
+  enableSearch?: boolean;
+  tools?: Array<{
+    type: "function";
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }>;
 }
 
 export interface LLMResult {
   choices: Array<{
     message: {
       role: string;
-      content: string;
+      content: string | null;
+      tool_calls?: ToolCall[];
     };
     finish_reason: string;
   }>;
@@ -93,6 +114,25 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
     enable_thinking: false,
   };
 
+  if (params.enableSearch) {
+    body.enable_search = true;
+  }
+
+  if (params.tools && params.tools.length > 0) {
+    body.tools = params.tools;
+  }
+
+  if (params.responseFormat) {
+    body.response_format = {
+      type: params.responseFormat.type,
+      json_schema: {
+        name: params.responseFormat.json_schema.name,
+        strict: params.responseFormat.json_schema.strict,
+        schema: params.responseFormat.json_schema.schema,
+      },
+    };
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
 
@@ -123,7 +163,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
       id?: string;
       choices: Array<{
         index: number;
-        message: { role: string; content: string };
+        message: { role: string; content: string | null; tool_calls?: ToolCall[] };
         finish_reason: string;
       }>;
       usage?: {
@@ -137,7 +177,8 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
       choices: result.choices.map((c) => ({
         message: {
           role: c.message.role ?? "assistant",
-          content: c.message.content ?? "",
+          content: c.message.content,
+          tool_calls: c.message.tool_calls,
         },
         finish_reason: c.finish_reason?.toLowerCase() ?? "stop",
       })),
@@ -225,4 +266,73 @@ export function extractJSON<T = Record<string, unknown>>(raw: string): T {
     content = content.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
   }
   return JSON.parse(content) as T;
+}
+
+// ─── Streaming LLM call for SSE ──────────────────────────
+
+export async function* invokeLLMStream(
+  params: LLMParams
+): AsyncGenerator<string> {
+  const apiKey = ENV.dashScopeApiKey;
+  if (!apiKey) throw new Error("DASHSCOPE_API_KEY is not set");
+
+  const hasVision = hasImageContent(params.messages);
+  const model = params.model ?? (hasVision ? DEFAULT_VISION_MODEL : DEFAULT_TEXT_MODEL);
+  const baseUrl = ENV.dashScopeBaseUrl;
+
+  const body: Record<string, unknown> = {
+    model,
+    messages: params.messages,
+    max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+    temperature: params.temperature ?? 0.7,
+    stream: true,
+    enable_thinking: false,
+    stream_options: { include_usage: true },
+  };
+
+  if (params.enableSearch) body.enable_search = true;
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`DashScope stream failed: ${response.status} – ${errText.slice(0, 200)}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      const jsonStr = trimmed.slice(5).trim();
+      if (jsonStr === "[DONE]") return;
+
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (typeof delta === "string") yield delta;
+      } catch {
+        // Skip unparseable lines
+      }
+    }
+  }
 }

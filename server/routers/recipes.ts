@@ -433,8 +433,8 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
         } catch { /* continue */ }
       }
 
-      // Use Instagram's own media endpoint (more reliable than CDN URL)
-      if (shortcode) {
+      // Fallback: use Instagram's media endpoint if no thumbnail from other methods
+      if (shortcode && !igThumbnail) {
         igThumbnail = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
       }
 

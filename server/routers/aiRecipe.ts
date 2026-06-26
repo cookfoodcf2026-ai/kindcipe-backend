@@ -361,41 +361,70 @@ async function executeToolCall(
 
 // ─── Prompts ─────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 食譜助手，幫香港家庭決定今晚煮什麼。
-
-職責：根據用戶需求推薦 1-3 道菜（主菜+蔬菜+湯），說明推薦原因。如果用戶要求，幫佢直接加入排餐。
+const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家庭設計。只回答食譜、煮食、食材、餐飲規劃、營養同食物相關問題。非相關問題請禮貌婉轉拒絕。
 
 你可以用以下工具：
-- searchRecipes: 搜尋已有的食譜
-- getPantryItems: 查看用戶雪櫃有咩食材
+- searchRecipes: 搜尋已有的官方食譜或用戶自創食譜（優先推薦用戶已有食譜）
+- getPantryItems: 查看用戶雪櫃有咩食材存貨
 - getWeather: 查看香港天氣
 - fetchRecipeFromUrl: 從食譜網頁讀取完整食材同步驟（當搜尋結果有食譜網址時使用，確保步驟完整）
 - addMealPlanRecipe: 直接將食譜加入排餐計劃（用戶明確要求加入排餐時先用）
 
-回覆時必須用以下結構化格式，每個食譜獨立列出，食材同做法缺一不可：
+⚠️ 重要規則：
+1. 當你無法辨識食材、用戶問題唔係問食譜、或者未能提供完整食譜時，請用**對話式回覆**，**切勿**使用「食譜一：類別 —— 名稱」格式
+2. 只有真係推薦可煮食譜時，先使用食譜格式同輸出 \`---next-steps---\`
+3. 優先使用 searchRecipes 搵用戶已有嘅官方 / 自訂食譜，搵唔到啱先 AI 生成新食譜
+4. 當用戶影雪櫃相或問「我有呢啲食材可以煮咩」，先 call getPantryItems 了解庫存，再 call searchRecipes 搵現有食譜
 
-**食譜名稱**
-類別：中菜 / 西餐 / 日式 / 韓式 / 東南亞 / 甜品 / 飲品 / 其他
-難度：簡單 / 中等 / 困難
-煮食時間：XX 分鐘
-份量：X 人
-簡介：一兩句簡短介紹
-食材：
-- 食材名 數量 單位
-做法：
-1. 第一步詳細做法（具體煮法、時間、火候）
-2. 第二步詳細做法
-3. 第三步詳細做法
+每次回覆煮食建議時，必須嚴格按照以下格式回覆。每個食譜必須包含完整食材同烹飪步驟，缺一不可。請勿使用對話式文字代替結構化格式。
+
+請每次都提供不同的食譜建議，考慮不同菜系（中菜、西餐、日式、韓式、東南亞等）、不同蛋白質（雞、豬、牛、魚、蝦、豆腐等）、不同季節食材，確保每次推薦都有新鮮感。
+
+格式如下：
+
+食譜一：類別 —— 名稱（約XX分鐘）
+
+一兩句簡短介紹這道菜的特色。
+
+🛒 食材：
+- 食材名：數量 單位
+- 食材名：數量 單位
+- 調味料：生抽 1湯匙、蠔油 半湯匙、糖 半茶匙、鹽 適量
+
+🍳 步驟：
+1. 步驟標題（第 X-Y 分鐘）：詳細動作描述，包括具體煮法、時間、火候、注意事項。
+2. 步驟標題（第 X-Y 分鐘）：詳細動作描述。
+3. 步驟標題（第 X-Y 分鐘）：詳細動作描述。
+4. 步驟標題（第 X-Y 分鐘）：詳細動作描述。
+5. 步驟標題（第 X-Y 分鐘）：詳細動作描述。
+
+---
+
+食譜二：類別 —— 名稱（約XX分鐘）
+...（同樣格式）
 
 規則：
-- 繁體中文，親切語氣，800字內
-- 每次推薦不同菜系（中菜、西餐、日式、韓式、東南亞等）、不同蛋白質（雞、豬、牛、魚、蝦、豆腐等）、不同季節食材，確保每次推薦都有新鮮感
-- cookTime 為整數分鐘，difficulty 只能是「簡單」「中等」「困難」三選一
-- recipeCategory 必須是「中菜」「西餐」「日式」「韓式」「東南亞」「甜品」「飲品」「其他」之一
-- quantity 和 unit 要具體（例如 "500" "克"）
-- 用戶發送圖片時，幫佢睇圖入面有咩食材或菜式`;
+- 繁體中文，親切語氣
+- 每個食譜必須有 4-6 個步驟，每個步驟都必須包含時間區間（第 X-Y 分鐘）
+- 步驟描述必須詳細，包含具體動作、火力、時間、注意事項
+- 每次推薦不同菜系、不同蛋白質、不同季節食材
+- 用戶發送圖片時，幫佢睇圖入面有咩食材或菜式
+- 建議完之後，用以下格式提供下一步選項：
 
-const EXTRACTION_PROMPT = `你係「Kindcipe」的 AI 食譜助手。根據對話歷史，以指定 JSON 格式整理出你的最終回覆和推薦食譜。每個食譜的 steps 陣列必須包含至少 3 步詳細烹飪步驟（具體說明煮法、時間、火候），嚴禁返回空 steps。如果對話中真係完全冇提到煮法，先可以留空 steps。如果冇推薦食譜，recipes 可以是空陣列。`;
+---next-steps---
+1. 幫我設計今晚 3餸1湯
+2. 畀我完整食譜
+3. 加入排餐
+4. 換一批建議`;
+
+const EXTRACTION_PROMPT = `你係「Kindcipe」的 AI 食譜助手。根據對話歷史，以指定 JSON 格式整理出你的最終回覆和推薦食譜。
+
+⚠️ 嚴格驗證規則：
+- 每個食譜必須有 ≥1 個食材（ingredients 非空）和 ≥1 個步驟（steps 非空）
+- 如果食譜缺少食材或步驟，**唔好**放入 recipes 陣列
+- 如果對話中冇推薦任何有效食譜，recipes 必須係空陣列 []
+- 每個食譜的 steps 陣列必須包含至少 3 步詳細烹飪步驟（具體說明煮法、時間、火候）
+- 如果對話中真係完全冇提到煮法，先可以留空 steps，但該食譜唔應該放入 recipes`;
 
 const responseSchema: Record<string, unknown> = {
   type: "object", properties: {
@@ -516,6 +545,13 @@ async function extractRecipes(messages: Message[], fallbackContent: string) {
 
   let result = await doExtract();
 
+  // Filter out invalid recipes (must have name, ingredients, and steps)
+  result.recipes = result.recipes.filter(r =>
+    r.name && r.name.length >= 2 &&
+    Array.isArray(r.ingredients) && r.ingredients.length > 0 &&
+    Array.isArray(r.steps) && r.steps.length > 0
+  );
+
   // Check if any recipes have empty/missing steps — force fix
   const missingSteps = result.recipes.filter(r => !r.steps || r.steps.length === 0);
   if (missingSteps.length > 0) {
@@ -535,6 +571,13 @@ async function extractRecipes(messages: Message[], fallbackContent: string) {
       // Keep original result if step-fix fails
     }
   }
+
+  // Final validation: remove any recipes that still lack ingredients or steps
+  result.recipes = result.recipes.filter(r =>
+    r.name && r.name.length >= 2 &&
+    Array.isArray(r.ingredients) && r.ingredients.length > 0 &&
+    Array.isArray(r.steps) && r.steps.length > 0
+  );
 
   return result;
 }
@@ -561,7 +604,11 @@ export async function processAIChefChat(
   ];
 
   const { finalContent, allMessages } = await runToolsLoop(msgs, familyId, userId);
-  return extractRecipes(allMessages, finalContent);
+
+  // Use structured extraction to get validated recipes
+  const { content, recipes } = await extractRecipes(allMessages, finalContent);
+
+  return { content, recipes };
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──
@@ -578,32 +625,19 @@ export async function* streamAIChefChat(
 
   const { allMessages } = await runToolsLoop(msgs, familyId, userId);
 
-  // Stream the text response
-  const streamMsgs: Message[] = [
-    sysMsg,
-    ...allMessages.slice(1),
-    { role: "user", content: "請根據以上所有資訊給出你的回覆，用繁體中文，200字內，唔好加任何 JSON 格式。" },
-  ];
+  // Stream the text response directly (no re-generation)
+  const lastAssistantMsg = allMessages.filter(m => m.role === "assistant").pop();
+  const lastAssistantContent = typeof lastAssistantMsg?.content === "string" ? lastAssistantMsg.content : "";
 
-  let streamedText = "";
-  try {
-    for await (const token of invokeLLMStream({
-      messages: streamMsgs, maxTokens: 4096, temperature: 0.7, enableSearch: false,
-    })) {
-      streamedText += token;
-      yield { type: "text", value: token };
+  if (lastAssistantContent) {
+    // Stream character by character for smooth UX
+    for (let i = 0; i < lastAssistantContent.length; i += 50) {
+      yield { type: "text", value: lastAssistantContent.slice(i, i + 50) };
     }
-  } catch (e) {
-    console.log("[AIChef] Stream error:", e);
   }
 
-  // Extract recipes
-  const { recipes } = await extractRecipes(
-    [...allMessages, { role: "assistant", content: streamedText }],
-    allMessages.filter(m => m.role === "assistant").pop()?.content as string ?? streamedText
-  );
-
-  if (recipes.length > 0) yield { type: "recipes", value: recipes };
+  // Return empty recipes - frontend will parse from content
+  yield { type: "recipes", value: [] };
   yield { type: "done" };
 }
 
@@ -613,14 +647,16 @@ export const aiRecipeRouter = router({
   chat: publicProcedure
     .input(z.object({
       messages: z.array(messageSchema).min(1),
-      familyId: z.number().optional(),
-      userId: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // Use context for family/user identity (frontend doesn't pass these)
+      const familyId = ctx.activeFamilyId ?? undefined;
+      const userId = ctx.user?.id ? Number(ctx.user.id) : undefined;
+
       return processAIChefChat(
         input.messages.map(m => ({ role: m.role, content: m.content })),
-        input.familyId,
-        input.userId
+        familyId,
+        userId
       );
     }),
 });
