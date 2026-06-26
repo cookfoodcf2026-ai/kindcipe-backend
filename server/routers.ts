@@ -267,22 +267,27 @@ const shoppingRouter = router({
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       const isHelper = ctx.activeFamilyRole === "helper";
       const status = isHelper ? "pending" : (input.status || "active");
-      await addShoppingItem({
-        familyId: ctx.activeFamilyId,
-        name: input.name,
-        nameEn: input.nameEn,
-        category: input.category,
-        quantity: input.quantity,
-        unit: input.unit,
-        estimatedPrice: input.estimatedPrice,
-        status,
-        proposedByUserId: isHelper ? ctx.user.id : undefined,
-        proposedByName: isHelper ? (ctx.user.name || "Helper") : undefined,
-        fromRecipeId: input.fromRecipeId,
-        fromRecipeName: input.fromRecipeName,
-        plannedDate: input.plannedDate,
-        commonIngredientId: input.commonIngredientId ?? null,
-      });
+      try {
+        await addShoppingItem({
+          familyId: ctx.activeFamilyId,
+          name: input.name,
+          nameEn: input.nameEn,
+          category: input.category,
+          quantity: input.quantity,
+          unit: input.unit,
+          estimatedPrice: input.estimatedPrice,
+          status,
+          proposedByUserId: isHelper ? ctx.user.id : undefined,
+          proposedByName: isHelper ? (ctx.user.name || "Helper") : undefined,
+          fromRecipeId: input.fromRecipeId,
+          fromRecipeName: input.fromRecipeName,
+          plannedDate: input.plannedDate,
+          commonIngredientId: input.commonIngredientId ?? null,
+        });
+      } catch (err) {
+        console.error("[shopping.add] Failed:", err);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to add item. Please try again." });
+      }
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
