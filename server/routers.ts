@@ -267,28 +267,42 @@ const shoppingRouter = router({
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       const isHelper = ctx.activeFamilyRole === "helper";
       const status = isHelper ? "pending" : (input.status || "active");
+      
+      // Sanitize name: trim and truncate to 128 chars
+      const sanitizedName = input.name.trim().slice(0, 128);
+      
       try {
         await addShoppingItem({
           familyId: ctx.activeFamilyId,
-          name: input.name,
-          nameEn: input.nameEn,
-          category: input.category,
-          quantity: input.quantity,
-          unit: input.unit,
+          name: sanitizedName,
+          nameEn: input.nameEn?.slice(0, 128),
+          category: input.category?.slice(0, 64),
+          quantity: input.quantity?.slice(0, 64),
+          unit: input.unit?.slice(0, 32),
           estimatedPrice: input.estimatedPrice,
           status,
           proposedByUserId: isHelper ? ctx.user.id : undefined,
           proposedByName: isHelper ? (ctx.user.name || "Helper") : undefined,
-          fromRecipeId: input.fromRecipeId,
-          fromRecipeName: input.fromRecipeName,
+          fromRecipeId: input.fromRecipeId?.slice(0, 64),
+          fromRecipeName: input.fromRecipeName?.slice(0, 128),
           plannedDate: input.plannedDate,
           commonIngredientId: input.commonIngredientId ?? null,
         });
       } catch (err) {
         console.error("[shopping.add] Failed:", err);
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to add item. Please try again." });
+        // If insert fails, try once more with minimal data
+        try {
+          await addShoppingItem({
+            familyId: ctx.activeFamilyId,
+            name: sanitizedName || "Unnamed item",
+            status,
+          });
+        } catch (retryErr) {
+          console.error("[shopping.add] Retry also failed:", retryErr);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to add item. Please try again." });
+        }
       }
-      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+      broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
 
@@ -346,16 +360,16 @@ const shoppingRouter = router({
       if (toInsert.length > 0) {
         const rows = toInsert.map((item) => ({
           familyId: ctx.activeFamilyId!,
-          name: item.name,
-          nameEn: item.nameEn,
-          category: item.category,
-          quantity: item.quantity,
-          unit: item.unit,
+          name: item.name.trim().slice(0, 128),
+          nameEn: item.nameEn?.slice(0, 128),
+          category: item.category?.slice(0, 64),
+          quantity: item.quantity?.slice(0, 64),
+          unit: item.unit?.slice(0, 32),
           status: status as "pending" | "active",
           proposedByUserId: isHelper ? ctx.user.id : undefined,
           proposedByName: isHelper ? (ctx.user.name || "Helper") : undefined,
-          fromRecipeId: input.fromRecipeId,
-          fromRecipeName: input.fromRecipeName,
+          fromRecipeId: input.fromRecipeId?.slice(0, 64),
+          fromRecipeName: input.fromRecipeName?.slice(0, 128),
           plannedDate: input.plannedDate,
           commonIngredientId: item.commonIngredientId ?? null,
         }));
