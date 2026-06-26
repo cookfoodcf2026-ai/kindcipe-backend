@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, or, like, desc } from "drizzle-orm";
 import { publicProcedure, router } from "../_core/trpc";
-import { invokeLLM, invokeLLMStream, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { officialRecipes, customRecipes, pantryItems, mealPlans, shoppingItems } from "../../drizzle/schema";
 
