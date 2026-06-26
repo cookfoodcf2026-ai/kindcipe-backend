@@ -3778,5 +3778,27 @@
     "nameYue": "寵物除臭劑",
     "nameZh": "寵物除臭劑",
     "nameEn": "Pet Deodorizer"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "蕃茄",
+    "nameZh": "番茄",
+    "nameEn": "Tomato",
+    "nameFil": null,
+    "nameId": null,
+    "isActive": true,
+    "sortOrder": 0
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "蕃薯",
+    "nameZh": "薯仔",
+    "nameEn": "Sweet Potato",
+    "nameFil": null,
+    "nameId": null,
+    "isActive": true,
+    "sortOrder": 0
   }
 ]
