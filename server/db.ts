@@ -248,6 +248,7 @@ export async function addShoppingItems(items: InsertShoppingItem[]) {
 
 export async function updateShoppingItemStatus(
   id: number,
+  familyId: number,
   status: "pending" | "active" | "bought",
   boughtByUserId?: number,
   boughtByName?: string
@@ -259,11 +260,12 @@ export async function updateShoppingItemStatus(
     boughtByUserId: boughtByUserId ?? null,
     boughtByName: boughtByName ?? null,
     boughtAt: status === "bought" ? new Date() : null,
-  }).where(eq(shoppingItems.id, id));
+  }).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
 }
 
 export async function updateShoppingItemDetails(
   id: number,
+  familyId: number,
   updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number }
 ) {
   const db = await getDb();
@@ -274,24 +276,24 @@ export async function updateShoppingItemDetails(
   if (updates.unit !== undefined) set.unit = updates.unit;
   if (updates.estimatedPrice !== undefined) set.estimatedPrice = updates.estimatedPrice;
   if (Object.keys(set).length === 0) return;
-  await db.update(shoppingItems).set(set).where(eq(shoppingItems.id, id));
+  await db.update(shoppingItems).set(set).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
 }
-export async function approveShoppingItem(id: number) {
+export async function approveShoppingItem(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(shoppingItems).set({ status: "active" }).where(eq(shoppingItems.id, id));
-}
-
-export async function rejectShoppingItem(id: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db.delete(shoppingItems).where(eq(shoppingItems.id, id));
+  await db.update(shoppingItems).set({ status: "active" }).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
 }
 
-export async function deleteShoppingItem(id: number) {
+export async function rejectShoppingItem(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(shoppingItems).where(eq(shoppingItems.id, id));
+  await db.delete(shoppingItems).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
+}
+
+export async function deleteShoppingItem(id: number, familyId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(shoppingItems).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
 }
 
 export async function clearBoughtItems(familyId: number) {
@@ -357,6 +359,7 @@ export async function getPendingMealPlansCount(familyId: number): Promise<number
 
 export async function updateMealPlanStatus(
   id: number,
+  familyId: number,
   status: "pending" | "confirmed" | "rejected",
   confirmedByUserId?: number
 ) {
@@ -366,20 +369,20 @@ export async function updateMealPlanStatus(
     status,
     confirmedByUserId: confirmedByUserId ?? null,
     confirmedAt: status === "confirmed" ? new Date() : null,
-  }).where(eq(mealPlans.id, id));
+  }).where(and(eq(mealPlans.id, id), eq(mealPlans.familyId, familyId)));
 }
 
-export async function getMealPlanById(id: number) {
+export async function getMealPlanById(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return null;
-  const rows = await db.select().from(mealPlans).where(eq(mealPlans.id, id)).limit(1);
+  const rows = await db.select().from(mealPlans).where(and(eq(mealPlans.id, id), eq(mealPlans.familyId, familyId))).limit(1);
   return rows[0] ?? null;
 }
 
-export async function deleteMealPlan(id: number) {
+export async function deleteMealPlan(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(mealPlans).where(eq(mealPlans.id, id));
+  await db.delete(mealPlans).where(and(eq(mealPlans.id, id), eq(mealPlans.familyId, familyId)));
 }
 
 // 刪除由某排餐（recipeId + date + familyId）加入、且尚未購買的購物清單項目
@@ -421,16 +424,16 @@ export async function addPantryItems(items: InsertPantryItem[]) {
   await db.insert(pantryItems).values(items);
 }
 
-export async function deletePantryItem(id: number) {
+export async function deletePantryItem(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(pantryItems).where(eq(pantryItems.id, id));
+  await db.delete(pantryItems).where(and(eq(pantryItems.id, id), eq(pantryItems.familyId, familyId)));
 }
 
-export async function updatePantryItem(id: number, updates: { isLow?: boolean; inStock?: boolean; quantity?: string }) {
+export async function updatePantryItem(id: number, familyId: number, updates: { isLow?: boolean; inStock?: boolean; quantity?: string }) {
   const db = await getDb();
   if (!db) return;
-  await db.update(pantryItems).set(updates).where(eq(pantryItems.id, id));
+  await db.update(pantryItems).set(updates).where(and(eq(pantryItems.id, id), eq(pantryItems.familyId, familyId)));
 }
 
 // ─── Favorite Items ───────────────────────────────────────────────────────────

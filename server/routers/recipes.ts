@@ -1633,6 +1633,13 @@ export const recipesRouter = router({
         .where(eq(customRecipes.id, numericId)).limit(1);
       if (!r) throw new TRPCError({ code: "NOT_FOUND" });
 
+      // Check access: user can view their own family's recipes or public recipes
+      if (r.visibility === "private") {
+        if (!ctx.user || !ctx.activeFamilyId || r.familyId !== ctx.activeFamilyId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      }
+
       return {
         ...r,
         id: `user_${r.id}`,
