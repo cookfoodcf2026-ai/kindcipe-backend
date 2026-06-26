@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
   InsertUser,
+  commonIngredients,
   customRecipes,
   familyMembers,
   families,
@@ -15,6 +16,7 @@ import {
   recipeEvents,
   shoppingItems,
   users,
+  type InsertCommonIngredient,
   type InsertFamily,
   type InsertFamilyMember,
   type InsertFavoriteItem,
@@ -988,4 +990,55 @@ export async function touchUserSignIn(userId: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
+// ─── Common Ingredients ──────────────────────────────────────────────────────
+
+/** Return all active common ingredients */
+export async function getCommonIngredients() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(commonIngredients)
+    .where(eq(commonIngredients.isActive, true))
+    .orderBy(commonIngredients.sortOrder, commonIngredients.nameYue);
+}
+
+/** Search common ingredients across all language fields using ILIKE */
+export async function searchCommonIngredients(query: string, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  const q = `%${query}%`;
+  return db
+    .select()
+    .from(commonIngredients)
+    .where(
+      and(
+        eq(commonIngredients.isActive, true),
+        sql`${commonIngredients.nameYue} ILIKE ${q} OR ${commonIngredients.nameZh} ILIKE ${q} OR ${commonIngredients.nameEn} ILIKE ${q} OR COALESCE(${commonIngredients.nameFil}, '') ILIKE ${q} OR COALESCE(${commonIngredients.nameId}, '') ILIKE ${q}`
+      )
+    )
+    .orderBy(commonIngredients.sortOrder, commonIngredients.nameYue)
+    .limit(limit);
+}
+
+/** Insert common ingredients (idempotent: skip if nameYue already exists) */
+export async function insertCommonIngredients(items: InsertCommonIngredient[]): Promise<number> {
+  if (items.length === 0) return 0;
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  let inserted = 0;
+  for (const item of items) {
+    try {
+      await db
+        .insert(commonIngredients)
+        .values(item)
+        .onConflictDoNothing({ target: commonIngredients.nameYue });
+      inserted++;
+    } catch {
+      // Skip duplicates
+    }
+  }
+  return inserted;
 }

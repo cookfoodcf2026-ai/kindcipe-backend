@@ -105,6 +105,7 @@ export const shoppingItems = pgTable("shopping_items", {
   fromRecipeId: varchar("from_recipe_id", { length: 64 }),
   fromRecipeName: varchar("from_recipe_name", { length: 128 }),
   plannedDate: varchar("planned_date", { length: 16 }),
+  commonIngredientId: integer("common_ingredient_id"),
   boughtByUserId: integer("bought_by_user_id"),
   boughtByName: varchar("bought_by_name", { length: 64 }),
   boughtAt: timestamp("bought_at"),
@@ -303,6 +304,25 @@ export const importUsage = pgTable("import_usage", {
 
 export type ImportUsage = typeof importUsage.$inferSelect;
 export type InsertImportUsage = typeof importUsage.$inferInsert;
+
+// ─── Common Ingredients ───────────────────────────────────────────────────────
+export const commonIngredients = pgTable("common_ingredients", {
+  id: serial("id").primaryKey(),
+  categoryKey: varchar("category_key", { length: 32 }).notNull(),
+  defaultUnitKey: varchar("default_unit_key", { length: 32 }),
+  nameYue: varchar("name_yue", { length: 128 }).notNull().unique(),
+  nameZh: varchar("name_zh", { length: 128 }).notNull(),
+  nameEn: varchar("name_en", { length: 128 }).notNull(),
+  nameFil: varchar("name_fil", { length: 128 }),
+  nameId: varchar("name_id", { length: 128 }),
+  isActive: boolean("is_active").default(true).notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type CommonIngredient = typeof commonIngredients.$inferSelect;
+export type InsertCommonIngredient = typeof commonIngredients.$inferInsert;
 
 // ─── Pantry Items ─────────────────────────────────────────────────────────────
 export const pantryItems = pgTable("pantry_items", {

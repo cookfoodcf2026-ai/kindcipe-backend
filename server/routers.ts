@@ -10,6 +10,7 @@ import { priceWatchRouter } from "./routers/priceWatch";
 import { recipesRouter } from "./routers/recipes";
 import { customRecipeRouter } from "./routers/customRecipe";
 import { weeklyMenuRouter } from "./routers/weeklyMenu";
+import { commonIngredientRouter } from "./routers/commonIngredient";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { broadcastToFamily } from "./_core/sseSync";
 import { notifyOwner } from "./_core/notification";
@@ -258,6 +259,7 @@ const shoppingRouter = router({
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      commonIngredientId: z.number().int().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -277,6 +279,7 @@ const shoppingRouter = router({
         fromRecipeId: input.fromRecipeId,
         fromRecipeName: input.fromRecipeName,
         plannedDate: input.plannedDate,
+        commonIngredientId: input.commonIngredientId ?? null,
       });
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
@@ -290,6 +293,7 @@ const shoppingRouter = router({
         category: z.string().max(64).optional(),
         quantity: z.string().max(64).optional(),
         unit: z.string().max(32).optional(),
+        commonIngredientId: z.number().int().optional(),
       })),
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
@@ -346,6 +350,7 @@ const shoppingRouter = router({
           fromRecipeId: input.fromRecipeId,
           fromRecipeName: input.fromRecipeName,
           plannedDate: input.plannedDate,
+          commonIngredientId: item.commonIngredientId ?? null,
         }));
         await addShoppingItems(rows);
       }
@@ -906,6 +911,7 @@ export const appRouter = router({
   customRecipe: customRecipeRouter,
   weeklyMenu: weeklyMenuRouter,
   recipeNotes: recipeNotesRouter,
+  commonIngredient: commonIngredientRouter,
 });
 
 export type AppRouter = typeof appRouter;

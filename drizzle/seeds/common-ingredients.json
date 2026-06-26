@@ -1,0 +1,3782 @@
+[
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "番茄",
+    "nameZh": "番茄",
+    "nameEn": "Tomato"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "洋蔥",
+    "nameZh": "洋蔥",
+    "nameEn": "Onion"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "clove",
+    "nameYue": "蒜頭",
+    "nameZh": "蒜頭",
+    "nameEn": "Garlic"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "slice",
+    "nameYue": "薑",
+    "nameZh": "薑",
+    "nameEn": "Ginger"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "stalk",
+    "nameYue": "蔥",
+    "nameZh": "蔥",
+    "nameEn": "Spring Onion"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "白菜",
+    "nameZh": "白菜",
+    "nameEn": "Chinese Cabbage"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "菠菜",
+    "nameZh": "菠菜",
+    "nameEn": "Spinach"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "西蘭花",
+    "nameZh": "西蘭花",
+    "nameEn": "Broccoli"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "蘿蔔",
+    "nameZh": "蘿蔔",
+    "nameEn": "Radish"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "薯仔",
+    "nameZh": "薯仔",
+    "nameEn": "Potato"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "紅蘿蔔",
+    "nameZh": "紅蘿蔔",
+    "nameEn": "Carrot"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "青瓜",
+    "nameZh": "青瓜",
+    "nameEn": "Cucumber"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "茄子",
+    "nameZh": "茄子",
+    "nameEn": "Eggplant"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "苦瓜",
+    "nameZh": "苦瓜",
+    "nameEn": "Bitter Gourd"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "slice",
+    "nameYue": "冬瓜",
+    "nameZh": "冬瓜",
+    "nameEn": "Winter Melon"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "slice",
+    "nameYue": "南瓜",
+    "nameZh": "南瓜",
+    "nameEn": "Pumpkin"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "椰菜",
+    "nameZh": "椰菜",
+    "nameEn": "Cauliflower"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "生菜",
+    "nameZh": "生菜",
+    "nameEn": "Lettuce"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "stalk",
+    "nameYue": "韭菜",
+    "nameZh": "韭菜",
+    "nameEn": "Chives"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆苗",
+    "nameZh": "豆苗",
+    "nameEn": "Pea Shoots"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "pack",
+    "nameYue": "芽菜",
+    "nameZh": "芽菜",
+    "nameEn": "Bean Sprouts"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "木耳",
+    "nameZh": "木耳",
+    "nameEn": "Black Fungus"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "雲耳",
+    "nameZh": "雲耳",
+    "nameEn": "Cloud Ear Fungus"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "bunch",
+    "nameYue": "金針",
+    "nameZh": "金針",
+    "nameEn": "Day Lily"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "冬菇",
+    "nameZh": "冬菇",
+    "nameEn": "Shiitake Mushroom"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "box",
+    "nameYue": "鮮菇",
+    "nameZh": "鮮菇",
+    "nameEn": "Fresh Mushroom"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "box",
+    "nameYue": "蘑菇",
+    "nameZh": "蘑菇",
+    "nameEn": "Button Mushroom"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "菜心",
+    "nameZh": "菜心",
+    "nameEn": "Choy Sum"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "芥蘭",
+    "nameZh": "芥蘭",
+    "nameEn": "Chinese Broccoli"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "莧菜",
+    "nameZh": "莧菜",
+    "nameEn": "Amaranth"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "通菜",
+    "nameZh": "通菜",
+    "nameEn": "Water Spinach"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "荽",
+    "nameZh": "芫荽",
+    "nameEn": "Coriander"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "芹菜",
+    "nameZh": "芹菜",
+    "nameEn": "Celery"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "西芹",
+    "nameZh": "西芹",
+    "nameEn": "Western Celery"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "椰菜花",
+    "nameZh": "椰菜花",
+    "nameEn": "Cauliflower"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "紹菜",
+    "nameZh": "紹菜",
+    "nameEn": "Napa Cabbage"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "娃娃菜",
+    "nameZh": "娃娃菜",
+    "nameEn": "Baby Cabbage"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "秋葵",
+    "nameZh": "秋葵",
+    "nameEn": "Okra"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "蘆筍",
+    "nameZh": "蘆筍",
+    "nameEn": "Asparagus"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "荷蘭豆",
+    "nameZh": "荷蘭豆",
+    "nameEn": "Snow Peas"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "四季豆",
+    "nameZh": "四季豆",
+    "nameEn": "Green Beans"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "毛豆",
+    "nameZh": "毛豆",
+    "nameEn": "Edamame"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "粟米",
+    "nameZh": "粟米",
+    "nameEn": "Corn"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "蓮藕",
+    "nameZh": "蓮藕",
+    "nameEn": "Lotus Root"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "芋頭",
+    "nameZh": "芋頭",
+    "nameEn": "Taro"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "淮山",
+    "nameZh": "淮山",
+    "nameEn": "Chinese Yam"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "牛蒡",
+    "nameZh": "牛",
+    "nameEn": "Burdock Root"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "沙葛",
+    "nameZh": "沙葛",
+    "nameEn": "Jicama"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "涼瓜",
+    "nameZh": "涼瓜",
+    "nameEn": "Bitter Melon"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "絲瓜",
+    "nameZh": "絲瓜",
+    "nameEn": "Luffa"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "佛手瓜",
+    "nameZh": "佛手瓜",
+    "nameEn": "Chayote"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "翠玉瓜",
+    "nameZh": "翠玉瓜",
+    "nameEn": "Zucchini"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "意大利瓜",
+    "nameZh": "意大利瓜",
+    "nameEn": "Courgette"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "甜椒",
+    "nameZh": "甜椒",
+    "nameEn": "Bell Pepper"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "紅椒",
+    "nameZh": "紅椒",
+    "nameEn": "Red Pepper"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "青椒",
+    "nameZh": "青椒",
+    "nameEn": "Green Pepper"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "辣椒",
+    "nameZh": "辣椒",
+    "nameEn": "Chili Pepper"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "指天椒",
+    "nameZh": "指天椒",
+    "nameEn": "Bird's Eye Chili"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "番茄仔",
+    "nameZh": "小番茄",
+    "nameEn": "Cherry Tomato"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "車厘茄",
+    "nameZh": "車厘茄",
+    "nameEn": "Cherry Tomato"
+  },
+  {
+    "categoryKey": "vegetables",
+    "defaultUnitKey": "piece",
+    "nameYue": "紫蘇",
+    "nameZh": "紫蘇",
+    "nameEn": "Perilla"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "蘋果",
+    "nameZh": "蘋果",
+    "nameEn": "Apple"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "橙",
+    "nameZh": "橙",
+    "nameEn": "Orange"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "柑",
+    "nameZh": "柑",
+    "nameEn": "Mandarin"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "柚",
+    "nameZh": "柚",
+    "nameEn": "Pomelo"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "檸檬",
+    "nameZh": "檸檬",
+    "nameEn": "Lemon"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "青檸",
+    "nameZh": "青檸",
+    "nameEn": "Lime"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "香蕉",
+    "nameZh": "香蕉",
+    "nameEn": "Banana"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "車厘子",
+    "nameZh": "車厘子",
+    "nameEn": "Cherry"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "士多啤梨",
+    "nameZh": "士多啤梨",
+    "nameEn": "Strawberry"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "藍莓",
+    "nameZh": "藍莓",
+    "nameEn": "Blueberry"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "提子",
+    "nameZh": "提子",
+    "nameEn": "Grape"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "奇異果",
+    "nameZh": "奇異果",
+    "nameEn": "Kiwi"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "芒果",
+    "nameZh": "芒果",
+    "nameEn": "Mango"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "木瓜",
+    "nameZh": "木瓜",
+    "nameEn": "Papaya"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "火龍果",
+    "nameZh": "火龍果",
+    "nameEn": "Dragon Fruit"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "西瓜",
+    "nameZh": "西瓜",
+    "nameEn": "Watermelon"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "哈密瓜",
+    "nameZh": "哈密瓜",
+    "nameEn": "Honeydew Melon"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "蜜瓜",
+    "nameZh": "蜜瓜",
+    "nameEn": "Rock Melon"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "菠蘿",
+    "nameZh": "菠蘿",
+    "nameEn": "Pineapple"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "榴槤",
+    "nameZh": "榴槤",
+    "nameEn": "Durian"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "山竹",
+    "nameZh": "山竹",
+    "nameEn": "Mangosteen"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "荔枝",
+    "nameZh": "荔枝",
+    "nameEn": "Lychee"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "龍眼",
+    "nameZh": "龍眼",
+    "nameEn": "Longan"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "楊桃",
+    "nameZh": "楊桃",
+    "nameEn": "Starfruit"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "百香果",
+    "nameZh": "百香果",
+    "nameEn": "Passion Fruit"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "石榴",
+    "nameZh": "石榴",
+    "nameEn": "Pomegranate"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "無花果",
+    "nameZh": "無花果",
+    "nameEn": "Fig"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "棗",
+    "nameZh": "棗",
+    "nameEn": "Jujube"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "雪梨",
+    "nameZh": "雪梨",
+    "nameEn": "Asian Pear"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "水蜜桃",
+    "nameZh": "水蜜桃",
+    "nameEn": "Peach"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "油桃",
+    "nameZh": "油桃",
+    "nameEn": "Nectarine"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "李",
+    "nameZh": "李",
+    "nameEn": "Plum"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "牛油果",
+    "nameZh": "牛油果",
+    "nameEn": "Avocado"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "椰子",
+    "nameZh": "椰子",
+    "nameEn": "Coconut"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "菠蘿蜜",
+    "nameZh": "菠蘿蜜",
+    "nameEn": "Jackfruit"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "紅毛丹",
+    "nameZh": "紅毛丹",
+    "nameEn": "Rambutan"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "龍宮果",
+    "nameZh": "龍宮果",
+    "nameEn": "Langsat"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "蓮霧",
+    "nameZh": "蓮霧",
+    "nameEn": "Wax Apple"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "枇杷",
+    "nameZh": "枇杷",
+    "nameEn": "Loquat"
+  },
+  {
+    "categoryKey": "fruits",
+    "defaultUnitKey": "piece",
+    "nameYue": "桑椹",
+    "nameZh": "桑椹",
+    "nameEn": "Mulberry"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬肉",
+    "nameZh": "豬肉",
+    "nameEn": "Pork"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛肉",
+    "nameZh": "牛肉",
+    "nameEn": "Beef"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "羊肉",
+    "nameZh": "羊肉",
+    "nameEn": "Lamb"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞",
+    "nameZh": "雞",
+    "nameEn": "Chicken"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞翼",
+    "nameZh": "雞翼",
+    "nameEn": "Chicken Wing"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞胸",
+    "nameZh": "雞胸",
+    "nameEn": "Chicken Breast"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞腿",
+    "nameZh": "雞腿",
+    "nameEn": "Chicken Leg"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞腎",
+    "nameZh": "雞腎",
+    "nameEn": "Chicken Gizzard"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞肝",
+    "nameZh": "雞肝",
+    "nameEn": "Chicken Liver"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "豬排",
+    "nameZh": "豬排",
+    "nameEn": "Pork Chop"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "牛扒",
+    "nameZh": "牛扒",
+    "nameEn": "Beef Steak"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬絞肉",
+    "nameZh": "豬絞肉",
+    "nameEn": "Ground Pork"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛絞肉",
+    "nameZh": "牛絞肉",
+    "nameEn": "Ground Beef"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "煙肉",
+    "nameZh": "煙肉",
+    "nameEn": "Bacon"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "腸仔",
+    "nameZh": "腸仔",
+    "nameEn": "Sausage"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "slice",
+    "nameYue": "火腿",
+    "nameZh": "火腿",
+    "nameEn": "Ham"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "臘腸",
+    "nameZh": "臘腸",
+    "nameEn": "Chinese Sausage"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "潤腸",
+    "nameZh": "潤腸",
+    "nameEn": "Pork Liver Sausage"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬腩",
+    "nameZh": "豬腩",
+    "nameEn": "Pork Belly"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬頸肉",
+    "nameZh": "豬頸肉",
+    "nameEn": "Pork Collar"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "梅頭肉",
+    "nameZh": "梅頭肉",
+    "nameEn": "Pork Shoulder"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬手",
+    "nameZh": "豬手",
+    "nameEn": "Pork Trotter"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬尾",
+    "nameZh": "豬尾",
+    "nameEn": "Pork Tail"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬肚",
+    "nameZh": "豬肚",
+    "nameEn": "Pork Stomach"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "豬耳",
+    "nameZh": "豬耳",
+    "nameEn": "Pork Ear"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛",
+    "nameZh": "牛腩",
+    "nameEn": "Beef Brisket"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛腱",
+    "nameZh": "牛腱",
+    "nameEn": "Beef Shank"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛舌",
+    "nameZh": "牛舌",
+    "nameEn": "Beef Tongue"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛百葉",
+    "nameZh": "牛百葉",
+    "nameEn": "Beef Tripe"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "牛肚",
+    "nameZh": "牛肚",
+    "nameEn": "Beef Stomach"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "羊架",
+    "nameZh": "羊架",
+    "nameEn": "Lamb Rack"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "羊",
+    "nameZh": "羊腩",
+    "nameEn": "Lamb Brisket"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "鴨",
+    "nameZh": "鴨",
+    "nameEn": "Duck"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "鴨胸",
+    "nameZh": "鴨胸",
+    "nameEn": "Duck Breast"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "鵝",
+    "nameZh": "鵝",
+    "nameEn": "Goose"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "乳鴿",
+    "nameZh": "乳鴿",
+    "nameEn": "Squab"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "piece",
+    "nameYue": "鶉",
+    "nameZh": "鶉",
+    "nameEn": "Quail"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "火雞",
+    "nameZh": "火雞",
+    "nameEn": "Turkey"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "catty",
+    "nameYue": "兔肉",
+    "nameZh": "兔肉",
+    "nameEn": "Rabbit"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "午餐肉",
+    "nameZh": "午餐肉",
+    "nameEn": "Luncheon Meat"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "肉鬆",
+    "nameZh": "肉鬆",
+    "nameEn": "Pork Floss"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "肉乾",
+    "nameZh": "肉乾",
+    "nameEn": "Jerky"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "叉燒",
+    "nameZh": "叉燒",
+    "nameEn": "Char Siu"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "燒肉",
+    "nameZh": "燒肉",
+    "nameEn": "Roast Pork"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "燒鴨",
+    "nameZh": "燒鴨",
+    "nameEn": "Roast Duck"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "油雞",
+    "nameZh": "油雞",
+    "nameEn": "Soy Sauce Chicken"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "白切雞",
+    "nameZh": "白切雞",
+    "nameEn": "White Cut Chicken"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "鹽焗雞",
+    "nameZh": "鹽焗雞",
+    "nameEn": "Salt Baked Chicken"
+  },
+  {
+    "categoryKey": "meat",
+    "defaultUnitKey": "pack",
+    "nameYue": "水鵝",
+    "nameZh": "水鵝",
+    "nameEn": "Braised Goose"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "魚",
+    "nameZh": "魚",
+    "nameEn": "Fish"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "catty",
+    "nameYue": "蝦",
+    "nameZh": "蝦",
+    "nameEn": "Shrimp"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "蟹",
+    "nameZh": "蟹",
+    "nameEn": "Crab"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "帶子",
+    "nameZh": "帶子",
+    "nameEn": "Scallop"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "魷魚",
+    "nameZh": "魷魚",
+    "nameEn": "Squid"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "墨魚",
+    "nameZh": "墨魚",
+    "nameEn": "Cuttlefish"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "catty",
+    "nameYue": "蠔",
+    "nameZh": "",
+    "nameEn": "Oyster"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "三文魚",
+    "nameZh": "三文魚",
+    "nameEn": "Salmon"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "吞拿魚",
+    "nameZh": "吞拿魚",
+    "nameEn": "Tuna"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "鱈魚",
+    "nameZh": "鱈魚",
+    "nameEn": "Cod"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "鮑魚",
+    "nameZh": "魚",
+    "nameEn": "Abalone"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "海參",
+    "nameZh": "海參",
+    "nameEn": "Sea Cucumber"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "花枝",
+    "nameZh": "花枝",
+    "nameEn": "Squid"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "蜆",
+    "nameZh": "蜆",
+    "nameEn": "Clam"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "青口",
+    "nameZh": "青口",
+    "nameEn": "Mussel"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "蟶子",
+    "nameZh": "蟶子",
+    "nameEn": "Razor Clam"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "花甲",
+    "nameZh": "花甲",
+    "nameEn": "Clam"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "龍蝦",
+    "nameZh": "龍蝦",
+    "nameEn": "Lobster"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "皮皮蝦",
+    "nameZh": "皮皮蝦",
+    "nameEn": "Mantis Shrimp"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "瀨尿蝦",
+    "nameZh": "瀨尿蝦",
+    "nameEn": "Mantis Shrimp"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "花蟹",
+    "nameZh": "花蟹",
+    "nameEn": "Flower Crab"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "大閘蟹",
+    "nameZh": "大閘蟹",
+    "nameEn": "Hairy Crab"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "松葉蟹",
+    "nameZh": "松葉蟹",
+    "nameEn": "Snow Crab"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "皇帝蟹",
+    "nameZh": "皇帝蟹",
+    "nameEn": "King Crab"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "象拔蚌",
+    "nameZh": "象拔蚌",
+    "nameEn": "Geoduck"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "北極貝",
+    "nameZh": "北極貝",
+    "nameEn": "Arctic Surf Clam"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "赤貝",
+    "nameZh": "赤貝",
+    "nameEn": "Blood Clam"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "元貝",
+    "nameZh": "元貝",
+    "nameEn": "Scallop"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "柱",
+    "nameZh": "瑤柱",
+    "nameEn": "Dried Scallop"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "蝦米",
+    "nameZh": "蝦米",
+    "nameEn": "Dried Shrimp"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "蝦皮",
+    "nameZh": "蝦皮",
+    "nameEn": "Dried Baby Shrimp"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "魚乾",
+    "nameZh": "魚乾",
+    "nameEn": "Dried Fish"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
+    "nameYue": "魷魚乾",
+    "nameZh": "魷魚乾",
+    "nameEn": "Dried Squid"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "鯛魚",
+    "nameZh": "鯛魚",
+    "nameEn": "Sea Bream"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "石斑",
+    "nameZh": "石斑",
+    "nameEn": "Grouper"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "多寶魚",
+    "nameZh": "多寶魚",
+    "nameEn": "Turbot"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "龍脷",
+    "nameZh": "龍脷",
+    "nameEn": "Sole"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "馬友",
+    "nameZh": "馬友",
+    "nameEn": "Fourfinger Threadfin"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "鯇魚",
+    "nameZh": "鯇魚",
+    "nameEn": "Grass Carp"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "slice",
+    "nameYue": "鯽魚",
+    "nameZh": "鯽魚",
+    "nameEn": "Crucian Carp"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞蛋",
+    "nameZh": "雞蛋",
+    "nameEn": "Egg"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "box",
+    "nameYue": "牛奶",
+    "nameZh": "牛奶",
+    "nameEn": "Milk"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "box",
+    "nameYue": "鮮奶",
+    "nameZh": "鮮奶",
+    "nameEn": "Fresh Milk"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "can",
+    "nameYue": "奶粉",
+    "nameZh": "奶粉",
+    "nameEn": "Milk Powder"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "slice",
+    "nameYue": "芝士",
+    "nameZh": "芝士",
+    "nameEn": "Cheese"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "牛油",
+    "nameZh": "牛油",
+    "nameEn": "Butter"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "box",
+    "nameYue": "奶油",
+    "nameZh": "奶油",
+    "nameEn": "Cream"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "cup",
+    "nameYue": "乳酪",
+    "nameZh": "乳酪",
+    "nameEn": "Yogurt"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "cup",
+    "nameYue": "酸乳",
+    "nameZh": "酸乳",
+    "nameEn": "Yogurt"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "鵪鶉蛋",
+    "nameZh": "鵪鶉蛋",
+    "nameEn": "Quail Egg"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "鴨蛋",
+    "nameZh": "鴨蛋",
+    "nameEn": "Duck Egg"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "鹹蛋",
+    "nameZh": "鹹蛋",
+    "nameEn": "Salted Egg"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "皮蛋",
+    "nameZh": "皮蛋",
+    "nameEn": "Century Egg"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆腐",
+    "nameZh": "豆腐",
+    "nameEn": "Tofu"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆卜",
+    "nameZh": "豆卜",
+    "nameEn": "Fried Tofu Puff"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆腐卜",
+    "nameZh": "豆腐卜",
+    "nameEn": "Fried Tofu Puff"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "腐竹",
+    "nameZh": "腐竹",
+    "nameEn": "Dried Bean Curd Sheet"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "枝竹",
+    "nameZh": "枝竹",
+    "nameEn": "Dried Bean Curd Stick"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "油豆腐",
+    "nameZh": "油豆腐",
+    "nameEn": "Fried Tofu"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆乾",
+    "nameZh": "豆乾",
+    "nameEn": "Dried Tofu"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆皮",
+    "nameZh": "豆皮",
+    "nameEn": "Bean Curd Skin"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆腐花",
+    "nameZh": "豆腐花",
+    "nameEn": "Tofu Pudding"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆漿",
+    "nameZh": "豆漿",
+    "nameEn": "Soy Milk"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "豆奶",
+    "nameZh": "豆奶",
+    "nameEn": "Soy Milk"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "芝士片",
+    "nameZh": "芝士片",
+    "nameEn": "Cheese Slice"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "馬蘇里拉芝士",
+    "nameZh": "馬蘇里拉芝士",
+    "nameEn": "Mozzarella"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "帕瑪森芝士",
+    "nameZh": "帕瑪森芝士",
+    "nameEn": "Parmesan"
+  },
+  {
+    "categoryKey": "dairy",
+    "defaultUnitKey": "piece",
+    "nameYue": "奶油芝士",
+    "nameZh": "奶油芝士",
+    "nameEn": "Cream Cheese"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "鹽",
+    "nameZh": "鹽",
+    "nameEn": "Salt"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "糖",
+    "nameZh": "糖",
+    "nameEn": "Sugar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "醬油",
+    "nameZh": "醬油",
+    "nameEn": "Soy Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "生抽",
+    "nameZh": "生抽",
+    "nameEn": "Light Soy Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "老抽",
+    "nameZh": "老抽",
+    "nameEn": "Dark Soy Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "蠔油",
+    "nameZh": "油",
+    "nameEn": "Oyster Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "醋",
+    "nameZh": "醋",
+    "nameEn": "Vinegar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "米酒",
+    "nameZh": "米酒",
+    "nameEn": "Rice Wine"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "麻油",
+    "nameZh": "麻油",
+    "nameEn": "Sesame Oil"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "胡椒粉",
+    "nameZh": "胡椒粉",
+    "nameEn": "Pepper Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "雞粉",
+    "nameZh": "雞粉",
+    "nameEn": "Chicken Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "味精",
+    "nameZh": "味精",
+    "nameEn": "MSG"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "柱候醬",
+    "nameZh": "柱候醬",
+    "nameEn": "Chu Hou Paste"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "海鮮醬",
+    "nameZh": "海鮮醬",
+    "nameEn": "Hoisin Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "甜麵醬",
+    "nameZh": "甜麵醬",
+    "nameEn": "Sweet Bean Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "豆瓣醬",
+    "nameZh": "豆瓣醬",
+    "nameEn": "Doubanjiang"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "辣椒醬",
+    "nameZh": "辣椒醬",
+    "nameEn": "Chili Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "番茄醬",
+    "nameZh": "番茄醬",
+    "nameEn": "Ketchup"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "沙律醬",
+    "nameZh": "沙律醬",
+    "nameEn": "Salad Dressing"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "芥末",
+    "nameZh": "芥末",
+    "nameEn": "Mustard"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "魚露",
+    "nameZh": "魚露",
+    "nameEn": "Fish Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "蝦醬",
+    "nameZh": "蝦醬",
+    "nameEn": "Shrimp Paste"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "沙茶醬",
+    "nameZh": "沙茶醬",
+    "nameEn": "Satay Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "XO醬",
+    "nameZh": "XO醬",
+    "nameEn": "XO Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "辣醬油",
+    "nameZh": "辣醬油",
+    "nameEn": "Worcestershire Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "五香粉",
+    "nameZh": "五香粉",
+    "nameEn": "Five Spice Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "十三香",
+    "nameZh": "十三香",
+    "nameEn": "Thirteen Spice"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "咖喱粉",
+    "nameZh": "咖喱粉",
+    "nameEn": "Curry Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "咖哩膏",
+    "nameZh": "咖哩膏",
+    "nameEn": "Curry Paste"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "孜然粉",
+    "nameZh": "孜然粉",
+    "nameEn": "Cumin Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "花椒粉",
+    "nameZh": "花椒粉",
+    "nameEn": "Sichuan Pepper Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "八角",
+    "nameZh": "八角",
+    "nameEn": "Star Anise"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "桂皮",
+    "nameZh": "桂皮",
+    "nameEn": "Cinnamon Bark"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "香葉",
+    "nameZh": "香葉",
+    "nameEn": "Bay Leaf"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "草果",
+    "nameZh": "草果",
+    "nameEn": "Tsaoko"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "丁香",
+    "nameZh": "丁香",
+    "nameEn": "Clove"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "茴香",
+    "nameZh": "茴香",
+    "nameEn": "Fennel"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "陳皮",
+    "nameZh": "陳皮",
+    "nameEn": "Dried Tangerine Peel"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "冰糖",
+    "nameZh": "冰糖",
+    "nameEn": "Rock Sugar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "紅糖",
+    "nameZh": "紅糖",
+    "nameEn": "Brown Sugar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "黑糖",
+    "nameZh": "黑糖",
+    "nameEn": "Black Sugar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "蜜糖",
+    "nameZh": "蜜糖",
+    "nameEn": "Honey"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "白醋",
+    "nameZh": "白醋",
+    "nameEn": "White Vinegar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "黑醋",
+    "nameZh": "黑醋",
+    "nameEn": "Black Vinegar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "浙醋",
+    "nameZh": "浙醋",
+    "nameEn": "Zhenjiang Vinegar"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "紹興酒",
+    "nameZh": "紹興酒",
+    "nameEn": "Shaoxing Wine"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "花雕酒",
+    "nameZh": "花雕酒",
+    "nameEn": "Huadiao Wine"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "太白粉",
+    "nameZh": "太白粉",
+    "nameEn": "Cornstarch"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "生粉",
+    "nameZh": "生粉",
+    "nameEn": "Cornstarch"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "麵粉",
+    "nameZh": "麵粉",
+    "nameEn": "Flour"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "糯米粉",
+    "nameZh": "糯米粉",
+    "nameEn": "Glutinous Rice Flour"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "澄麵",
+    "nameZh": "澄麵",
+    "nameEn": "Wheat Starch"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "泡打粉",
+    "nameZh": "泡打粉",
+    "nameEn": "Baking Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "梳打粉",
+    "nameZh": "梳打粉",
+    "nameEn": "Baking Soda"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "酵母",
+    "nameZh": "酵母",
+    "nameEn": "Yeast"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "吉士粉",
+    "nameZh": "吉士粉",
+    "nameEn": "Custard Powder"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "椰漿",
+    "nameZh": "椰漿",
+    "nameEn": "Coconut Milk"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "淡奶",
+    "nameZh": "淡奶",
+    "nameEn": "Evaporated Milk"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "pack",
+    "nameYue": "煉奶",
+    "nameZh": "煉奶",
+    "nameEn": "Condensed Milk"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "辣油",
+    "nameZh": "辣油",
+    "nameEn": "Chili Oil"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "花椒油",
+    "nameZh": "花椒油",
+    "nameEn": "Sichuan Pepper Oil"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "蔥油",
+    "nameZh": "蔥油",
+    "nameEn": "Scallion Oil"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "蒜蓉醬",
+    "nameZh": "蒜蓉醬",
+    "nameEn": "Garlic Sauce"
+  },
+  {
+    "categoryKey": "seasoning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "薑蓉",
+    "nameZh": "薑蓉",
+    "nameEn": "Ginger Paste"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "米",
+    "nameZh": "米",
+    "nameEn": "Rice"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "麵條",
+    "nameZh": "麵條",
+    "nameEn": "Noodles"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "意粉",
+    "nameZh": "意粉",
+    "nameEn": "Spaghetti"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "通粉",
+    "nameZh": "通粉",
+    "nameEn": "Macaroni"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "麥片",
+    "nameZh": "麥片",
+    "nameEn": "Oatmeal"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "麵包",
+    "nameZh": "麵包",
+    "nameEn": "Bread"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "方包",
+    "nameZh": "方包",
+    "nameEn": "Sliced Bread"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "piece",
+    "nameYue": "頭",
+    "nameZh": "饅頭",
+    "nameEn": "Steamed Bun"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "piece",
+    "nameYue": "包子",
+    "nameZh": "包子",
+    "nameEn": "Steamed Bun"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "餃子皮",
+    "nameZh": "餃子皮",
+    "nameEn": "Dumpling Wrapper"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "雲吞皮",
+    "nameZh": "雲吞皮",
+    "nameEn": "Wonton Wrapper"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "粉絲",
+    "nameZh": "粉絲",
+    "nameEn": "Glass Noodles"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "冬粉",
+    "nameZh": "冬粉",
+    "nameEn": "Glass Noodles"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "紅豆",
+    "nameZh": "紅豆",
+    "nameEn": "Red Bean"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "綠豆",
+    "nameZh": "綠豆",
+    "nameEn": "Mung Bean"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "花生",
+    "nameZh": "花生",
+    "nameEn": "Peanut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "合桃",
+    "nameZh": "合桃",
+    "nameEn": "Walnut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "腰果",
+    "nameZh": "腰果",
+    "nameEn": "Cashew"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "杏仁",
+    "nameZh": "杏仁",
+    "nameEn": "Almond"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "芝麻",
+    "nameZh": "芝麻",
+    "nameEn": "Sesame"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "枸杞",
+    "nameZh": "枸杞",
+    "nameEn": "Goji Berry"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "紅棗",
+    "nameZh": "紅棗",
+    "nameEn": "Red Date"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "桂圓",
+    "nameZh": "桂圓",
+    "nameEn": "Longan"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "蓮子",
+    "nameZh": "蓮子",
+    "nameEn": "Lotus Seed"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "百合",
+    "nameZh": "百合",
+    "nameEn": "Lily Bulb"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "薏米",
+    "nameZh": "薏米",
+    "nameEn": "Job's Tears"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "赤小豆",
+    "nameZh": "赤小豆",
+    "nameEn": "Adzuki Bean"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "黑豆",
+    "nameZh": "黑豆",
+    "nameEn": "Black Bean"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "黃豆",
+    "nameZh": "黃豆",
+    "nameEn": "Soybean"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "眉豆",
+    "nameZh": "眉豆",
+    "nameEn": "Black-eyed Pea"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "扁豆",
+    "nameZh": "扁豆",
+    "nameEn": "Lentil"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "鷹嘴豆",
+    "nameZh": "鷹嘴豆",
+    "nameEn": "Chickpea"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "奇亞籽",
+    "nameZh": "奇亞籽",
+    "nameEn": "Chia Seed"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "亞麻籽",
+    "nameZh": "亞麻籽",
+    "nameEn": "Flaxseed"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "南瓜籽",
+    "nameZh": "南瓜籽",
+    "nameEn": "Pumpkin Seed"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "葵瓜子",
+    "nameZh": "葵瓜子",
+    "nameEn": "Sunflower Seed"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "開心果",
+    "nameZh": "開心果",
+    "nameEn": "Pistachio"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "夏威夷果",
+    "nameZh": "夏威夷果",
+    "nameEn": "Macadamia"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "巴西堅果",
+    "nameZh": "巴西堅果",
+    "nameEn": "Brazil Nut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "松子",
+    "nameZh": "松子",
+    "nameEn": "Pine Nut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "榛子",
+    "nameZh": "榛子",
+    "nameEn": "Hazelnut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "栗子",
+    "nameZh": "栗子",
+    "nameEn": "Chestnut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "白果",
+    "nameZh": "白果",
+    "nameEn": "Ginkgo Nut"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "南杏",
+    "nameZh": "南杏",
+    "nameEn": "Sweet Almond"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "北杏",
+    "nameZh": "北杏",
+    "nameEn": "Bitter Almond"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "雪耳",
+    "nameZh": "雪耳",
+    "nameEn": "White Fungus"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "銀耳",
+    "nameZh": "銀耳",
+    "nameEn": "White Fungus"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "花膠",
+    "nameZh": "花膠",
+    "nameEn": "Fish Maw"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "燕窩",
+    "nameZh": "燕窩",
+    "nameEn": "Bird's Nest"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "海帶",
+    "nameZh": "海帶",
+    "nameEn": "Kelp"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "紫菜",
+    "nameZh": "紫菜",
+    "nameEn": "Seaweed"
+  },
+  {
+    "categoryKey": "dryGoods",
+    "defaultUnitKey": "pack",
+    "nameYue": "昆布",
+    "nameZh": "昆布",
+    "nameEn": "Kombu"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "pack",
+    "nameYue": "飯",
+    "nameZh": "飯",
+    "nameEn": "Rice"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "pack",
+    "nameYue": "粥",
+    "nameZh": "粥",
+    "nameEn": "Congee"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "pack",
+    "nameYue": "麵",
+    "nameZh": "麵",
+    "nameEn": "Noodles"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "pack",
+    "nameYue": "粉",
+    "nameZh": "粉",
+    "nameEn": "Rice Noodles"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "餃子",
+    "nameZh": "餃子",
+    "nameEn": "Dumpling"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "雲吞",
+    "nameZh": "雲吞",
+    "nameEn": "Wonton"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "燒賣",
+    "nameZh": "燒賣",
+    "nameEn": "Siu Mai"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "包點",
+    "nameZh": "包點",
+    "nameEn": "Steamed Bun"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "月餅",
+    "nameZh": "月餅",
+    "nameEn": "Mooncake"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "糉子",
+    "nameZh": "糉子",
+    "nameEn": "Zongzi"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "腸粉",
+    "nameZh": "腸粉",
+    "nameEn": "Cheung Fun"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "河粉",
+    "nameZh": "河粉",
+    "nameEn": "Ho Fun"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "米粉",
+    "nameZh": "米粉",
+    "nameEn": "Rice Vermicelli"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "烏冬",
+    "nameZh": "烏冬",
+    "nameEn": "Udon"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "蕎麥麵",
+    "nameZh": "蕎麥麵",
+    "nameEn": "Soba"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "拉麵",
+    "nameZh": "拉麵",
+    "nameEn": "Ramen"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "公仔麵",
+    "nameZh": "公仔麵",
+    "nameEn": "Instant Noodles"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "出前一丁",
+    "nameZh": "出前一丁",
+    "nameEn": "Instant Noodles"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "撈麵",
+    "nameZh": "撈麵",
+    "nameEn": "Lo Mein"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "炒麵",
+    "nameZh": "炒麵",
+    "nameEn": "Chow Mein"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "伊麵",
+    "nameZh": "伊麵",
+    "nameEn": "Yi Mein"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "竹昇麵",
+    "nameZh": "竹昇麵",
+    "nameEn": "Bamboo Noodles"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "蛋麵",
+    "nameZh": "蛋麵",
+    "nameEn": "Egg Noodles"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "全麥麵包",
+    "nameZh": "全麥麵包",
+    "nameEn": "Whole Wheat Bread"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "牛角包",
+    "nameZh": "牛角包",
+    "nameEn": "Croissant"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "菠蘿包",
+    "nameZh": "菠蘿包",
+    "nameEn": "Pineapple Bun"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "雞尾包",
+    "nameZh": "雞尾包",
+    "nameEn": "Cocktail Bun"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "蛋撻",
+    "nameZh": "蛋撻",
+    "nameEn": "Egg Tart"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "老婆餅",
+    "nameZh": "老婆餅",
+    "nameEn": "Sweetheart Cake"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "糯米雞",
+    "nameZh": "糯米雞",
+    "nameEn": "Sticky Rice Chicken"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "蘿蔔糕",
+    "nameZh": "蘿蔔糕",
+    "nameEn": "Turnip Cake"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "芋頭糕",
+    "nameZh": "芋頭糕",
+    "nameEn": "Taro Cake"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "馬蹄糕",
+    "nameZh": "馬蹄糕",
+    "nameEn": "Water Chestnut Cake"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "年糕",
+    "nameZh": "年糕",
+    "nameEn": "Nian Gao"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "湯圓",
+    "nameZh": "湯圓",
+    "nameEn": "Tang Yuan"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "艾糍",
+    "nameZh": "艾糍",
+    "nameEn": "Mugwort Mochi"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "piece",
+    "nameYue": "麻糬",
+    "nameZh": "麻糬",
+    "nameEn": "Mochi"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "水",
+    "nameZh": "水",
+    "nameEn": "Water"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "pack",
+    "nameYue": "茶",
+    "nameZh": "茶",
+    "nameEn": "Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "pack",
+    "nameYue": "咖啡",
+    "nameZh": "咖啡",
+    "nameEn": "Coffee"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "可樂",
+    "nameZh": "可樂",
+    "nameEn": "Cola"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "雪碧",
+    "nameZh": "雪碧",
+    "nameEn": "Sprite"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "果汁",
+    "nameZh": "果汁",
+    "nameEn": "Juice"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "啤酒",
+    "nameZh": "啤酒",
+    "nameEn": "Beer"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "紅酒",
+    "nameZh": "紅酒",
+    "nameEn": "Red Wine"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "白酒",
+    "nameZh": "白酒",
+    "nameEn": "White Wine"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "清酒",
+    "nameZh": "清酒",
+    "nameEn": "Sake"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "七喜",
+    "nameZh": "七喜",
+    "nameEn": "7-Up"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "芬達",
+    "nameZh": "芬達",
+    "nameEn": "Fanta"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "紅牛",
+    "nameZh": "紅牛",
+    "nameEn": "Red Bull"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "維他奶",
+    "nameZh": "維他奶",
+    "nameEn": "Vitasoy"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "檸檬茶",
+    "nameZh": "檸檬茶",
+    "nameEn": "Lemon Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "奶茶",
+    "nameZh": "奶茶",
+    "nameEn": "Milk Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "菊花茶",
+    "nameZh": "菊花茶",
+    "nameEn": "Chrysanthemum Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "涼茶",
+    "nameZh": "涼茶",
+    "nameEn": "Herbal Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "王老吉",
+    "nameZh": "王老吉",
+    "nameEn": "Wong Lo Kat"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "加多寶",
+    "nameZh": "加多寶",
+    "nameEn": "Jiaduobao"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "楊枝甘露",
+    "nameZh": "楊枝甘露",
+    "nameEn": "Mango Pomelo Sago"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "椰汁",
+    "nameZh": "椰汁",
+    "nameEn": "Coconut Water"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "椰奶",
+    "nameZh": "椰奶",
+    "nameEn": "Coconut Milk"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "梳打水",
+    "nameZh": "梳打水",
+    "nameEn": "Soda Water"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "湯力水",
+    "nameZh": "湯力水",
+    "nameEn": "Tonic Water"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "蘋果汁",
+    "nameZh": "蘋果汁",
+    "nameEn": "Apple Juice"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "橙汁",
+    "nameZh": "橙汁",
+    "nameEn": "Orange Juice"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "can",
+    "nameYue": "葡萄汁",
+    "nameZh": "葡萄汁",
+    "nameEn": "Grape Juice"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "朱古力奶",
+    "nameZh": "朱古力奶",
+    "nameEn": "Chocolate Milk"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "士多啤梨奶",
+    "nameZh": "士多啤梨奶",
+    "nameEn": "Strawberry Milk"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "燕麥奶",
+    "nameZh": "燕麥奶",
+    "nameEn": "Oat Milk"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "box",
+    "nameYue": "杏仁奶",
+    "nameZh": "杏仁奶",
+    "nameEn": "Almond Milk"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "運動飲料",
+    "nameZh": "運動飲料",
+    "nameEn": "Sports Drink"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "電解質水",
+    "nameZh": "電解質水",
+    "nameEn": "Electrolyte Water"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "bottle",
+    "nameYue": "椰子水",
+    "nameZh": "椰子水",
+    "nameEn": "Coconut Water"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "pack",
+    "nameYue": "綠茶",
+    "nameZh": "綠茶",
+    "nameEn": "Green Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "pack",
+    "nameYue": "烏龍茶",
+    "nameZh": "烏龍茶",
+    "nameEn": "Oolong Tea"
+  },
+  {
+    "categoryKey": "beverage",
+    "defaultUnitKey": "pack",
+    "nameYue": "普洱茶",
+    "nameZh": "普洱茶",
+    "nameEn": "Pu-erh Tea"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "餅乾",
+    "nameZh": "餅乾",
+    "nameEn": "Biscuit"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "曲奇",
+    "nameZh": "曲奇",
+    "nameEn": "Cookie"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "朱古力",
+    "nameZh": "朱古力",
+    "nameEn": "Chocolate"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "糖果",
+    "nameZh": "糖果",
+    "nameEn": "Candy"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "薯片",
+    "nameZh": "薯片",
+    "nameEn": "Potato Chips"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "蝦條",
+    "nameZh": "蝦條",
+    "nameEn": "Prawn Crackers"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "海苔",
+    "nameZh": "海苔",
+    "nameEn": "Seaweed Snack"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "果凍",
+    "nameZh": "果凍",
+    "nameEn": "Jelly"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "布丁",
+    "nameZh": "布丁",
+    "nameEn": "Pudding"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "雪條",
+    "nameZh": "雪條",
+    "nameEn": "Popsicle"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "雪糕",
+    "nameZh": "雪糕",
+    "nameEn": "Ice Cream"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "冰淇林",
+    "nameZh": "冰淇林",
+    "nameEn": "Ice Cream"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "蛋卷",
+    "nameZh": "蛋卷",
+    "nameEn": "Egg Roll"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "威化餅",
+    "nameZh": "威化餅",
+    "nameEn": "Wafer"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "梳打餅",
+    "nameZh": "梳打餅",
+    "nameEn": "Cracker"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "蘇打餅",
+    "nameZh": "蘇打餅",
+    "nameEn": "Soda Cracker"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "花生糖",
+    "nameZh": "花生糖",
+    "nameEn": "Peanut Candy"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "牛軋糖",
+    "nameZh": "牛軋糖",
+    "nameEn": "Nougat"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "棉花糖",
+    "nameZh": "棉花糖",
+    "nameEn": "Marshmallow"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "口香糖",
+    "nameZh": "口香糖",
+    "nameEn": "Chewing Gum"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "薄荷糖",
+    "nameZh": "薄荷糖",
+    "nameEn": "Mint Candy"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "喉糖",
+    "nameZh": "喉糖",
+    "nameEn": "Throat Lozenge"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "果仁",
+    "nameZh": "果仁",
+    "nameEn": "Mixed Nuts"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "粟米條",
+    "nameZh": "粟米條",
+    "nameEn": "Corn Stick"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "魚蛋",
+    "nameZh": "魚蛋",
+    "nameEn": "Fish Ball"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "芝麻球",
+    "nameZh": "芝麻球",
+    "nameEn": "Sesame Ball"
+  },
+  {
+    "categoryKey": "snacks",
+    "defaultUnitKey": "pack",
+    "nameYue": "煎堆",
+    "nameZh": "煎堆",
+    "nameEn": "Sesame Ball"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "bottle",
+    "nameYue": "洗潔精",
+    "nameZh": "洗潔精",
+    "nameEn": "Dish Soap"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "bottle",
+    "nameYue": "洗衣液",
+    "nameZh": "洗衣液",
+    "nameEn": "Laundry Detergent"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "pack",
+    "nameYue": "廁紙",
+    "nameZh": "廁紙",
+    "nameEn": "Toilet Paper"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "pack",
+    "nameYue": "紙巾",
+    "nameZh": "紙巾",
+    "nameEn": "Tissue"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "roll",
+    "nameYue": "保鮮膜",
+    "nameZh": "保鮮膜",
+    "nameEn": "Cling Film"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "pack",
+    "nameYue": "保鮮袋",
+    "nameZh": "保鮮袋",
+    "nameEn": "Food Bag"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "pack",
+    "nameYue": "垃圾袋",
+    "nameZh": "垃圾袋",
+    "nameEn": "Garbage Bag"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "洗碗布",
+    "nameZh": "洗碗布",
+    "nameEn": "Dish Cloth"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "海綿",
+    "nameZh": "海綿",
+    "nameEn": "Sponge"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "pair",
+    "nameYue": "筷子",
+    "nameZh": "筷子",
+    "nameEn": "Chopsticks"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "碗",
+    "nameZh": "碗",
+    "nameEn": "Bowl"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "碟",
+    "nameZh": "碟",
+    "nameEn": "Plate"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "杯",
+    "nameZh": "杯",
+    "nameEn": "Cup"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "鑊",
+    "nameZh": "鑊",
+    "nameEn": "Wok"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "鏟",
+    "nameZh": "鑊",
+    "nameEn": "Spatula"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "湯匙",
+    "nameZh": "湯匙",
+    "nameEn": "Soup Spoon"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "茶匙",
+    "nameZh": "茶匙",
+    "nameEn": "Teaspoon"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "量杯",
+    "nameZh": "量杯",
+    "nameEn": "Measuring Cup"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "砧板",
+    "nameZh": "砧板",
+    "nameEn": "Cutting Board"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "菜刀",
+    "nameZh": "菜刀",
+    "nameEn": "Kitchen Knife"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "剪刀",
+    "nameZh": "剪刀",
+    "nameEn": "Scissors"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "開罐器",
+    "nameZh": "開罐器",
+    "nameEn": "Can Opener"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "刨",
+    "nameZh": "刨",
+    "nameEn": "Peeler"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "隔熱手套",
+    "nameZh": "隔熱手套",
+    "nameEn": "Oven Mitt"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "圍裙",
+    "nameZh": "圍裙",
+    "nameEn": "Apron"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "廚房紙巾",
+    "nameZh": "廚房紙巾",
+    "nameEn": "Kitchen Paper Towel"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "紙",
+    "nameZh": "錫紙",
+    "nameEn": "Aluminum Foil"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "烘焙紙",
+    "nameZh": "烘焙紙",
+    "nameEn": "Baking Paper"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "密實袋",
+    "nameZh": "密實袋",
+    "nameEn": "Ziplock Bag"
+  },
+  {
+    "categoryKey": "household",
+    "defaultUnitKey": "piece",
+    "nameYue": "食物盒",
+    "nameZh": "食物盒",
+    "nameEn": "Food Container"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "漂白水",
+    "nameZh": "漂白水",
+    "nameEn": "Bleach"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "消毒水",
+    "nameZh": "消毒水",
+    "nameEn": "Disinfectant"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "地板清潔劑",
+    "nameZh": "地板清潔劑",
+    "nameEn": "Floor Cleaner"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "玻璃清潔劑",
+    "nameZh": "玻璃清潔劑",
+    "nameEn": "Glass Cleaner"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "廁所能清潔劑",
+    "nameZh": "廁所能清潔劑",
+    "nameEn": "Toilet Cleaner"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "廚房清潔劑",
+    "nameZh": "廚房清潔劑",
+    "nameEn": "Kitchen Cleaner"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "洗衣粉",
+    "nameZh": "洗衣粉",
+    "nameEn": "Laundry Powder"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "柔順劑",
+    "nameZh": "柔順劑",
+    "nameEn": "Fabric Softener"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "拖把",
+    "nameZh": "拖把",
+    "nameEn": "Mop"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "掃把",
+    "nameZh": "掃把",
+    "nameEn": "Broom"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "箕",
+    "nameZh": "畚箕",
+    "nameEn": "Dustpan"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "抹布",
+    "nameZh": "抹布",
+    "nameEn": "Cleaning Cloth"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "膠手套",
+    "nameZh": "膠手套",
+    "nameEn": "Rubber Gloves"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "廁紙刷",
+    "nameZh": "廁紙刷",
+    "nameEn": "Toilet Brush"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "去污粉",
+    "nameZh": "去污粉",
+    "nameEn": "Scouring Powder"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "萬能清潔劑",
+    "nameZh": "萬能清潔劑",
+    "nameEn": "All-Purpose Cleaner"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "微纖維布",
+    "nameZh": "微纖維布",
+    "nameEn": "Microfiber Cloth"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "鋼絲球",
+    "nameZh": "鋼絲球",
+    "nameEn": "Steel Wool"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "百潔布",
+    "nameZh": "百潔布",
+    "nameEn": "Scouring Pad"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "管道疏通劑",
+    "nameZh": "管道疏通劑",
+    "nameEn": "Drain Cleaner"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "空氣清新劑",
+    "nameZh": "空氣清新劑",
+    "nameEn": "Air Freshener"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "樟腦丸",
+    "nameZh": "樟腦丸",
+    "nameEn": "Mothball"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "乾燥劑",
+    "nameZh": "乾燥劑",
+    "nameEn": "Desiccant"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "piece",
+    "nameYue": "防霉片",
+    "nameZh": "防霉片",
+    "nameEn": "Anti-Mold Sheet"
+  },
+  {
+    "categoryKey": "cleaning",
+    "defaultUnitKey": "bottle",
+    "nameYue": "除霉劑",
+    "nameZh": "除霉劑",
+    "nameEn": "Mold Remover"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "洗頭水",
+    "nameZh": "洗頭水",
+    "nameEn": "Shampoo"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "護髮素",
+    "nameZh": "護髮素",
+    "nameEn": "Conditioner"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "沐浴露",
+    "nameZh": "沐浴露",
+    "nameEn": "Body Wash"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "肥皂",
+    "nameZh": "肥皂",
+    "nameEn": "Soap"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "洗手液",
+    "nameZh": "洗手液",
+    "nameEn": "Hand Soap"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "tube",
+    "nameYue": "牙膏",
+    "nameZh": "牙膏",
+    "nameEn": "Toothpaste"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "牙刷",
+    "nameZh": "牙刷",
+    "nameEn": "Toothbrush"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "漱口水",
+    "nameZh": "漱口水",
+    "nameEn": "Mouthwash"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "牙線",
+    "nameZh": "牙線",
+    "nameEn": "Dental Floss"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "護膚霜",
+    "nameZh": "護膚霜",
+    "nameEn": "Moisturizer"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "防曬霜",
+    "nameZh": "防曬霜",
+    "nameEn": "Sunscreen"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "化妝水",
+    "nameZh": "化妝水",
+    "nameEn": "Toner"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "化妝棉",
+    "nameZh": "化妝棉",
+    "nameEn": "Cotton Pad"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "棉簽",
+    "nameZh": "棉簽",
+    "nameEn": "Cotton Swab"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "衛生巾",
+    "nameZh": "衛生巾",
+    "nameEn": "Sanitary Pad"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "護墊",
+    "nameZh": "護墊",
+    "nameEn": "Panty Liner"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "紙尿褲",
+    "nameZh": "紙尿褲",
+    "nameEn": "Diaper"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "piece",
+    "nameYue": "濕紙巾",
+    "nameZh": "濕紙巾",
+    "nameEn": "Wet Wipe"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "潤唇膏",
+    "nameZh": "潤唇膏",
+    "nameEn": "Lip Balm"
+  },
+  {
+    "categoryKey": "personal",
+    "defaultUnitKey": "bottle",
+    "nameYue": "護手霜",
+    "nameZh": "護手霜",
+    "nameEn": "Hand Cream"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "pack",
+    "nameYue": "米糊",
+    "nameZh": "米糊",
+    "nameEn": "Baby Cereal"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "pack",
+    "nameYue": "果泥",
+    "nameZh": "果泥",
+    "nameEn": "Baby Fruit Puree"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "pack",
+    "nameYue": "蔬菜泥",
+    "nameZh": "蔬菜泥",
+    "nameEn": "Baby Vegetable Puree"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "pack",
+    "nameYue": "嬰兒餅乾",
+    "nameZh": "嬰兒餅乾",
+    "nameEn": "Baby Biscuit"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "奶瓶",
+    "nameZh": "奶瓶",
+    "nameEn": "Baby Bottle"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "奶嘴",
+    "nameZh": "奶嘴",
+    "nameEn": "Baby Nipple"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "圍兜",
+    "nameZh": "圍兜",
+    "nameEn": "Baby Bib"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "嬰兒濕紙巾",
+    "nameZh": "嬰兒濕紙巾",
+    "nameEn": "Baby Wipe"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "嬰兒沐浴露",
+    "nameZh": "嬰兒沐浴露",
+    "nameEn": "Baby Body Wash"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "嬰兒洗頭水",
+    "nameZh": "嬰兒洗頭水",
+    "nameEn": "Baby Shampoo"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "嬰兒護膚霜",
+    "nameZh": "嬰兒護膚霜",
+    "nameEn": "Baby Lotion"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "尿布疹膏",
+    "nameZh": "尿布疹膏",
+    "nameEn": "Diaper Rash Cream"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "退熱貼",
+    "nameZh": "退熱貼",
+    "nameEn": "Cooling Gel Patch"
+  },
+  {
+    "categoryKey": "baby",
+    "defaultUnitKey": "piece",
+    "nameYue": "嬰兒棉簽",
+    "nameZh": "嬰兒棉簽",
+    "nameEn": "Baby Cotton Swab"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "貓糧",
+    "nameZh": "貓糧",
+    "nameEn": "Cat Food"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "狗糧",
+    "nameZh": "狗糧",
+    "nameEn": "Dog Food"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "貓罐頭",
+    "nameZh": "貓罐頭",
+    "nameEn": "Cat Wet Food"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "狗罐頭",
+    "nameZh": "狗罐頭",
+    "nameEn": "Dog Wet Food"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "貓零食",
+    "nameZh": "貓零食",
+    "nameEn": "Cat Treat"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "狗零食",
+    "nameZh": "狗零食",
+    "nameEn": "Dog Treat"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "pack",
+    "nameYue": "貓砂",
+    "nameZh": "貓砂",
+    "nameEn": "Cat Litter"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物尿墊",
+    "nameZh": "寵物尿墊",
+    "nameEn": "Pet Pad"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物玩具",
+    "nameZh": "寵物玩具",
+    "nameEn": "Pet Toy"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物洗毛液",
+    "nameZh": "寵物洗毛液",
+    "nameEn": "Pet Shampoo"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物梳",
+    "nameZh": "寵物梳",
+    "nameEn": "Pet Brush"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物牽引繩",
+    "nameZh": "寵物牽引繩",
+    "nameEn": "Pet Leash"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物碗",
+    "nameZh": "寵物碗",
+    "nameEn": "Pet Bowl"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物墊",
+    "nameZh": "寵物墊",
+    "nameEn": "Pet Mat"
+  },
+  {
+    "categoryKey": "pet",
+    "defaultUnitKey": "piece",
+    "nameYue": "寵物除臭劑",
+    "nameZh": "寵物除臭劑",
+    "nameEn": "Pet Deodorizer"
+  }
+]
