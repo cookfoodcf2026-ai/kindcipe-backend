@@ -417,43 +417,89 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 3. 加入排餐
 4. 換一批建議`;
 
-const EXTRACTION_PROMPT = `你係「Kindcipe」的 AI 食譜助手。根據對話歷史，以指定 JSON 格式整理出你的最終回覆和推薦食譜。
+// ─── Direct recipe parser (replaces extractRecipes) ─────────
 
-⚠️ 嚴格驗證規則：
-- 每個食譜必須有 ≥1 個食材（ingredients 非空）和 ≥1 個步驟（steps 非空）
-- 如果食譜缺少食材或步驟，**唔好**放入 recipes 陣列
-- 如果對話中冇推薦任何有效食譜，recipes 必須係空陣列 []
-- 每個食譜的 steps 陣列必須包含至少 3 步詳細烹飪步驟（具體說明煮法、時間、火候）
-- 如果對話中真係完全冇提到煮法，先可以留空 steps，但該食譜唔應該放入 recipes`;
-
-const responseSchema: Record<string, unknown> = {
-  type: "object", properties: {
-    response: {
-      type: "object", properties: {
-        message: { type: "string" },
-        recipes: {
-          type: "array", items: {
-            type: "object", properties: {
-              name: { type: "string" }, cookTime: { type: "number" }, servings: { type: "number" },
-              difficulty: { type: "string" }, description: { type: "string" },
-              recipeCategory: { type: "string" },
-              ingredients: { type: "array", items: {
-                type: "object", properties: { name: { type: "string" }, quantity: { type: "string" }, unit: { type: "string" } },
-                required: ["name", "quantity", "unit"], additionalProperties: false,
-              }},
-              steps: { type: "array", items: { type: "string" } },
-              tags: { type: "array", items: { type: "string" } },
-            },
-            required: ["name", "cookTime", "servings", "difficulty", "description", "recipeCategory", "ingredients", "steps", "tags"],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ["message", "recipes"], additionalProperties: false,
-    },
-  },
-  required: ["response"], additionalProperties: false,
-};
+function parseRecipesFromText(text: string): SuggestedRecipe[] {
+  const recipes: SuggestedRecipe[] = [];
+  
+  // Match recipe headers: 食譜一：類別 —— 名稱（約XX分鐘）
+  // Also supports: 食譜1、食譜 1、1. 名稱（約XX分鐘）
+  const recipeBlocks = text.split(/(?=食譜[一二三四五六七八九十\d]+[：:])/);
+  
+  for (const block of recipeBlocks) {
+    // Try to parse header
+    const headerMatch = block.match(/食譜[一二三四五六七八九十\d]+[：:]\s*(.+?)\s*[——\-]\s*(.+?)(?:[（(]約?(\d+)\s*分鐘[）)])?/);
+    if (!headerMatch) continue;
+    
+    const category = headerMatch[1].trim();
+    const name = headerMatch[2].trim();
+    const cookTime = headerMatch[3] ? parseInt(headerMatch[3], 10) : 30;
+    
+    if (!name || name.length < 2) continue;
+    
+    // Parse ingredients section
+    const ingredients: SuggestedRecipe["ingredients"] = [];
+    const ingSection = block.match(/🛒\s*食材[：:]([\s\S]*?)(?=🍳|---|$)/);
+    if (ingSection) {
+      const ingLines = ingSection[1].split("\n").filter(l => l.trim());
+      for (const line of ingLines) {
+        // Match: - 食材名：數量 單位 or - 食材名 數量 單位
+        const ingMatch = line.match(/[-•]\s*(.+?)[：:]\s*(\d+\.?\d*)\s*(.+)/);
+        if (ingMatch) {
+          ingredients.push({
+            name: ingMatch[1].trim(),
+            quantity: ingMatch[2].trim(),
+            unit: ingMatch[3].trim(),
+          });
+        } else {
+          // Try simpler: - 食材名 數量單位
+          const simpleMatch = line.match(/[-•]\s*(.+?)\s+(\d+\.?\d*)\s*(.+)/);
+          if (simpleMatch) {
+            ingredients.push({
+              name: simpleMatch[1].trim(),
+              quantity: simpleMatch[2].trim(),
+              unit: simpleMatch[3].trim(),
+            });
+          }
+        }
+      }
+    }
+    
+    // Parse steps section
+    const steps: string[] = [];
+    const stepsSection = block.match(/🍳\s*步驟[：:]([\s\S]*?)(?=---|$)/);
+    if (stepsSection) {
+      const stepLines = stepsSection[1].split("\n").filter(l => l.trim());
+      for (const line of stepLines) {
+        // Match: 1. 步驟標題（第 X-Y 分鐘）：詳細描述
+        const stepMatch = line.match(/^\d+[.、．]\s*(.+)/);
+        if (stepMatch) {
+          steps.push(stepMatch[1].trim());
+        }
+      }
+    }
+    
+    // Parse description (text between header and 食材)
+    const descMatch = block.match(/(?:[）)])\s*\n+([\s\S]*?)(?=🛒|$)/);
+    const description = descMatch ? descMatch[1].trim().split("\n")[0] : "";
+    
+    // Only add if we have ingredients and steps
+    if (ingredients.length > 0 && steps.length > 0) {
+      recipes.push({
+        name,
+        cookTime,
+        servings: 4, // Default
+        difficulty: "中等", // Default
+        description,
+        ingredients,
+        steps,
+        tags: [category],
+      });
+    }
+  }
+  
+  return recipes;
+}
 
 // ─── Fire-and-forget tools loop (returns final assistant content + all messages) ──
 
@@ -463,7 +509,7 @@ async function runToolsLoop(
   userId?: number
 ): Promise<{ finalContent: string; allMessages: Message[] }> {
   const db = await getDb();
-  const MAX_ITER = 4;
+  const MAX_ITER = 2; // Reduced from 4 to 2 for faster response
 
   for (let i = 0; i < MAX_ITER; i++) {
     const llmResp = await invokeLLM({
@@ -501,87 +547,6 @@ async function runToolsLoop(
   return { finalContent: "", allMessages: messages };
 }
 
-// ─── Structured extraction ───────────────────────────────
-
-async function extractRecipes(messages: Message[], fallbackContent: string) {
-  const doExtract = async (extraMsg?: Message): Promise<{ content: string; recipes: SuggestedRecipe[] }> => {
-    const extractionMsgs: Message[] = [
-      { role: "system", content: EXTRACTION_PROMPT },
-      ...messages.slice(1),
-      { role: "user", content: "請根據以上所有對話內容（包括 tool 回應，特別是 fetchRecipeFromUrl 返回嘅食譜），以 JSON 格式整理出你的最終回覆（message）和推薦食譜（recipes）。每個食譜必須有完整 steps。" },
-    ];
-    if (extraMsg) extractionMsgs.push(extraMsg);
-
-    const resp = await invokeLLM({
-      messages: extractionMsgs, maxTokens: 8192, temperature: 0.3,
-      responseFormat: { type: "json_schema", json_schema: { name: "chef_response", strict: true, schema: responseSchema } },
-    });
-
-    const raw = resp.choices[0]?.message?.content || "{}";
-    let cleaned = raw.trim();
-    if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
-
-    try {
-      const parsed = JSON.parse(cleaned) as { response: { message: string; recipes: SuggestedRecipe[] } };
-      return { content: parsed.response.message || fallbackContent, recipes: parsed.response.recipes ?? [] };
-    } catch {
-      // Retry once with higher temperature if JSON parse fails
-      try {
-        const retryResp = await invokeLLM({
-          messages: [...extractionMsgs, { role: "user", content: "剛才 JSON 格式錯誤，請嚴格按照 JSON schema 重新整理，確保所有欄位齊全。" }],
-          maxTokens: 8192, temperature: 0.5,
-          responseFormat: { type: "json_schema", json_schema: { name: "chef_response", strict: true, schema: responseSchema } },
-        });
-        const retryRaw = retryResp.choices[0]?.message?.content || "{}";
-        let retryCleaned = retryRaw.trim();
-        if (retryCleaned.startsWith("```")) retryCleaned = retryCleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
-        const retryParsed = JSON.parse(retryCleaned) as { response: { message: string; recipes: SuggestedRecipe[] } };
-        return { content: retryParsed.response.message || fallbackContent, recipes: retryParsed.response.recipes ?? [] };
-      } catch {
-        return { content: fallbackContent, recipes: [] };
-      }
-    }
-  };
-
-  let result = await doExtract();
-
-  // Filter out invalid recipes (must have name, ingredients, and steps)
-  result.recipes = result.recipes.filter(r =>
-    r.name && r.name.length >= 2 &&
-    Array.isArray(r.ingredients) && r.ingredients.length > 0 &&
-    Array.isArray(r.steps) && r.steps.length > 0
-  );
-
-  // Check if any recipes have empty/missing steps — force fix
-  const missingSteps = result.recipes.filter(r => !r.steps || r.steps.length === 0);
-  if (missingSteps.length > 0) {
-    const fixMsg: Message = {
-      role: "user",
-      content: `以下食譜缺少烹飪步驟，請為每個食譜補充至少 3 步詳細做法（只返回 JSON，保持其他欄位不變）：\n${missingSteps.map(r => `- ${r.name}`).join("\n")}`,
-    };
-    try {
-      const fixed = await doExtract(fixMsg);
-      // Merge steps from fixed back into original
-      result.recipes = result.recipes.map(r => {
-        const fixedR = fixed.recipes.find(fr => fr.name === r.name);
-        if (fixedR?.steps?.length) return { ...r, steps: fixedR.steps };
-        return r;
-      });
-    } catch {
-      // Keep original result if step-fix fails
-    }
-  }
-
-  // Final validation: remove any recipes that still lack ingredients or steps
-  result.recipes = result.recipes.filter(r =>
-    r.name && r.name.length >= 2 &&
-    Array.isArray(r.ingredients) && r.ingredients.length > 0 &&
-    Array.isArray(r.steps) && r.steps.length > 0
-  );
-
-  return result;
-}
-
 // ─── Helper: convert frontend messages to LLM format ─────
 
 function toLLMMessages(input: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>): Message[] {
@@ -605,10 +570,15 @@ export async function processAIChefChat(
 
   const { finalContent, allMessages } = await runToolsLoop(msgs, familyId, userId);
 
-  // Use structured extraction to get validated recipes
-  const { content, recipes } = await extractRecipes(allMessages, finalContent);
+  // Direct parse from assistant response (no extra LLM call)
+  const recipes = parseRecipesFromText(finalContent);
+  
+  // Log for debugging
+  if (recipes.length === 0 && finalContent.includes("食譜")) {
+    console.warn("[AI Chef] Failed to parse recipes from response:", finalContent.slice(0, 500));
+  }
 
-  return { content, recipes };
+  return { content: finalContent, recipes };
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──
