@@ -135,13 +135,26 @@ const familyRouter = router({
       nickname: z.string().max(64).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const family = await getFamilyByInviteCode(input.inviteCode);
-      if (!family) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite code" });
+      const trimmedCode = input.inviteCode.trim();
+      console.log("[family.join] Attempting to join with code:", trimmedCode, "by user:", ctx.user.id);
+      
+      const family = await getFamilyByInviteCode(trimmedCode);
+      if (!family) {
+        console.log("[family.join] Family not found for code:", trimmedCode);
+        throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite code" });
+      }
+      
       const existing = await getFamilyMemberByUserId(family.id, String(ctx.user.id));
-      if (existing) throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
+      if (existing) {
+        console.log("[family.join] User already a member of family:", family.id);
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
+      }
+      
       const sub = await getFamilySubscription(family.id);
       const currentMembers = await getFamilyMembers(family.id);
+      
       if (sub && currentMembers.length >= sub.maxMembers) {
+        console.log("[family.join] Family at max capacity:", currentMembers.length, "/", sub.maxMembers);
         throw new TRPCError({
           code: "FORBIDDEN",
           message: sub.isPaid
@@ -149,7 +162,9 @@ const familyRouter = router({
             : `Free plan allows up to 2 members. The kitchen owner needs to upgrade to add more members.`,
         });
       }
+      
       await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
+      console.log("[family.join] Successfully joined family:", family.id);
       return { success: true, family };
     }),
 

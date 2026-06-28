@@ -194,7 +194,9 @@ export async function getFamilyById(id: number) {
 export async function getFamilyByInviteCode(code: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(families).where(eq(families.inviteCode, code.toUpperCase())).limit(1);
+  const trimmedCode = code.trim().toUpperCase();
+  if (!trimmedCode) return undefined;
+  const result = await db.select().from(families).where(eq(families.inviteCode, trimmedCode)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
