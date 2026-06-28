@@ -83,7 +83,7 @@ const familyRouter = router({
     const family = await getFamilyById(ctx.activeFamilyId);
     if (!family) return null;
     const members = await getFamilyMembers(ctx.activeFamilyId);
-    return {
+    const result = {
       ...family,
       members: members.map((m) => ({
         id: m.member.id,
@@ -95,6 +95,8 @@ const familyRouter = router({
         email: m.user.email,
       })),
     };
+    console.log("[family.get] returning family:", { id: result.id, name: result.name, inviteCode: result.inviteCode });
+    return result;
   }),
 
   list: protectedProcedure.query(async ({ ctx }) => {
