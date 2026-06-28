@@ -3,7 +3,7 @@ import { eq, and, or, like, desc } from "drizzle-orm";
 import { publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
-import { officialRecipes, customRecipes, pantryItems, mealPlans, shoppingItems } from "../../drizzle/schema";
+import { officialRecipes, customRecipes, pantryItems } from "../../drizzle/schema";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -65,50 +65,6 @@ const TOOLS: Array<{
       name: "getWeather",
       description: "查看香港而家嘅天氣狀況（溫度、天氣描述）",
       parameters: { type: "object", properties: {}, additionalProperties: false },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "addMealPlanRecipe",
-      description: "直接將食譜加入用戶嘅排餐計劃，並自動將食材加入購物清單。用戶明確要求加排餐時先好用呢個工具。",
-      parameters: {
-        type: "object",
-        properties: {
-          recipeName: { type: "string", description: "食譜名稱" },
-          description: { type: "string", description: "簡短描述" },
-          cookTime: { type: "number", description: "烹飪時間（分鐘）" },
-          servings: { type: "number", description: "幾人份" },
-          difficulty: { type: "string", description: "難度：簡單/中等/困難" },
-          ingredients: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                name: { type: "string" },
-                quantity: { type: "string" },
-                unit: { type: "string" },
-              },
-              required: ["name", "quantity", "unit"],
-              additionalProperties: false,
-            },
-          },
-          steps: {
-            type: "array",
-            items: { type: "string" },
-            description: "烹飪步驟",
-          },
-          tags: {
-            type: "array",
-            items: { type: "string" },
-            description: "標籤，例如「中式」「快煮」",
-          },
-          date: { type: "string", description: "日期 YYYY-MM-DD，預設今日" },
-          mealType: { type: "string", description: "餐次：breakfast/lunch/dinner/snack，預設dinner" },
-        },
-        required: ["recipeName", "cookTime", "servings", "difficulty", "ingredients"],
-        additionalProperties: false,
-      },
     },
   },
   {
@@ -223,58 +179,6 @@ async function execGetWeather() {
   } catch { return { tempC: 25, description: "晴朗" }; }
 }
 
-async function execAddMealPlanRecipe(
-  db: Db, args: {
-    recipeName: string; description?: string; cookTime: number; servings: number;
-    difficulty: string; ingredients: { name: string; quantity: string; unit: string }[];
-    steps?: string[]; tags?: string[]; date?: string; mealType?: string;
-  }, familyId: number, userId: number
-) {
-  const date = args.date ?? new Date().toISOString().split("T")[0];
-  const mealType = args.mealType ?? "dinner";
-  const recipeName = args.recipeName;
-
-  // Step 1: Create custom recipe
-  const [recipe] = await db.insert(customRecipes).values({
-    familyId,
-    createdByUserId: String(userId),
-    name: recipeName,
-    description: args.description ?? "",
-    cookTime: args.cookTime,
-    servings: args.servings,
-    difficulty: args.difficulty,
-    recipeCategory: "家常",
-    ingredients: JSON.stringify(args.ingredients.map(ing => ({ ...ing, category: "食材" }))),
-    steps: JSON.stringify(args.steps ?? []),
-    tags: JSON.stringify(args.tags ?? []),
-    sourceType: "manual",
-    visibility: "private",
-  }).returning({ id: customRecipes.id });
-  if (!recipe) return { success: false, error: "建立食譜失敗" };
-
-  // Step 2: Add to meal plan
-  await db.insert(mealPlans).values({
-    familyId, date, mealType: mealType as any,
-    recipeId: `user_${recipe.id}`,
-    recipeName,
-    proposedByUserId: userId,
-    status: "confirmed",
-  });
-
-  // Step 3: Add ingredients to shopping list
-  if (args.ingredients.length > 0) {
-    await db.insert(shoppingItems).values(
-      args.ingredients.map(ing => ({
-        familyId, name: ing.name, quantity: ing.quantity, unit: ing.unit,
-        category: "食材", fromRecipeName: recipeName, plannedDate: date,
-        proposedByUserId: userId,
-      }))
-    );
-  }
-
-  return { success: true, recipeId: recipe.id, recipeName, date, mealType };
-}
-
 async function execFetchRecipeFromUrl(args: { url: string }) {
   if (!args.url) return { error: "缺少 URL" };
   try {
@@ -352,9 +256,6 @@ async function executeToolCall(
     case "getPantryItems": return execGetPantryItems(db, familyId);
     case "getWeather": return execGetWeather();
     case "fetchRecipeFromUrl": return execFetchRecipeFromUrl(args as any);
-    case "addMealPlanRecipe":
-      if (!familyId || !userId) return { error: "需要登入先可以加排餐" };
-      return execAddMealPlanRecipe(db, args as any, familyId, userId);
     default: return { error: `Unknown tool: ${name}` };
   }
 }
@@ -368,13 +269,13 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 - getPantryItems: 查看用戶雪櫃有咩食材存貨
 - getWeather: 查看香港天氣
 - fetchRecipeFromUrl: 從食譜網頁讀取完整食材同步驟（當搜尋結果有食譜網址時使用，確保步驟完整）
-- addMealPlanRecipe: 直接將食譜加入排餐計劃（用戶明確要求加入排餐時先用）
 
 ⚠️ 重要規則：
 1. 當你無法辨識食材、用戶問題唔係問食譜、或者未能提供完整食譜時，請用**對話式回覆**，**切勿**使用「食譜一：類別 —— 名稱」格式
 2. 只有真係推薦可煮食譜時，先使用食譜格式同輸出 \`---next-steps---\`
 3. 優先使用 searchRecipes 搵用戶已有嘅官方 / 自訂食譜，搵唔到啱先 AI 生成新食譜
 4. 當用戶影雪櫃相或問「我有呢啲食材可以煮咩」，先 call getPantryItems 了解庫存，再 call searchRecipes 搵現有食譜
+5. 當用戶要求「加入排餐」時，請以食譜格式輸出完整食譜，用戶可以喺前端選擇日期同餐次再加入排餐
 
 每次回覆煮食建議時，必須嚴格按照以下格式回覆。每個食譜必須包含完整食材同烹飪步驟，缺一不可。請勿使用對話式文字代替結構化格式。
 
