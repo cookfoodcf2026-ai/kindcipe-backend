@@ -27,6 +27,7 @@ import {
   createFamily,
   deleteMealPlan,
   deleteShoppingItemsByMealPlan,
+  approveShoppingItemsByMealPlan,
   getMealPlanById,
   deletePantryItem,
   deleteShoppingItem,
@@ -523,6 +524,36 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
+  approveAll: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner/admin can approve" });
+      }
+      const items = await getShoppingItems(ctx.activeFamilyId);
+      const pendingIds = items.filter(i => i.status === "pending").map(i => i.id);
+      for (const id of pendingIds) {
+        await approveShoppingItem(id, ctx.activeFamilyId);
+      }
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+      return { success: true, count: pendingIds.length };
+    }),
+
+  rejectAll: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owner/admin can reject" });
+      }
+      const items = await getShoppingItems(ctx.activeFamilyId);
+      const pendingIds = items.filter(i => i.status === "pending").map(i => i.id);
+      for (const id of pendingIds) {
+        await rejectShoppingItem(id, ctx.activeFamilyId);
+      }
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+      return { success: true, count: pendingIds.length };
+    }),
+
   clearBought: protectedProcedure
     .mutation(async ({ ctx }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -628,6 +659,13 @@ const mealPlanRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       await updateMealPlanStatus(input.id, ctx.activeFamilyId, "confirmed", ctx.user.id);
+      
+      // 自動 approve 該排餐相關的 pending 購物食材
+      const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
+      if (plan?.recipeId && plan?.date) {
+        await approveShoppingItemsByMealPlan(ctx.activeFamilyId, plan.recipeId, plan.date);
+      }
+      
       broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
     }),
@@ -640,6 +678,13 @@ const mealPlanRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       await updateMealPlanStatus(input.id, ctx.activeFamilyId, "rejected", ctx.user.id);
+      
+      // 自動刪除該排餐相關的 pending 購物食材
+      const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
+      if (plan?.recipeId && plan?.date) {
+        await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.recipeId, plan.date);
+      }
+      
       broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
     }),

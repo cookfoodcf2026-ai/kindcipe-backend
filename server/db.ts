@@ -406,6 +406,24 @@ export async function deleteShoppingItemsByMealPlan(
   );
 }
 
+// 將某排餐相關的 pending 購物食材自動改為 active
+export async function approveShoppingItemsByMealPlan(
+  familyId: number,
+  recipeId: string,
+  plannedDate: string
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(shoppingItems).set({ status: "active" }).where(
+    and(
+      eq(shoppingItems.familyId, familyId),
+      eq(shoppingItems.fromRecipeId, recipeId),
+      eq(shoppingItems.plannedDate, plannedDate),
+      eq(shoppingItems.status, "pending")
+    )
+  );
+}
+
 // ─── Pantry Items ─────────────────────────────────────────────────────────────
 export async function getPantryItems(familyId: number) {
   const db = await getDb();
