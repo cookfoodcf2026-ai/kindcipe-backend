@@ -509,7 +509,7 @@ async function runToolsLoop(
   userId?: number
 ): Promise<{ finalContent: string; allMessages: Message[] }> {
   const db = await getDb();
-  const MAX_ITER = 2; // Reduced from 4 to 2 for faster response
+  const MAX_ITER = 3;
 
   for (let i = 0; i < MAX_ITER; i++) {
     const llmResp = await invokeLLM({
