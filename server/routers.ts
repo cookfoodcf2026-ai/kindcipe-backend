@@ -177,6 +177,17 @@ const familyRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId || input.familyId !== ctx.activeFamilyId) throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized for this family" });
       if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change roles" });
+      
+      // Prevent changing the last owner's role
+      if (input.role !== "owner") {
+        const members = await getFamilyMembers(input.familyId);
+        const owners = members.filter(m => m.member.familyRole === "owner");
+        const targetMember = members.find(m => m.member.userId === input.userId);
+        if (targetMember && targetMember.member.familyRole === "owner" && owners.length <= 1) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Cannot change the last owner's role. Transfer ownership first." });
+        }
+      }
+      
       await updateFamilyMemberRole(input.familyId, input.userId, input.role);
       return { success: true };
     }),
@@ -186,6 +197,20 @@ const familyRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId || input.familyId !== ctx.activeFamilyId) throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized for this family" });
       if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can remove members" });
+      
+      // Prevent owner from removing themselves
+      if (input.userId === String(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Owner cannot remove themselves. Use leave or dissolve instead." });
+      }
+      
+      // Prevent removing the last owner
+      const members = await getFamilyMembers(input.familyId);
+      const owners = members.filter(m => m.member.familyRole === "owner");
+      const targetMember = members.find(m => m.member.userId === input.userId);
+      if (targetMember && targetMember.member.familyRole === "owner" && owners.length <= 1) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Cannot remove the last owner. Transfer ownership first." });
+      }
+      
       await removeFamilyMember(input.familyId, input.userId);
       return { success: true };
     }),
@@ -265,8 +290,10 @@ const shoppingRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      const isHelper = ctx.activeFamilyRole === "helper";
-      const status = isHelper ? "pending" : (input.status || "active");
+      const familySettings = await getFamilySettings(ctx.activeFamilyId) as { approvalRequired?: boolean };
+      const isMemberOrHelper = ctx.activeFamilyRole === "member" || ctx.activeFamilyRole === "helper";
+      const needsApproval = isMemberOrHelper && (familySettings.approvalRequired !== false);
+      const status = needsApproval ? "pending" : (input.status || "active");
       
       // Sanitize name: trim and truncate to 128 chars
       const sanitizedName = input.name.trim().slice(0, 128);
@@ -281,8 +308,8 @@ const shoppingRouter = router({
           unit: input.unit?.slice(0, 32),
           estimatedPrice: input.estimatedPrice,
           status,
-          proposedByUserId: isHelper ? ctx.user.id : undefined,
-          proposedByName: isHelper ? (ctx.user.name || "Helper") : undefined,
+          proposedByUserId: needsApproval ? ctx.user.id : undefined,
+          proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
           fromRecipeId: input.fromRecipeId?.slice(0, 64),
           fromRecipeName: input.fromRecipeName?.slice(0, 128),
           plannedDate: input.plannedDate,
@@ -322,8 +349,10 @@ const shoppingRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      const isHelper = ctx.activeFamilyRole === "helper";
-      const status = isHelper ? "pending" : "active";
+      const familySettings = await getFamilySettings(ctx.activeFamilyId) as { approvalRequired?: boolean };
+      const isMemberOrHelper = ctx.activeFamilyRole === "member" || ctx.activeFamilyRole === "helper";
+      const needsApproval = isMemberOrHelper && (familySettings.approvalRequired !== false);
+      const status = needsApproval ? "pending" : "active";
 
       const existingItems = await getShoppingItems(ctx.activeFamilyId);
       const activeItems = existingItems.filter(i => i.status !== "bought");
@@ -366,8 +395,8 @@ const shoppingRouter = router({
           quantity: item.quantity?.slice(0, 64),
           unit: item.unit?.slice(0, 32),
           status: status as "pending" | "active",
-          proposedByUserId: isHelper ? ctx.user.id : undefined,
-          proposedByName: isHelper ? (ctx.user.name || "Helper") : undefined,
+          proposedByUserId: needsApproval ? ctx.user.id : undefined,
+          proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
           fromRecipeId: input.fromRecipeId?.slice(0, 64),
           fromRecipeName: input.fromRecipeName?.slice(0, 128),
           plannedDate: input.plannedDate,
