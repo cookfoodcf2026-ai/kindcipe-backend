@@ -148,7 +148,7 @@ export async function getFamilyAdmins(familyId: number) {
 
 export async function getFamilySettings(familyId: number) {
   const family = await getFamilyById(familyId);
-  return family?.settings ?? { approvalRequired: true };
+  return family?.settings ?? { approvalRequired: false };
 }
 
 export async function updateFamilySettings(familyId: number, settings: Record<string, unknown>) {
