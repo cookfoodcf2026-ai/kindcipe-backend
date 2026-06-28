@@ -428,11 +428,13 @@ function parseRecipesFromText(text: string): SuggestedRecipe[] {
   
   for (const block of recipeBlocks) {
     // Try to parse header
-    const headerMatch = block.match(/食譜[一二三四五六七八九十\d]+[：:]\s*(.+?)\s*[——\-]\s*(.+?)(?:[（(]約?(\d+)\s*分鐘[）)])?/);
+    const headerMatch = block.match(
+      /食譜[一二三四五六七八九十\d]+[：:]\s*(.+?)\s*(?:——|—|--|-)\s*(.+?)(?:[（(]約?\s*(\d+)\s*分鐘[）)])?(?:\n|$)/
+    );
     if (!headerMatch) continue;
     
     const category = headerMatch[1].trim();
-    const name = headerMatch[2].trim();
+    const name = headerMatch[2].replace(/^[—\-]+\s*/, "").trim();
     const cookTime = headerMatch[3] ? parseInt(headerMatch[3], 10) : 30;
     
     if (!name || name.length < 2) continue;
