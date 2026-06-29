@@ -318,7 +318,7 @@ async function seedOfficialRecipes() {
   const recipes = [];
 
   for (const dist of DISTRIBUTION) {
-    const key = `${dist.category} - ${dist.subType}`;
+    const key = `${dist.category} - ${dist.subType}` as keyof typeof BASE_RECIPES;
     const baseRecipes = BASE_RECIPES[key] || [];
 
     for (let i = 0; i < dist.count; i++) {
