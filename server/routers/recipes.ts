@@ -1087,7 +1087,7 @@ export const recipesRouter = router({
       category: z.string().optional(),
       tag: z.string().optional(),
       cookTimeMax: z.number().optional(),
-      limit: z.number().int().min(1).max(100).default(20),
+      limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
     }))
