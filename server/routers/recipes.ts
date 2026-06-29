@@ -18,7 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
-import { eq, and, desc, like } from "drizzle-orm";
+import { eq, and, or, desc, like, lte } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
@@ -1033,17 +1033,44 @@ export const recipesRouter = router({
     .input(z.object({
       category: z.string().optional(),
       search: z.string().optional(),
+      tag: z.string().optional(),
+      cookTimeMax: z.number().optional(),
       limit: z.number().int().min(1).max(500).default(50),
       offset: z.number().int().min(0).default(0),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
+
+      const conditions: any[] = [eq(officialRecipes.isActive, true)];
+
+      if (input.category) {
+        conditions.push(eq(officialRecipes.recipeCategory, input.category));
+      }
+
+      if (input.search) {
+        conditions.push(
+          or(
+            like(officialRecipes.name, `%${input.search}%`),
+            like(officialRecipes.description ?? "", `%${input.search}%`),
+          )
+        );
+      }
+
+      if (input.tag) {
+        conditions.push(like(officialRecipes.tags ?? "", `%${input.tag}%`));
+      }
+
+      if (input.cookTimeMax) {
+        conditions.push(lte(officialRecipes.cookTime, input.cookTimeMax));
+      }
+
       const rows = await db.select().from(officialRecipes)
-        .where(eq(officialRecipes.isActive, true))
+        .where(and(...conditions))
         .orderBy(desc(officialRecipes.createdAt))
         .limit(input.limit)
         .offset(input.offset);
+
       return rows.map((r: typeof officialRecipes.$inferSelect) => ({
         ...r,
         ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
@@ -1051,6 +1078,106 @@ export const recipesRouter = router({
         tags: r.tags ? JSON.parse(r.tags) : [],
         source: "official" as const,
       }));
+    }),
+
+  // ── Unified search (official + family custom recipes) ──────────────────────
+  search: protectedProcedure
+    .input(z.object({
+      query: z.string().optional(),
+      category: z.string().optional(),
+      tag: z.string().optional(),
+      cookTimeMax: z.number().optional(),
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { recipes: [], total: 0 };
+
+      const officialConditions: any[] = [eq(officialRecipes.isActive, true)];
+      const customConditions: any[] = [eq(customRecipes.familyId, ctx.activeFamilyId!)];
+
+      if (input.query) {
+        const searchPattern = `%${input.query}%`;
+        officialConditions.push(
+          or(
+            like(officialRecipes.name, searchPattern),
+            like(officialRecipes.description ?? "", searchPattern),
+          )
+        );
+        customConditions.push(
+          or(
+            like(customRecipes.name, searchPattern),
+            like(customRecipes.description ?? "", searchPattern),
+          )
+        );
+      }
+
+      if (input.category) {
+        officialConditions.push(eq(officialRecipes.recipeCategory, input.category));
+        customConditions.push(eq(customRecipes.recipeCategory, input.category));
+      }
+
+      if (input.tag) {
+        officialConditions.push(like(officialRecipes.tags ?? "", `%${input.tag}%`));
+        customConditions.push(like(customRecipes.tags ?? "", `%${input.tag}%`));
+      }
+
+      if (input.cookTimeMax) {
+        officialConditions.push(lte(officialRecipes.cookTime, input.cookTimeMax));
+        customConditions.push(lte(customRecipes.cookTime, input.cookTimeMax));
+      }
+
+      // Query official recipes
+      const officialRows = await db.select().from(officialRecipes)
+        .where(and(...officialConditions))
+        .orderBy(desc(officialRecipes.createdAt))
+        .limit(input.limit)
+        .offset(input.offset);
+
+      // Query custom recipes (family-scoped)
+      const customRows = await db.select().from(customRecipes)
+        .where(and(...customConditions))
+        .orderBy(desc(customRecipes.createdAt))
+        .limit(input.limit)
+        .offset(input.offset);
+
+      // Combine and format
+      const recipes = [
+        ...officialRows.map((r) => ({
+          id: `official_${r.id}`,
+          source: "official" as const,
+          name: r.name,
+          description: r.description,
+          image: r.image || r.thumbnailUrl,
+          thumbnailUrl: r.thumbnailUrl,
+          cookTime: r.cookTime,
+          servings: r.servings,
+          difficulty: r.difficulty,
+          recipeCategory: r.recipeCategory,
+          ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+          steps: r.steps ? JSON.parse(r.steps) : [],
+          tags: r.tags ? JSON.parse(r.tags) : [],
+        })),
+        ...customRows.map((r) => ({
+          id: `user_${r.id}`,
+          source: "custom" as const,
+          name: r.name,
+          description: r.description,
+          image: r.image || r.thumbnailUrl,
+          thumbnailUrl: r.thumbnailUrl,
+          cookTime: r.cookTime,
+          servings: r.servings,
+          difficulty: r.difficulty,
+          recipeCategory: r.recipeCategory,
+          ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+          steps: r.steps ? JSON.parse(r.steps) : [],
+          tags: r.tags ? JSON.parse(r.tags) : [],
+        })),
+      ];
+
+      // Sort by createdAt (newest first) - approximate by array order
+      return { recipes, total: recipes.length };
     }),
 
   // ── Import official recipe (Admin only) ────────────────────────────────────
