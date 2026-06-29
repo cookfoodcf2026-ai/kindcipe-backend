@@ -1089,10 +1089,13 @@ export const recipesRouter = router({
       cookTimeMax: z.number().optional(),
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
+      cursor: z.number().int().min(0).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) return { recipes: [], total: 0 };
+      if (!db) return { recipes: [], total: 0, nextCursor: undefined };
+
+      const offset = input.cursor ?? input.offset ?? 0;
 
       const officialConditions: any[] = [eq(officialRecipes.isActive, true)];
       const customConditions: any[] = [eq(customRecipes.familyId, ctx.activeFamilyId!)];
@@ -1133,14 +1136,14 @@ export const recipesRouter = router({
         .where(and(...officialConditions))
         .orderBy(desc(officialRecipes.createdAt))
         .limit(input.limit)
-        .offset(input.offset);
+        .offset(offset);
 
       // Query custom recipes (family-scoped)
       const customRows = await db.select().from(customRecipes)
         .where(and(...customConditions))
         .orderBy(desc(customRecipes.createdAt))
         .limit(input.limit)
-        .offset(input.offset);
+        .offset(offset);
 
       // Combine and format
       const recipes = [
@@ -1176,8 +1179,11 @@ export const recipesRouter = router({
         })),
       ];
 
-      // Sort by createdAt (newest first) - approximate by array order
-      return { recipes, total: recipes.length };
+      // Calculate next cursor
+      const hasMore = recipes.length >= input.limit;
+      const nextCursor = hasMore ? offset + input.limit : undefined;
+
+      return { recipes, total: recipes.length, nextCursor };
     }),
 
   // ── Import official recipe (Admin only) ────────────────────────────────────
