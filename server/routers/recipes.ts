@@ -1186,6 +1186,145 @@ export const recipesRouter = router({
       return { recipes, total: recipes.length, nextCursor };
     }),
 
+  // ── Generate official recipes via AI (Admin only, temporary) ────────────────
+  generateOfficial: protectedProcedure
+    .input(z.object({
+      category: z.string().optional(),
+      count: z.number().int().min(1).max(100).default(20),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const category = input.category || "中菜";
+      const count = input.count;
+
+      const systemPrompt = `你是一個專業的食譜創作專家。請生成 ${count} 個獨特、實用、適合香港家庭的 ${category} 食譜。
+
+要求：
+1. 每個食譜名稱必須獨特，唔准重複
+2. 唔准用「XX（家常版）」、「XX（快手版）」等後綴
+3. 食材要實用、容易買到
+4. 做法要詳細、清晰
+5. 份量適合 2-4 人家庭
+6. 所有文字使用繁體中文
+7. 避免重複食材組合，每個食譜要有特色
+
+回傳 JSON array 格式，每個食譜包含：
+{
+  "name": "食譜名稱",
+  "description": "簡短描述（1-2句）",
+  "cookTime": 烹飪時間（分鐘，整數）,
+  "servings": 份量（人數，整數）,
+  "difficulty": "簡單" | "中等" | "困難",
+  "recipeCategory": "${category}",
+  "ingredients": [
+    { "name": "食材名", "quantity": "數量", "unit": "單位", "category": "肉類/海鮮/蔬菜/調味料/乾貨/其他" }
+  ],
+  "steps": [
+    { "instruction": "步驟說明", "duration": 分鐘（整數）}
+  ],
+  "tags": ["標籤1", "標籤2"]
+}`;
+
+      const userPrompt = `請生成 ${count} 個獨特嘅 ${category} 食譜。確保每個食譜都係真正唔同嘅菜式，唔好重複。`;
+
+      const response = await invokeLLM({
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        responseFormat: {
+          type: "json_schema",
+          json_schema: {
+            name: "recipe_batch",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                recipes: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      description: { type: "string" },
+                      cookTime: { type: "integer" },
+                      servings: { type: "integer" },
+                      difficulty: { type: "string" },
+                      recipeCategory: { type: "string" },
+                      ingredients: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            name: { type: "string" },
+                            quantity: { type: "string" },
+                            unit: { type: "string" },
+                            category: { type: "string" },
+                          },
+                          required: ["name", "quantity", "unit", "category"],
+                        },
+                      },
+                      steps: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            instruction: { type: "string" },
+                            duration: { type: "integer" },
+                          },
+                          required: ["instruction", "duration"],
+                        },
+                      },
+                      tags: { type: "array", items: { type: "string" } },
+                    },
+                    required: ["name", "description", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "tags"],
+                  },
+                },
+              },
+              required: ["recipes"],
+            },
+          },
+        },
+      });
+
+      const rawContent = response.choices[0]?.message?.content;
+      const content = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
+      if (!content) throw new Error("AI returned empty response");
+
+      const parsed = extractJSON(content) as { recipes: any[] };
+      if (!parsed.recipes || !Array.isArray(parsed.recipes)) {
+        throw new Error("Invalid response format");
+      }
+
+      const inserted: number[] = [];
+      for (const recipe of parsed.recipes) {
+        const [row] = await db.insert(officialRecipes).values({
+          importedByUserId: "ai-generator",
+          name: recipe.name,
+          description: recipe.description,
+          image: null,
+          thumbnailUrl: null,
+          cookTime: recipe.cookTime,
+          servings: recipe.servings,
+          difficulty: recipe.difficulty,
+          recipeCategory: recipe.recipeCategory || category,
+          ingredients: JSON.stringify(recipe.ingredients),
+          steps: JSON.stringify(recipe.steps),
+          tags: JSON.stringify(recipe.tags || []),
+          sourceType: "manual",
+          sourceUrl: null,
+          sourceUrlHash: null,
+          sourceAuthor: null,
+        }).returning();
+        inserted.push(row.id);
+      }
+
+      return { count: inserted.length, ids: inserted };
+    }),
+
   // ── Import official recipe (Admin only) ────────────────────────────────────
   importOfficial: protectedProcedure
     .input(recipeInputSchema)
