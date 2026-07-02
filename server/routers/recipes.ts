@@ -1190,7 +1190,7 @@ export const recipesRouter = router({
   generateOfficial: protectedProcedure
     .input(z.object({
       category: z.string().optional(),
-      count: z.number().int().min(1).max(20).default(20),
+      count: z.number().int().min(1).max(5).default(5),
     }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });

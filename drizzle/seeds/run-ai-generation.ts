@@ -14,11 +14,11 @@ const DISTRIBUTION = [
 ];
 
 async function generateRecipes(category: string, count: number): Promise<number> {
-  const batches = Math.ceil(count / 20);
+  const batches = Math.ceil(count / 5);
   let totalGenerated = 0;
 
   for (let i = 0; i < batches; i++) {
-    const batchSize = Math.min(20, count - totalGenerated);
+    const batchSize = Math.min(5, count - totalGenerated);
 
     console.log(`  Generating batch ${i + 1}/${batches} for ${category} (${batchSize} recipes)...`);
 
