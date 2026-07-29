@@ -1321,37 +1321,47 @@ export const recipesRouter = router({
       }
 
       // Build relevance score for search ranking (name > description > ingredients > tags)
-      const relevanceScore = input.query && input.query.trim().length > 1
-        ? sql`CASE
+      const orderByOfficial: any[] = [];
+      const orderByCustom: any[] = [];
+
+      if (input.query && input.query.trim().length > 1) {
+        const relevanceScore = sql`CASE
             WHEN ${officialRecipes.name} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 10
             WHEN ${officialRecipes.description} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 5
             WHEN ${officialRecipes.ingredients} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
             WHEN ${officialRecipes.tags} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
             ELSE 0
-          END`
-        : sql`0`;
+          END`;
+        orderByOfficial.push(desc(relevanceScore));
 
-      const relevanceScoreCustom = input.query && input.query.trim().length > 1
-        ? sql`CASE
+        const relevanceScoreCustom = sql`CASE
             WHEN ${customRecipes.name} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 10
             WHEN ${customRecipes.description} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 5
             WHEN ${customRecipes.ingredients} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
             WHEN ${customRecipes.tags} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
             ELSE 0
-          END`
-        : sql`0`;
+          END`;
+        orderByCustom.push(desc(relevanceScoreCustom));
+      }
+
+      // Then sort by popularity and created_at
+      orderByOfficial.push(desc(officialRecipes.popularity));
+      orderByOfficial.push(desc(officialRecipes.createdAt));
+
+      orderByCustom.push(desc(customRecipes.popularity));
+      orderByCustom.push(desc(customRecipes.createdAt));
 
       // Query official recipes
       const officialRows = await db.select().from(officialRecipes)
         .where(and(...officialConditions))
-        .orderBy(relevanceScore, desc(officialRecipes.popularity), desc(officialRecipes.createdAt))
+        .orderBy(...orderByOfficial)
         .limit(input.limit)
         .offset(offset);
 
       // Query custom recipes (family-scoped)
       const customRows = await db.select().from(customRecipes)
         .where(and(...customConditions))
-        .orderBy(relevanceScoreCustom, desc(customRecipes.popularity), desc(customRecipes.createdAt))
+        .orderBy(...orderByCustom)
         .limit(input.limit)
         .offset(offset);
 
