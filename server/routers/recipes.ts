@@ -18,7 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
-import { eq, and, or, desc, like, lte } from "drizzle-orm";
+import { eq, and, or, desc, like, lte, count } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
@@ -1179,11 +1179,24 @@ export const recipesRouter = router({
         })),
       ];
 
+      // Calculate total count (not just page length)
+      const totalOfficialResult = await db.select({ count: count() })
+        .from(officialRecipes)
+        .where(and(...officialConditions));
+      const totalOfficial = Number(totalOfficialResult[0]?.count ?? 0);
+
+      const totalCustomResult = await db.select({ count: count() })
+        .from(customRecipes)
+        .where(and(...customConditions));
+      const totalCustom = Number(totalCustomResult[0]?.count ?? 0);
+
+      const total = totalOfficial + totalCustom;
+
       // Calculate next cursor
       const hasMore = recipes.length >= input.limit;
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
-      return { recipes, total: recipes.length, nextCursor };
+      return { recipes, total, nextCursor };
     }),
 
   // ── Generate official recipes via AI (Admin only, temporary) ────────────────

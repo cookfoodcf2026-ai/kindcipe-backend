@@ -1,0 +1,611 @@
+import 'dotenv/config';
+import postgres from 'postgres';
+
+const sql = postgres(process.env.DATABASE_URL!);
+
+const RECIPES = [
+  {
+    name: "番茄炒蛋",
+    description: "最經典嘅家常菜，酸甜開胃，簡單快捷。",
+    cookTime: 15,
+    servings: 2,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "番茄", quantity: "2", unit: "個", category: "蔬菜" },
+      { name: "雞蛋", quantity: "3", unit: "隻", category: "其他" },
+      { name: "蔥", quantity: "1", unit: "條", category: "蔬菜" },
+      { name: "糖", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "鹽", quantity: "適量", unit: "", category: "調味料" },
+      { name: "食油", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "番茄切塊，雞蛋打散加少許鹽，蔥切花。", duration: 5 },
+      { instruction: "中火燒熱鑊，落油，倒入蛋液炒至半熟，盛起備用。", duration: 2 },
+      { instruction: "同一鑊落番茄塊，翻炒至出汁。", duration: 3 },
+      { instruction: "加入糖同少許鹽調味，倒回炒蛋，翻炒均勻。", duration: 2 },
+      { instruction: "灑蔥花，即可上碟。", duration: 0 },
+    ],
+    tags: ["快手", "家常", "開胃"],
+  },
+  {
+    name: "蒜蓉炒菜心",
+    description: "簡單健康嘅炒青菜，蒜香四溢，清脆爽口。",
+    cookTime: 10,
+    servings: 2,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "菜心", quantity: "300", unit: "克", category: "蔬菜" },
+      { name: "蒜頭", quantity: "3", unit: "瓣", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "鹽", quantity: "適量", unit: "", category: "調味料" },
+      { name: "食油", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "菜心洗淨切段，蒜頭拍扁切蓉。", duration: 3 },
+      { instruction: "大火燒熱鑊，落油，爆香蒜蓉。", duration: 1 },
+      { instruction: "加入菜心快速翻炒。", duration: 3 },
+      { instruction: "加生抽同鹽調味，炒至菜心變軟即可。", duration: 2 },
+    ],
+    tags: ["快手", "清淡", "健康"],
+  },
+  {
+    name: "紅燒肉",
+    description: "肥而不膩，入口即化，經典家常菜。",
+    cookTime: 90,
+    servings: 4,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "五花肉", quantity: "500", unit: "克", category: "肉類" },
+      { name: "薑", quantity: "3", unit: "片", category: "調味料" },
+      { name: "蔥", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "八角", quantity: "2", unit: "粒", category: "調味料" },
+      { name: "冰糖", quantity: "30", unit: "克", category: "調味料" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "老抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "料酒", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "五花肉切塊，飛水去血沫，撈起備用。", duration: 5 },
+      { instruction: "鑊中落少許油，放入冰糖炒至融化呈金黃色。", duration: 3 },
+      { instruction: "加入五花肉翻炒上色。", duration: 3 },
+      { instruction: "加入薑片、蔥段、八角爆香。", duration: 2 },
+      { instruction: "加入料酒、生抽、老抽翻炒均勻。", duration: 2 },
+      { instruction: "加入適量水，大火燒開後轉小火燉60分鐘。", duration: 60 },
+      { instruction: "大火收汁至濃稠即可。", duration: 5 },
+    ],
+    tags: ["經典", "下飯", "宴客"],
+  },
+  {
+    name: "宮保雞丁",
+    description: "經典川菜，雞肉嫩滑，花生香脆，微辣開胃。",
+    cookTime: 25,
+    servings: 3,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "雞胸肉", quantity: "300", unit: "克", category: "肉類" },
+      { name: "花生", quantity: "50", unit: "克", category: "乾貨" },
+      { name: "乾辣椒", quantity: "5", unit: "條", category: "調味料" },
+      { name: "花椒", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "蔥", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "蒜頭", quantity: "2", unit: "瓣", category: "調味料" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "醋", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "生粉", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "食油", quantity: "3", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "雞胸肉切丁，加生抽、生粉醃15分鐘。", duration: 15 },
+      { instruction: "花生炒香備用，蔥切段，薑蒜切末，乾辣椒剪段。", duration: 5 },
+      { instruction: "調汁：生抽、醋、糖、少許水混合。", duration: 1 },
+      { instruction: "大火燒熱鑊，落油，炒香花椒同乾辣椒。", duration: 1 },
+      { instruction: "加入雞丁炒至變色。", duration: 4 },
+      { instruction: "加入薑蒜末炒香，倒入調汁翻炒均勻。", duration: 2 },
+      { instruction: "加入花生同蔥段，快速翻炒即可上碟。", duration: 1 },
+    ],
+    tags: ["微辣", "開胃", "經典"],
+  },
+  {
+    name: "麻婆豆腐",
+    description: "麻辣鮮香，豆腐嫩滑，下飯一流。",
+    cookTime: 20,
+    servings: 3,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "豆腐", quantity: "1", unit: "磚", category: "其他" },
+      { name: "免治豬肉", quantity: "150", unit: "克", category: "肉類" },
+      { name: "豆瓣醬", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "花椒粉", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "蔥", quantity: "1", unit: "條", category: "蔬菜" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "蒜頭", quantity: "2", unit: "瓣", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "生粉水", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "食油", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "豆腐切塊，飛水去豆腥味，撈起備用。", duration: 3 },
+      { instruction: "中火燒熱鑊，落油，炒香薑蒜末。", duration: 1 },
+      { instruction: "加入免治豬肉炒至變色。", duration: 3 },
+      { instruction: "加入豆瓣醬炒出紅油。", duration: 2 },
+      { instruction: "加入適量水，放入豆腐，小火煮5分鐘。", duration: 5 },
+      { instruction: "加生抽調味，倒入生粉水勾芡。", duration: 2 },
+      { instruction: "灑花椒粉同蔥花即可。", duration: 1 },
+    ],
+    tags: ["麻辣", "下飯", "經典"],
+  },
+  {
+    name: "糖醋排骨",
+    description: "酸甜開胃，排骨外脆內嫩，大人小朋友都鍾意。",
+    cookTime: 40,
+    servings: 3,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "排骨", quantity: "500", unit: "克", category: "肉類" },
+      { name: "醋", quantity: "3", unit: "湯匙", category: "調味料" },
+      { name: "糖", quantity: "3", unit: "湯匙", category: "調味料" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "料酒", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "蔥", quantity: "1", unit: "條", category: "蔬菜" },
+      { name: "生粉", quantity: "3", unit: "湯匙", category: "調味料" },
+      { name: "食油", quantity: "適量", unit: "", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "排骨洗淨，加生抽、料酒、薑片醃20分鐘。", duration: 20 },
+      { instruction: "醃好嘅排骨沾生粉。", duration: 3 },
+      { instruction: "中火燒熱油，放入排骨炸至金黃，撈起瀝油。", duration: 8 },
+      { instruction: "留少許油，加入醋、糖、生抽煮滾。", duration: 2 },
+      { instruction: "倒回排骨，快速翻炒至汁濃稠。", duration: 3 },
+      { instruction: "灑蔥花即可上碟。", duration: 1 },
+    ],
+    tags: ["酸甜", "開胃", "宴客"],
+  },
+  {
+    name: "清蒸鱸魚",
+    description: "鮮嫩清甜，保留魚嘅原汁原味，健康之選。",
+    cookTime: 20,
+    servings: 3,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "鱸魚", quantity: "1", unit: "條", category: "海鮮" },
+      { name: "薑", quantity: "3", unit: "片", category: "調味料" },
+      { name: "蔥", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "麻油", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "食油", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "鱸魚洗淨，兩面各劃幾刀，放薑片。", duration: 3 },
+      { instruction: "大火蒸8-10分鐘至魚肉熟透。", duration: 10 },
+      { instruction: "倒去蒸魚汁，鋪蔥絲。", duration: 2 },
+      { instruction: "淋上生抽同麻油。", duration: 1 },
+      { instruction: "燒熱油，淋喺蔥絲上即可。", duration: 2 },
+    ],
+    tags: ["清淡", "健康", "鮮味"],
+  },
+  {
+    name: "豉油王炒麵",
+    description: "經典茶餐廳風味，麵條煙韌，醬香濃郁。",
+    cookTime: 15,
+    servings: 2,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "油麵", quantity: "200", unit: "克", category: "其他" },
+      { name: "芽菜", quantity: "100", unit: "克", category: "蔬菜" },
+      { name: "蔥", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "老抽", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "麻油", quantity: "少許", unit: "", category: "調味料" },
+      { name: "食油", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "油麵用熱水燙鬆，瀝乾備用。", duration: 3 },
+      { instruction: "大火燒熱鑊，落油，爆香蔥段。", duration: 1 },
+      { instruction: "加入芽菜快速翻炒。", duration: 1 },
+      { instruction: "加入油麵，用筷子撥鬆。", duration: 2 },
+      { instruction: "沿鑊邊灒生抽，加老抽、糖翻炒均勻。", duration: 3 },
+      { instruction: "淋麻油，翻炒幾下即可上碟。", duration: 1 },
+    ],
+    tags: ["快手", "茶餐廳", "飽肚"],
+  },
+  {
+    name: "臘味煲仔飯",
+    description: "冬天必食，飯粒吸收臘味香氣，鍋巴香脆。",
+    cookTime: 40,
+    servings: 2,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "米", quantity: "200", unit: "克", category: "其他" },
+      { name: "臘腸", quantity: "2", unit: "條", category: "肉類" },
+      { name: "臘肉", quantity: "100", unit: "克", category: "肉類" },
+      { name: "雞蛋", quantity: "1", unit: "隻", category: "其他" },
+      { name: "菜心", quantity: "100", unit: "克", category: "蔬菜" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "麻油", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "水", quantity: "300", unit: "毫升", category: "其他" },
+    ],
+    steps: [
+      { instruction: "米洗淨浸水30分鐘，瀝乾。", duration: 30 },
+      { instruction: "臘腸臘肉切片。", duration: 3 },
+      { instruction: "煲仔落米同水，大火煮滾後轉小火。", duration: 5 },
+      { instruction: "飯面鋪臘腸臘肉，蓋冚煮15分鐘。", duration: 15 },
+      { instruction: "菜心飛水，放入煲仔。", duration: 3 },
+      { instruction: "打入雞蛋，蓋冚再煮2分鐘。", duration: 2 },
+      { instruction: "淋上生抽、麻油、糖調成嘅醬汁即可。", duration: 2 },
+    ],
+    tags: ["冬天", "飽肚", "經典"],
+  },
+  {
+    name: "紅蘿蔔粟米豬骨湯",
+    description: "清甜滋補，適合全家飲嘅老火湯。",
+    cookTime: 120,
+    servings: 4,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "豬骨", quantity: "500", unit: "克", category: "肉類" },
+      { name: "紅蘿蔔", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "粟米", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "蜜棗", quantity: "4", unit: "粒", category: "乾貨" },
+      { name: "南北杏", quantity: "1", unit: "湯匙", category: "乾貨" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "鹽", quantity: "適量", unit: "", category: "調味料" },
+      { name: "水", quantity: "2000", unit: "毫升", category: "其他" },
+    ],
+    steps: [
+      { instruction: "豬骨洗淨，飛水去血沫，撈起備用。", duration: 5 },
+      { instruction: "紅蘿蔔去皮切大塊，粟米切段。", duration: 3 },
+      { instruction: "大煲加入水，大火煮滾。", duration: 10 },
+      { instruction: "加入所有材料，大火滾10分鐘。", duration: 10 },
+      { instruction: "轉小火煲1.5小時。", duration: 90 },
+      { instruction: "加鹽調味即可。", duration: 2 },
+    ],
+    tags: ["老火湯", "滋補", "清甜"],
+  },
+  {
+    name: "回鍋肉",
+    description: "川菜經典，五花肉配蒜苗，香辣下飯。",
+    cookTime: 25,
+    servings: 3,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "五花肉", quantity: "300", unit: "克", category: "肉類" },
+      { name: "蒜苗", quantity: "100", unit: "克", category: "蔬菜" },
+      { name: "豆瓣醬", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "甜麵醬", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "料酒", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "食油", quantity: "1", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "五花肉整塊放入水煮，加薑片料酒，煮20分鐘至熟。", duration: 20 },
+      { instruction: "五花肉撈起放涼，切薄片。", duration: 5 },
+      { instruction: "蒜苗切段。", duration: 2 },
+      { instruction: "中火燒熱鑊，落油，放入五花肉片煎至兩面金黃。", duration: 5 },
+      { instruction: "加入豆瓣醬同甜麵醬炒出紅油。", duration: 2 },
+      { instruction: "加入蒜苗快速翻炒至斷生。", duration: 3 },
+      { instruction: "加生抽調味即可上碟。", duration: 1 },
+    ],
+    tags: ["香辣", "下飯", "經典"],
+  },
+  {
+    name: "干煸四季豆",
+    description: "四季豆爽脆，配肉末乾香，開胃下飯。",
+    cookTime: 20,
+    servings: 3,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "四季豆", quantity: "300", unit: "克", category: "蔬菜" },
+      { name: "免治豬肉", quantity: "100", unit: "克", category: "肉類" },
+      { name: "蒜頭", quantity: "3", unit: "瓣", category: "調味料" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "乾辣椒", quantity: "3", unit: "條", category: "調味料" },
+      { name: "芽菜", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "食油", quantity: "3", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "四季豆撕去老筋，切段。", duration: 3 },
+      { instruction: "大火燒熱鑊，多啲油，放入四季豆炸至表面起皺，撈起瀝油。", duration: 5 },
+      { instruction: "留底油，炒香蒜蓉薑末乾辣椒。", duration: 1 },
+      { instruction: "加入免治豬肉炒至變色。", duration: 3 },
+      { instruction: "加入芽菜炒香。", duration: 2 },
+      { instruction: "倒回四季豆，加生抽翻炒均勻即可。", duration: 3 },
+    ],
+    tags: ["乾香", "下飯", "微辣"],
+  },
+  {
+    name: "蝦仁炒蛋",
+    description: "鮮蝦嫩滑，雞蛋香軟，營養豐富。",
+    cookTime: 15,
+    servings: 2,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "蝦仁", quantity: "150", unit: "克", category: "海鮮" },
+      { name: "雞蛋", quantity: "4", unit: "隻", category: "其他" },
+      { name: "蔥", quantity: "1", unit: "條", category: "蔬菜" },
+      { name: "鹽", quantity: "適量", unit: "", category: "調味料" },
+      { name: "生粉", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "料酒", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "食油", quantity: "3", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "蝦仁洗淨，用鹽、生粉、料酒醃10分鐘。", duration: 10 },
+      { instruction: "雞蛋打散，加少許鹽。", duration: 2 },
+      { instruction: "中火燒熱鑊，落油，放入蝦仁炒至變色，盛起。", duration: 3 },
+      { instruction: "同一鑊加少許油，倒入蛋液，用筷子快速撥散。", duration: 2 },
+      { instruction: "蛋液半熟時加入蝦仁，翻炒均勻。", duration: 2 },
+      { instruction: "灑蔥花即可上碟。", duration: 1 },
+    ],
+    tags: ["鮮味", "營養", "簡單"],
+  },
+  {
+    name: "梅菜扣肉",
+    description: "五花肉軟爛入味，梅菜鹹香，經典粵菜。",
+    cookTime: 120,
+    servings: 4,
+    difficulty: "困難",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "五花肉", quantity: "500", unit: "克", category: "肉類" },
+      { name: "梅菜", quantity: "150", unit: "克", category: "乾貨" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "老抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "五香粉", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "蒜頭", quantity: "3", unit: "瓣", category: "調味料" },
+      { name: "食油", quantity: "適量", unit: "", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "五花肉整塊水煮至熟，撈起抹乾。", duration: 30 },
+      { instruction: "五花肉皮用老抽塗勻，放入熱油中炸至金黃。", duration: 5 },
+      { instruction: "撈起放涼，切厚片。", duration: 5 },
+      { instruction: "梅菜浸軟洗淨，切碎，用薑蒜爆香，加生抽糖調味。", duration: 10 },
+      { instruction: "碗底鋪五花肉片，皮向下，上面鋪梅菜。", duration: 5 },
+      { instruction: "隔水蒸1.5小時至軟爛。", duration: 90 },
+      { instruction: "倒扣落碟即可。", duration: 2 },
+    ],
+    tags: ["經典", "宴客", "鹹香"],
+  },
+  {
+    name: "薑蔥蒸雞",
+    description: "雞肉嫩滑，薑蔥香氣四溢，簡單易做。",
+    cookTime: 25,
+    servings: 3,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "雞腿", quantity: "4", unit: "隻", category: "肉類" },
+      { name: "薑", quantity: "4", unit: "片", category: "調味料" },
+      { name: "蔥", quantity: "3", unit: "條", category: "蔬菜" },
+      { name: "生抽", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "麻油", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "料酒", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "生粉", quantity: "1", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "雞腿洗淨，用生抽、麻油、料酒、生粉醃20分鐘。", duration: 20 },
+      { instruction: "薑切絲，蔥切段。", duration: 3 },
+      { instruction: "碟底鋪薑絲，放上雞腿。", duration: 2 },
+      { instruction: "大火蒸15分鐘至雞肉熟透。", duration: 15 },
+      { instruction: "灑蔥絲，淋熱油即可。", duration: 2 },
+    ],
+    tags: ["簡單", "嫩滑", "家常"],
+  },
+  {
+    name: "魚香茄子",
+    description: "茄子軟糯，魚香濃郁，雖無魚但鮮味十足。",
+    cookTime: 20,
+    servings: 3,
+    difficulty: "中等",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "茄子", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "免治豬肉", quantity: "100", unit: "克", category: "肉類" },
+      { name: "豆瓣醬", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "蒜頭", quantity: "3", unit: "瓣", category: "調味料" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "蔥", quantity: "1", unit: "條", category: "蔬菜" },
+      { name: "醋", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "生粉水", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "食油", quantity: "3", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "茄子切條，用鹽醃10分鐘，沖洗瀝乾。", duration: 10 },
+      { instruction: "調魚香汁：醋、糖、生抽、生粉水混合。", duration: 2 },
+      { instruction: "大火燒熱鑊，多啲油，放入茄子煎至軟身，盛起。", duration: 5 },
+      { instruction: "留底油，炒香蒜蓉薑末。", duration: 1 },
+      { instruction: "加入免治豬肉炒至變色。", duration: 3 },
+      { instruction: "加入豆瓣醬炒出紅油。", duration: 2 },
+      { instruction: "倒回茄子，淋魚香汁翻炒均勻。", duration: 3 },
+      { instruction: "灑蔥花即可上碟。", duration: 1 },
+    ],
+    tags: ["魚香", "下飯", "經典"],
+  },
+  {
+    name: "腐乳通菜",
+    description: "通菜爽脆，腐乳鹹香，簡單快手。",
+    cookTime: 10,
+    servings: 2,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "通菜", quantity: "300", unit: "克", category: "蔬菜" },
+      { name: "腐乳", quantity: "2", unit: "塊", category: "調味料" },
+      { name: "蒜頭", quantity: "3", unit: "瓣", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "食油", quantity: "2", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "通菜洗淨切段，蒜頭拍扁。", duration: 3 },
+      { instruction: "腐乳壓爛，加少許水同糖調勻。", duration: 2 },
+      { instruction: "大火燒熱鑊，落油，爆香蒜頭。", duration: 1 },
+      { instruction: "加入通菜快速翻炒。", duration: 3 },
+      { instruction: "倒入腐乳汁，翻炒均勻即可。", duration: 2 },
+    ],
+    tags: ["快手", "鹹香", "簡單"],
+  },
+  {
+    name: "鹽焗雞翼",
+    description: "雞翼金黃香脆，鹽焗味濃，小朋友至愛。",
+    cookTime: 30,
+    servings: 3,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "雞翼", quantity: "10", unit: "隻", category: "肉類" },
+      { name: "鹽焗雞粉", quantity: "1", unit: "包", category: "調味料" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "蔥", quantity: "2", unit: "條", category: "蔬菜" },
+      { name: "料酒", quantity: "1", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "雞翼洗淨，用廚房紙抹乾。", duration: 3 },
+      { instruction: "鹽焗雞粉加少許水調成糊，塗勻雞翼。", duration: 3 },
+      { instruction: "加薑片蔥段料酒，醃30分鐘。", duration: 30 },
+      { instruction: "焗爐預熱200度。", duration: 5 },
+      { instruction: "雞翼放入焗盤，焗20分鐘至金黃。", duration: 20 },
+      { instruction: "翻面再焗5分鐘即可。", duration: 5 },
+    ],
+    tags: ["香脆", "小朋友", "簡單"],
+  },
+  {
+    name: "蠔油冬菇炆雞",
+    description: "雞肉嫩滑，冬菇鮮味，蠔油濃郁。",
+    cookTime: 30,
+    servings: 3,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "雞腿", quantity: "4", unit: "隻", category: "肉類" },
+      { name: "冬菇", quantity: "10", unit: "朵", category: "乾貨" },
+      { name: "蠔油", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "糖", quantity: "1", unit: "茶匙", category: "調味料" },
+      { name: "薑", quantity: "3", unit: "片", category: "調味料" },
+      { name: "蒜頭", quantity: "2", unit: "瓣", category: "調味料" },
+      { name: "生粉水", quantity: "2", unit: "湯匙", category: "調味料" },
+      { name: "食油", quantity: "1", unit: "湯匙", category: "調味料" },
+    ],
+    steps: [
+      { instruction: "冬菇浸軟去蒂，雞腿切塊。", duration: 10 },
+      { instruction: "雞腿用生抽、生粉醃10分鐘。", duration: 10 },
+      { instruction: "中火燒熱鑊，落油，爆香薑蒜。", duration: 1 },
+      { instruction: "加入雞腿煎至兩面金黃。", duration: 5 },
+      { instruction: "加入冬菇翻炒。", duration: 2 },
+      { instruction: "加入蠔油、糖同適量水，蓋冚炆10分鐘。", duration: 10 },
+      { instruction: "倒入生粉水勾芡即可。", duration: 2 },
+    ],
+    tags: ["鮮味", "下飯", "家常"],
+  },
+  {
+    name: "榨菜肉絲湯米粉",
+    description: "湯鮮味美，米粉爽滑，簡單暖胃。",
+    cookTime: 20,
+    servings: 2,
+    difficulty: "簡單",
+    recipeCategory: "中菜",
+    ingredients: [
+      { name: "米粉", quantity: "150", unit: "克", category: "其他" },
+      { name: "豬肉", quantity: "100", unit: "克", category: "肉類" },
+      { name: "榨菜", quantity: "50", unit: "克", category: "乾貨" },
+      { name: "蔥", quantity: "1", unit: "條", category: "蔬菜" },
+      { name: "薑", quantity: "2", unit: "片", category: "調味料" },
+      { name: "生抽", quantity: "1", unit: "湯匙", category: "調味料" },
+      { name: "麻油", quantity: "少許", unit: "", category: "調味料" },
+      { name: "鹽", quantity: "適量", unit: "", category: "調味料" },
+      { name: "水", quantity: "800", unit: "毫升", category: "其他" },
+    ],
+    steps: [
+      { instruction: "米粉浸軟，豬肉切絲，榨菜切絲。", duration: 5 },
+      { instruction: "豬肉用生抽醃5分鐘。", duration: 5 },
+      { instruction: "鍋中加水煮滾，放入薑片。", duration: 3 },
+      { instruction: "加入豬肉絲煮至變色。", duration: 3 },
+      { instruction: "加入榨菜絲煮2分鐘。", duration: 2 },
+      { instruction: "放入米粉煮軟，加鹽調味。", duration: 3 },
+      { instruction: "灑蔥花，淋麻油即可。", duration: 1 },
+    ],
+    tags: ["暖胃", "簡單", "湯粉"],
+  },
+];
+
+async function main() {
+  console.log('🚀 Seeding 20 Chinese recipes...\n');
+
+  // Clear existing recipes
+  console.log('📋 Clearing existing official recipes...');
+  await sql`DELETE FROM official_recipes`;
+  console.log('✅ Cleared\n');
+
+  // Validate no duplicates
+  const names = RECIPES.map(r => r.name);
+  const uniqueNames = new Set(names);
+  if (names.length !== uniqueNames.size) {
+    console.error('❌ Duplicate recipe names found!');
+    process.exit(1);
+  }
+
+  // Validate no numbered suffixes
+  const numberedPattern = /\(\d+\)$/;
+  for (const name of names) {
+    if (numberedPattern.test(name)) {
+      console.error(`❌ Recipe name has numbered suffix: ${name}`);
+      process.exit(1);
+    }
+  }
+
+  console.log(`✅ Validation passed: ${names.length} unique recipes, no numbered suffixes\n`);
+
+  // Insert recipes
+  for (const recipe of RECIPES) {
+    await sql`
+      INSERT INTO official_recipes (
+        imported_by_user_id, name, description, image, thumbnail_url,
+        cook_time, servings, difficulty, recipe_category,
+        ingredients, steps, tags, source_type, source_url, source_url_hash,
+        source_author, tips, is_active
+      ) VALUES (
+        'seed-generator', ${recipe.name}, ${recipe.description}, NULL, NULL,
+        ${recipe.cookTime}, ${recipe.servings}, ${recipe.difficulty}, ${recipe.recipeCategory},
+        ${JSON.stringify(recipe.ingredients)}, ${JSON.stringify(recipe.steps)}, ${JSON.stringify(recipe.tags)},
+        'manual', NULL, NULL, NULL, NULL, true
+      )
+    `;
+    console.log(`  ✅ Inserted: ${recipe.name}`);
+  }
+
+  // Verify
+  const count = await sql`SELECT COUNT(*) as count FROM official_recipes`;
+  console.log(`\n✅ Total recipes in database: ${count[0].count}`);
+
+  const categories = await sql`SELECT recipe_category, COUNT(*) as count FROM official_recipes GROUP BY recipe_category`;
+  console.log('Categories:', categories);
+
+  await sql.end();
+  console.log('\n🎉 Phase 0 complete!');
+}
+
+main().catch(err => {
+  console.error('❌ Seed failed:', err);
+  process.exit(1);
+});
