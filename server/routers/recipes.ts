@@ -1101,18 +1101,22 @@ export const recipesRouter = router({
       const officialConditions: any[] = [eq(officialRecipes.isActive, true)];
       const customConditions: any[] = [eq(customRecipes.familyId, ctx.activeFamilyId!)];
 
-      if (input.query) {
-        const searchPattern = `%${input.query}%`;
+      if (input.query && input.query.trim().length > 1) {
+        const searchPattern = `%${input.query.trim()}%`;
         officialConditions.push(
           or(
             like(officialRecipes.name, searchPattern),
             like(officialRecipes.description ?? "", searchPattern),
+            like(officialRecipes.ingredients ?? "", searchPattern),
+            like(officialRecipes.tags ?? "", searchPattern)
           )
         );
         customConditions.push(
           or(
             like(customRecipes.name, searchPattern),
             like(customRecipes.description ?? "", searchPattern),
+            like(customRecipes.ingredients ?? "", searchPattern),
+            like(customRecipes.tags ?? "", searchPattern)
           )
         );
       }
@@ -1122,11 +1126,11 @@ export const recipesRouter = router({
         customConditions.push(eq(customRecipes.recipeCategory, input.category));
       }
 
-      // Tag filters (multiple tags with AND logic)
+      // Tag filters (multiple tags with AND logic) - use %"tag"% pattern for precise matching
       if (input.tags && input.tags.length > 0) {
         input.tags.forEach(tag => {
-          officialConditions.push(like(officialRecipes.tags ?? "", `%${tag}%`));
-          customConditions.push(like(customRecipes.tags ?? "", `%${tag}%`));
+          officialConditions.push(like(officialRecipes.tags ?? "", `%"${tag}"%`));
+          customConditions.push(like(customRecipes.tags ?? "", `%"${tag}"%`));
         });
       }
 
