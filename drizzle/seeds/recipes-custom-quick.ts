@@ -1725,5 +1725,246 @@ export const CUSTOM_QUICK_RECIPES = [
     "和風",
     "健康"
   ]
+},
+{
+  "name": "豉油雞翼",
+  "description": "經典廣東家常菜，做法極其簡單。雞翼吸收咗豉油同冰糖嘅鹹香甜味，滑嫩多汁，係大人細路都鍾意嘅下飯神餸。",
+  "cookTime": 15,
+  "servings": 2,
+  "difficulty": "簡單",
+  "recipeCategory": "中菜",
+  "ingredients": [
+    {
+      "name": "雞翼",
+      "quantity": "8",
+      "unit": "隻",
+      "category": "肉類"
+    },
+    {
+      "name": "生抽",
+      "quantity": "100",
+      "unit": "毫升",
+      "category": "調味料"
+    },
+    {
+      "name": "老抽",
+      "quantity": "2",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "冰糖",
+      "quantity": "30",
+      "unit": "克",
+      "category": "調味料"
+    },
+    {
+      "name": "薑片",
+      "quantity": "4",
+      "unit": "片",
+      "category": "調味料"
+    },
+    {
+      "name": "蔥段",
+      "quantity": "2",
+      "unit": "條",
+      "category": "蔬菜"
+    },
+    {
+      "name": "八角",
+      "quantity": "1",
+      "unit": "粒",
+      "category": "調味料"
+    },
+    {
+      "name": "水",
+      "quantity": "150",
+      "unit": "毫升",
+      "category": "其他"
+    }
+  ],
+  "steps": [
+    {
+      "instruction": "雞翼洗淨抹乾；薑切片，蔥切段。",
+      "duration": 3
+    },
+    {
+      "instruction": "鍋中倒入生抽、老抽、水、冰糖、薑片、蔥段同八角，大火煮滾調成豉油汁。",
+      "duration": 3
+    },
+    {
+      "instruction": "放入雞翼，大火煮滾後轉小火，蓋上鍋蓋煮10分鐘。",
+      "duration": 10
+    },
+    {
+      "instruction": "熄火，蓋住蓋再燜5分鐘，等雞翼完全入味，撈出裝碟即可享用。",
+      "duration": 4
+    }
+  ],
+  "tags": [
+    "15 分鐘內",
+    "簡單",
+    "快手",
+    "家常",
+    "下飯",
+    "經典",
+    "小朋友"
+  ]
+},
+{
+  "name": "焗蜜糖雞翼",
+  "description": "外皮微焦金黃、肉質軟嫩、帶有蜜糖香甜嘅焗雞翼！用焗爐或氣炸鍋20分鐘即可搞定，做法極速方便。",
+  "cookTime": 25,
+  "servings": 2,
+  "difficulty": "簡單",
+  "recipeCategory": "中菜",
+  "ingredients": [
+    {
+      "name": "雞翼",
+      "quantity": "8",
+      "unit": "隻",
+      "category": "肉類"
+    },
+    {
+      "name": "蜜糖",
+      "quantity": "2",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "生抽",
+      "quantity": "1.5",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "蠔油",
+      "quantity": "1",
+      "unit": "茶匙",
+      "category": "調味料"
+    },
+    {
+      "name": "蒜蓉",
+      "quantity": "1",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "紹興酒",
+      "quantity": "1",
+      "unit": "茶匙",
+      "category": "調味料"
+    },
+    {
+      "name": "黑胡椒",
+      "quantity": "適量",
+      "unit": "",
+      "category": "調味料"
+    }
+  ],
+  "steps": [
+    {
+      "instruction": "雞翼洗淨抹乾，用刀在背面劃兩刀便於入味。",
+      "duration": 3
+    },
+    {
+      "instruction": "加入生抽、蠔油、蒜蓉、紹興酒同少許黑胡椒，拌勻醃製15分鐘。",
+      "duration": 15
+    },
+    {
+      "instruction": "焗爐或氣炸鍋預熱至200°C，將雞翼平鋪在烤網上，烤15分鐘（中途翻面一次）。",
+      "duration": 15
+    },
+    {
+      "instruction": "最後2分鐘，在兩面均勻刷上蜜糖，烤至表面呈金黃微焦色即可出爐。",
+      "duration": 2
+    }
+  ],
+  "tags": [
+    "30 分鐘內",
+    "簡單",
+    "快手",
+    "烤",
+    "家常",
+    "小朋友",
+    "香甜"
+  ]
+},
+{
+  "name": "蜜汁焗叉燒",
+  "description": "屋企都能做出茶餐廳水準嘅蜜汁叉燒！選用梅頭肉切成薄條，用焗爐或氣炸鍋大火快速烤製，肉質軟嫩多汁、邊緣焦香。",
+  "cookTime": 30,
+  "servings": 3,
+  "difficulty": "簡單",
+  "recipeCategory": "中菜",
+  "ingredients": [
+    {
+      "name": "梅頭豬肉",
+      "quantity": "400",
+      "unit": "克",
+      "category": "肉類"
+    },
+    {
+      "name": "叉燒醬",
+      "quantity": "3",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "生抽",
+      "quantity": "1",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "蜜糖",
+      "quantity": "2",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "蒜蓉",
+      "quantity": "1",
+      "unit": "湯匙",
+      "category": "調味料"
+    },
+    {
+      "name": "玫瑰露酒",
+      "quantity": "1",
+      "unit": "茶匙",
+      "category": "調味料"
+    }
+  ],
+  "steps": [
+    {
+      "instruction": "梅頭豬肉切成厚約3厘米嘅長條狀（切太厚難熟），用叉子在兩面戳孔以便醃製入味。",
+      "duration": 5
+    },
+    {
+      "instruction": "肉加叉燒醬、生抽、玫瑰露酒同蒜蓉，用力抓勻醃製15分鐘。",
+      "duration": 15
+    },
+    {
+      "instruction": "氣炸鍋或焗爐預熱至200°C，放入豬肉，大火烤15分鐘。",
+      "duration": 15
+    },
+    {
+      "instruction": "取出翻面，刷上一層剩餘嘅醃醬，繼續烤10分鐘至邊緣微焦。",
+      "duration": 10
+    },
+    {
+      "instruction": "最後3分鐘，在兩面刷上蜜糖，烤至表面呈油亮金黃色，取出稍微放涼後切片裝碟。",
+      "duration": 3
+    }
+  ],
+  "tags": [
+    "30 分鐘內",
+    "簡單",
+    "快手",
+    "烤",
+    "經典",
+    "家常",
+    "下飯"
+  ]
 }
 ];
