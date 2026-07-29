@@ -108,7 +108,7 @@ const RECIPES = [
       { instruction: "加入薑蒜末炒香，倒入調汁翻炒均勻。", duration: 2 },
       { instruction: "加入花生同蔥段，快速翻炒即可上碟。", duration: 1 },
     ],
-    tags: ["微辣", "開胃", "經典"],
+    tags: ["開胃", "經典"],
   },
   {
     name: "麻婆豆腐",
@@ -138,7 +138,7 @@ const RECIPES = [
       { instruction: "加生抽調味，倒入生粉水勾芡。", duration: 2 },
       { instruction: "灑花椒粉同蔥花即可。", duration: 1 },
     ],
-    tags: ["麻辣", "下飯", "經典"],
+    tags: ["下飯", "經典"],
   },
   {
     name: "糖醋排骨",
@@ -217,7 +217,7 @@ const RECIPES = [
       { instruction: "沿鑊邊灒生抽，加老抽、糖翻炒均勻。", duration: 3 },
       { instruction: "淋麻油，翻炒幾下即可上碟。", duration: 1 },
     ],
-    tags: ["快手", "茶餐廳", "飽肚"],
+    tags: ["快手"],
   },
   {
     name: "臘味煲仔飯",
@@ -246,7 +246,7 @@ const RECIPES = [
       { instruction: "打入雞蛋，蓋冚再煮2分鐘。", duration: 2 },
       { instruction: "淋上生抽、麻油、糖調成嘅醬汁即可。", duration: 2 },
     ],
-    tags: ["冬天", "飽肚", "經典"],
+    tags: ["經典"],
   },
   {
     name: "紅蘿蔔粟米豬骨湯",
@@ -273,7 +273,7 @@ const RECIPES = [
       { instruction: "轉小火煲1.5小時。", duration: 90 },
       { instruction: "加鹽調味即可。", duration: 2 },
     ],
-    tags: ["老火湯", "滋補", "清甜"],
+    tags: ["滋補", "清甜"],
   },
   {
     name: "回鍋肉",
@@ -328,7 +328,7 @@ const RECIPES = [
       { instruction: "加入芽菜炒香。", duration: 2 },
       { instruction: "倒回四季豆，加生抽翻炒均勻即可。", duration: 3 },
     ],
-    tags: ["乾香", "下飯", "微辣"],
+    tags: ["下飯"],
   },
   {
     name: "蝦仁炒蛋",
@@ -354,7 +354,7 @@ const RECIPES = [
       { instruction: "蛋液半熟時加入蝦仁，翻炒均勻。", duration: 2 },
       { instruction: "灑蔥花即可上碟。", duration: 1 },
     ],
-    tags: ["鮮味", "營養", "簡單"],
+    tags: ["鮮味", "簡單"],
   },
   {
     name: "梅菜扣肉",
@@ -408,7 +408,7 @@ const RECIPES = [
       { instruction: "大火蒸15分鐘至雞肉熟透。", duration: 15 },
       { instruction: "灑蔥絲，淋熱油即可。", duration: 2 },
     ],
-    tags: ["簡單", "嫩滑", "家常"],
+    tags: ["簡單", "家常"],
   },
   {
     name: "魚香茄子",
@@ -440,7 +440,7 @@ const RECIPES = [
       { instruction: "倒回茄子，淋魚香汁翻炒均勻。", duration: 3 },
       { instruction: "灑蔥花即可上碟。", duration: 1 },
     ],
-    tags: ["魚香", "下飯", "經典"],
+    tags: ["下飯", "經典"],
   },
   {
     name: "腐乳通菜",
@@ -545,7 +545,7 @@ const RECIPES = [
       { instruction: "放入米粉煮軟，加鹽調味。", duration: 3 },
       { instruction: "灑蔥花，淋麻油即可。", duration: 1 },
     ],
-    tags: ["暖胃", "簡單", "湯粉"],
+    tags: ["暖胃", "簡單"],
   },
 ];
 

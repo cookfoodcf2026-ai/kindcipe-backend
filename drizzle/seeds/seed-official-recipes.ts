@@ -5,17 +5,17 @@ const sql = postgres(process.env.DATABASE_URL!);
 
 // Recipe categories aligned with frontend CATEGORY_ORDER
 const DISTRIBUTION = [
-  { category: "中菜", subType: "小炒", count: 120, tags: ["小炒", "家常", "快手"] },
-  { category: "中菜", subType: "湯水", count: 80, tags: ["湯水", "滋補", "廣東"] },
-  { category: "中菜", subType: "早餐", count: 35, tags: ["早餐", "快手", "簡單"] },
-  { category: "西餐", subType: "早餐", count: 35, tags: ["早餐", "西式", "快手"] },
-  { category: "西餐", subType: "主菜", count: 60, tags: ["西式", "主菜"] },
-  { category: "日式", subType: "主菜", count: 50, tags: ["日式", "和風"] },
-  { category: "韓式", subType: "主菜", count: 30, tags: ["韓式", "辣"] },
-  { category: "東南亞", subType: "主菜", count: 20, tags: ["東南亞", "酸辣"] },
-  { category: "甜品", subType: "小食", count: 40, tags: ["甜品", "小食"] },
+  { category: "中菜", subType: "小炒", count: 120, tags: ["家常", "快手"] },
+  { category: "中菜", subType: "湯水", count: 80, tags: ["滋補"] },
+  { category: "中菜", subType: "早餐", count: 35, tags: ["快手", "簡單"] },
+  { category: "西餐", subType: "早餐", count: 35, tags: ["快手"] },
+  { category: "西餐", subType: "主菜", count: 60, tags: ["家常", "簡單"] },
+  { category: "日式", subType: "主菜", count: 50, tags: ["家常", "簡單"] },
+  { category: "韓式", subType: "主菜", count: 30, tags: ["家常", "簡單"] },
+  { category: "東南亞", subType: "主菜", count: 20, tags: ["家常", "簡單"] },
+  { category: "甜品", subType: "小食", count: 40, tags: ["家常", "簡單"] },
   { category: "其他", subType: "素食", count: 15, tags: ["素食", "健康", "清淡"] },
-  { category: "其他", subType: "健康", count: 15, tags: ["健康", "低卡", "高蛋白"] },
+  { category: "其他", subType: "健康", count: 15, tags: ["健康", "低卡"] },
 ];
 
 // Base recipes for each category/subtype
@@ -43,7 +43,7 @@ const BASE_RECIPES = {
         { instruction: "加入生抽、蠔油和糖調味，繼續翻炒均勻。", duration: 1 },
         { instruction: "蔬菜變軟但仍保持翠綠即可上碟。", duration: 0 },
       ],
-      tags: ["快手", "清淡健康", "素食", "家常菜", "30 分鐘內"],
+      tags: ["快手", "素食", "家常菜", "30 分鐘內"],
     },
     {
       name: "宮保雞丁",
@@ -77,7 +77,7 @@ const BASE_RECIPES = {
         { instruction: "倒入雞丁和調汁，快速翻炒均勻。", duration: 2 },
         { instruction: "加入花生和蔥段，炒勻後即可上碟。", duration: 0 },
       ],
-      tags: ["中式", "微辣", "宴客", "家常菜", "30 分鐘內"],
+      tags: ["宴客", "家常菜", "30 分鐘內"],
     },
   ],
   "中菜 - 湯水": [
@@ -102,7 +102,7 @@ const BASE_RECIPES = {
         { instruction: "轉細火煲 1.5-2 小時。", duration: 90 },
         { instruction: "加鹽調味即可。", duration: 0 },
       ],
-      tags: ["湯水", "老火湯", "廣東", "滋補", "家常"],
+      tags: ["滋補", "家常"],
     },
   ],
   "中菜 - 早餐": [
@@ -124,7 +124,7 @@ const BASE_RECIPES = {
         { instruction: "方包塗牛油，煎至金黃。", duration: 2 },
         { instruction: "夾入蕃茄、雞蛋，塗沙律醬即可。", duration: 0 },
       ],
-      tags: ["早餐", "快手", "小朋友啱食", "5 分鐘"],
+      tags: ["快手"],
     },
   ],
   "西餐 - 早餐": [
@@ -147,7 +147,7 @@ const BASE_RECIPES = {
         { instruction: "雞蛋打散，加入芝士粉和黑胡椒拌勻。", duration: 0 },
         { instruction: "意粉加入煙肉鑊，倒入蛋汁快速拌勻，加煮麵水調整濃稠度。", duration: 2 },
       ],
-      tags: ["西式", "早餐", "意粉", "30 分鐘內"],
+      tags: ["30 分鐘內"],
     },
   ],
   "西餐 - 主菜": [
@@ -171,7 +171,7 @@ const BASE_RECIPES = {
         { instruction: "放入三文魚，每面煎 3-4 分鐘至金黃。", duration: 7 },
         { instruction: "擠檸檬汁，即可上碟。", duration: 0 },
       ],
-      tags: ["西式", "海鮮", "健康", "高蛋白", "30 分鐘內"],
+      tags: ["海鮮", "健康", "30 分鐘內"],
     },
   ],
   "日式 - 主菜": [
@@ -195,7 +195,7 @@ const BASE_RECIPES = {
         { instruction: "小鍋下洋蔥絲，倒入調味汁，中火煮至洋蔥軟化，加入雞肉煮熟。", duration: 5 },
         { instruction: "雞蛋打散，倒入鍋中，蓋蓋小火煮至蛋液半凝固，鋪在白飯上即成。", duration: 3 },
       ],
-      tags: ["日式", "丼飯", "快手", "30 分鐘內"],
+      tags: ["快手", "30 分鐘內"],
     },
   ],
   "韓式 - 主菜": [
@@ -218,7 +218,7 @@ const BASE_RECIPES = {
         { instruction: "鍋中加入 500ml 水，放入辣醬汁，大火煮沸。", duration: 5 },
         { instruction: "加入年糕和魚餅，中火煮 10-15 分鐘至年糕軟化、醬汁濃稠，撒上蔥花即成。", duration: 12 },
       ],
-      tags: ["韓式", "年糕", "辣", "小食", "30 分鐘內"],
+      tags: ["30 分鐘內"],
     },
   ],
   "東南亞 - 主菜": [
@@ -242,7 +242,7 @@ const BASE_RECIPES = {
         { instruction: "加入豆角炒熟，倒入魚露、蠔油調味。", duration: 2 },
         { instruction: "最後加入九層塔炒勻，另鍋煎太陽蛋，鋪在飯上即成。", duration: 3 },
       ],
-      tags: ["泰式", "香葉", "肉碎", "30 分鐘內"],
+      tags: ["30 分鐘內"],
     },
   ],
   "甜品 - 小食": [
@@ -262,7 +262,7 @@ const BASE_RECIPES = {
         { instruction: "水煲滾，加入西米煮 15 分鐘至透明，過冷河。", duration: 15 },
         { instruction: "椰汁加糖煮溶，加入西米拌勻即可。", duration: 5 },
       ],
-      tags: ["糖水", "甜品", "廣東", "消暑", "清熱"],
+      tags: ["家常", "簡單"],
     },
   ],
   "其他 - 素食": [
@@ -283,7 +283,7 @@ const BASE_RECIPES = {
         { instruction: "鑊中下少許油，放入豆腐煎至兩面金黃。", duration: 5 },
         { instruction: "加入生抽和少許水，煮至入味，撒蔥花和麻油即成。", duration: 3 },
       ],
-      tags: ["素食", "清淡健康", "快手", "30 分鐘內"],
+      tags: ["素食", "快手", "30 分鐘內"],
     },
   ],
   "其他 - 健康": [
@@ -306,7 +306,7 @@ const BASE_RECIPES = {
         { instruction: "生菜洗淨撕小片，蕃茄和青瓜切片。", duration: 0 },
         { instruction: "所有材料混合，淋上橄欖油和檸檬汁拌勻即成。", duration: 0 },
       ],
-      tags: ["健康", "低卡", "高蛋白", "沙律"],
+      tags: ["健康", "低卡"],
     },
   ],
 };

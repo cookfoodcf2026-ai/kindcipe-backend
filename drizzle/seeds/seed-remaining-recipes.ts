@@ -95,7 +95,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "鍋中加入水同糖煮滾，加入芒果泥同椰奶。", duration: 3 },
         { instruction: "加入西米同芒果粒，拌勻即可。", duration: 2 },
       ],
-      tags: ["清甜", "夏天", "順滑"],
+      tags: ["清甜"],
     },
     {
       name: "紅豆沙",
@@ -116,7 +116,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "加入冰糖，攪拌至融化。", duration: 5 },
         { instruction: "繼續煮10分鐘至濃稠即可。", duration: 10 },
       ],
-      tags: ["傳統", "暖胃", "香甜"],
+      tags: ["暖胃"],
     },
   ],
   "韓式": [
@@ -146,7 +146,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "碗底放飯，鋪上所有配料。", duration: 2 },
         { instruction: "加韓式辣醬，拌勻即可。", duration: 1 },
       ],
-      tags: ["營養", "色彩豐富", "經典"],
+      tags: ["經典"],
     },
     {
       name: "韓式泡菜湯",
@@ -174,7 +174,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "加入豆腐，小火煮5分鐘。", duration: 5 },
         { instruction: "加生抽調味，灑蔥花即可。", duration: 2 },
       ],
-      tags: ["暖胃", "酸辣", "冬天"],
+      tags: ["暖胃"],
     },
   ],
   "東南亞": [
@@ -204,7 +204,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "加入紅椒、魚露、糖調味。", duration: 2 },
         { instruction: "灑羅勒葉即可上碟。", duration: 1 },
       ],
-      tags: ["香辣", "濃郁", "下飯"],
+      tags: ["香辣", "下飯"],
     },
     {
       name: "越南春卷",
@@ -229,7 +229,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "放上生菜、米粉、蝦、蔬菜同薄荷葉。", duration: 3 },
         { instruction: "捲實即可，配花生醬食。", duration: 2 },
       ],
-      tags: ["清爽", "開胃", "健康"],
+      tags: ["開胃", "健康"],
     },
   ],
   "其他": [
@@ -253,7 +253,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "麵包烤至金黃。", duration: 3 },
         { instruction: "牛油果泥塗在麵包上，煎太陽蛋放上面。", duration: 3 },
       ],
-      tags: ["健康", "早餐", "簡單"],
+      tags: ["健康", "簡單"],
     },
     {
       name: "smoothie bowl",
@@ -275,7 +275,7 @@ const RECIPE_TEMPLATES: Record<string, Array<{
         { instruction: "倒入碗中，鋪上燕麥片、奇亞籽。", duration: 2 },
         { instruction: "淋蜂蜜即可。", duration: 1 },
       ],
-      tags: ["健康", "早餐", "營養"],
+      tags: ["健康"],
     },
   ],
 };

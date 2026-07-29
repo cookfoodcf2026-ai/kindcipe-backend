@@ -21,7 +21,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入糖同少許鹽調味，倒回炒蛋，翻炒均勻。", duration: 2 },
       { instruction: "灑蔥花，即可上碟。", duration: 0 },
     ],
-    tags: ["中菜", "快手", "簡單", "酸甜", "開胃", "家常", "雞蛋", "晚餐", "新手", "低卡"],
+    tags: ["快手", "簡單", "酸甜", "開胃", "家常", "新手", "低卡"],
   },
   {
     name: "蒜蓉炒菜心",
@@ -43,7 +43,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入菜心快速翻炒。", duration: 3 },
       { instruction: "加生抽同鹽調味，炒至菜心變軟即可。", duration: 2 },
     ],
-    tags: ["中菜", "快手", "簡單", "清淡", "健康", "蔬菜", "素食", "晚餐", "新手", "高纖"],
+    tags: ["快手", "簡單", "清淡", "健康", "蔬菜", "素食", "新手"],
   },
   {
     name: "紅燒肉",
@@ -71,7 +71,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入適量水，大火燒開後轉小火燉60分鐘。", duration: 60 },
       { instruction: "大火收汁至濃稠即可。", duration: 5 },
     ],
-    tags: ["中菜", "經典", "下飯", "宴客", "豬肉", "香濃", "晚餐", "進階", "飽肚"],
+    tags: ["經典", "下飯", "宴客", "香濃", "進階"],
   },
   {
     name: "宮保雞丁",
@@ -103,7 +103,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入薑蒜末炒香，倒入調汁翻炒均勻。", duration: 2 },
       { instruction: "加入花生同蔥段，快速翻炒即可上碟。", duration: 1 },
     ],
-    tags: ["中菜", "經典", "開胃", "微辣", "雞肉", "香濃", "晚餐", "中等", "下飯"],
+    tags: ["經典", "開胃", "香濃", "中等", "下飯"],
   },
   {
     name: "麻婆豆腐",
@@ -133,7 +133,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加生抽調味，倒入生粉水勾芡。", duration: 2 },
       { instruction: "灑花椒粉同蔥花即可。", duration: 1 },
     ],
-    tags: ["中菜", "經典", "麻辣", "下飯", "豆腐", "豬肉", "晚餐", "中等", "香濃"],
+    tags: ["經典", "下飯", "中等", "香濃"],
   },
   {
     name: "糖醋排骨",
@@ -161,7 +161,7 @@ export const BASE_20_RECIPES = [
       { instruction: "倒回排骨，快速翻炒至汁濃稠。", duration: 3 },
       { instruction: "灑蔥花即可上碟。", duration: 1 },
     ],
-    tags: ["中菜", "酸甜", "開胃", "排骨", "豬肉", "宴客", "晚餐", "中等", "小朋友"],
+    tags: ["酸甜", "開胃", "宴客", "中等", "小朋友"],
   },
   {
     name: "清蒸鱸魚",
@@ -185,7 +185,7 @@ export const BASE_20_RECIPES = [
       { instruction: "淋上生抽同麻油。", duration: 1 },
       { instruction: "燒熱油，淋喺蔥絲上即可。", duration: 2 },
     ],
-    tags: ["中菜", "清淡", "健康", "鮮味", "海鮮", "魚", "晚餐", "簡單", "宴客", "低卡"],
+    tags: ["清淡", "健康", "鮮味", "海鮮", "簡單", "宴客", "低卡"],
   },
   {
     name: "豉油王炒麵",
@@ -212,7 +212,7 @@ export const BASE_20_RECIPES = [
       { instruction: "沿鑊邊灒生抽，加老抽、糖翻炒均勻。", duration: 3 },
       { instruction: "淋麻油，翻炒幾下即可上碟。", duration: 1 },
     ],
-    tags: ["中菜", "快手", "茶餐廳", "飽肚", "麵飯", "簡單", "晚餐", "家常", "下飯"],
+    tags: ["快手", "簡單", "家常", "下飯"],
   },
   {
     name: "臘味煲仔飯",
@@ -241,7 +241,7 @@ export const BASE_20_RECIPES = [
       { instruction: "打入雞蛋，蓋冚再煮2分鐘。", duration: 2 },
       { instruction: "淋上生抽、麻油、糖調成嘅醬汁即可。", duration: 2 },
     ],
-    tags: ["中菜", "冬天", "飽肚", "經典", "麵飯", "豬肉", "晚餐", "中等", "暖身"],
+    tags: ["經典", "中等"],
   },
   {
     name: "紅蘿蔔粟米豬骨湯",
@@ -268,7 +268,7 @@ export const BASE_20_RECIPES = [
       { instruction: "轉小火煲1.5小時。", duration: 90 },
       { instruction: "加鹽調味即可。", duration: 2 },
     ],
-    tags: ["中菜", "湯水", "滋補", "清甜", "豬肉", "蔬菜", "老火湯", "一家大細", "經典", "健康"],
+    tags: ["滋補", "清甜", "蔬菜", "經典", "健康"],
   },
   {
     name: "回鍋肉",
@@ -296,7 +296,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入蒜苗快速翻炒至斷生。", duration: 3 },
       { instruction: "加生抽調味即可上碟。", duration: 1 },
     ],
-    tags: ["中菜", "香辣", "下飯", "經典", "豬肉", "晚餐", "中等", "香濃"],
+    tags: ["香辣", "下飯", "經典", "中等", "香濃"],
   },
   {
     name: "干煸四季豆",
@@ -323,7 +323,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入芽菜炒香。", duration: 2 },
       { instruction: "倒回四季豆，加生抽翻炒均勻即可。", duration: 3 },
     ],
-    tags: ["中菜", "乾香", "下飯", "微辣", "蔬菜", "豬肉", "簡單", "晚餐"],
+    tags: ["下飯", "蔬菜", "簡單"],
   },
   {
     name: "蝦仁炒蛋",
@@ -349,7 +349,7 @@ export const BASE_20_RECIPES = [
       { instruction: "蛋液半熟時加入蝦仁，翻炒均勻。", duration: 2 },
       { instruction: "灑蔥花即可上碟。", duration: 1 },
     ],
-    tags: ["中菜", "鮮味", "營養", "簡單", "海鮮", "蝦", "雞蛋", "快手", "低卡", "小朋友"],
+    tags: ["鮮味", "簡單", "海鮮", "快手", "低卡", "小朋友"],
   },
   {
     name: "梅菜扣肉",
@@ -378,7 +378,7 @@ export const BASE_20_RECIPES = [
       { instruction: "隔水蒸1.5小時至軟爛。", duration: 90 },
       { instruction: "倒扣落碟即可。", duration: 2 },
     ],
-    tags: ["中菜", "經典", "宴客", "鹹香", "豬肉", "進階", "香濃", "晚餐"],
+    tags: ["經典", "宴客", "鹹香", "進階", "香濃"],
   },
   {
     name: "薑蔥蒸雞",
@@ -403,7 +403,7 @@ export const BASE_20_RECIPES = [
       { instruction: "大火蒸15分鐘至雞肉熟透。", duration: 15 },
       { instruction: "灑蔥絲，淋熱油即可。", duration: 2 },
     ],
-    tags: ["中菜", "簡單", "嫩滑", "家常", "雞肉", "快手", "蒸", "晚餐", "一家大細"],
+    tags: ["簡單", "家常", "快手", "蒸"],
   },
   {
     name: "魚香茄子",
@@ -435,7 +435,7 @@ export const BASE_20_RECIPES = [
       { instruction: "倒回茄子，淋魚香汁翻炒均勻。", duration: 3 },
       { instruction: "灑蔥花即可上碟。", duration: 1 },
     ],
-    tags: ["中菜", "魚香", "下飯", "經典", "茄子", "豬肉", "中等", "香濃", "開胃"],
+    tags: ["下飯", "經典", "中等", "香濃", "開胃"],
   },
   {
     name: "腐乳通菜",
@@ -458,7 +458,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入通菜快速翻炒。", duration: 3 },
       { instruction: "倒入腐乳汁，翻炒均勻即可。", duration: 2 },
     ],
-    tags: ["中菜", "快手", "鹹香", "簡單", "蔬菜", "素食", "晚餐", "新手", "開胃"],
+    tags: ["快手", "鹹香", "簡單", "蔬菜", "素食", "新手", "開胃"],
   },
   {
     name: "鹽焗雞翼",
@@ -482,7 +482,7 @@ export const BASE_20_RECIPES = [
       { instruction: "雞翼放入焗盤，焗20分鐘至金黃。", duration: 20 },
       { instruction: "翻面再焗5分鐘即可。", duration: 5 },
     ],
-    tags: ["中菜", "香脆", "小朋友", "簡單", "雞肉", "快手", "下午茶", "烤", "家常"],
+    tags: ["香脆", "小朋友", "簡單", "快手", "家常"],
   },
   {
     name: "蠔油冬菇炆雞",
@@ -511,7 +511,7 @@ export const BASE_20_RECIPES = [
       { instruction: "加入蠔油、糖同適量水，蓋冚炆10分鐘。", duration: 10 },
       { instruction: "倒入生粉水勾芡即可。", duration: 2 },
     ],
-    tags: ["中菜", "鮮味", "下飯", "家常", "雞肉", "炆", "晚餐", "簡單", "一家大細"],
+    tags: ["鮮味", "下飯", "家常", "炆", "簡單"],
   },
   {
     name: "榨菜肉絲湯米粉",
@@ -540,6 +540,6 @@ export const BASE_20_RECIPES = [
       { instruction: "放入米粉煮軟，加鹽調味。", duration: 3 },
       { instruction: "灑蔥花，淋麻油即可。", duration: 1 },
     ],
-    tags: ["中菜", "暖胃", "簡單", "湯粉", "豬肉", "麵飯", "快手", "早餐", "午餐"],
+    tags: ["暖胃", "簡單", "快手"],
   },
 ];
