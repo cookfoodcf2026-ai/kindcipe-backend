@@ -1087,6 +1087,7 @@ export const recipesRouter = router({
       category: z.string().optional(),
       tag: z.string().optional(),
       cookTimeMax: z.number().optional(),
+      popularChip: z.string().optional(),
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -1129,6 +1130,146 @@ export const recipesRouter = router({
       if (input.cookTimeMax) {
         officialConditions.push(lte(officialRecipes.cookTime, input.cookTimeMax));
         customConditions.push(lte(customRecipes.cookTime, input.cookTimeMax));
+      }
+
+      // Popular chip filters
+      if (input.popularChip) {
+        const chip = input.popularChip;
+        
+        if (chip === "quick15") {
+          officialConditions.push(lte(officialRecipes.cookTime, 15));
+          customConditions.push(lte(customRecipes.cookTime, 15));
+        } else if (chip === "quick30") {
+          officialConditions.push(lte(officialRecipes.cookTime, 30));
+          customConditions.push(lte(customRecipes.cookTime, 30));
+        } else if (chip === "tonight") {
+          officialConditions.push(or(
+            eq(officialRecipes.recipeCategory, "中菜"),
+            like(officialRecipes.tags ?? "", "%家常%")
+          ));
+          customConditions.push(or(
+            eq(customRecipes.recipeCategory, "中菜"),
+            like(customRecipes.tags ?? "", "%家常%")
+          ));
+        } else if (chip === "hk-style") {
+          officialConditions.push(like(officialRecipes.tags ?? "", "%港式%"));
+          customConditions.push(like(customRecipes.tags ?? "", "%港式%"));
+        } else if (chip === "kids") {
+          officialConditions.push(and(
+            eq(officialRecipes.difficulty, "簡單"),
+            not(like(officialRecipes.ingredients ?? "", "%辣椒%")),
+            not(like(officialRecipes.ingredients ?? "", "%胡椒%")),
+            not(like(officialRecipes.ingredients ?? "", "%花椒%")),
+            not(like(officialRecipes.steps ?? "", "%炸%"))
+          ));
+          customConditions.push(and(
+            eq(customRecipes.difficulty, "簡單"),
+            not(like(customRecipes.ingredients ?? "", "%辣椒%")),
+            not(like(customRecipes.ingredients ?? "", "%胡椒%")),
+            not(like(customRecipes.ingredients ?? "", "%花椒%")),
+            not(like(customRecipes.steps ?? "", "%炸%"))
+          ));
+        } else if (chip === "vegetarian") {
+          const meatKeywords = ["雞", "豬", "牛", "羊", "魚", "蝦", "蟹", "肉", "腩", "翼", "腿", "排骨", "臘", "蜆", "蠔", "帶子", "三文魚", "西冷", "叉燒", "鴨", "鵝", "蛙", "蛇"];
+          const hasMeatConditions = meatKeywords.map(k => like(officialRecipes.ingredients ?? "", `%${k}%`));
+          officialConditions.push(and(
+            not(or(...hasMeatConditions)),
+            or(
+              like(officialRecipes.tags ?? "", "%素食%"),
+              eq(officialRecipes.recipeCategory, "素食")
+            )
+          ));
+          const hasMeatConditionsCustom = meatKeywords.map(k => like(customRecipes.ingredients ?? "", `%${k}%`));
+          customConditions.push(and(
+            not(or(...hasMeatConditionsCustom)),
+            or(
+              like(customRecipes.tags ?? "", "%素食%"),
+              eq(customRecipes.recipeCategory, "素食")
+            )
+          ));
+        } else if (chip === "light") {
+          officialConditions.push(or(
+            like(officialRecipes.tags ?? "", "%清淡%"),
+            like(officialRecipes.tags ?? "", "%健康%"),
+            like(officialRecipes.tags ?? "", "%少油%")
+          ));
+          customConditions.push(or(
+            like(customRecipes.tags ?? "", "%清淡%"),
+            like(customRecipes.tags ?? "", "%健康%"),
+            like(customRecipes.tags ?? "", "%少油%")
+          ));
+        } else if (chip === "one-person") {
+          officialConditions.push(lte(officialRecipes.servings, 2));
+          customConditions.push(lte(customRecipes.servings, 2));
+        } else if (chip === "high-protein") {
+          const proteinKeywords = ["雞", "豬", "牛", "魚", "蝦", "豆腐", "雞蛋", "牛柳", "牛仔骨", "三文魚", "西冷", "羊", "蟹", "蜆", "蠔", "帶子", "魷魚", "排骨", "鴨", "鵝", "蛙", "肉丸", "午餐肉", "香腸", "火腿", "培根", "芝士", "牛奶", "酸奶"];
+          const conditions = proteinKeywords.map(k => like(officialRecipes.ingredients ?? "", `%${k}%`));
+          officialConditions.push(or(...conditions));
+          const conditionsCustom = proteinKeywords.map(k => like(customRecipes.ingredients ?? "", `%${k}%`));
+          customConditions.push(or(...conditionsCustom));
+        } else if (chip === "soup") {
+          officialConditions.push(or(
+            eq(officialRecipes.recipeCategory, "湯水"),
+            like(officialRecipes.name, "%湯%"),
+            like(officialRecipes.tags ?? "", "%湯水%")
+          ));
+          customConditions.push(or(
+            eq(customRecipes.recipeCategory, "湯水"),
+            like(customRecipes.name, "%湯%"),
+            like(customRecipes.tags ?? "", "%湯水%")
+          ));
+        } else if (chip === "fridge") {
+          officialConditions.push(or(
+            like(officialRecipes.tags ?? "", "%家常%"),
+            like(officialRecipes.tags ?? "", "%簡單%")
+          ));
+          customConditions.push(or(
+            like(customRecipes.tags ?? "", "%家常%"),
+            like(customRecipes.tags ?? "", "%簡單%")
+          ));
+        } else if (chip === "beginner") {
+          officialConditions.push(and(
+            eq(officialRecipes.difficulty, "簡單"),
+            or(
+              like(officialRecipes.tags ?? "", "%新手%"),
+              like(officialRecipes.tags ?? "", "%基礎%")
+            )
+          ));
+          customConditions.push(and(
+            eq(customRecipes.difficulty, "簡單"),
+            or(
+              like(customRecipes.tags ?? "", "%新手%"),
+              like(customRecipes.tags ?? "", "%基礎%")
+            )
+          ));
+        } else if (chip === "party") {
+          officialConditions.push(or(
+            gte(officialRecipes.servings, 4),
+            like(officialRecipes.tags ?? "", "%宴客%")
+          ));
+          customConditions.push(or(
+            gte(customRecipes.servings, 4),
+            like(customRecipes.tags ?? "", "%宴客%")
+          ));
+        } else if (chip === "low-calorie") {
+          officialConditions.push(or(
+            like(officialRecipes.tags ?? "", "%低卡%"),
+            like(officialRecipes.tags ?? "", "%減肥%")
+          ));
+          customConditions.push(or(
+            like(customRecipes.tags ?? "", "%低卡%"),
+            like(customRecipes.tags ?? "", "%減肥%")
+          ));
+        } else if (chip === "3d1s") {
+          officialConditions.push(eq(officialRecipes.recipeCategory, "中菜"));
+          customConditions.push(eq(customRecipes.recipeCategory, "中菜"));
+        } else if (chip === "steamed") {
+          officialConditions.push(like(officialRecipes.tags ?? "", "%蒸%"));
+          customConditions.push(like(customRecipes.tags ?? "", "%蒸%"));
+        } else if (chip === "stir-fry") {
+          officialConditions.push(like(officialRecipes.tags ?? "", "%炒%"));
+          customConditions.push(like(customRecipes.tags ?? "", "%炒%"));
+        }
       }
 
       // Query official recipes
