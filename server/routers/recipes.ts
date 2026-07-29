@@ -18,7 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
-import { eq, and, or, desc, like, lte, count } from "drizzle-orm";
+import { eq, and, or, desc, like, lte, count, not, gte } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
@@ -1170,22 +1170,18 @@ export const recipesRouter = router({
             not(like(customRecipes.steps ?? "", "%炸%"))
           ));
         } else if (chip === "vegetarian") {
-          const meatKeywords = ["雞", "豬", "牛", "羊", "魚", "蝦", "蟹", "肉", "腩", "翼", "腿", "排骨", "臘", "蜆", "蠔", "帶子", "三文魚", "西冷", "叉燒", "鴨", "鵝", "蛙", "蛇"];
+          const meatKeywords = ["雞", "豬", "牛", "羊", "魚", "蝦", "蟹", "肉", "腩", "翼", "腿", "排骨", "臘", "蜆", "", "帶子", "三文魚", "西冷", "叉燒", "鴨", "", "蛙", "蛇"];
           const hasMeatConditions = meatKeywords.map(k => like(officialRecipes.ingredients ?? "", `%${k}%`));
-          officialConditions.push(and(
-            not(or(...hasMeatConditions)),
-            or(
-              like(officialRecipes.tags ?? "", "%素食%"),
-              eq(officialRecipes.recipeCategory, "素食")
-            )
+          officialConditions.push(or(
+            like(officialRecipes.tags ?? "", "%素食%"),
+            eq(officialRecipes.recipeCategory, "素食"),
+            and(...meatKeywords.map(k => not(like(officialRecipes.ingredients ?? "", `%${k}%`))))
           ));
           const hasMeatConditionsCustom = meatKeywords.map(k => like(customRecipes.ingredients ?? "", `%${k}%`));
-          customConditions.push(and(
-            not(or(...hasMeatConditionsCustom)),
-            or(
-              like(customRecipes.tags ?? "", "%素食%"),
-              eq(customRecipes.recipeCategory, "素食")
-            )
+          customConditions.push(or(
+            like(customRecipes.tags ?? "", "%素食%"),
+            eq(customRecipes.recipeCategory, "素食"),
+            and(...meatKeywords.map(k => not(like(customRecipes.ingredients ?? "", `%${k}%`))))
           ));
         } else if (chip === "light") {
           officialConditions.push(or(
