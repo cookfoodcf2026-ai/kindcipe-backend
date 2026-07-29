@@ -1170,7 +1170,21 @@ export const recipesRouter = router({
             not(like(customRecipes.steps ?? "", "%炸%"))
           ));
         } else if (chip === "vegetarian") {
-          const meatKeywords = ["雞", "豬", "牛", "羊", "魚", "蝦", "蟹", "肉", "腩", "翼", "腿", "排骨", "臘", "蜆", "", "帶子", "三文魚", "西冷", "叉燒", "鴨", "", "蛙", "蛇"];
+          const meatKeywords = [
+            "雞肉", "牛肉", "豬肉", "羊肉", "鴨肉", "肉",
+            "牛柳", "牛仔骨", "牛腱", "牛腩",
+            "三文魚", "魚柳", "魚肉", "魚片",
+            "蝦仁", "蝦肉", "蝦米",
+            "蟹肉", "蟹柳",
+            "排骨", "雞翼", "雞腿", "雞扒", "雞胸",
+            "午餐肉", "香腸", "火腿", "培根", "肉丸",
+            "帶子", "蜆肉", "蠔", "魷魚", "章魚",
+            "燒鴨", "豬扒", "豬排", "豬手", "豬腳",
+            "羊排", "羊腿", "鮑魚", "海參",
+            "吞拿魚", "鯖魚", "秋刀魚", "西冷",
+            "叉燒", "臘肉", "臘腸", "雞雜", "豬雜",
+            "蛙", "蛇", "水魚", "田雞",
+          ];
           const hasMeatConditions = meatKeywords.map(k => like(officialRecipes.ingredients ?? "", `%${k}%`));
           officialConditions.push(or(
             like(officialRecipes.tags ?? "", "%素食%"),
@@ -1198,7 +1212,22 @@ export const recipesRouter = router({
           officialConditions.push(lte(officialRecipes.servings, 2));
           customConditions.push(lte(customRecipes.servings, 2));
         } else if (chip === "high-protein") {
-          const proteinKeywords = ["雞", "豬", "牛", "魚", "蝦", "豆腐", "雞蛋", "牛柳", "牛仔骨", "三文魚", "西冷", "羊", "蟹", "蜆", "蠔", "帶子", "魷魚", "排骨", "鴨", "鵝", "蛙", "肉丸", "午餐肉", "香腸", "火腿", "培根", "芝士", "牛奶", "酸奶"];
+          const proteinKeywords = [
+            "雞肉", "牛肉", "豬肉", "羊肉",
+            "牛柳", "牛仔骨", "牛腱", "牛腩",
+            "三文魚", "魚柳", "魚肉", "魚片",
+            "蝦仁", "蝦肉", "蝦米",
+            "蟹肉", "蟹柳",
+            "豆腐", "豆乾", "雞蛋", "鴨蛋",
+            "排骨", "雞翼", "雞腿", "雞扒", "雞胸",
+            "午餐肉", "香腸", "火腿", "培根", "肉丸",
+            "帶子", "肉", "蠔", "魷魚", "章魚",
+            "鴨肉", "燒鴨", "鵝肉",
+            "豬扒", "豬排", "豬手", "豬腳",
+            "羊排", "羊腿",
+            "鮑魚", "海參", "魚翅",
+            "吞拿魚", "鯖魚", "秋刀魚",
+          ];
           const conditions = proteinKeywords.map(k => like(officialRecipes.ingredients ?? "", `%${k}%`));
           officialConditions.push(or(...conditions));
           const conditionsCustom = proteinKeywords.map(k => like(customRecipes.ingredients ?? "", `%${k}%`));
