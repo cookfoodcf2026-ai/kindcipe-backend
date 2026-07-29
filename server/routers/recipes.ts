@@ -1344,14 +1344,14 @@ export const recipesRouter = router({
       // Query official recipes
       const officialRows = await db.select().from(officialRecipes)
         .where(and(...officialConditions))
-        .orderBy(relevanceScore, desc(officialRecipes.createdAt))
+        .orderBy(relevanceScore, desc(officialRecipes.popularity), desc(officialRecipes.createdAt))
         .limit(input.limit)
         .offset(offset);
 
       // Query custom recipes (family-scoped)
       const customRows = await db.select().from(customRecipes)
         .where(and(...customConditions))
-        .orderBy(relevanceScoreCustom, desc(customRecipes.createdAt))
+        .orderBy(relevanceScoreCustom, desc(customRecipes.popularity), desc(customRecipes.createdAt))
         .limit(input.limit)
         .offset(offset);
 

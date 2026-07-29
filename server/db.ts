@@ -10,6 +10,7 @@ import {
   favoriteItems,
   importUsage,
   mealPlans,
+  officialRecipes,
   pantryItems,
   purchaseHistory,
   pushTokens,
@@ -1064,4 +1065,41 @@ export async function insertCommonIngredients(items: InsertCommonIngredient[]): 
     }
   }
   return inserted;
+}
+
+// ─── Recipe Popularity ───────────────────────────────────────────────────────
+
+/** Increment recipe popularity score */
+export async function incrementRecipePopularity(recipeId: string, increment = 1): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  // Parse recipe ID prefix to determine table
+  if (recipeId.startsWith("official_")) {
+    const id = parseInt(recipeId.replace("official_", ""), 10);
+    await db
+      .update(officialRecipes)
+      .set({ popularity: sql`${officialRecipes.popularity} + ${increment}` })
+      .where(eq(officialRecipes.id, id));
+  } else if (recipeId.startsWith("user_")) {
+    const id = parseInt(recipeId.replace("user_", ""), 10);
+    await db
+      .update(customRecipes)
+      .set({ popularity: sql`${customRecipes.popularity} + ${increment}` })
+      .where(eq(customRecipes.id, id));
+  }
+}
+
+/** Set recipe popularity score (for seeding) */
+export async function setRecipePopularity(recipeId: string, score: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  if (recipeId.startsWith("official_")) {
+    const id = parseInt(recipeId.replace("official_", ""), 10);
+    await db.update(officialRecipes).set({ popularity: score }).where(eq(officialRecipes.id, id));
+  } else if (recipeId.startsWith("user_")) {
+    const id = parseInt(recipeId.replace("user_", ""), 10);
+    await db.update(customRecipes).set({ popularity: score }).where(eq(customRecipes.id, id));
+  }
 }

@@ -138,7 +138,7 @@ export const mealPlans = pgTable("meal_plans", {
 export type MealPlan = typeof mealPlans.$inferSelect;
 export type InsertMealPlan = typeof mealPlans.$inferInsert;
 
-// ─── Custom Recipes ───────────────────────────────────────────────────────────
+// ─── Custom Recipes ──────────────────────────────────────────────────────────
 export const customRecipes = pgTable("custom_recipes", {
   id: serial("id").primaryKey(),
   familyId: integer("family_id").notNull(),
@@ -162,6 +162,7 @@ export const customRecipes = pgTable("custom_recipes", {
   approvedByUserId: text("approved_by_user_id"),
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),
+  popularity: integer("popularity").default(50).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -190,6 +191,7 @@ export const officialRecipes = pgTable("official_recipes", {
   sourceAuthor: varchar("source_author", { length: 128 }),
   tips: text("tips"),
   isActive: boolean("is_active").default(true).notNull(),
+  popularity: integer("popularity").default(50).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

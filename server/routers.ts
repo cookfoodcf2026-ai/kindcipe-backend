@@ -76,6 +76,7 @@ import {
   createEmailUser,
   verifyPassword,
   touchUserSignIn,
+  incrementRecipePopularity,
 } from "./db";
 
 const familyRouter = router({
@@ -648,6 +649,8 @@ const mealPlanRouter = router({
           data: { type: 'meal_plan_updated' },
         }).catch(() => {});
       }
+      // Increment recipe popularity (+5 for meal plan addition - high intent action)
+      incrementRecipePopularity(input.recipeId, 5).catch(() => {});
       return { success: true, status };
     }),
 
