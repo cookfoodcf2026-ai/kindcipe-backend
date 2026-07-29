@@ -18,7 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
-import { eq, and, or, desc, like, lte, count, not, gte } from "drizzle-orm";
+import { eq, and, or, desc, like, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
@@ -1320,17 +1320,38 @@ export const recipesRouter = router({
         });
       }
 
+      // Build relevance score for search ranking (name > description > ingredients > tags)
+      const relevanceScore = input.query && input.query.trim().length > 1
+        ? sql`CASE
+            WHEN ${officialRecipes.name} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 10
+            WHEN ${officialRecipes.description} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 5
+            WHEN ${officialRecipes.ingredients} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
+            WHEN ${officialRecipes.tags} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
+            ELSE 0
+          END`
+        : sql`0`;
+
+      const relevanceScoreCustom = input.query && input.query.trim().length > 1
+        ? sql`CASE
+            WHEN ${customRecipes.name} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 10
+            WHEN ${customRecipes.description} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 5
+            WHEN ${customRecipes.ingredients} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
+            WHEN ${customRecipes.tags} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
+            ELSE 0
+          END`
+        : sql`0`;
+
       // Query official recipes
       const officialRows = await db.select().from(officialRecipes)
         .where(and(...officialConditions))
-        .orderBy(desc(officialRecipes.createdAt))
+        .orderBy(relevanceScore, desc(officialRecipes.createdAt))
         .limit(input.limit)
         .offset(offset);
 
       // Query custom recipes (family-scoped)
       const customRows = await db.select().from(customRecipes)
         .where(and(...customConditions))
-        .orderBy(desc(customRecipes.createdAt))
+        .orderBy(relevanceScoreCustom, desc(customRecipes.createdAt))
         .limit(input.limit)
         .offset(offset);
 
