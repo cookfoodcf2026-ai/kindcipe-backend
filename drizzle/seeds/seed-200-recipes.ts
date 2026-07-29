@@ -8,10 +8,11 @@ import { HK_BRAISED_RECIPES } from './recipes-hk-braised.js';
 import { HK_COLD_SOUP_RECIPES } from './recipes-hk-cold-soup.js';
 import { INTL_ASIAN_RECIPES } from './recipes-intl-asian.js';
 import { INTL_WESTERN_DESSERT_RECIPES } from './recipes-intl-western-dessert.js';
+import { CUSTOM_QUICK_RECIPES } from './recipes-custom-quick.js';
 
 const sql = postgres(process.env.DATABASE_URL!);
 
-// Combine all 200 recipes
+// Combine all recipes
 const ALL_200_RECIPES = [
   ...BASE_20_RECIPES,
   ...HK_STEAMED_RECIPES,
@@ -21,6 +22,7 @@ const ALL_200_RECIPES = [
   ...HK_COLD_SOUP_RECIPES,
   ...INTL_ASIAN_RECIPES,
   ...INTL_WESTERN_DESSERT_RECIPES,
+  ...CUSTOM_QUICK_RECIPES,
 ];
 
 async function main() {
@@ -41,11 +43,12 @@ async function main() {
   console.log(`   - HK Cold/Soup: ${HK_COLD_SOUP_RECIPES.length}`);
   console.log(`   - Intl Asian:   ${INTL_ASIAN_RECIPES.length}`);
   console.log(`   - Intl West/Des:${INTL_WESTERN_DESSERT_RECIPES.length}`);
+  console.log(`   - Custom Quick: ${CUSTOM_QUICK_RECIPES.length}`);
   console.log(`   -----------------------------`);
   console.log(`   - TOTAL:        ${ALL_200_RECIPES.length} recipes\n`);
 
-  if (ALL_200_RECIPES.length !== 200) {
-    console.warn(`⚠️ Warning: Expected exactly 200 recipes, but got ${ALL_200_RECIPES.length}. Continuing with available list...`);
+  if (ALL_200_RECIPES.length < 200) {
+    console.warn(`⚠️ Warning: Expected at least 200 recipes, but got ${ALL_200_RECIPES.length}. Continuing with available list...`);
   }
 
   // Validate no duplicates

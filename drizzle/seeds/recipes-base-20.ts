@@ -241,7 +241,7 @@ export const BASE_20_RECIPES = [
       { instruction: "打入雞蛋，蓋冚再煮2分鐘。", duration: 2 },
       { instruction: "淋上生抽、麻油、糖調成嘅醬汁即可。", duration: 2 },
     ],
-    tags: ["經典", "中等"],
+    tags: ["經典", "中等", "電飯煲料理"],
   },
   {
     name: "紅蘿蔔粟米豬骨湯",
