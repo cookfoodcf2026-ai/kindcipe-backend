@@ -95,8 +95,8 @@ export const weeklyMenuRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
       }
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active family" });
       const db = await getDb();
@@ -149,8 +149,8 @@ export const weeklyMenuRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -182,8 +182,8 @@ export const weeklyMenuRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -229,8 +229,8 @@ export const weeklyMenuRouter = router({
       city: z.string().default("香港"),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
