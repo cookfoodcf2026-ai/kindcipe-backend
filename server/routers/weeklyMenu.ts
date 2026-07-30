@@ -509,8 +509,8 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
         const getInfo = (id: string, reason: string) => {
           const r = recipeMap.get(id);
           if (!r) {
-            // ID not found in DB — skip this slot gracefully
-            return { id, name: id, image: null, cookTime: null, reason };
+            // ID not found in DB — return null to indicate this slot is invalid
+            return { id: null, name: null, image: null, cookTime: null, reason: null };
           }
           return {
             id: r.id,
