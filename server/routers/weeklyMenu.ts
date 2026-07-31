@@ -2,9 +2,114 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
 import { getDb } from "../db";
-import { weeklyMenu, officialRecipes, mealPlans } from "../../drizzle/schema";
+import { weeklyMenu, officialRecipes, mealPlans, customRecipes } from "../../drizzle/schema";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON } from "../_core/llm";
+
+// ─── Helper: Validate user recipe completeness ───────────────────────────────
+const isValidUserRecipe = (r: typeof customRecipes.$inferSelect): boolean => {
+  if (!r.name || r.name.trim() === "") return false;
+  
+  // Validate ingredients are present and non-empty
+  try {
+    const ing = r.ingredients ? JSON.parse(r.ingredients) : [];
+    if (!Array.isArray(ing) || ing.length === 0) return false;
+    // Check each ingredient has a name
+    if (ing.some((i: any) => !i.name || i.name.trim() === "")) return false;
+  } catch {
+    return false;
+  }
+  
+  // Validate steps are present and non-empty
+  try {
+    const steps = r.steps ? JSON.parse(r.steps) : [];
+    if (!Array.isArray(steps) || steps.length === 0) return false;
+  } catch {
+    return false;
+  }
+  
+  return true;
+};
+
+// ─── Helper: Detect dish type (meat/seafood/veg/soup) from name/ingredients ──
+const detectDishType = (name: string, ingredients?: string | null): "meat" | "seafood" | "vegetable" | "soup" | "dessert" => {
+  const nameLower = name.toLowerCase();
+  const ingLower = ingredients ? ingredients.toLowerCase() : "";
+  
+  // Priority 1: Detect dessert (should not enter AI weekly menu 4-dish slots)
+  if (nameLower.includes("蛋糕") || nameLower.includes("甜品") || nameLower.includes("布甸") ||
+      nameLower.includes("撻") || nameLower.includes("餅") || nameLower.includes("糖水") ||
+      nameLower.includes("sweet") || nameLower.includes("cake") || nameLower.includes("dessert") ||
+      nameLower.includes("布丁") || nameLower.includes("冰淇淋") || nameLower.includes("雪糕")) {
+    return "dessert";
+  }
+  
+  // Priority 2: Detect soup
+  if (nameLower.includes("湯") || nameLower.includes("粥") || nameLower.includes("燉") ||
+      nameLower.includes("羹") || nameLower.includes("煲") || nameLower.includes("soup")) {
+    return "soup";
+  }
+  
+  // Priority 3: Detect seafood
+  if (nameLower.includes("魚") || nameLower.includes("蝦") || nameLower.includes("蟹") ||
+      nameLower.includes("蜆") || nameLower.includes("蠔") || nameLower.includes("海鮮") ||
+      nameLower.includes("斑") || nameLower.includes("帶子") || nameLower.includes("魷魚") ||
+      nameLower.includes("花甲") || nameLower.includes("蛤") || nameLower.includes("墨魚") ||
+      nameLower.includes("八爪魚") || nameLower.includes("三文魚") || nameLower.includes("龍脷") ||
+      nameLower.includes("魚") || nameLower.includes("魚") || nameLower.includes("seafood") ||
+      nameLower.includes("fish") || nameLower.includes("prawn") || nameLower.includes("crab")) {
+    return "seafood";
+  }
+  
+  // Priority 4: Detect vegetable/egg/tofu
+  if (nameLower.includes("菜") || nameLower.includes("瓜") || nameLower.includes("薯") ||
+      nameLower.includes("豆腐") || nameLower.includes("蛋") || nameLower.includes("菇") ||
+      nameLower.includes("茄子") || nameLower.includes("豆苗") || nameLower.includes("西蘭花") ||
+      nameLower.includes("菠菜") || nameLower.includes("白菜") || nameLower.includes("芥蘭") ||
+      nameLower.includes("通菜") || nameLower.includes("番茄") || nameLower.includes("蔬菜") ||
+      nameLower.includes("veg") || nameLower.includes("tofu") || nameLower.includes("egg")) {
+    return "vegetable";
+  }
+  
+  // Default: meat
+  return "meat";
+};
+
+// ─── Helper: Detect cuisine style from name/tags ─────────────────────────────
+const detectCuisineStyle = (name: string, recipeCategory?: string | null, tags?: string | null): "chinese" | "western" | "japanese" | "korean" | "sea" | "other" => {
+  const nameLower = name.toLowerCase();
+  const catLower = (recipeCategory || "").toLowerCase();
+  const tagsLower = (tags || "").toLowerCase();
+  const combined = `${nameLower} ${catLower} ${tagsLower}`;
+  
+  // Western keywords
+  const WESTERN_KEYWORDS = ["西餐", "意粉", "比薩", "", "烤", "扒", "芝士", "忌廉", "沙律", "意大利", "法式", "葡式", "德式", "美式", "西班牙", "羅勒", "橄欖", "牛扒", "豬扒", "雞扒", "western", "pasta", "pizza", "cheese", "cream", "salad", "steak"];
+  // Japanese keywords
+  const JAPANESE_KEYWORDS = ["日式", "照燒", "蒲燒", "咖哩", "味噌", "丼", "烏冬", "天婦羅", "壽司", "刺身", "拉麵", "蕎麥", "japanese", "sushi", "ramen", "tempura", "miso", "teriyaki"];
+  // Korean keywords
+  const KOREAN_KEYWORDS = ["韓式", "泡菜", "部隊鍋", "燒肉", "石鍋", "人參雞", "韓劇", "korean", "kimchi", "bbq", "bulgogi"];
+  // Southeast Asian keywords
+  const SEA_KEYWORDS = ["泰式", "越式", "印尼", "馬來", "冬蔭功", "沙爹", "肉骨茶", "椰漿", "咖喱", "東南亞", "thai", "vietnamese", "indonesian", "malaysian", "tom yum", "satay", "curry", "coconut"];
+  // Chinese keywords
+  const CHINESE_KEYWORDS = ["中菜", "港式", "粵式", "川", "湘", "上海", "北京", "台灣", "潮州", "豉油", "油", "叉燒", "燒味", "蒸", "炒", "燜", "煲", "花雕", "醉", "梅頭", "火腩", "肉餅", "chinese", "cantonese"];
+  
+  // Check category first (most reliable)
+  if (catLower.includes("西餐") || catLower.includes("western")) return "western";
+  if (catLower.includes("日式") || catLower.includes("japanese")) return "japanese";
+  if (catLower.includes("韓式") || catLower.includes("korean")) return "korean";
+  if (catLower.includes("東南亞") || catLower.includes("thai") || catLower.includes("vietnamese")) return "sea";
+  if (catLower.includes("中菜") || catLower.includes("chinese")) return "chinese";
+  
+  // Check name and tags
+  if (WESTERN_KEYWORDS.some(k => combined.includes(k))) return "western";
+  if (JAPANESE_KEYWORDS.some(k => combined.includes(k))) return "japanese";
+  if (KOREAN_KEYWORDS.some(k => combined.includes(k))) return "korean";
+  if (SEA_KEYWORDS.some(k => combined.includes(k))) return "sea";
+  if (CHINESE_KEYWORDS.some(k => combined.includes(k))) return "chinese";
+  
+  // Default to chinese (safest fallback for HK users)
+  return "chinese";
+};
 
 // ─── Weather helper (Open-Meteo, no API key needed) ─────────────────────────
 async function getHKWeather(): Promise<{ tempC: number; weatherCode: number; description: string; season: string }> {
@@ -373,7 +478,12 @@ export const weeklyMenuRouter = router({
 7. 每道菜必須使用對應類別的食譜（肉類用 meat 清單，海鮮用 seafood 清單，蔬菜用 vegetable 清單，湯用 soup 清單）
 8. 回覆的 ID 必須完全符合清單中的 id 欄位，不得修改
 9. **每天的四道菜必須統一風格**：如果肉類主餸係中式（如港式、粵式），咁海鮮、蔬菜、湯都必須係中式；如果主係西式（如意粉、扒類），咁其他三道都應該係西式。避免同一餐出現中西混合（例如：豬扒飯 + 意大利湯）。
-10. **一星期 7 日中，必須有 4-5 日係中式餐單**：因為中菜食譜最充足（170 個），而且符合香港人飲食習慣。其餘 2-3 日可以自由選擇西餐、日式、韓式或東南亞菜，增加多樣性。建議分佈：5 日中式 + 2 日其他，或者 4 日中式 + 3 日其他。
+10. **一星期 7 日中，必須有 5 日係中式餐單**：因為中菜食譜最充足（170 個），而且符合香港人飲食習慣。其餘 2 日優先選擇西餐或日式（兩者優先級相同），如果唔夠就用東南亞或韓式 fallback。
+11. **你可以使用用戶自訂食譜**：用戶食譜會同官方食譜混合一齊，用戶食譜可能有唔同嘅風格同創意。如果用戶食譜唔完整（冇食材/步驟），系統已經過濾咗，你唔使擔心。
+12. **重要：你必須從上面提供的食譜清單選擇 ID，唔可以發明新 ID**：
+    - 每個 ID 必須完全匹配清單中的 id 欄位（例如：「official:123」或「user:456」）
+    - 如果你選擇一個唔存在 ID，系統會自動替你換成第一個食譜，並記錄低個錯誤
+    - 為咗最佳體驗，請仔細檢查你選擇嘅每個 ID 是否清單入面
 
 必須用 JSON 格式回覆：
 {
@@ -506,11 +616,32 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
 
       // Enrich with REAL recipe data from DB — image always comes from DB record
       const enrichedDays = validDays.map(d => {
-        const getInfo = (id: string, reason: string) => {
+        const getInfo = (id: string | null, reason: string, slotType: SlotType) => {
+          if (!id) {
+            // ID 為 null，返回空 slot
+            return { id: null, name: null, image: null, cookTime: null, reason: null };
+          }
           const r = recipeMap.get(id);
           if (!r) {
-            // ID not found in DB — return null to indicate this slot is invalid
-            return { id: null, name: null, image: null, cookTime: null, reason: null };
+            // 無效 ID → 自動替換為同類別第一個有效食譜
+            const fallback = byType[slotType as keyof typeof byType][0];
+            if (!fallback) {
+              // 如果連 fallback 都冇，返回 null
+              return { id: null, name: null, image: null, cookTime: null, reason: null };
+            }
+            
+            // 內部記錄 AI 錯誤（開發用）
+            console.warn(`[AI Weekly Menu] Invalid recipe ID detected: ${id}`);
+            console.warn(`  → Day: ${d.dayOfWeek}, Slot: ${slotType}`);
+            console.warn(`  → Replaced with: ${fallback.name} (${fallback.id})`);
+            
+            return {
+              id: fallback.id,
+              name: fallback.name,
+              image: fallback.image,
+              cookTime: fallback.cookTime ?? null,
+              reason: reason || `自動替換（原 ID: ${id} 無效）`,
+            };
           }
           return {
             id: r.id,
@@ -522,10 +653,10 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
         };
         return {
           dayOfWeek: d.dayOfWeek,
-          meat: getInfo(d.meatId, d.meatReason),
-          seafood: getInfo(d.seafoodId, d.seafoodReason),
-          veg: getInfo(d.vegId, d.vegReason),
-          soup: getInfo(d.soupId, d.soupReason),
+          meat: getInfo(d.meatId, d.meatReason, "meat"),
+          seafood: getInfo(d.seafoodId, d.seafoodReason, "seafood"),
+          veg: getInfo(d.vegId, d.vegReason, "veg"),
+          soup: getInfo(d.soupId, d.soupReason, "soup"),
         };
       });
 

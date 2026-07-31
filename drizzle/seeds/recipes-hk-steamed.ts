@@ -97,7 +97,7 @@ export const HK_STEAMED_RECIPES = [
     tags: ["港式", "家常菜", "蒸", "鮮味", "30 分鐘內", "下飯", "經典"],
   },
   {
-    name: "土魷蒸肉餅",
+    name: "馬蹄土魷蒸肉餅",
     description: "用切碎嘅土魷（乾魷魚）同手剁肉餅，煙韌多汁，口感層次極其豐富。",
     cookTime: 30,
     servings: 3,
