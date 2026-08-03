@@ -304,7 +304,7 @@ export const HK_BRAISED_RECIPES = [
     tags: ["港式", "家常菜", "海鮮", "鮮味", "清淡", "簡單"],
   },
   {
-    name: "溫公南乳齋煲",
+    name: "南乳粗齋煲",
     description: "傳統初一十五齋菜！南乳、腐乳為底，慢火炆煮粉絲、腐竹、雲耳、冬菇等十幾種素料，鹹香入味。",
     cookTime: 35,
     servings: 4,

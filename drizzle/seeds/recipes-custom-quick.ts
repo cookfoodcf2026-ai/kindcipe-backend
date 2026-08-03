@@ -115,29 +115,7 @@ export const CUSTOM_QUICK_RECIPES = [
     ],
     tags: ["15 分鐘內", "快手", "簡單", "鮮味", "家常"],
   },
-  {
-    name: "南乳煲仔齋",
-    description: "香濃下飯嘅經典素食，南乳汁鹹香濃郁，多種食材吸滿湯汁，美味健康。",
-    cookTime: 25,
-    servings: 3,
-    difficulty: "簡單",
-    recipeCategory: "中菜",
-    ingredients: [
-      { name: "大白菜", quantity: "200", unit: "克", category: "蔬菜" },
-      { name: "冬菇", quantity: "6", unit: "朵", category: "蔬菜" },
-      { name: "炸支竹", quantity: "50", unit: "克", category: "其他" },
-      { name: "粉絲", quantity: "1", unit: "包", category: "麵類" },
-      { name: "紅豆腐乳(南乳)", quantity: "1.5", unit: "塊", category: "調味料" },
-      { name: "薑片", quantity: "3", unit: "片", category: "調味料" },
-    ],
-    steps: [
-      { instruction: "冬菇、支竹同粉絲提前浸軟；大白菜切段；南乳加少許水壓碎成汁。", duration: 8 },
-      { instruction: "熱鑊下油爆香薑片，下南乳汁炒香。", duration: 2 },
-      { instruction: "加入大白菜、冬菇同支竹翻炒勻，加少許水煮開。", duration: 5 },
-      { instruction: "轉至砂鍋中，蓋上蓋中火燜煮8分鐘，最後加入粉絲煮2分鐘吸汁即成。", duration: 10 },
-    ],
-    tags: ["30 分鐘內", "簡單", "素食", "家常", "煲仔"],
-  },
+
   {
     name: "電飯煲豉油皇雞翼飯",
     description: "一煲熟嘅電飯煲懶人料理，雞翼滑嫩入味，米飯吸滿豉油皇醬汁，極之方便。",

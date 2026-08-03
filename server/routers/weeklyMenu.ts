@@ -6,6 +6,8 @@ import { weeklyMenu, officialRecipes, mealPlans, customRecipes } from "../../dri
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON } from "../_core/llm";
 
+type SlotType = "meat" | "seafood" | "veg" | "soup";
+
 // ─── Helper: Validate user recipe completeness ───────────────────────────────
 const isValidUserRecipe = (r: typeof customRecipes.$inferSelect): boolean => {
   if (!r.name || r.name.trim() === "") return false;
