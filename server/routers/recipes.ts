@@ -1088,20 +1088,24 @@ export const recipesRouter = router({
       tags: z.array(z.string()).optional(),
       cookTimeMax: z.number().optional(),
       popularChips: z.array(z.string()).optional(),
+      ingredientCategory: z.string().optional(),  // 食材類別篩選
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
-      if (!db) return { recipes: [], total: 0, nextCursor: undefined };
+      try {
+        const db = await getDb();
+        if (!db) return { recipes: [], total: 0, nextCursor: undefined };
 
       const offset = input.cursor ?? input.offset ?? 0;
 
       const officialConditions: any[] = [eq(officialRecipes.isActive, true)];
-      const customConditions: any[] = [eq(customRecipes.familyId, ctx.activeFamilyId!)];
+      const customConditions: any[] = ctx.activeFamilyId
+        ? [eq(customRecipes.familyId, ctx.activeFamilyId)]
+        : []; // 無 familyId 時不加條件（雖然實際上唔會有 custom recipes）
 
-      if (input.query && input.query.trim().length > 1) {
+      if (input.query && input.query.trim().length >= 1) {  // 支援單字搜尋
         const searchPattern = `%${input.query.trim()}%`;
         officialConditions.push(
           or(
@@ -1124,6 +1128,26 @@ export const recipesRouter = router({
       if (input.category) {
         officialConditions.push(eq(officialRecipes.recipeCategory, input.category));
         customConditions.push(eq(customRecipes.recipeCategory, input.category));
+      }
+
+      // Ingredient category filter (search by ingredient keywords)
+      if (input.ingredientCategory) {
+        const INGREDIENT_CATEGORIES: Record<string, string[]> = {
+          meat: ["雞肉", "豬肉", "牛肉", "羊肉", "鴨肉", "排骨", "雞翼", "雞腿", "午餐肉", "香腸", "火腿", "培根", "牛柳", "牛仔骨", "牛腩", "牛腱", "豬扒", "雞胸", "肉丸", "免治牛肉", "免治豬肉"],
+          seafood: ["魚", "蝦", "蟹", "三文魚", "帶子", "蜆", "蠔", "生蠔", "魷魚", "章魚", "海參", "鮑魚", "瑤柱", "魚丸", "蝦丸", "墨魚", "八爪魚", "龍蝦", "蟹柳", "蝦仁", "蝦米", "銀魚"],
+          vegetable: ["菜心", "白菜", "生菜", "菠菜", "西蘭花", "椰菜", "甘藍", "芹菜", "韭菜", "蔥", "蒜", "洋蔥", "蕃茄", "番茄", "薯仔", "土豆", "紅蘿蔔", "胡蘿蔔", "青瓜", "南瓜", "茄子", "苦瓜", "冬瓜", "節瓜", "絲瓜"],
+          tofu: ["豆腐", "豆乾", "豆皮", "腐竹", "油豆腐", "素雞", "豆卜", "凍豆腐"],
+          egg: ["雞蛋", "鴨蛋", "鵪鶉蛋", "皮蛋", "鹹蛋", "茶葉蛋"],
+          mushroom: ["香菇", "蘑菇", "金針菇", "杏鮑菇", "木耳", "靈芝", "草菇", "猴頭菇", "雞髀菇"],
+          carb: ["飯", "麵", "米粉", "河粉", "烏冬", "意粉", "饅頭", "包", "餃子", "雲吞", "粉絲", "米粉", "麵線", "河粉", "腸粉"],
+        };
+        const keywords = INGREDIENT_CATEGORIES[input.ingredientCategory] || [];
+        if (keywords.length > 0) {
+          const conditions = keywords.map(k => like(officialRecipes.ingredients ?? "", `%${k}%`));
+          officialConditions.push(or(...conditions));
+          const conditionsCustom = keywords.map(k => like(customRecipes.ingredients ?? "", `%${k}%`));
+          customConditions.push(or(...conditionsCustom));
+        }
       }
 
       // Tag filters (multiple tags with AND logic) - use %"tag"% pattern for precise matching
@@ -1324,21 +1348,22 @@ export const recipesRouter = router({
       const orderByOfficial: any[] = [];
       const orderByCustom: any[] = [];
 
-      if (input.query && input.query.trim().length > 1) {
+      if (input.query && input.query.trim().length >= 1) {  // 支援單字搜尋
+        const searchPatternForOrder = `%${input.query.trim()}%`;
         const relevanceScore = sql`CASE
-            WHEN ${officialRecipes.name} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 10
-            WHEN ${officialRecipes.description} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 5
-            WHEN ${officialRecipes.ingredients} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
-            WHEN ${officialRecipes.tags} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
+            WHEN ${officialRecipes.name} LIKE ${searchPatternForOrder} THEN 10
+            WHEN ${officialRecipes.description} LIKE ${searchPatternForOrder} THEN 5
+            WHEN ${officialRecipes.ingredients} LIKE ${searchPatternForOrder} THEN 2
+            WHEN ${officialRecipes.tags} LIKE ${searchPatternForOrder} THEN 2
             ELSE 0
           END`;
         orderByOfficial.push(desc(relevanceScore));
 
         const relevanceScoreCustom = sql`CASE
-            WHEN ${customRecipes.name} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 10
-            WHEN ${customRecipes.description} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 5
-            WHEN ${customRecipes.ingredients} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
-            WHEN ${customRecipes.tags} LIKE CONCAT('%', ${input.query.trim()}, '%') THEN 2
+            WHEN ${customRecipes.name} LIKE ${searchPatternForOrder} THEN 10
+            WHEN ${customRecipes.description} LIKE ${searchPatternForOrder} THEN 5
+            WHEN ${customRecipes.ingredients} LIKE ${searchPatternForOrder} THEN 2
+            WHEN ${customRecipes.tags} LIKE ${searchPatternForOrder} THEN 2
             ELSE 0
           END`;
         orderByCustom.push(desc(relevanceScoreCustom));
@@ -1353,14 +1378,14 @@ export const recipesRouter = router({
 
       // Query official recipes
       const officialRows = await db.select().from(officialRecipes)
-        .where(and(...officialConditions))
+        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0])
         .orderBy(...orderByOfficial)
         .limit(input.limit)
         .offset(offset);
 
       // Query custom recipes (family-scoped)
       const customRows = await db.select().from(customRecipes)
-        .where(and(...customConditions))
+        .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined)
         .orderBy(...orderByCustom)
         .limit(input.limit)
         .offset(offset);
@@ -1378,9 +1403,30 @@ export const recipesRouter = router({
           servings: r.servings,
           difficulty: r.difficulty,
           recipeCategory: r.recipeCategory,
-          ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
-          steps: r.steps ? JSON.parse(r.steps) : [],
-          tags: r.tags ? JSON.parse(r.tags) : [],
+          ingredients: r.ingredients ? (() => {
+            try {
+              return JSON.parse(r.ingredients);
+            } catch (e) {
+              console.error(`Failed to parse ingredients for recipe ${r.id}:`, e);
+              return [];
+            }
+          })() : [],
+          steps: r.steps ? (() => {
+            try {
+              return JSON.parse(r.steps);
+            } catch (e) {
+              console.error(`Failed to parse steps for recipe ${r.id}:`, e);
+              return [];
+            }
+          })() : [],
+          tags: r.tags ? (() => {
+            try {
+              return JSON.parse(r.tags);
+            } catch (e) {
+              console.error(`Failed to parse tags for recipe ${r.id}:`, e);
+              return [];
+            }
+          })() : [],
         })),
         ...customRows.map((r) => ({
           id: `user_${r.id}`,
@@ -1393,21 +1439,42 @@ export const recipesRouter = router({
           servings: r.servings,
           difficulty: r.difficulty,
           recipeCategory: r.recipeCategory,
-          ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
-          steps: r.steps ? JSON.parse(r.steps) : [],
-          tags: r.tags ? JSON.parse(r.tags) : [],
+          ingredients: r.ingredients ? (() => {
+            try {
+              return JSON.parse(r.ingredients);
+            } catch (e) {
+              console.error(`Failed to parse ingredients for recipe ${r.id}:`, e);
+              return [];
+            }
+          })() : [],
+          steps: r.steps ? (() => {
+            try {
+              return JSON.parse(r.steps);
+            } catch (e) {
+              console.error(`Failed to parse steps for recipe ${r.id}:`, e);
+              return [];
+            }
+          })() : [],
+          tags: r.tags ? (() => {
+            try {
+              return JSON.parse(r.tags);
+            } catch (e) {
+              console.error(`Failed to parse tags for recipe ${r.id}:`, e);
+              return [];
+            }
+          })() : [],
         })),
       ];
 
       // Calculate total count (not just page length)
       const totalOfficialResult = await db.select({ count: count() })
         .from(officialRecipes)
-        .where(and(...officialConditions));
+        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]);
       const totalOfficial = Number(totalOfficialResult[0]?.count ?? 0);
 
       const totalCustomResult = await db.select({ count: count() })
         .from(customRecipes)
-        .where(and(...customConditions));
+        .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined);
       const totalCustom = Number(totalCustomResult[0]?.count ?? 0);
 
       const total = totalOfficial + totalCustom;
@@ -1417,6 +1484,17 @@ export const recipesRouter = router({
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
       return { recipes, total, nextCursor };
+      } catch (error) {
+        console.error("[recipes.search] Error:", {
+          error: error instanceof Error ? error.message : error,
+          input,
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `搜尋失敗：${error instanceof Error ? error.message : "未知錯誤"}`,
+        });
+      }
     }),
 
   // ── Generate official recipes via AI (Admin only, temporary) ────────────────
