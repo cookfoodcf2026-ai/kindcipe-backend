@@ -23,6 +23,94 @@ import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
 
+// ─── 智能搜尋：分詞詞典、同義詞歸一化、關鍵字分割 ──────────────────────────────
+
+const CULINARY_KEYWORDS = [
+  // 蔬菜 / 水果
+  "番茄", "蕃茄", "番薯", "蕃薯", "薯仔", "土豆", "洋蔥", "西蘭花", "菜心", "白菜", "生菜", "菠菜", "椰菜", "芹菜", "韭菜", "青瓜", "南瓜", "茄子", "苦瓜", "冬瓜", "節瓜", "絲瓜", "粟米", "玉米", "蘆筍", "豆角", "荷蘭豆", "四季豆",
+  // 肉類
+  "雞肉", "豬肉", "牛肉", "羊肉", "鴨肉", "排骨", "雞翼", "雞腿", "豬扒", "雞胸", "肉丸", "肥牛", "牛柳", "牛仔骨", "牛腩", "牛腱", "五花肉", "肉碎", "肉醬", "燒腩", "火腩", "叉燒", "臘腸", "午餐肉", "煙肉", "培根", "火腿", "雞扒", "雞件", "牛尾", "牛展",
+  // 海鮮
+  "三文魚", "魚柳", "魚肉", "魚片", "蝦仁", "蝦肉", "蝦米", "蟹肉", "蟹柳", "帶子", "蜆肉", "蠔", "生蠔", "魷魚", "章魚", "海參", "鮑魚", "吞拿魚", "鯖魚", "秋刀魚", "龍脷", "鱸魚", "鯇魚", "白鱔", "花甲", "鮑魚",
+  // 豆製品 / 蛋類
+  "豆腐", "豆乾", "豆皮", "腐竹", "油豆腐", "雞蛋", "鴨蛋", "皮蛋", "鹹蛋", "鵪鶉蛋", "茶葉蛋",
+  // 菌菇
+  "香菇", "蘑菇", "金針菇", "杏鮑菇", "木耳", "草菇", "雞髀菇", "靈芝",
+  // 主食
+  "煲仔飯", "燉飯", "炒飯", "燴飯", "蓋飯", "丼", "撈麵", "炒麵", "湯麵", "涼麵", "米粉", "河粉", "烏冬", "意粉", "意大利粉", "拉麵", "餃子", "雲吞", "粉絲", "通粉", "腸粉", "麵包", "吐司", "饅頭", "包子", "薄餅", "壽司", "飯糰", "糯米雞",
+  // 調味 / 風味 / 手法
+  "豉油", "蒜蓉", "薑蔥", "咖哩", "咖喱", "芝士", "起司", "照燒", "蜜汁", "黑椒", "紅燒", "糖醋", "麻婆", "宮保", "魚香", "避風塘", "沙嗲", "沙茶", "檸檬", "香茅", "南乳", "柱侯", "啫啫",
+];
+
+const ENGLISH_TO_CHINESE: Record<string, string> = {
+  // 分類
+  chinese: "中菜", western: "西餐", japanese: "日式", korean: "韓式",
+  dessert: "甜品", desserts: "甜品", drink: "飲品", drinks: "飲品", beverage: "飲品",
+  // 手法
+  roasted: "焗", baked: "焗", roast: "焗", bake: "焗", fried: "炒", "stir-fry": "炒", "stir-fried": "炒",
+  steamed: "蒸", steam: "蒸", braised: "炆", braise: "炆", boiled: "煮", boil: "煮", soup: "湯",
+  // 肉 / 海鮮
+  chicken: "雞", beef: "牛", pork: "豬", lamb: "羊", mutton: "羊", duck: "鴨",
+  wings: "雞翼", wing: "雞翼", drumstick: "雞腿", drumsticks: "雞腿", ribs: "排骨", rib: "排骨",
+  steak: "牛柳", fish: "魚", salmon: "三文魚", shrimp: "蝦", prawn: "蝦", prawns: "蝦",
+  crab: "蟹", clams: "蜆", clam: "蜆", scallop: "帶子", scallops: "帶子", squid: "魷魚",
+  oyster: "蠔", oysters: "蠔", abalone: "鮑魚",
+  // 蔬果 / 其他食材
+  eggplant: "茄子", onion: "洋蔥", onions: "洋蔥", garlic: "蒜", scallion: "蔥", scallions: "蔥",
+  tofu: "豆腐", mushroom: "菇", mushrooms: "菇", cabbage: "椰菜", broccoli: "西蘭花",
+  carrot: "紅蘿蔔", carrots: "紅蘿蔔", spinach: "菠菜", potato: "薯仔", potatoes: "薯仔",
+  egg: "蛋", eggs: "蛋", curry: "咖哩", cheese: "芝士", tomato: "番茄", tomatoes: "番茄",
+  // 主食
+  udon: "烏冬", spaghetti: "意粉", pasta: "意粉", ramen: "拉麵", noodle: "麵", noodles: "麵",
+  rice: "飯",
+};
+
+export function normalizeQuery(query: string): string {
+  let q = query.trim().toLowerCase();
+
+  // 英文 → 中文（不分大小寫、邊界匹配，先替換較長詞彙避免誤切）
+  const enWords = Object.keys(ENGLISH_TO_CHINESE).sort((a, b) => b.length - a.length);
+  for (const en of enWords) {
+    const escaped = en.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${escaped}\\b`, "gi");
+    q = q.replace(regex, ENGLISH_TO_CHINESE[en]);
+  }
+
+  // 中文字元 / 詞彙歸一化
+  q = q.replace(/蕃/g, "番");
+  q = q.replace(/咖喱/g, "咖哩");
+  q = q.replace(/起司/g, "芝士");
+  q = q.replace(/意大利麵/g, "意粉");
+  q = q.replace(/意大麵/g, "意粉");
+
+  return q.trim();
+}
+
+export function segmentQuery(q: string): string[] {
+  const dict = [...CULINARY_KEYWORDS].sort((a, b) => b.length - a.length);
+  const keywords: string[] = [];
+  let tempQ = q;
+
+  for (const word of dict) {
+    if (tempQ.includes(word)) {
+      keywords.push(word);
+      tempQ = tempQ.split(word).join(" ");
+    }
+  }
+
+  // 剩餘未被詞典覆蓋的部分（長度 >= 2）也當作關鍵字，強化關聯搜尋
+  const remaining = tempQ.split(/\s+/).filter(w => w.length >= 2);
+  for (const word of remaining) {
+    if (!keywords.includes(word)) keywords.push(word);
+  }
+
+  if (keywords.length === 0) {
+    const simpleParts = q.split(/\s+/).filter(Boolean);
+    if (simpleParts.length > 0) return simpleParts;
+  }
+  return keywords;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normaliseUrl(url: string): string {
@@ -807,7 +895,7 @@ Platform: ${sourceType}
 
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
-  parseUrl: publicProcedure
+  parseUrl: protectedProcedure
     .input(z.object({ url: z.string().url() }))
     .mutation(async ({ input }) => {
       const parsed = await parseRecipeFromUrl(input.url);
@@ -820,7 +908,7 @@ export const recipesRouter = router({
     }),
 
   // ── Parse Text (AI extract recipe from pasted text, e.g. 小紅書) ────────────
-  parseText: publicProcedure
+  parseText: protectedProcedure
     .input(z.object({ text: z.string().min(10).max(5000) }))
     .mutation(async ({ input }) => {
       const parsed = await parseTextToRecipe(input.text);
@@ -833,7 +921,7 @@ export const recipesRouter = router({
     }),
 
   // ── Upload recipe screenshot (returns storage URL for Vision AI) ────────────
-  uploadRecipeImage: publicProcedure
+  uploadRecipeImage: protectedProcedure
     .input(z.object({
       base64: z.string(),
       mimeType: z.string().default("image/jpeg"),
@@ -851,7 +939,7 @@ export const recipesRouter = router({
     }),
 
   // ── Parse Image (Vision AI: extract recipe from uploaded screenshot) ────────
-  parseImage: publicProcedure
+  parseImage: protectedProcedure
     .input(z.object({
       storageKey: z.string(), // key returned by uploadRecipeImage
     }))
@@ -1096,7 +1184,7 @@ export const recipesRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         const db = await getDb();
-        if (!db) return { recipes: [], total: 0, nextCursor: undefined };
+        if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, nextCursor: undefined };
 
       const offset = input.cursor ?? input.offset ?? 0;
 
@@ -1105,24 +1193,33 @@ export const recipesRouter = router({
         ? [eq(customRecipes.familyId, ctx.activeFamilyId)]
         : []; // 無 familyId 時不加條件（雖然實際上唔會有 custom recipes）
 
-      if (input.query && input.query.trim().length >= 1) {  // 支援單字搜尋
-        const searchPattern = `%${input.query.trim()}%`;
-        officialConditions.push(
-          or(
-            like(officialRecipes.name, searchPattern),
-            like(officialRecipes.description ?? "", searchPattern),
-            like(officialRecipes.ingredients ?? "", searchPattern),
-            like(officialRecipes.tags ?? "", searchPattern)
-          )
-        );
-        customConditions.push(
-          or(
-            like(customRecipes.name, searchPattern),
-            like(customRecipes.description ?? "", searchPattern),
-            like(customRecipes.ingredients ?? "", searchPattern),
-            like(customRecipes.tags ?? "", searchPattern)
-          )
-        );
+      if (input.query && input.query.trim().length >= 1) {  // 支援單字搜尋 + 同義詞 + 分詞
+        const normalized = normalizeQuery(input.query);
+        const keywords = segmentQuery(normalized);
+
+        if (keywords.length > 0) {
+          const officialKeywordConditions = keywords.map(kw => {
+            const pattern = `%${kw}%`;
+            return or(
+              like(officialRecipes.name, pattern),
+              like(officialRecipes.description ?? "", pattern),
+              like(officialRecipes.ingredients ?? "", pattern),
+              like(officialRecipes.tags ?? "", pattern)
+            );
+          });
+          officialConditions.push(and(...officialKeywordConditions));
+
+          const customKeywordConditions = keywords.map(kw => {
+            const pattern = `%${kw}%`;
+            return or(
+              like(customRecipes.name, pattern),
+              like(customRecipes.description ?? "", pattern),
+              like(customRecipes.ingredients ?? "", pattern),
+              like(customRecipes.tags ?? "", pattern)
+            );
+          });
+          customConditions.push(and(...customKeywordConditions));
+        }
       }
 
       if (input.category) {
@@ -1139,7 +1236,7 @@ export const recipesRouter = router({
           tofu: ["豆腐", "豆乾", "豆皮", "腐竹", "油豆腐", "素雞", "豆卜", "凍豆腐"],
           egg: ["雞蛋", "鴨蛋", "鵪鶉蛋", "皮蛋", "鹹蛋", "茶葉蛋"],
           mushroom: ["香菇", "蘑菇", "金針菇", "杏鮑菇", "木耳", "靈芝", "草菇", "猴頭菇", "雞髀菇"],
-          carb: ["飯", "麵", "米粉", "河粉", "烏冬", "意粉", "饅頭", "包", "餃子", "雲吞", "粉絲", "米粉", "麵線", "河粉", "腸粉"],
+          carb: ["煲仔飯", "燉飯", "炒飯", "燴飯", "蓋飯", "丼", "米飯", "白飯", "糯米飯", "撈麵", "炒麵", "湯麵", "涼麵", "米粉", "河粉", "烏冬", "意粉", "意大利粉", "饅頭", "包子", "餃子", "雲吞", "粉絲", "麵線", "腸粉", "通粉", "意麵"],
         };
         const keywords = INGREDIENT_CATEGORIES[input.ingredientCategory] || [];
         if (keywords.length > 0) {
@@ -1189,19 +1286,25 @@ export const recipesRouter = router({
             customConditions.push(like(customRecipes.tags ?? "", "%港式%"));
           }
           if (chip === "kids") {
-            officialConditions.push(and(
-              eq(officialRecipes.difficulty, "簡單"),
-              not(like(officialRecipes.ingredients ?? "", "%辣椒%")),
-              not(like(officialRecipes.ingredients ?? "", "%胡椒%")),
-              not(like(officialRecipes.ingredients ?? "", "%花椒%")),
-              not(like(officialRecipes.steps ?? "", "%炸%"))
+            officialConditions.push(or(
+              like(officialRecipes.tags ?? "", "%小朋友%"),
+              and(
+                eq(officialRecipes.difficulty, "簡單"),
+                not(like(officialRecipes.ingredients ?? "", "%辣椒%")),
+                not(like(officialRecipes.ingredients ?? "", "%胡椒%")),
+                not(like(officialRecipes.ingredients ?? "", "%花椒%")),
+                not(like(officialRecipes.steps ?? "", "%炸%"))
+              )
             ));
-            customConditions.push(and(
-              eq(customRecipes.difficulty, "簡單"),
-              not(like(customRecipes.ingredients ?? "", "%辣椒%")),
-              not(like(customRecipes.ingredients ?? "", "%胡椒%")),
-              not(like(customRecipes.ingredients ?? "", "%花椒%")),
-              not(like(customRecipes.steps ?? "", "%炸%"))
+            customConditions.push(or(
+              like(customRecipes.tags ?? "", "%小朋友%"),
+              and(
+                eq(customRecipes.difficulty, "簡單"),
+                not(like(customRecipes.ingredients ?? "", "%辣椒%")),
+                not(like(customRecipes.ingredients ?? "", "%胡椒%")),
+                not(like(customRecipes.ingredients ?? "", "%花椒%")),
+                not(like(customRecipes.steps ?? "", "%炸%"))
+              )
             ));
           }
           if (chip === "vegetarian") {
@@ -1348,22 +1451,33 @@ export const recipesRouter = router({
       const orderByOfficial: any[] = [];
       const orderByCustom: any[] = [];
 
-      if (input.query && input.query.trim().length >= 1) {  // 支援單字搜尋
-        const searchPatternForOrder = `%${input.query.trim()}%`;
+      if (input.query && input.query.trim().length >= 1) {  // 相關度排序：精確 > 歸一化 > 首個關鍵字
+        const normalized = normalizeQuery(input.query);
+        const keywords = segmentQuery(normalized);
+        const firstKeyword = keywords[0] || normalized;
+
+        const exactPattern = `%${input.query.trim()}%`;
+        const normPattern = `%${normalized}%`;
+        const firstPattern = `%${firstKeyword}%`;
+
         const relevanceScore = sql`CASE
-            WHEN ${officialRecipes.name} LIKE ${searchPatternForOrder} THEN 10
-            WHEN ${officialRecipes.description} LIKE ${searchPatternForOrder} THEN 5
-            WHEN ${officialRecipes.ingredients} LIKE ${searchPatternForOrder} THEN 2
-            WHEN ${officialRecipes.tags} LIKE ${searchPatternForOrder} THEN 2
+            WHEN ${officialRecipes.name} LIKE ${exactPattern} THEN 25
+            WHEN ${officialRecipes.name} LIKE ${normPattern} THEN 20
+            WHEN ${officialRecipes.name} LIKE ${firstPattern} THEN 10
+            WHEN ${officialRecipes.description} LIKE ${firstPattern} THEN 5
+            WHEN ${officialRecipes.ingredients} LIKE ${firstPattern} THEN 2
+            WHEN ${officialRecipes.tags} LIKE ${firstPattern} THEN 2
             ELSE 0
           END`;
         orderByOfficial.push(desc(relevanceScore));
 
         const relevanceScoreCustom = sql`CASE
-            WHEN ${customRecipes.name} LIKE ${searchPatternForOrder} THEN 10
-            WHEN ${customRecipes.description} LIKE ${searchPatternForOrder} THEN 5
-            WHEN ${customRecipes.ingredients} LIKE ${searchPatternForOrder} THEN 2
-            WHEN ${customRecipes.tags} LIKE ${searchPatternForOrder} THEN 2
+            WHEN ${customRecipes.name} LIKE ${exactPattern} THEN 25
+            WHEN ${customRecipes.name} LIKE ${normPattern} THEN 20
+            WHEN ${customRecipes.name} LIKE ${firstPattern} THEN 10
+            WHEN ${customRecipes.description} LIKE ${firstPattern} THEN 5
+            WHEN ${customRecipes.ingredients} LIKE ${firstPattern} THEN 2
+            WHEN ${customRecipes.tags} LIKE ${firstPattern} THEN 2
             ELSE 0
           END`;
         orderByCustom.push(desc(relevanceScoreCustom));
@@ -1376,19 +1490,41 @@ export const recipesRouter = router({
       orderByCustom.push(desc(customRecipes.popularity));
       orderByCustom.push(desc(customRecipes.createdAt));
 
+      // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
+      const totalOfficialResult = await db.select({ count: count() })
+        .from(officialRecipes)
+        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]);
+      const totalOfficial = Number(totalOfficialResult[0]?.count ?? 0);
+
+      const totalCustomResult = await db.select({ count: count() })
+        .from(customRecipes)
+        .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined);
+      const totalCustom = Number(totalCustomResult[0]?.count ?? 0);
+
+      const total = totalOfficial + totalCustom;
+
+      // 合併清單順序 = 官方（前） + 自製（後）。依全域 offset 推導各自分頁範圍，
+      // 確保每頁恰好回傳 limit 筆，不再每頁 2× limit。
+      const officialOffset = Math.min(offset, totalOfficial);
+      const officialLimit = Math.max(0, Math.min(input.limit, totalOfficial - officialOffset));
+      const customOffset = Math.max(0, offset - totalOfficial);
+      const customLimit = input.limit - officialLimit;
+
       // Query official recipes
       const officialRows = await db.select().from(officialRecipes)
         .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0])
         .orderBy(...orderByOfficial)
-        .limit(input.limit)
-        .offset(offset);
+        .limit(officialLimit)
+        .offset(officialOffset);
 
       // Query custom recipes (family-scoped)
-      const customRows = await db.select().from(customRecipes)
-        .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined)
-        .orderBy(...orderByCustom)
-        .limit(input.limit)
-        .offset(offset);
+      const customRows = customLimit > 0 && customConditions.length > 0
+        ? await db.select().from(customRecipes)
+          .where(customConditions.length > 1 ? and(...customConditions) : customConditions[0])
+          .orderBy(...orderByCustom)
+          .limit(customLimit)
+          .offset(customOffset)
+        : [];
 
       // Combine and format
       const recipes = [
@@ -1466,24 +1602,11 @@ export const recipesRouter = router({
         })),
       ];
 
-      // Calculate total count (not just page length)
-      const totalOfficialResult = await db.select({ count: count() })
-        .from(officialRecipes)
-        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]);
-      const totalOfficial = Number(totalOfficialResult[0]?.count ?? 0);
-
-      const totalCustomResult = await db.select({ count: count() })
-        .from(customRecipes)
-        .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined);
-      const totalCustom = Number(totalCustomResult[0]?.count ?? 0);
-
-      const total = totalOfficial + totalCustom;
-
-      // Calculate next cursor
-      const hasMore = recipes.length >= input.limit;
+      // Calculate next cursor (global combined offset)
+      const hasMore = offset + input.limit < total;
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
-      return { recipes, total, nextCursor };
+      return { recipes, total, officialCount: totalOfficial, customCount: totalCustom, nextCursor };
       } catch (error) {
         console.error("[recipes.search] Error:", {
           error: error instanceof Error ? error.message : error,

@@ -101,6 +101,17 @@ export async function getUserFamilies(userId: string | number) {
     .where(eq(familyMembers.userId, String(userId)));
 }
 
+export async function countFamilyMembers(familyIds: number[]) {
+  const db = await getDb();
+  if (!db || familyIds.length === 0) return new Map<number, number>();
+  const rows = await db
+    .select({ familyId: familyMembers.familyId, count: sql<number>`count(*)::int` })
+    .from(familyMembers)
+    .where(inArray(familyMembers.familyId, familyIds))
+    .groupBy(familyMembers.familyId);
+  return new Map(rows.map((r) => [r.familyId, r.count]));
+}
+
 export async function getUserDefaultFamily(userId: string | number) {
   const db = await getDb();
   if (!db) return undefined;

@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { eq, and, or, like, desc } from "drizzle-orm";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { officialRecipes, customRecipes, pantryItems } from "../../drizzle/schema";
+import { normalizeQuery, segmentQuery } from "./recipes";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -100,6 +101,19 @@ async function execSearchRecipes(
   const limit = args.limit ?? 5;
   const results: Record<string, unknown>[] = [];
 
+  // 與食譜搜尋一致：同義詞歸一化 + 分詞，AND 組合
+  const normalized = normalizeQuery(args.query);
+  const keywords = segmentQuery(normalized);
+  const kwPattern = (kw: string) => `%${kw}%`;
+
+  const keywordConditionsOfficial = keywords.length > 0
+    ? and(...keywords.map(kw => or(
+        like(officialRecipes.name, kwPattern(kw)),
+        like(officialRecipes.description ?? "", kwPattern(kw)),
+        like(officialRecipes.tags ?? "", kwPattern(kw))
+      )))
+    : undefined;
+
   const official = await db
     .select({
       id: officialRecipes.id, name: officialRecipes.name, description: officialRecipes.description,
@@ -110,7 +124,7 @@ async function execSearchRecipes(
     .from(officialRecipes)
     .where(and(
       eq(officialRecipes.isActive, true),
-      or(like(officialRecipes.name, `%${args.query}%`), like(officialRecipes.description ?? "", `%${args.query}%`), like(officialRecipes.tags ?? "", `%${args.query}%`)),
+      keywordConditionsOfficial,
       args.category ? eq(officialRecipes.recipeCategory, args.category) : undefined,
     ))
     .orderBy(desc(officialRecipes.createdAt)).limit(limit);
@@ -123,6 +137,14 @@ async function execSearchRecipes(
   });
 
   if (familyId) {
+    const keywordConditionsCustom = keywords.length > 0
+      ? and(...keywords.map(kw => or(
+          like(customRecipes.name, kwPattern(kw)),
+          like(customRecipes.description ?? "", kwPattern(kw)),
+          like(customRecipes.tags ?? "", kwPattern(kw))
+        )))
+      : undefined;
+
     const custom = await db
       .select({
         id: customRecipes.id, name: customRecipes.name, description: customRecipes.description,
@@ -133,7 +155,7 @@ async function execSearchRecipes(
       .from(customRecipes)
       .where(and(
         eq(customRecipes.familyId, familyId),
-        or(like(customRecipes.name, `%${args.query}%`), like(customRecipes.description ?? "", `%${args.query}%`), like(customRecipes.tags ?? "", `%${args.query}%`)),
+        keywordConditionsCustom,
         args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
       ))
       .orderBy(desc(customRecipes.createdAt)).limit(limit);
@@ -517,7 +539,7 @@ export async function* streamAIChefChat(
 // ─── Router ──────────────────────────────────────────────
 
 export const aiRecipeRouter = router({
-  chat: publicProcedure
+  chat: protectedProcedure
     .input(z.object({
       messages: z.array(messageSchema).min(1),
     }))

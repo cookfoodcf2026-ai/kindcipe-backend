@@ -45,6 +45,7 @@ import {
   getFamilyMemberByUserId,
   getFamilyMembers,
   getUserFamilies,
+  countFamilyMembers,
   setDefaultFamily,
   updateFamilyMemberRole,
   removeFamilyMember,
@@ -97,18 +98,18 @@ const familyRouter = router({
         email: m.user.email,
       })),
     };
-    console.log("[family.get] returning family:", { id: result.id, name: result.name, inviteCode: result.inviteCode });
     return result;
   }),
 
   list: protectedProcedure.query(async ({ ctx }) => {
     const families = await getUserFamilies(String(ctx.user.id));
+    const counts = await countFamilyMembers(families.map((f) => f.family.id));
     return families.map((f) => ({
       id: f.family.id,
       name: f.family.name,
       role: f.member.familyRole,
       isDefault: f.member.isDefault,
-      memberCount: 0,
+      memberCount: counts.get(f.family.id) ?? 0,
     }));
   }),
 
@@ -140,17 +141,14 @@ const familyRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const trimmedCode = input.inviteCode.trim();
-      console.log("[family.join] Attempting to join with code:", trimmedCode, "by user:", ctx.user.id);
       
       const family = await getFamilyByInviteCode(trimmedCode);
       if (!family) {
-        console.log("[family.join] Family not found for code:", trimmedCode);
         throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite code" });
       }
       
       const existing = await getFamilyMemberByUserId(family.id, String(ctx.user.id));
       if (existing) {
-        console.log("[family.join] User already a member of family:", family.id);
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
       }
       
@@ -158,7 +156,6 @@ const familyRouter = router({
       const currentMembers = await getFamilyMembers(family.id);
       
       if (sub && currentMembers.length >= sub.maxMembers) {
-        console.log("[family.join] Family at max capacity:", currentMembers.length, "/", sub.maxMembers);
         throw new TRPCError({
           code: "FORBIDDEN",
           message: sub.isPaid
@@ -168,7 +165,6 @@ const familyRouter = router({
       }
       
       await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
-      console.log("[family.join] Successfully joined family:", family.id);
       return { success: true, family };
     }),
 
@@ -190,10 +186,11 @@ const familyRouter = router({
   updateMemberRole: protectedProcedure
     .input(z.object({
       familyId: z.number().int(),
-      userId: z.string(),
+      userId: z.union([z.string(), z.number()]),
       role: z.enum(["owner", "admin", "helper", "member"]),
     }))
     .mutation(async ({ ctx, input }) => {
+      const userId = String(input.userId);
       if (!ctx.activeFamilyId || input.familyId !== ctx.activeFamilyId) throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized for this family" });
       if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change roles" });
       
@@ -201,36 +198,37 @@ const familyRouter = router({
       if (input.role !== "owner") {
         const members = await getFamilyMembers(input.familyId);
         const owners = members.filter(m => m.member.familyRole === "owner");
-        const targetMember = members.find(m => m.member.userId === input.userId);
+        const targetMember = members.find(m => m.member.userId === userId);
         if (targetMember && targetMember.member.familyRole === "owner" && owners.length <= 1) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Cannot change the last owner's role. Transfer ownership first." });
         }
       }
       
-      await updateFamilyMemberRole(input.familyId, input.userId, input.role);
+      await updateFamilyMemberRole(input.familyId, userId, input.role);
       return { success: true };
     }),
 
   removeMember: protectedProcedure
-    .input(z.object({ familyId: z.number().int(), userId: z.string() }))
+    .input(z.object({ familyId: z.number().int(), userId: z.union([z.string(), z.number()]) }))
     .mutation(async ({ ctx, input }) => {
+      const userId = String(input.userId);
       if (!ctx.activeFamilyId || input.familyId !== ctx.activeFamilyId) throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized for this family" });
       if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can remove members" });
       
       // Prevent owner from removing themselves
-      if (input.userId === String(ctx.user.id)) {
+      if (userId === String(ctx.user.id)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Owner cannot remove themselves. Use leave or dissolve instead." });
       }
       
       // Prevent removing the last owner
       const members = await getFamilyMembers(input.familyId);
       const owners = members.filter(m => m.member.familyRole === "owner");
-      const targetMember = members.find(m => m.member.userId === input.userId);
+      const targetMember = members.find(m => m.member.userId === userId);
       if (targetMember && targetMember.member.familyRole === "owner" && owners.length <= 1) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Cannot remove the last owner. Transfer ownership first." });
       }
       
-      await removeFamilyMember(input.familyId, input.userId);
+      await removeFamilyMember(input.familyId, userId);
       return { success: true };
     }),
 
