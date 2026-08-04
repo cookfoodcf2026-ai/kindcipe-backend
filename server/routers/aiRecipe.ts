@@ -4,7 +4,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
 import { officialRecipes, customRecipes, pantryItems } from "../../drizzle/schema";
-import { normalizeQuery, segmentQuery } from "./recipes";
+import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -101,17 +101,17 @@ async function execSearchRecipes(
   const limit = args.limit ?? 5;
   const results: Record<string, unknown>[] = [];
 
-  // 與食譜搜尋一致：同義詞歸一化 + 分詞，AND 組合
-  const normalized = normalizeQuery(args.query);
+  // 與食譜搜尋一致：外文 → 中文 → 繁簡歸一 → 分詞，AND 組合（每關鍵字以變體 OR 擴充）
+  const hasForeign = /[a-z]/i.test(args.query);
+  const resolved = hasForeign ? await resolveForeignToChinese(args.query) : args.query.trim().toLowerCase();
+  const normalized = normalizeQuery(resolved);
   const keywords = segmentQuery(normalized);
-  const kwPattern = (kw: string) => `%${kw}%`;
 
-  const keywordConditionsOfficial = keywords.length > 0
-    ? and(...keywords.map(kw => or(
-        like(officialRecipes.name, kwPattern(kw)),
-        like(officialRecipes.description ?? "", kwPattern(kw)),
-        like(officialRecipes.tags ?? "", kwPattern(kw))
-      )))
+  const kwConditions = (fields: any[]) => keywords.length > 0
+    ? and(...keywords.map(kw => {
+        const variants = getKeywordVariants(kw);
+        return or(...fields.flatMap(f => variants.map(v => like(f, `%${v}%`))));
+      }))
     : undefined;
 
   const official = await db
@@ -124,7 +124,7 @@ async function execSearchRecipes(
     .from(officialRecipes)
     .where(and(
       eq(officialRecipes.isActive, true),
-      keywordConditionsOfficial,
+      kwConditions([officialRecipes.name, officialRecipes.description, officialRecipes.tags]),
       args.category ? eq(officialRecipes.recipeCategory, args.category) : undefined,
     ))
     .orderBy(desc(officialRecipes.createdAt)).limit(limit);
@@ -137,14 +137,6 @@ async function execSearchRecipes(
   });
 
   if (familyId) {
-    const keywordConditionsCustom = keywords.length > 0
-      ? and(...keywords.map(kw => or(
-          like(customRecipes.name, kwPattern(kw)),
-          like(customRecipes.description ?? "", kwPattern(kw)),
-          like(customRecipes.tags ?? "", kwPattern(kw))
-        )))
-      : undefined;
-
     const custom = await db
       .select({
         id: customRecipes.id, name: customRecipes.name, description: customRecipes.description,
@@ -155,7 +147,7 @@ async function execSearchRecipes(
       .from(customRecipes)
       .where(and(
         eq(customRecipes.familyId, familyId),
-        keywordConditionsCustom,
+        kwConditions([customRecipes.name, customRecipes.description, customRecipes.tags]),
         args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
       ))
       .orderBy(desc(customRecipes.createdAt)).limit(limit);

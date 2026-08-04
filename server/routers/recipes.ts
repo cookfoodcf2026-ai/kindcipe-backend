@@ -16,14 +16,14 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
-import { getDb } from "../db";
+import { getDb, getCommonIngredients } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
 import { eq, and, or, desc, like, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
 
-// ─── 智能搜尋：分詞詞典、同義詞歸一化、關鍵字分割 ──────────────────────────────
+// ─── 智能搜尋：分詞詞典、同義詞歸一化、多語言、模糊匹配、關鍵字分割 ──────────────
 
 const CULINARY_KEYWORDS = [
   // 蔬菜 / 水果
@@ -68,15 +68,10 @@ const ENGLISH_TO_CHINESE: Record<string, string> = {
 export function normalizeQuery(query: string): string {
   let q = query.trim().toLowerCase();
 
-  // 英文 → 中文（不分大小寫、邊界匹配，先替換較長詞彙避免誤切）
-  const enWords = Object.keys(ENGLISH_TO_CHINESE).sort((a, b) => b.length - a.length);
-  for (const en of enWords) {
-    const escaped = en.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b${escaped}\\b`, "gi");
-    q = q.replace(regex, ENGLISH_TO_CHINESE[en]);
-  }
+  // 簡體 → 繁體（食譜常用字）
+  q = toTraditional(q);
 
-  // 中文字元 / 詞彙歸一化
+  // 中文字元 / 詞彙歸一化（慣用變體）
   q = q.replace(/蕃/g, "番");
   q = q.replace(/咖喱/g, "咖哩");
   q = q.replace(/起司/g, "芝士");
@@ -109,6 +104,211 @@ export function segmentQuery(q: string): string[] {
     if (simpleParts.length > 0) return simpleParts;
   }
   return keywords;
+}
+
+// ─── 繁簡字對應（食譜常用字）────────────────────────────────────────────────────
+const SIMPLIFIED_TO_TRADITIONAL: Record<string, string> = {
+  "意大利面": "意大利麵", "西兰花": "西蘭花", "胡萝卜": "胡蘿蔔", "萝卜": "蘿蔔", "马铃薯": "馬鈴薯", "海鲜": "海鮮",
+  "面": "麵", "鸡": "雞", "鱼": "魚", "虾": "蝦", "饭": "飯", "猪": "豬", "鸭": "鴨", "鹅": "鵝",
+  "汤": "湯", "锅": "鍋", "酱": "醬", "盐": "鹽", "葱": "蔥", "姜": "薑", "蚝": "蠔", "贝": "貝",
+  "参": "參", "鲍": "鮑", "炖": "燉", "焖": "燜", "卤": "滷", "腌": "醃", "丝": "絲", "兰": "蘭",
+  "节": "節", "肠": "腸", "饺": "餃", "云": "雲", "馄": "餛", "饨": "飩", "苋": "莧", "丽": "麗",
+  "龙": "龍", "凤": "鳳", "凉": "涼", "冻": "凍", "热": "熱", "饮": "飲", "莴": "萵", "笋": "筍",
+  "黄": "黃", "麪": "麵",
+};
+
+const TRADITIONAL_TO_SIMPLIFIED: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const [simp, trad] of Object.entries(SIMPLIFIED_TO_TRADITIONAL)) {
+    if (!(trad in map)) map[trad] = simp;
+  }
+  return map;
+})();
+
+function applyCharMap(q: string, map: Record<string, string>): string {
+  const keys = Object.keys(map).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    if (q.includes(k)) q = q.split(k).join(map[k]);
+  }
+  return q;
+}
+
+const toTraditional = (q: string) => applyCharMap(q, SIMPLIFIED_TO_TRADITIONAL);
+const toSimplified = (q: string) => applyCharMap(q, TRADITIONAL_TO_SIMPLIFIED);
+
+// ─── 同義詞 / 地區變體（雙向擴充用）──────────────────────────────────────────────
+const SYNONYM_VARIANTS: Record<string, string[]> = {
+  "薯仔": ["土豆", "馬鈴薯"],
+  "番薯": ["地瓜", "甘薯"],
+  "番茄": ["西紅柿"],
+  "三文魚": ["鮭魚"],
+  "吞拿魚": ["金槍魚", "鮪魚"],
+  "雞翼": ["雞翅"],
+  "雲吞": ["餛飩", "抄手"],
+  "芝士": ["奶酪"],
+  "通菜": ["空心菜", "蕹菜"],
+  "節瓜": ["毛瓜"],
+  "絲瓜": ["勝瓜"],
+  "粟米": ["玉米"],
+  "豬扒": ["豬排"],
+  "雞扒": ["雞排"],
+};
+
+// ─── 多語言字典（英 / 菲 / 印）→ 中文 ───────────────────────────────────────────
+const FILIPINO_TO_CHINESE: Record<string, string> = {
+  // 主食 / 菜式
+  "nasi goreng": "炒飯", "sinigang": "酸湯", "lugaw": "粥", "pansit": "粉", "pancit": "粉",
+  "bihon": "米粉", "misua": "麵線", "adobo": "炆", "lechon": "燒肉", "litson": "燒肉",
+  // 肉 / 海鮮
+  "manok": "雞", "baboy": "豬", "baka": "牛", "kambing": "羊", "isda": "魚", "hipon": "蝦",
+  "alimango": "蟹", "pusit": "魷魚", "tahong": "蜆", "talaba": "蠔",
+  // 蔬菜 / 其他食材
+  "kanin": "飯", "bigas": "米", "itlog": "蛋", "gatas": "奶", "keso": "芝士",
+  "bawang": "蒜", "sibuyas": "洋蔥", "kamatis": "番茄", "patatas": "薯仔", "karot": "紅蘿蔔",
+  "repolyo": "椰菜", "kangkong": "通菜", "talong": "茄子", "tokwa": "豆腐",
+  // 調味 / 手法
+  "toyo": "豉油", "patis": "魚露", "suka": "醋", "asin": "鹽", "asukal": "糖", "mantika": "油",
+  "prito": "炸", "nilaga": "煮", "gulay": "蔬菜", "mangga": "芒果", "saging": "香蕉",
+};
+
+const INDONESIAN_TO_CHINESE: Record<string, string> = {
+  // 主食 / 菜式
+  "nasi goreng": "炒飯", "mie goreng": "炒麵", "ayam goreng": "炸雞", "nasi lemak": "椰漿飯",
+  "rendang": "仁當", "sate": "沙嗲", "satay": "沙嗲", "bubur": "粥", "sup": "湯",
+  // 肉 / 海鮮
+  "ayam": "雞", "babi": "豬", "sapi": "牛", "kambing": "羊", "ikan": "魚", "udang": "蝦",
+  "kepiting": "蟹", "cumi": "魷魚", "kerang": "蜆", "tiram": "蠔",
+  // 蔬菜 / 其他食材
+  "nasi": "飯", "beras": "米", "mie": "麵", "telur": "蛋", "susu": "奶", "keju": "芝士",
+  "bawang putih": "蒜", "bawang merah": "洋蔥", "tomat": "番茄", "kentang": "薯仔",
+  "wortel": "紅蘿蔔", "kubis": "椰菜", "kangkung": "通菜", "terong": "茄子", "bayam": "菠菜",
+  "tahu": "豆腐", "tempe": "天貝",
+  // 調味 / 手法
+  "kecap": "豉油", "garam": "鹽", "gula": "糖", "cuka": "醋", "minyak": "油", "merica": "胡椒",
+  "goreng": "炸", "rebus": "煮", "kukus": "蒸", "panggang": "烤", "sayur": "蔬菜",
+  "mangga": "芒果", "pisang": "香蕉", "kelapa": "椰",
+};
+
+const LANG_DICTS: Record<string, string>[] = [ENGLISH_TO_CHINESE, FILIPINO_TO_CHINESE, INDONESIAN_TO_CHINESE];
+
+// ─── 關鍵字變體擴充（繁 / 簡 / 同義詞）───────────────────────────────────────────
+export function getKeywordVariants(kw: string): string[] {
+  const set = new Set<string>();
+  set.add(kw);
+  const simp = toSimplified(kw);
+  if (simp !== kw) set.add(simp);
+  for (const v of SYNONYM_VARIANTS[kw] ?? []) {
+    set.add(v);
+    const vs = toSimplified(v);
+    if (vs !== v) set.add(vs);
+  }
+  return Array.from(set);
+}
+
+// ─── 英文錯字容忍（Levenshtein 編輯距離）─────────────────────────────────────────
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+// ─── common_ingredients 動態查表（外文食材名 → 中文，附 5 分鐘快取）───────────────
+type IngredientRow = Awaited<ReturnType<typeof getCommonIngredients>>[number];
+
+let ingredientCache: { items: IngredientRow[]; at: number } | null = null;
+
+async function getIngredientTranslationMap(): Promise<Map<string, string>> {
+  if (!ingredientCache || Date.now() - ingredientCache.at > 5 * 60 * 1000) {
+    ingredientCache = { items: await getCommonIngredients(), at: Date.now() };
+  }
+  const map = new Map<string, string>();
+  for (const ing of ingredientCache.items) {
+    const chinese = ing.nameZh || ing.nameYue || "";
+    if (!chinese) continue;
+    for (const name of [ing.nameEn, ing.nameFil, ing.nameId]) {
+      if (name && name.trim()) map.set(name.trim().toLowerCase(), chinese);
+    }
+  }
+  return map;
+}
+
+function fuzzyToChinese(token: string, vocab: { word: string; chinese: string }[]): string | null {
+  if (token.length < 3) return null;
+  const threshold = token.length >= 8 ? 2 : 1;
+  let best: { word: string; chinese: string } | null = null;
+  let bestDist = Infinity;
+  for (const entry of vocab) {
+    if (Math.abs(entry.word.length - token.length) > 2) continue;
+    const dist = levenshtein(token, entry.word);
+    if (dist <= threshold && dist < bestDist) {
+      bestDist = dist;
+      best = entry;
+    }
+  }
+  return best ? best.chinese : null;
+}
+
+/**
+ * 將查詢中的外文（英 / 菲 / 印）轉換為中文。
+ * 1) common_ingredients 動態查表（含複合詞如 Spring Onion，最長優先）
+ * 2) 分語言字典（菜式 / 手法 / 常用食材詞）
+ * 3) 剩餘外文 token 以編輯距離容錯（chiken → chicken → 雞）
+ */
+export async function resolveForeignToChinese(rawQuery: string): Promise<string> {
+  let q = " " + rawQuery.trim().toLowerCase() + " ";
+
+  // 1) common_ingredients 動態查表（先做，避免字詞被拆散）
+  const translationMap = await getIngredientTranslationMap();
+  const ingWords = Array.from(translationMap.keys()).sort((a, b) => b.length - a.length);
+  for (const w of ingWords) {
+    const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\b${escaped}\\b`, "gi");
+    if (re.test(q)) {
+      q = q.replace(re, ` ${translationMap.get(w)} `);
+    }
+  }
+
+  // 2) 分語言字典
+  for (const dict of LANG_DICTS) {
+    const words = Object.keys(dict).sort((a, b) => b.length - a.length);
+    for (const w of words) {
+      const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`\\b${escaped}\\b`, "gi");
+      q = q.replace(re, ` ${dict[w]} `);
+    }
+  }
+
+  // 3) 剩餘外文 token 模糊容錯
+  const vocab: { word: string; chinese: string }[] = [];
+  const seen = new Set<string>();
+  for (const dict of LANG_DICTS) {
+    for (const [w, chinese] of Object.entries(dict)) {
+      const key = w.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); vocab.push({ word: key, chinese }); }
+    }
+  }
+  for (const [w, chinese] of translationMap) {
+    if (!seen.has(w)) { seen.add(w); vocab.push({ word: w, chinese }); }
+  }
+
+  q = q.replace(/[a-z]+/gi, (token) => {
+    const t = token.toLowerCase();
+    const fixed = fuzzyToChinese(t, vocab);
+    return fixed ? ` ${fixed} ` : token;
+  });
+
+  return q.replace(/\s+/g, " ").trim();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -191,16 +391,15 @@ async function parseTextToRecipe(text: string): Promise<{
   tags: string[];
   sourceAuthor: string;
   thumbnailUrl: string;
+  parseReason?: "ok" | "no_recipe_content";
 }> {
   const systemPrompt = `你是一個專業的食譜解析助手。從用戶貼上的文字（可能來自小紅書、WhatsApp、網站等）中提取完整的食譜資訊並以 JSON 格式回傳。
   
-  食材分類規則：
-  - 肉類：豬肉、牛肉、雞肉、羊肉等
-  - 海鮮：魚、蝦、蟹、貝類等
-  - 蔬菜：各類蔬菜
-  - 調味料：醬油、鹽、糖、油等
-  - 乾貨：粉絲、木耳、腐竹等
-  - 其他：不屬於以上分類的食材`;
+  重要規則：
+  - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
+  - 如果內容中沒有食譜資訊（例如純聊天、問候、食評、無食材和步驟的文字），請在 name 回傳"無法解析"，並在 description 說明原因
+  - 食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他
+  - 所有文字使用繁體中文`;
 
   const userPrompt = `請從以下食譜文字中提取食譜資訊：
 
@@ -284,7 +483,13 @@ ${text}
   const rawContent = response.choices[0]?.message?.content;
   const content = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!content) throw new Error("AI returned empty response");
-  return extractJSON(content) as any;
+  const result: any = extractJSON(content);
+  const hasContent = (result.ingredients && result.ingredients.length > 0) ||
+    (result.steps && result.steps.length > 0);
+  result.parseReason = (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent)
+    ? "no_recipe_content"
+    : "ok";
+  return result;
 }
 
 // ─── Ingredient / Step schemas ────────────────────────────────────────────────
@@ -1045,7 +1250,9 @@ export const recipesRouter = router({
         result.thumbnailUrl = realUrl;
       }
 
-      const parseReason = (result.name === "需要手動輸入" || result.name === "無法解析")
+      const hasContent = (result.ingredients && result.ingredients.length > 0) ||
+        (result.steps && result.steps.length > 0);
+      const parseReason = (result.name === "需要手動輸入" || result.name === "無法解析" || !hasContent)
         ? "no_recipe_content" as const
         : "ok" as const;
 
@@ -1188,38 +1395,43 @@ export const recipesRouter = router({
 
       const offset = input.cursor ?? input.offset ?? 0;
 
+      // 查詢解析管線：外文 → 中文 → 繁簡歸一 → 分詞（共用，供條件與排序使用）
+      let searchNormalized = "";
+      let searchKeywords: string[] = [];
+      if (input.query && input.query.trim().length >= 1) {
+        const hasForeign = /[a-z]/i.test(input.query);
+        const resolved = hasForeign ? await resolveForeignToChinese(input.query) : input.query.trim().toLowerCase();
+        searchNormalized = normalizeQuery(resolved);
+        searchKeywords = segmentQuery(searchNormalized);
+      }
+
       const officialConditions: any[] = [eq(officialRecipes.isActive, true)];
       const customConditions: any[] = ctx.activeFamilyId
         ? [eq(customRecipes.familyId, ctx.activeFamilyId)]
         : []; // 無 familyId 時不加條件（雖然實際上唔會有 custom recipes）
 
-      if (input.query && input.query.trim().length >= 1) {  // 支援單字搜尋 + 同義詞 + 分詞
-        const normalized = normalizeQuery(input.query);
-        const keywords = segmentQuery(normalized);
+      if (searchKeywords.length > 0) {  // 多關鍵字 AND 組合（每關鍵字再以繁/簡/同義詞 OR 擴充）
+        const officialKeywordConditions = searchKeywords.map(kw => {
+          const variants = getKeywordVariants(kw);
+          return or(
+            or(...variants.map(v => like(officialRecipes.name, `%${v}%`))),
+            or(...variants.map(v => like(officialRecipes.description ?? "", `%${v}%`))),
+            or(...variants.map(v => like(officialRecipes.ingredients ?? "", `%${v}%`))),
+            or(...variants.map(v => like(officialRecipes.tags ?? "", `%${v}%`)))
+          );
+        });
+        officialConditions.push(and(...officialKeywordConditions));
 
-        if (keywords.length > 0) {
-          const officialKeywordConditions = keywords.map(kw => {
-            const pattern = `%${kw}%`;
-            return or(
-              like(officialRecipes.name, pattern),
-              like(officialRecipes.description ?? "", pattern),
-              like(officialRecipes.ingredients ?? "", pattern),
-              like(officialRecipes.tags ?? "", pattern)
-            );
-          });
-          officialConditions.push(and(...officialKeywordConditions));
-
-          const customKeywordConditions = keywords.map(kw => {
-            const pattern = `%${kw}%`;
-            return or(
-              like(customRecipes.name, pattern),
-              like(customRecipes.description ?? "", pattern),
-              like(customRecipes.ingredients ?? "", pattern),
-              like(customRecipes.tags ?? "", pattern)
-            );
-          });
-          customConditions.push(and(...customKeywordConditions));
-        }
+        const customKeywordConditions = searchKeywords.map(kw => {
+          const variants = getKeywordVariants(kw);
+          return or(
+            or(...variants.map(v => like(customRecipes.name, `%${v}%`))),
+            or(...variants.map(v => like(customRecipes.description ?? "", `%${v}%`))),
+            or(...variants.map(v => like(customRecipes.ingredients ?? "", `%${v}%`))),
+            or(...variants.map(v => like(customRecipes.tags ?? "", `%${v}%`)))
+          );
+        });
+        customConditions.push(and(...customKeywordConditions));
       }
 
       if (input.category) {
@@ -1451,22 +1663,21 @@ export const recipesRouter = router({
       const orderByOfficial: any[] = [];
       const orderByCustom: any[] = [];
 
-      if (input.query && input.query.trim().length >= 1) {  // 相關度排序：精確 > 歸一化 > 首個關鍵字
-        const normalized = normalizeQuery(input.query);
-        const keywords = segmentQuery(normalized);
-        const firstKeyword = keywords[0] || normalized;
+      if (searchKeywords.length > 0) {  // 相關度排序：精確 > 歸一化 > 首個關鍵字（含變體）
+        const firstKeyword = searchKeywords[0];
+        const variants = getKeywordVariants(firstKeyword);
 
-        const exactPattern = `%${input.query.trim()}%`;
-        const normPattern = `%${normalized}%`;
-        const firstPattern = `%${firstKeyword}%`;
+        const exactPattern = `%${(input.query ?? "").trim()}%`;
+        const normPattern = `%${searchNormalized}%`;
+        const firstPatterns = variants.map(v => `%${v}%`);
 
         const relevanceScore = sql`CASE
             WHEN ${officialRecipes.name} LIKE ${exactPattern} THEN 25
             WHEN ${officialRecipes.name} LIKE ${normPattern} THEN 20
-            WHEN ${officialRecipes.name} LIKE ${firstPattern} THEN 10
-            WHEN ${officialRecipes.description} LIKE ${firstPattern} THEN 5
-            WHEN ${officialRecipes.ingredients} LIKE ${firstPattern} THEN 2
-            WHEN ${officialRecipes.tags} LIKE ${firstPattern} THEN 2
+            WHEN ${officialRecipes.name} LIKE ${firstPatterns[0]} THEN 10
+            WHEN ${officialRecipes.description} LIKE ${firstPatterns[0]} THEN 5
+            WHEN ${officialRecipes.ingredients} LIKE ${firstPatterns[0]} THEN 2
+            WHEN ${officialRecipes.tags} LIKE ${firstPatterns[0]} THEN 2
             ELSE 0
           END`;
         orderByOfficial.push(desc(relevanceScore));
@@ -1474,10 +1685,10 @@ export const recipesRouter = router({
         const relevanceScoreCustom = sql`CASE
             WHEN ${customRecipes.name} LIKE ${exactPattern} THEN 25
             WHEN ${customRecipes.name} LIKE ${normPattern} THEN 20
-            WHEN ${customRecipes.name} LIKE ${firstPattern} THEN 10
-            WHEN ${customRecipes.description} LIKE ${firstPattern} THEN 5
-            WHEN ${customRecipes.ingredients} LIKE ${firstPattern} THEN 2
-            WHEN ${customRecipes.tags} LIKE ${firstPattern} THEN 2
+            WHEN ${customRecipes.name} LIKE ${firstPatterns[0]} THEN 10
+            WHEN ${customRecipes.description} LIKE ${firstPatterns[0]} THEN 5
+            WHEN ${customRecipes.ingredients} LIKE ${firstPatterns[0]} THEN 2
+            WHEN ${customRecipes.tags} LIKE ${firstPatterns[0]} THEN 2
             ELSE 0
           END`;
         orderByCustom.push(desc(relevanceScoreCustom));
