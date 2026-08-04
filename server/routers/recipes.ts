@@ -18,7 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb, getCommonIngredients } from "../db";
 import { customRecipes, officialRecipes } from "../../drizzle/schema";
-import { eq, and, or, desc, like, lte, count, not, gte, sql } from "drizzle-orm";
+import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
@@ -63,6 +63,12 @@ const ENGLISH_TO_CHINESE: Record<string, string> = {
   // 主食
   udon: "烏冬", spaghetti: "意粉", pasta: "意粉", ramen: "拉麵", noodle: "麵", noodles: "麵",
   rice: "飯",
+  // 常見菜式 / 燒烤
+  bbq: "烤", barbecue: "烤", barbeque: "烤", grill: "烤", grilled: "烤",
+  "fried rice": "炒飯", "char siu": "叉燒", "fried chicken": "炸雞",
+  burger: "漢堡", hamburger: "漢堡", "spring roll": "春卷", pizza: "薄餅", salad: "沙律",
+  "milk tea": "奶茶", congee: "粥", porridge: "粥", sushi: "壽司", dumpling: "餃子",
+  wonton: "雲吞", hotpot: "火鍋", "hot pot": "火鍋",
 };
 
 export function normalizeQuery(query: string): string {
@@ -152,6 +158,7 @@ const SYNONYM_VARIANTS: Record<string, string[]> = {
   "粟米": ["玉米"],
   "豬扒": ["豬排"],
   "雞扒": ["雞排"],
+  "排骨": ["肋骨"],
 };
 
 // ─── 多語言字典（英 / 菲 / 印）→ 中文 ───────────────────────────────────────────
@@ -261,46 +268,38 @@ function fuzzyToChinese(token: string, vocab: { word: string; chinese: string }[
 
 /**
  * 將查詢中的外文（英 / 菲 / 印）轉換為中文。
- * 1) common_ingredients 動態查表（含複合詞如 Spring Onion，最長優先）
- * 2) 分語言字典（菜式 / 手法 / 常用食材詞）
- * 3) 剩餘外文 token 以編輯距離容錯（chiken → chicken → 雞）
+ * 結合「分語言字典」與「common_ingredients 查表」為單一詞彙表，
+ * 以「最長優先」一次替換（確保 fried rice / Spring Onion 等複合詞優先於單詞），
+ * 剩餘外文 token 再以編輯距離容錯（chiken → chicken → 雞）。
  */
 export async function resolveForeignToChinese(rawQuery: string): Promise<string> {
   let q = " " + rawQuery.trim().toLowerCase() + " ";
 
-  // 1) common_ingredients 動態查表（先做，避免字詞被拆散）
-  const translationMap = await getIngredientTranslationMap();
-  const ingWords = Array.from(translationMap.keys()).sort((a, b) => b.length - a.length);
-  for (const w of ingWords) {
+  // 合併詞彙表：外文詞 → 中文（較長詞優先）
+  const combined = new Map<string, string>();
+  for (const dict of LANG_DICTS) {
+    for (const [w, chinese] of Object.entries(dict)) {
+      combined.set(w.toLowerCase(), chinese);
+    }
+  }
+  const ingredientMap = await getIngredientTranslationMap();
+  for (const [w, chinese] of ingredientMap) {
+    combined.set(w, chinese);
+  }
+
+  // 1) 最長優先替換
+  const keys = Array.from(combined.keys()).sort((a, b) => b.length - a.length);
+  for (const w of keys) {
     const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`\\b${escaped}\\b`, "gi");
     if (re.test(q)) {
-      q = q.replace(re, ` ${translationMap.get(w)} `);
+      q = q.replace(re, ` ${combined.get(w)} `);
     }
   }
 
-  // 2) 分語言字典
-  for (const dict of LANG_DICTS) {
-    const words = Object.keys(dict).sort((a, b) => b.length - a.length);
-    for (const w of words) {
-      const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const re = new RegExp(`\\b${escaped}\\b`, "gi");
-      q = q.replace(re, ` ${dict[w]} `);
-    }
-  }
-
-  // 3) 剩餘外文 token 模糊容錯
-  const vocab: { word: string; chinese: string }[] = [];
-  const seen = new Set<string>();
-  for (const dict of LANG_DICTS) {
-    for (const [w, chinese] of Object.entries(dict)) {
-      const key = w.toLowerCase();
-      if (!seen.has(key)) { seen.add(key); vocab.push({ word: key, chinese }); }
-    }
-  }
-  for (const [w, chinese] of translationMap) {
-    if (!seen.has(w)) { seen.add(w); vocab.push({ word: w, chinese }); }
-  }
+  // 2) 剩餘外文 token 模糊容錯
+  const vocab: { word: string; chinese: string }[] = Array.from(combined.entries())
+    .map(([word, chinese]) => ({ word, chinese }));
 
   q = q.replace(/[a-z]+/gi, (token) => {
     const t = token.toLowerCase();
@@ -1414,10 +1413,10 @@ export const recipesRouter = router({
         const officialKeywordConditions = searchKeywords.map(kw => {
           const variants = getKeywordVariants(kw);
           return or(
-            or(...variants.map(v => like(officialRecipes.name, `%${v}%`))),
-            or(...variants.map(v => like(officialRecipes.description ?? "", `%${v}%`))),
-            or(...variants.map(v => like(officialRecipes.ingredients ?? "", `%${v}%`))),
-            or(...variants.map(v => like(officialRecipes.tags ?? "", `%${v}%`)))
+            or(...variants.map(v => ilike(officialRecipes.name, `%${v}%`))),
+            or(...variants.map(v => ilike(officialRecipes.description ?? "", `%${v}%`))),
+            or(...variants.map(v => ilike(officialRecipes.ingredients ?? "", `%${v}%`))),
+            or(...variants.map(v => ilike(officialRecipes.tags ?? "", `%${v}%`)))
           );
         });
         officialConditions.push(and(...officialKeywordConditions));
@@ -1425,10 +1424,10 @@ export const recipesRouter = router({
         const customKeywordConditions = searchKeywords.map(kw => {
           const variants = getKeywordVariants(kw);
           return or(
-            or(...variants.map(v => like(customRecipes.name, `%${v}%`))),
-            or(...variants.map(v => like(customRecipes.description ?? "", `%${v}%`))),
-            or(...variants.map(v => like(customRecipes.ingredients ?? "", `%${v}%`))),
-            or(...variants.map(v => like(customRecipes.tags ?? "", `%${v}%`)))
+            or(...variants.map(v => ilike(customRecipes.name, `%${v}%`))),
+            or(...variants.map(v => ilike(customRecipes.description ?? "", `%${v}%`))),
+            or(...variants.map(v => ilike(customRecipes.ingredients ?? "", `%${v}%`))),
+            or(...variants.map(v => ilike(customRecipes.tags ?? "", `%${v}%`)))
           );
         });
         customConditions.push(and(...customKeywordConditions));
@@ -1672,23 +1671,23 @@ export const recipesRouter = router({
         const firstPatterns = variants.map(v => `%${v}%`);
 
         const relevanceScore = sql`CASE
-            WHEN ${officialRecipes.name} LIKE ${exactPattern} THEN 25
-            WHEN ${officialRecipes.name} LIKE ${normPattern} THEN 20
-            WHEN ${officialRecipes.name} LIKE ${firstPatterns[0]} THEN 10
-            WHEN ${officialRecipes.description} LIKE ${firstPatterns[0]} THEN 5
-            WHEN ${officialRecipes.ingredients} LIKE ${firstPatterns[0]} THEN 2
-            WHEN ${officialRecipes.tags} LIKE ${firstPatterns[0]} THEN 2
+            WHEN ${officialRecipes.name} ILIKE ${exactPattern} THEN 25
+            WHEN ${officialRecipes.name} ILIKE ${normPattern} THEN 20
+            WHEN ${officialRecipes.name} ILIKE ${firstPatterns[0]} THEN 10
+            WHEN ${officialRecipes.description} ILIKE ${firstPatterns[0]} THEN 5
+            WHEN ${officialRecipes.ingredients} ILIKE ${firstPatterns[0]} THEN 2
+            WHEN ${officialRecipes.tags} ILIKE ${firstPatterns[0]} THEN 2
             ELSE 0
           END`;
         orderByOfficial.push(desc(relevanceScore));
 
         const relevanceScoreCustom = sql`CASE
-            WHEN ${customRecipes.name} LIKE ${exactPattern} THEN 25
-            WHEN ${customRecipes.name} LIKE ${normPattern} THEN 20
-            WHEN ${customRecipes.name} LIKE ${firstPatterns[0]} THEN 10
-            WHEN ${customRecipes.description} LIKE ${firstPatterns[0]} THEN 5
-            WHEN ${customRecipes.ingredients} LIKE ${firstPatterns[0]} THEN 2
-            WHEN ${customRecipes.tags} LIKE ${firstPatterns[0]} THEN 2
+            WHEN ${customRecipes.name} ILIKE ${exactPattern} THEN 25
+            WHEN ${customRecipes.name} ILIKE ${normPattern} THEN 20
+            WHEN ${customRecipes.name} ILIKE ${firstPatterns[0]} THEN 10
+            WHEN ${customRecipes.description} ILIKE ${firstPatterns[0]} THEN 5
+            WHEN ${customRecipes.ingredients} ILIKE ${firstPatterns[0]} THEN 2
+            WHEN ${customRecipes.tags} ILIKE ${firstPatterns[0]} THEN 2
             ELSE 0
           END`;
         orderByCustom.push(desc(relevanceScoreCustom));

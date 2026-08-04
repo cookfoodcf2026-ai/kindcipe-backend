@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, or, like, desc } from "drizzle-orm";
+import { eq, and, or, ilike, desc } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb } from "../db";
@@ -110,7 +110,7 @@ async function execSearchRecipes(
   const kwConditions = (fields: any[]) => keywords.length > 0
     ? and(...keywords.map(kw => {
         const variants = getKeywordVariants(kw);
-        return or(...fields.flatMap(f => variants.map(v => like(f, `%${v}%`))));
+        return or(...fields.flatMap(f => variants.map(v => ilike(f, `%${v}%`))));
       }))
     : undefined;
 
