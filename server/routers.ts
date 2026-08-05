@@ -581,7 +581,7 @@ const mealPlanRouter = router({
       mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).default("dinner"),
       recipeId: z.string().min(1).max(64),
       recipeName: z.string().min(1).max(128),
-      recipeImage: z.string().optional(),
+      recipeImage: z.string().nullable().optional(),
       note: z.string().max(256).optional(),
       autoAddIngredients: z.boolean().default(true),
       ingredients: z.array(z.object({

@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   varchar,
+  index,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -165,7 +166,12 @@ export const customRecipes = pgTable("custom_recipes", {
   popularity: integer("popularity").default(50).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  familyIdIdx: index("custom_recipes_family_id_idx").on(table.familyId),
+  createdAtIdx: index("custom_recipes_created_at_idx").on(table.createdAt),
+  recipeCategoryIdx: index("custom_recipes_recipe_category_idx").on(table.recipeCategory),
+  popularityIdx: index("custom_recipes_popularity_idx").on(table.popularity),
+}));
 
 export type CustomRecipe = typeof customRecipes.$inferSelect;
 export type InsertCustomRecipe = typeof customRecipes.$inferInsert;
@@ -194,7 +200,12 @@ export const officialRecipes = pgTable("official_recipes", {
   popularity: integer("popularity").default(50).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  isActiveIdx: index("official_recipes_is_active_idx").on(table.isActive),
+  createdAtIdx: index("official_recipes_created_at_idx").on(table.createdAt),
+  recipeCategoryIdx: index("official_recipes_recipe_category_idx").on(table.recipeCategory),
+  popularityIdx: index("official_recipes_popularity_idx").on(table.popularity),
+}));
 
 export type OfficialRecipe = typeof officialRecipes.$inferSelect;
 export type InsertOfficialRecipe = typeof officialRecipes.$inferInsert;

@@ -250,6 +250,42 @@ async function getIngredientTranslationMap(): Promise<Map<string, string>> {
   return map;
 }
 
+// ─── 全局翻譯快取（避免每次搜尋都重新構建和排序）────────────────────────────────
+let globalTranslationCache: {
+  combinedMap: Map<string, string>;
+  sortedKeys: string[];
+  vocab: { word: string; chinese: string }[];
+  at: number;
+} | null = null;
+
+async function getTranslationCache() {
+  if (globalTranslationCache && Date.now() - globalTranslationCache.at < 5 * 60 * 1000) {
+    return globalTranslationCache;
+  }
+  
+  const combined = new Map<string, string>();
+  for (const dict of LANG_DICTS) {
+    for (const [w, chinese] of Object.entries(dict)) {
+      combined.set(w.toLowerCase(), chinese);
+    }
+  }
+  const ingredientMap = await getIngredientTranslationMap();
+  for (const [w, chinese] of ingredientMap) {
+    combined.set(w, chinese);
+  }
+  
+  const sortedKeys = Array.from(combined.keys()).sort((a, b) => b.length - a.length);
+  const vocab = Array.from(combined.entries()).map(([word, chinese]) => ({ word, chinese }));
+  
+  globalTranslationCache = {
+    combinedMap: combined,
+    sortedKeys,
+    vocab,
+    at: Date.now()
+  };
+  return globalTranslationCache;
+}
+
 function fuzzyToChinese(token: string, vocab: { word: string; chinese: string }[]): string | null {
   if (token.length < 3) return null;
   const threshold = token.length >= 8 ? 2 : 1;
@@ -275,32 +311,20 @@ function fuzzyToChinese(token: string, vocab: { word: string; chinese: string }[
 export async function resolveForeignToChinese(rawQuery: string): Promise<string> {
   let q = " " + rawQuery.trim().toLowerCase() + " ";
 
-  // 合併詞彙表：外文詞 → 中文（較長詞優先）
-  const combined = new Map<string, string>();
-  for (const dict of LANG_DICTS) {
-    for (const [w, chinese] of Object.entries(dict)) {
-      combined.set(w.toLowerCase(), chinese);
-    }
-  }
-  const ingredientMap = await getIngredientTranslationMap();
-  for (const [w, chinese] of ingredientMap) {
-    combined.set(w, chinese);
-  }
+  // 使用快取避免每次重新構建和排序
+  const cache = await getTranslationCache();
+  const { combinedMap, sortedKeys, vocab } = cache;
 
-  // 1) 最長優先替換
-  const keys = Array.from(combined.keys()).sort((a, b) => b.length - a.length);
-  for (const w of keys) {
+  // 1) 最長優先替換（使用快取的 sortedKeys）
+  for (const w of sortedKeys) {
     const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`\\b${escaped}\\b`, "gi");
     if (re.test(q)) {
-      q = q.replace(re, ` ${combined.get(w)} `);
+      q = q.replace(re, ` ${combinedMap.get(w)} `);
     }
   }
 
-  // 2) 剩餘外文 token 模糊容錯
-  const vocab: { word: string; chinese: string }[] = Array.from(combined.entries())
-    .map(([word, chinese]) => ({ word, chinese }));
-
+  // 2) 剩餘外文 token 模糊容錯（使用快取的 vocab）
   q = q.replace(/[a-z]+/gi, (token) => {
     const t = token.toLowerCase();
     const fixed = fuzzyToChinese(t, vocab);

@@ -23,6 +23,10 @@ const GOOGLE_CLIENT_IDS = [
   "690207937492-kon293ihsbjd6hqi56lg47n7td5c7eme.apps.googleusercontent.com", // Android Client
 ];
 
+// Apple ID tokens carry the iOS bundle identifier in their "aud" claim.
+// Must match "ios.bundleIdentifier" in the Expo app config (app.json).
+const APPLE_BUNDLE_ID = "com.kindcipe.app";
+
 async function verifyGoogleIdToken(idToken: string): Promise<{
   sub: string;
   email: string;
@@ -36,6 +40,14 @@ async function verifyGoogleIdToken(idToken: string): Promise<{
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, string>;
     if (!data.sub || !data.email) return null;
+
+    // Security: verify the ID token was issued for one of our Google client IDs
+    // to prevent attackers reusing tokens minted for a different app (account takeover).
+    if (!GOOGLE_CLIENT_IDS.includes(data.aud)) {
+      console.warn(`[Google Auth] Token audience mismatch: ${data.aud}`);
+      return null;
+    }
+
     return {
       sub: data.sub,
       email: data.email,
@@ -71,6 +83,9 @@ async function verifyAppleIdToken(idToken: string): Promise<{
     const publicKey = await importJWK(key, key.alg);
     const { payload } = await jwtVerify(idToken, publicKey, {
       issuer: "https://appleid.apple.com",
+      // Security: the "aud" of an Apple ID token is the iOS bundle ID. Verify it
+      // matches our app so tokens minted for a different app are rejected.
+      audience: APPLE_BUNDLE_ID,
     });
 
     const sub = payload.sub as string;
