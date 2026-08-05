@@ -78,6 +78,8 @@ import {
   verifyPassword,
   touchUserSignIn,
   incrementRecipePopularity,
+  getAllRecipeTags,
+  removeTagFromCustomRecipes,
 } from "./db";
 
 const familyRouter = router({
@@ -953,6 +955,24 @@ export const appRouter = router({
   aiRecipe: aiRecipeRouter,
   priceWatch: priceWatchRouter,
   recipes: recipesRouter,
+  tags: router({
+    /** List all tags used in official recipes + this family's custom recipes */
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (!ctx.activeFamilyId) return [];
+      return getAllRecipeTags(ctx.activeFamilyId);
+    }),
+
+    /** Remove a tag from all custom recipes in this family (official recipes untouched) */
+    delete: protectedProcedure
+      .input(z.object({ tag: z.string().min(1).max(64) }))
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.activeFamilyId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
+        }
+        const affected = await removeTagFromCustomRecipes(ctx.activeFamilyId, input.tag);
+        return { success: true, affected };
+      }),
+  }),
   auth: router({
     me: publicProcedure.query((opts) => {
       const user = opts.ctx.user;
