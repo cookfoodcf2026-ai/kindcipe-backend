@@ -9,6 +9,7 @@ import {
   timestamp,
   varchar,
   index,
+  uuid,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ export const eventTypeEnum = pgEnum("event_type", ["view", "plan", "save", "cook
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").defaultRandom().primaryKey(),
   openId: varchar("open_id", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -78,7 +79,7 @@ export type InsertFamilyMember = typeof familyMembers.$inferInsert;
 // ─── Push Tokens ─────────────────────────────────────────────────────────────
 export const pushTokens = pgTable("push_tokens", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: text("user_id").notNull(),
   familyId: integer("family_id"),
   token: varchar("token", { length: 256 }).notNull(),
   platform: varchar("platform", { length: 16 }),
@@ -101,13 +102,14 @@ export const shoppingItems = pgTable("shopping_items", {
   estimatedPrice: integer("estimated_price"),
   lastPrice: integer("last_price"),
   status: shoppingStatusEnum("status").default("active").notNull(),
-  proposedByUserId: integer("proposed_by_user_id"),
+  proposedByUserId: text("proposed_by_user_id"),
   proposedByName: varchar("proposed_by_name", { length: 64 }),
   fromRecipeId: varchar("from_recipe_id", { length: 64 }),
   fromRecipeName: varchar("from_recipe_name", { length: 128 }),
+  fromMealPlanId: integer("from_meal_plan_id"),
   plannedDate: varchar("planned_date", { length: 16 }),
   commonIngredientId: integer("common_ingredient_id"),
-  boughtByUserId: integer("bought_by_user_id"),
+  boughtByUserId: text("bought_by_user_id"),
   boughtByName: varchar("bought_by_name", { length: 64 }),
   boughtAt: timestamp("bought_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -127,9 +129,9 @@ export const mealPlans = pgTable("meal_plans", {
   recipeName: varchar("recipe_name", { length: 128 }).notNull(),
   recipeImage: text("recipe_image"),
   status: mealStatusEnum("status").default("confirmed").notNull(),
-  proposedByUserId: integer("proposed_by_user_id"),
+  proposedByUserId: text("proposed_by_user_id"),
   proposedByName: varchar("proposed_by_name", { length: 64 }),
-  confirmedByUserId: integer("confirmed_by_user_id"),
+  confirmedByUserId: text("confirmed_by_user_id"),
   confirmedAt: timestamp("confirmed_at"),
   note: text("note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -216,7 +218,7 @@ export const recipeEvents = pgTable("recipe_events", {
   recipeId: varchar("recipe_id", { length: 64 }).notNull(),
   recipeName: varchar("recipe_name", { length: 128 }).notNull(),
   eventType: eventTypeEnum("event_type").notNull(),
-  userId: integer("user_id"),
+  userId: text("user_id"),
   familyId: integer("family_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -227,7 +229,7 @@ export type InsertRecipeEvent = typeof recipeEvents.$inferInsert;
 // ─── Favorite Items ───────────────────────────────────────────────────────────
 export const favoriteItems = pgTable("favorite_items", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: text("user_id").notNull(),
   familyId: integer("family_id"),
   name: varchar("name", { length: 128 }).notNull(),
   category: varchar("category", { length: 64 }),
@@ -243,7 +245,7 @@ export type InsertFavoriteItem = typeof favoriteItems.$inferInsert;
 export const purchaseHistory = pgTable("purchase_history", {
   id: serial("id").primaryKey(),
   familyId: integer("family_id").notNull(),
-  userId: integer("user_id").notNull(),
+  userId: text("user_id").notNull(),
   userName: varchar("user_name", { length: 64 }),
   name: varchar("name", { length: 128 }).notNull(),
   category: varchar("category", { length: 64 }),
@@ -263,7 +265,7 @@ export const recipeNotes = pgTable("recipe_notes", {
   familyId: integer("family_id").notNull(),
   recipeId: varchar("recipe_id", { length: 64 }).notNull(),
   recipeName: varchar("recipe_name", { length: 128 }),
-  userId: integer("user_id").notNull(),
+  userId: text("user_id").notNull(),
   userName: varchar("user_name", { length: 64 }),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -295,10 +297,11 @@ export const weeklyMenu = pgTable("weekly_menu", {
   soupName: varchar("soup_name", { length: 128 }),
   soupImage: text("soup_image"),
   soupCookTime: integer("soup_cook_time"),
+  eatOut: boolean("eat_out").notNull().default(false),
   sponsorName: varchar("sponsor_name", { length: 128 }),
   sponsorUrl: text("sponsor_url"),
   sponsorLogoUrl: text("sponsor_logo_url"),
-  setByUserId: integer("set_by_user_id").notNull(),
+  setByUserId: text("set_by_user_id").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -309,7 +312,7 @@ export type InsertWeeklyMenu = typeof weeklyMenu.$inferInsert;
 // ─── Import Usage ─────────────────────────────────────────────────────────────
 export const importUsage = pgTable("import_usage", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: text("user_id").notNull(),
   yearMonth: varchar("year_month", { length: 7 }).notNull(),
   count: integer("count").default(0).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

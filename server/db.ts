@@ -35,7 +35,14 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _pgClient = postgres(process.env.DATABASE_URL);
+      if (!_pgClient) {
+        // 使用連接池優化（max: 10 個連接，減少連接建立延遲）
+        _pgClient = postgres(process.env.DATABASE_URL, {
+          max: 10,
+          idle_timeout: 20,
+          connect_timeout: 5,
+        });
+      }
       _db = drizzle(_pgClient);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
@@ -264,7 +271,7 @@ export async function updateShoppingItemStatus(
   id: number,
   familyId: number,
   status: "pending" | "active" | "bought",
-  boughtByUserId?: number,
+  boughtByUserId?: string,
   boughtByName?: string
 ) {
   const db = await getDb();
@@ -280,7 +287,7 @@ export async function updateShoppingItemStatus(
 export async function updateShoppingItemDetails(
   id: number,
   familyId: number,
-  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number }
+  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number; plannedDate?: string }
 ) {
   const db = await getDb();
   if (!db) return;
@@ -289,6 +296,7 @@ export async function updateShoppingItemDetails(
   if (updates.quantity !== undefined) set.quantity = updates.quantity;
   if (updates.unit !== undefined) set.unit = updates.unit;
   if (updates.estimatedPrice !== undefined) set.estimatedPrice = updates.estimatedPrice;
+  if (updates.plannedDate !== undefined) set.plannedDate = updates.plannedDate;
   if (Object.keys(set).length === 0) return;
   await db.update(shoppingItems).set(set).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
 }
@@ -337,19 +345,56 @@ export async function getMealPlans(familyId: number) {
 export async function getMealPlansByDateRange(familyId: number, startDate: string, endDate: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(mealPlans).where(
+  
+  const plans = await db.select({
+    id: mealPlans.id,
+    familyId: mealPlans.familyId,
+    date: mealPlans.date,
+    mealType: mealPlans.mealType,
+    recipeId: mealPlans.recipeId,
+    recipeName: mealPlans.recipeName,
+    recipeImage: mealPlans.recipeImage,
+    status: mealPlans.status,
+    proposedByUserId: mealPlans.proposedByUserId,
+    proposedByName: mealPlans.proposedByName,
+    note: mealPlans.note,
+    createdAt: mealPlans.createdAt,
+    updatedAt: mealPlans.updatedAt,
+    hasShoppingItem: sql<boolean>`EXISTS(
+      SELECT 1 FROM shopping_items 
+      WHERE shopping_items.from_meal_plan_id = mealPlans.id
+      AND shopping_items.status IN ('active', 'pending')
+    )`
+  }).from(mealPlans).where(
     and(
       eq(mealPlans.familyId, familyId),
       gte(mealPlans.date, startDate),
       lte(mealPlans.date, endDate)
     )
-  );
+  ).orderBy(mealPlans.date, mealPlans.mealType);
+  
+  return plans;
 }
 
 export async function addMealPlan(data: InsertMealPlan) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const result = await db.insert(mealPlans).values(data).returning({ id: mealPlans.id });
+  return result[0]?.id ?? undefined;
+}
+
+export async function addMealPlanBatch(data: InsertMealPlan[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (data.length === 0) return;
   await db.insert(mealPlans).values(data);
+}
+
+export async function addShoppingItemsBatch(items: InsertShoppingItem[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (items.length === 0) return;
+  await db.insert(shoppingItems).values(items);
 }
 
 export async function getPendingMealPlans() {
@@ -375,7 +420,7 @@ export async function updateMealPlanStatus(
   id: number,
   familyId: number,
   status: "pending" | "confirmed" | "rejected",
-  confirmedByUserId?: number
+  confirmedByUserId?: string
 ) {
   const db = await getDb();
   if (!db) return;
@@ -399,19 +444,17 @@ export async function deleteMealPlan(id: number, familyId: number) {
   await db.delete(mealPlans).where(and(eq(mealPlans.id, id), eq(mealPlans.familyId, familyId)));
 }
 
-// 刪除由某排餐（recipeId + date + familyId）加入、且尚未購買的購物清單項目
+// 刪除由某排餐（mealPlanId）加入、且尚未購買的購物清單項目
 export async function deleteShoppingItemsByMealPlan(
   familyId: number,
-  recipeId: string,
-  plannedDate: string
+  mealPlanId: number
 ) {
   const db = await getDb();
   if (!db) return;
   await db.delete(shoppingItems).where(
     and(
       eq(shoppingItems.familyId, familyId),
-      eq(shoppingItems.fromRecipeId, recipeId),
-      eq(shoppingItems.plannedDate, plannedDate),
+      eq(shoppingItems.fromMealPlanId, mealPlanId),
       // 只刪除未購買的（active / pending），已買的保留作記錄
       inArray(shoppingItems.status, ["active", "pending"])
     )
@@ -434,6 +477,127 @@ export async function approveShoppingItemsByMealPlan(
       eq(shoppingItems.status, "pending")
     )
   );
+}
+
+// 獲取購物清單項目，按食譜分組，並包含所有相關排餐資訊
+export async function getShoppingItemsWithRecipeInfo(familyId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const shoppingRows = await db.select()
+    .from(shoppingItems)
+    .where(eq(shoppingItems.familyId, familyId))
+    .orderBy(shoppingItems.status, shoppingItems.name);
+  
+  const recipeMap = new Map<string, {
+    recipeId: string;
+    recipeName: string;
+    mealPlans: Array<{
+      date: string;
+      mealType: string;
+      mealPlanId: number;
+      hasShoppingItem: boolean;
+    }>;
+    shoppingItems: any[];
+  }>();
+  
+  for (const item of shoppingRows) {
+    if (!item.fromRecipeId) continue;
+    
+    const key = item.fromRecipeId;
+    if (!recipeMap.has(key)) {
+      recipeMap.set(key, {
+        recipeId: item.fromRecipeId,
+        recipeName: item.fromRecipeName || '',
+        mealPlans: [],
+        shoppingItems: [],
+      });
+    }
+    
+    const recipe = recipeMap.get(key)!;
+    recipe.shoppingItems.push(item);
+  }
+  
+  for (const [key, recipe] of recipeMap) {
+    const mealPlanRows = await db.select()
+      .from(mealPlans)
+      .where(
+        and(
+          eq(mealPlans.familyId, familyId),
+          eq(mealPlans.recipeId, recipe.recipeId)
+        )
+      );
+
+    for (const mp of mealPlanRows) {
+      const hasShoppingItem = recipe.shoppingItems.some(
+        si => si.fromMealPlanId === mp.id && si.status !== 'bought'
+      );
+      
+      recipe.mealPlans.push({
+        date: mp.date,
+        mealType: mp.mealType,
+        mealPlanId: mp.id,
+        hasShoppingItem,
+      });
+    }
+    
+    recipe.mealPlans.sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      
+      const mealOrder: Record<string, number> = { breakfast: 1, lunch: 2, dinner: 3, snack: 4 };
+      return mealOrder[a.mealType] - mealOrder[b.mealType];
+    });
+  }
+  
+  return Array.from(recipeMap.values());
+}
+
+// 獲取食譜嘅食材列表
+export async function getRecipeIngredients(recipeId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // 嘗試從 official_recipes 獲取
+  let recipeData: any = null;
+  
+  const officialRecipe = await db.select()
+    .from(officialRecipes)
+    .where(eq(officialRecipes.id, parseInt(recipeId.replace('official_', ''))))
+    .limit(1);
+  
+  if (officialRecipe.length > 0) {
+    recipeData = officialRecipe[0];
+  } else {
+    // 嘗試從 custom_recipes 獲取
+    const customRecipe = await db.select()
+      .from(customRecipes)
+      .where(eq(customRecipes.id, parseInt(recipeId.replace('user_', ''))))
+      .limit(1);
+    
+    if (customRecipe.length > 0) {
+      recipeData = customRecipe[0];
+    }
+  }
+  
+  if (!recipeData || !recipeData.ingredients) {
+    return [];
+  }
+  
+  try {
+    const ingredients = JSON.parse(recipeData.ingredients);
+    if (Array.isArray(ingredients)) {
+      return ingredients.map((ing: any) => ({
+        name: ing.name || ing,
+        quantity: ing.quantity || '',
+        unit: ing.unit || '',
+      }));
+    }
+  } catch (e) {
+    console.error("[getRecipeIngredients] Failed to parse ingredients:", e);
+  }
+  
+  return [];
 }
 
 // ─── Pantry Items ─────────────────────────────────────────────────────────────
@@ -469,7 +633,7 @@ export async function updatePantryItem(id: number, familyId: number, updates: { 
 }
 
 // ─── Favorite Items ───────────────────────────────────────────────────────────
-export async function getFavoriteItems(userId: number) {
+export async function getFavoriteItems(userId: string) {
   const db = await getDb();
   if (!db) return [];
   return db
@@ -481,7 +645,7 @@ export async function getFavoriteItems(userId: number) {
 
 /** Toggle: add if not exists, remove if exists. Returns { isFavorited: boolean } */
 export async function toggleFavoriteItem(
-  userId: number,
+  userId: string,
   item: { name: string; category?: string | null; unit?: string | null }
 ): Promise<{ isFavorited: boolean }> {
   const db = await getDb();
@@ -575,7 +739,7 @@ export async function getTrendingRecipes(days = 7, limit = 20) {
 // ─── Purchase History ─────────────────────────────────────────────────────────
 export async function recordPurchase(data: {
   familyId: number;
-  userId: number;
+  userId: string;
   userName?: string;
   name: string;
   category?: string;
@@ -793,7 +957,7 @@ export async function addRecipeNote(data: {
   familyId: number;
   recipeId: string;
   recipeName?: string;
-  userId: number;
+  userId: string;
   userName?: string;
   content: string;
 }) {
@@ -809,7 +973,7 @@ export async function addRecipeNote(data: {
   });
 }
 
-export async function deleteRecipeNote(id: number, userId: number, familyId: number) {
+export async function deleteRecipeNote(id: number, userId: string, familyId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.delete(recipeNotes).where(
@@ -885,7 +1049,7 @@ export async function initFamilyTrial(familyId: number) {
 /**
  * Get current month's import count for a user.
  */
-export async function getImportUsage(userId: number): Promise<number> {
+export async function getImportUsage(userId: string): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
   const yearMonth = new Date().toISOString().slice(0, 7); // "2025-06"
@@ -898,7 +1062,7 @@ export async function getImportUsage(userId: number): Promise<number> {
 /**
  * Increment import count for a user. Returns new count.
  */
-export async function incrementImportUsage(userId: number): Promise<number> {
+export async function incrementImportUsage(userId: string): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
   const yearMonth = new Date().toISOString().slice(0, 7);
@@ -914,7 +1078,7 @@ export async function incrementImportUsage(userId: number): Promise<number> {
 
 // ─── Push Token helpers ───────────────────────────────────────────────────────
 
-export async function upsertPushToken(userId: number, familyId: number | null, token: string, platform?: string) {
+export async function upsertPushToken(userId: string, familyId: number | null, token: string, platform?: string) {
   const db = await getDb();
   if (!db) return;
   // Check if token already exists
@@ -934,7 +1098,7 @@ export async function upsertPushToken(userId: number, familyId: number | null, t
   }
 }
 
-export async function getPushTokensByUserIds(userIds: number[]): Promise<string[]> {
+export async function getPushTokensByUserIds(userIds: string[]): Promise<string[]> {
   const db = await getDb();
   if (!db) return [];
   if (userIds.length === 0) return [];
@@ -953,7 +1117,7 @@ export async function getPushTokensByFamily(familyId: number): Promise<string[]>
   return result.map((r) => r.token);
 }
 
-export async function getPushTokensByUser(userId: number): Promise<string[]> {
+export async function getPushTokensByUser(userId: string): Promise<string[]> {
   const db = await getDb();
   if (!db) return [];
   const result = await db.select({ token: pushTokens.token })
@@ -993,7 +1157,7 @@ export async function createEmailUser(params: {
   email: string;
   password: string;
   name: string;
-}): Promise<{ id: number; openId: string } | null> {
+}): Promise<{ id: string; openId: string } | null> {
   const db = await getDb();
   if (!db) return null;
   const openId = `email_${crypto.randomBytes(16).toString("hex")}`;
@@ -1013,7 +1177,7 @@ export async function createEmailUser(params: {
 }
 
 /** Update user's passwordHash */
-export async function updateUserPassword(userId: number, newPassword: string): Promise<void> {
+export async function updateUserPassword(userId: string, newPassword: string): Promise<void> {
   const db = await getDb();
   if (!db) return;
   const passwordHash = hashPassword(newPassword);
@@ -1021,7 +1185,7 @@ export async function updateUserPassword(userId: number, newPassword: string): P
 }
 
 /** Update user's last signed in timestamp */
-export async function touchUserSignIn(userId: number): Promise<void> {
+export async function touchUserSignIn(userId: string): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));

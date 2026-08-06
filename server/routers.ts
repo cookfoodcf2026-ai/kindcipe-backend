@@ -28,6 +28,7 @@ import {
   deleteMealPlan,
   deleteShoppingItemsByMealPlan,
   approveShoppingItemsByMealPlan,
+  getDb,
   getMealPlanById,
   deletePantryItem,
   deleteShoppingItem,
@@ -48,19 +49,23 @@ import {
   countFamilyMembers,
   setDefaultFamily,
   updateFamilyMemberRole,
-  removeFamilyMember,
   getFamilySettings,
+  getMealPlansByDateRange,
+  addMealPlanBatch,
+  updateMealPlanStatus,
+  removeFamilyMember,
   updateFamilySettings,
   renameFamily,
   deleteFamily,
   getFavoriteItems,
+  getShoppingItemsWithRecipeInfo,
+  getRecipeIngredients,
   getMealPlans,
-  getMealPlansByDateRange,
+  addShoppingItemsBatch,
   getPantryItems,
   getShoppingItems,
   rejectShoppingItem,
   toggleFavoriteItem,
-  updateMealPlanStatus,
   updatePantryItem,
   updateShoppingItemStatus,
   insertRecipeEvent,
@@ -79,27 +84,32 @@ import {
   touchUserSignIn,
   incrementRecipePopularity,
 } from "./db";
+import { mealPlans, weeklyMenu } from "../drizzle/schema";
+import { and, eq, inArray } from "drizzle-orm";
 
 const familyRouter = router({
-  get: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.activeFamilyId) return null;
-    const family = await getFamilyById(ctx.activeFamilyId);
-    if (!family) return null;
-    const members = await getFamilyMembers(ctx.activeFamilyId);
-    const result = {
-      ...family,
-      members: members.map((m) => ({
-        id: m.member.id,
-        userId: m.user.id,
-        name: m.user.name || m.member.nickname || "Member",
-        nickname: m.member.nickname,
-        familyRole: m.member.familyRole,
-        joinedAt: m.member.joinedAt,
-        email: m.user.email,
-      })),
-    };
-    return result;
-  }),
+  get: protectedProcedure
+    .input(z.object({ id: z.number().int().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const familyId = input?.id ?? ctx.activeFamilyId;
+      if (!familyId) return null;
+      const family = await getFamilyById(familyId);
+      if (!family) return null;
+      const members = await getFamilyMembers(familyId);
+      const result = {
+        ...family,
+        members: members.map((m) => ({
+          id: m.member.id,
+          userId: m.user.id,
+          name: m.user.name || m.member.nickname || "Member",
+          nickname: m.member.nickname,
+          familyRole: m.member.familyRole,
+          joinedAt: m.member.joinedAt,
+          email: m.user.email,
+        })),
+      };
+      return result;
+    }),
 
   list: protectedProcedure.query(async ({ ctx }) => {
     const families = await getUserFamilies(String(ctx.user.id));
@@ -302,6 +312,7 @@ const shoppingRouter = router({
       status: z.enum(["pending", "active"]).default("active"),
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
+      fromMealPlanId: z.number().int().optional(),
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       commonIngredientId: z.number().int().optional(),
     }))
@@ -317,7 +328,7 @@ const shoppingRouter = router({
       
       try {
         await addShoppingItem({
-          familyId: ctx.activeFamilyId,
+          familyId: ctx.activeFamilyId!,
           name: sanitizedName,
           nameEn: input.nameEn?.slice(0, 128),
           category: input.category?.slice(0, 64),
@@ -329,6 +340,7 @@ const shoppingRouter = router({
           proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
           fromRecipeId: input.fromRecipeId?.slice(0, 64),
           fromRecipeName: input.fromRecipeName?.slice(0, 128),
+          fromMealPlanId: input.fromMealPlanId,
           plannedDate: input.plannedDate,
           commonIngredientId: input.commonIngredientId ?? null,
         });
@@ -337,7 +349,7 @@ const shoppingRouter = router({
         // If insert fails, try once more with minimal data
         try {
           await addShoppingItem({
-            familyId: ctx.activeFamilyId,
+            familyId: ctx.activeFamilyId!,
             name: sanitizedName || "Unnamed item",
             status,
           });
@@ -362,6 +374,7 @@ const shoppingRouter = router({
       })),
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
+      fromMealPlanId: z.number().int().optional(),
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -416,6 +429,7 @@ const shoppingRouter = router({
           proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
           fromRecipeId: input.fromRecipeId?.slice(0, 64),
           fromRecipeName: input.fromRecipeName?.slice(0, 128),
+          fromMealPlanId: input.fromMealPlanId,
           plannedDate: input.plannedDate,
           commonIngredientId: item.commonIngredientId ?? null,
         }));
@@ -437,7 +451,7 @@ const shoppingRouter = router({
         const item = items.find(i => i.id === input.id);
         if (item) {
           recordPurchase({
-            familyId: ctx.activeFamilyId,
+            familyId: ctx.activeFamilyId!,
             userId: ctx.user.id,
             userName: ctx.user.name || 'Someone',
             name: item.name,
@@ -458,6 +472,7 @@ const shoppingRouter = router({
       name: z.string().min(1).max(128).optional(),
       quantity: z.string().max(64).optional(),
       unit: z.string().max(32).optional(),
+      plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -465,6 +480,7 @@ const shoppingRouter = router({
         name: input.name,
         quantity: input.quantity,
         unit: input.unit,
+        plannedDate: input.plannedDate,
       });
       return { success: true };
     }),
@@ -560,6 +576,86 @@ const shoppingRouter = router({
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
+  
+  listWithRecipeInfo: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.activeFamilyId) return [];
+    return getShoppingItemsWithRecipeInfo(ctx.activeFamilyId);
+  }),
+  
+  addIngredientsForMealPlans: protectedProcedure
+    .input(z.object({
+      mealPlanIds: z.array(z.number().int()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      }
+      
+      const db = await getDb();
+      if (!db) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      }
+      
+      const mealPlanRows = await db.select()
+        .from(mealPlans)
+        .where(
+          and(
+            eq(mealPlans.familyId, ctx.activeFamilyId),
+            inArray(mealPlans.id, input.mealPlanIds)
+          )
+        );
+      
+      const familySettings = await getFamilySettings(ctx.activeFamilyId) as { approvalRequired?: boolean };
+      const isMember = ctx.activeFamilyRole === 'member';
+      const needsApproval = isMember && (familySettings.approvalRequired !== false);
+      const status = needsApproval ? 'pending' as const : 'active' as const;
+      
+      const ingredientsToAdd: Array<{
+        familyId: number;
+        name: string;
+        quantity?: string;
+        unit?: string;
+        status: 'pending' | 'active';
+        proposedByUserId: string;
+        proposedByName: string;
+        fromRecipeId: string;
+        fromRecipeName: string;
+        fromMealPlanId: number;
+        plannedDate: string;
+      }> = [];
+      
+      for (const mp of mealPlanRows) {
+        const recipeId = mp.recipeId;
+        const recipeName = mp.recipeName;
+        const plannedDate = mp.date;
+        
+        const ingredients = await getRecipeIngredients(recipeId);
+        
+        for (const ing of ingredients) {
+          ingredientsToAdd.push({
+            familyId: ctx.activeFamilyId,
+            name: ing.name,
+            quantity: ing.quantity,
+            unit: ing.unit,
+            status,
+            proposedByUserId: String(ctx.user.id),
+            proposedByName: ctx.user.name || 'Member',
+            fromRecipeId: recipeId,
+            fromRecipeName: recipeName,
+            fromMealPlanId: mp.id,
+            plannedDate,
+          });
+        }
+      }
+      
+      if (ingredientsToAdd.length > 0) {
+        await addShoppingItems(ingredientsToAdd);
+      }
+      
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+      
+      return { success: true, count: ingredientsToAdd.length };
+    }),
 });
 
 const mealPlanRouter = router({
@@ -592,12 +688,78 @@ const mealPlanRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      
+      // Check if today has eat-out set for dinner
+      let hasConflict = false;
+      let warning: string | undefined;
+      
+      if (input.mealType === "dinner") {
+        // Calculate weekStart and dayOfWeek from input.date
+        const date = new Date(input.date);
+        const dayOfWeek = date.getDay();
+        const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust to Monday
+        const weekStart = new Date(date);
+        weekStart.setDate(diff);
+        const weekStartStr = weekStart.toISOString().split("T")[0];
+        const dayOfWeekNum = dayOfWeek === 0 ? 7 : dayOfWeek; // 1=Mon, 7=Sun
+        
+        // Check if eatOut is set for this day
+        const weeklyMenuRecord = await db.select()
+          .from(weeklyMenu)
+          .where(
+            and(
+              eq(weeklyMenu.familyId, ctx.activeFamilyId),
+              eq(weeklyMenu.weekStart, weekStartStr),
+              eq(weeklyMenu.dayOfWeek, dayOfWeekNum)
+            )
+          )
+          .limit(1);
+        
+        if (weeklyMenuRecord.length > 0 && weeklyMenuRecord[0].eatOut) {
+          hasConflict = true;
+          warning = "今天已設定外出，確定要排餐嗎？";
+        }
+      }
+      
+      // Check if same recipe already exists on the same day (different meal type)
+      const existingPlans = await db.select()
+        .from(mealPlans)
+        .where(
+          and(
+            eq(mealPlans.familyId, ctx.activeFamilyId),
+            eq(mealPlans.date, input.date),
+            eq(mealPlans.recipeId, input.recipeId)
+          )
+        );
+      
+      if (existingPlans.length > 0 && !hasConflict) {
+        // Check if it's a different meal type
+        const sameDayDifferentMeal = existingPlans.filter(
+          p => p.mealType !== input.mealType
+        );
+        
+        if (sameDayDifferentMeal.length > 0) {
+          hasConflict = true;
+          const mealLabels = sameDayDifferentMeal.map(p => 
+            p.mealType === 'breakfast' ? '早餐' : 
+            p.mealType === 'lunch' ? '午餐' : '晚餐'
+          ).join('、');
+          const currentMealLabel = input.mealType === 'breakfast' ? '早餐' : input.mealType === 'lunch' ? '午餐' : '晚餐';
+          warning = `呢個食譜已經排咗今日 [${mealLabels}]，確定要排 [${currentMealLabel}] 嗎？`;
+        }
+      }
+      
       const familySettings = await getFamilySettings(ctx.activeFamilyId) as { approvalRequired?: boolean };
       const isMember = ctx.activeFamilyRole === "member";
       const needsApproval = isMember && (familySettings.approvalRequired !== false);
-      const status = needsApproval ? "pending" : "confirmed";
-      await addMealPlan({
-        familyId: ctx.activeFamilyId,
+      const status = (needsApproval ? "pending" : "confirmed") as "pending" | "confirmed";
+      
+      // Add meal plan and get the new plan id
+      const newPlanId = await addMealPlan({
+        familyId: ctx.activeFamilyId!,
         date: input.date,
         mealType: input.mealType,
         recipeId: input.recipeId,
@@ -608,7 +770,9 @@ const mealPlanRouter = router({
         proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
         note: input.note,
       });
-      if (input.autoAddIngredients && input.ingredients && input.ingredients.length > 0) {
+      
+      // Add ingredients with fromMealPlanId linked to the new plan
+      if (input.autoAddIngredients && input.ingredients && input.ingredients.length > 0 && newPlanId) {
         const ingredientStatus = needsApproval ? "pending" as const : "active" as const;
         const rows = input.ingredients.map((ing) => ({
           familyId: ctx.activeFamilyId!,
@@ -620,6 +784,7 @@ const mealPlanRouter = router({
           proposedByName: ctx.user.name || (needsApproval ? "Member" : "Owner"),
           fromRecipeId: input.recipeId,
           fromRecipeName: input.recipeName,
+          fromMealPlanId: newPlanId,
           plannedDate: input.date,
         }));
         await addShoppingItems(rows);
@@ -649,7 +814,164 @@ const mealPlanRouter = router({
       }
       // Increment recipe popularity (+5 for meal plan addition - high intent action)
       incrementRecipePopularity(input.recipeId, 5).catch(() => {});
-      return { success: true, status };
+      return { 
+        success: true, 
+        status, 
+        hasConflict, 
+        warning, 
+        newPlanId,
+        existingPlanIds: existingPlans.map(p => p.id),
+      };
+    }),
+
+  addBatch: protectedProcedure
+    .input(z.object({
+      items: z.array(z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).default("dinner"),
+        recipeId: z.string().min(1).max(64),
+        recipeName: z.string().min(1).max(128),
+        recipeImage: z.string().nullable().optional(),
+        ingredients: z.array(z.object({
+          name: z.string(),
+          quantity: z.string().optional(),
+          unit: z.string().optional(),
+        })).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      const familySettings = await getFamilySettings(ctx.activeFamilyId) as { approvalRequired?: boolean };
+      const isMember = ctx.activeFamilyRole === "member";
+      const needsApproval = isMember && (familySettings.approvalRequired !== false);
+      const status = (needsApproval ? "pending" : "confirmed") as "pending" | "confirmed";
+      
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      
+      // Track successful and skipped items
+      const successfulItems: Array<{
+        date: string;
+        mealType: string;
+        recipeId: string;
+        recipeName: string;
+        newPlanId?: number;
+      }> = [];
+      const skippedDays: string[] = [];
+      
+      // Process each item individually to handle conflicts and link ingredients
+      for (const item of input.items) {
+        // Check for eat-out conflict (dinner only)
+        let hasConflict = false;
+        if (item.mealType === "dinner") {
+          const date = new Date(item.date);
+          const dayOfWeek = date.getDay();
+          const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+          const weekStart = new Date(date);
+          weekStart.setDate(diff);
+          const weekStartStr = weekStart.toISOString().split("T")[0];
+          const dayOfWeekNum = dayOfWeek === 0 ? 7 : dayOfWeek;
+          
+          const weeklyMenuRecord = await db.select()
+            .from(weeklyMenu)
+            .where(
+              and(
+                eq(weeklyMenu.familyId, ctx.activeFamilyId),
+                eq(weeklyMenu.weekStart, weekStartStr),
+                eq(weeklyMenu.dayOfWeek, dayOfWeekNum)
+              )
+            )
+            .limit(1);
+          
+          if (weeklyMenuRecord.length > 0 && weeklyMenuRecord[0].eatOut) {
+            hasConflict = true;
+          }
+        }
+        
+        if (hasConflict) {
+          skippedDays.push(item.date);
+          continue; // Skip this day
+        }
+        
+        // Insert meal plan
+        const newPlanId = await addMealPlan({
+          familyId: ctx.activeFamilyId!,
+          date: item.date,
+          mealType: item.mealType,
+          recipeId: item.recipeId,
+          recipeName: item.recipeName,
+          recipeImage: item.recipeImage,
+          status,
+          proposedByUserId: ctx.user.id,
+          proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
+        });
+        
+        successfulItems.push({
+          date: item.date,
+          mealType: item.mealType,
+          recipeId: item.recipeId,
+          recipeName: item.recipeName,
+          newPlanId,
+        });
+        
+        // Add ingredients with fromMealPlanId
+        if (item.ingredients && item.ingredients.length > 0 && newPlanId) {
+          const ingredientStatus = needsApproval ? "pending" as const : "active" as const;
+          const rows = item.ingredients.map((ing) => ({
+            familyId: ctx.activeFamilyId!,
+            name: ing.name,
+            quantity: ing.quantity,
+            unit: ing.unit,
+            status: ingredientStatus,
+            proposedByUserId: ctx.user.id,
+            proposedByName: ctx.user.name || (needsApproval ? "Member" : "Owner"),
+            fromRecipeId: item.recipeId,
+            fromRecipeName: item.recipeName,
+            fromMealPlanId: newPlanId,
+            plannedDate: item.date,
+          }));
+          await addShoppingItems(rows);
+        }
+      }
+      
+      // Broadcast + push notification
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
+      
+      const uniqueDays = new Set(successfulItems.map(i => i.date));
+      const uniqueRecipes = new Set(successfulItems.map(i => i.recipeId));
+      const actorName = ctx.user.name || 'Member';
+      
+      if (needsApproval) {
+        const adminTokens = await getPushTokensByUserIds(
+          (await getFamilyMembers(ctx.activeFamilyId))
+            .filter(m => m.member.familyRole === "owner" || m.member.familyRole === "admin")
+            .map(m => m.user.id)
+        );
+        sendPushNotifications(adminTokens, {
+          title: `🍽️ ${actorName} 提議 ${uniqueDays.size} 天排餐`,
+          body: `${successfulItems.length} 個餐次，${uniqueRecipes.size} 個菜式（待確認）`,
+          data: { type: 'meal_plan_batch_proposed' },
+        }).catch(() => {});
+      } else {
+        const allTokens = await getPushTokensByFamily(ctx.activeFamilyId);
+        sendPushNotifications(allTokens, {
+          title: `📅 已排入 ${uniqueDays.size} 天晚餐`,
+          body: `${successfulItems.length} 個餐次，${uniqueRecipes.size} 個菜式`,
+          data: { type: 'meal_plan_batch_updated' },
+        }).catch(() => {});
+      }
+      
+      // Increment popularity once per unique recipe
+      for (const recipeId of uniqueRecipes) {
+        incrementRecipePopularity(recipeId, 5).catch(() => {});
+      }
+      
+      return { 
+        success: true, 
+        count: successfulItems.length,
+        skippedCount: skippedDays.length,
+        skippedDays,
+      };
     }),
 
   confirm: protectedProcedure
@@ -682,8 +1004,8 @@ const mealPlanRouter = router({
       
       // 自動刪除該排餐相關的 pending 購物食材
       const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
-      if (plan?.recipeId && plan?.date) {
-        await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.recipeId, plan.date);
+      if (plan?.id) {
+        await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.id);
       }
       
       broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
@@ -696,8 +1018,8 @@ const mealPlanRouter = router({
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
       await deleteMealPlan(input.id, ctx.activeFamilyId);
-      if (plan?.recipeId && plan?.date) {
-        await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.recipeId, plan.date);
+      if (plan?.id) {
+        await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.id);
       }
       broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
@@ -721,7 +1043,7 @@ const pantryRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new Error('No family');
       await addPantryItem({
-        familyId: ctx.activeFamilyId,
+        familyId: ctx.activeFamilyId!,
         name: input.name,
         category: input.category ?? null,
         quantity: input.quantity ?? null,
@@ -845,7 +1167,7 @@ const purchaseHistoryRouter = router({
       await updateShoppingItemDetails(input.itemId, ctx.activeFamilyId, { estimatedPrice: input.price });
       // Record to purchase history for future price diff display
       await recordPurchase({
-        familyId: ctx.activeFamilyId,
+        familyId: ctx.activeFamilyId!,
         userId: ctx.user.id,
         userName: ctx.user.name || 'Someone',
         name: input.itemName,
@@ -890,7 +1212,7 @@ const recipeEventsRouter = router({
       recipeId: z.string(),
       recipeName: z.string(),
       eventType: z.enum(['view', 'plan', 'save', 'cook']),
-      userId: z.number().optional(),
+      userId: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       await insertRecipeEvent({
@@ -930,7 +1252,7 @@ const recipeNotesRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new Error('No family');
       await addRecipeNote({
-        familyId: ctx.activeFamilyId,
+        familyId: ctx.activeFamilyId!,
         recipeId: input.recipeId,
         recipeName: input.recipeName,
         userId: ctx.user.id,

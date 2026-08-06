@@ -668,4 +668,97 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
         days: enrichedDays,
       };
     }),
+
+  setEatOut: protectedProcedure
+    .input(z.object({
+      weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      dayOfWeek: z.number().int().min(1).max(7),
+      eatOut: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // Calculate actual date from weekStart and dayOfWeek
+      const weekStart = new Date(input.weekStart);
+      const actualDate = new Date(weekStart);
+      actualDate.setDate(weekStart.getDate() + input.dayOfWeek - 1);
+      const dateStr = actualDate.toISOString().split("T")[0];
+
+      // If setting eatOut to true, automatically delete meal plans for that day
+      if (input.eatOut) {
+        try {
+          await db.delete(mealPlans).where(
+            and(
+              eq(mealPlans.familyId, ctx.activeFamilyId),
+              eq(mealPlans.date, dateStr),
+              eq(mealPlans.mealType, "dinner")
+            )
+          );
+        } catch (e) {
+          console.error("[setEatOut] Failed to delete meal plans:", {
+            error: e,
+            familyId: ctx.activeFamilyId,
+            date: dateStr,
+          });
+          // Continue with eatOut setting, don't block
+        }
+      }
+
+      // Preserve the day's existing dishes when toggling eatOut (do NOT wipe them)
+      const existing = await db.select().from(weeklyMenu).where(
+        and(
+          eq(weeklyMenu.weekStart, input.weekStart),
+          eq(weeklyMenu.dayOfWeek, input.dayOfWeek),
+          eq(weeklyMenu.familyId, ctx.activeFamilyId)
+        )
+      );
+
+      if (existing.length > 0) {
+        // Row exists → only update eatOut flag, keep the 4 dish slots intact
+        await db.update(weeklyMenu).set({
+          eatOut: input.eatOut,
+          setByUserId: String(ctx.user.id),
+        }).where(
+          and(
+            eq(weeklyMenu.weekStart, input.weekStart),
+            eq(weeklyMenu.dayOfWeek, input.dayOfWeek),
+            eq(weeklyMenu.familyId, ctx.activeFamilyId)
+          )
+        );
+      } else {
+        // No row yet → insert with null dishes + eatOut flag
+        await db.insert(weeklyMenu).values({
+          familyId: ctx.activeFamilyId,
+          weekStart: input.weekStart,
+          dayOfWeek: input.dayOfWeek,
+          meatId: null,
+          meatName: null,
+          meatImage: null,
+          meatCookTime: null,
+          seafoodId: null,
+          seafoodName: null,
+          seafoodImage: null,
+          seafoodCookTime: null,
+          vegId: null,
+          vegName: null,
+          vegImage: null,
+          vegCookTime: null,
+          soupId: null,
+          soupName: null,
+          soupImage: null,
+          soupCookTime: null,
+          eatOut: input.eatOut,
+          sponsorName: null,
+          sponsorUrl: null,
+          sponsorLogoUrl: null,
+          setByUserId: String(ctx.user.id),
+        });
+      }
+
+      return { success: true };
+    }),
 });
