@@ -530,7 +530,7 @@ export async function getShoppingItemsWithRecipeInfo(familyId: number) {
 
     for (const mp of mealPlanRows) {
       const hasShoppingItem = recipe.shoppingItems.some(
-        si => si.fromMealPlanId === mp.id && si.status !== 'bought'
+        si => si.fromMealPlanId === mp.id
       );
       
       recipe.mealPlans.push({
