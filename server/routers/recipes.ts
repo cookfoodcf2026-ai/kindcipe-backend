@@ -810,12 +810,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
               || directData?.graphql?.shortcode_media?.thumbnail_src
               || "";
           }
-        } catch { /* use fallback pattern */ }
-      }
-
-      // Last resort fallback
-      if (shortcode && !igThumbnail) {
-        igThumbnail = `https://scontent.cdninstagram.com/v/t51.2885-15/sh0.08/e35/s640x640/https://www.instagram.com/p/${shortcode}/?__a=1`;
+        } catch { /* no thumbnail from direct API */ }
       }
 
       const parts: string[] = [];
