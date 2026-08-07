@@ -680,6 +680,7 @@ const mealPlanRouter = router({
       recipeImage: z.string().nullable().optional(),
       note: z.string().max(256).optional(),
       autoAddIngredients: z.boolean().default(true),
+      shoppingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       ingredients: z.array(z.object({
         name: z.string(),
         quantity: z.string().optional(),
@@ -774,6 +775,11 @@ const mealPlanRouter = router({
       // Add ingredients with fromMealPlanId linked to the new plan
       if (input.autoAddIngredients && input.ingredients && input.ingredients.length > 0 && newPlanId) {
         const ingredientStatus = needsApproval ? "pending" as const : "active" as const;
+        const shoppingDate = input.shoppingDate || (() => {
+          const d = new Date(input.date + "T00:00:00");
+          d.setDate(d.getDate() - 1);
+          return d.toISOString().split("T")[0];
+        })();
         const rows = input.ingredients.map((ing) => ({
           familyId: ctx.activeFamilyId!,
           name: ing.name,
@@ -785,7 +791,7 @@ const mealPlanRouter = router({
           fromRecipeId: input.recipeId,
           fromRecipeName: input.recipeName,
           fromMealPlanId: newPlanId,
-          plannedDate: input.date,
+          plannedDate: shoppingDate,
         }));
         await addShoppingItems(rows);
       }
