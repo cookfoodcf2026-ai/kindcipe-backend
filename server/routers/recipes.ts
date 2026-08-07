@@ -1176,12 +1176,13 @@ export const recipesRouter = router({
       const { storageGetSignedUrl } = await import("../storage");
       const imageUrl = await storageGetSignedUrl(input.storageKey);
 
-      const systemPrompt = `你是一個專業的食譜解析助手。用戶上傳了一張食譜截圖（來自 Instagram、小紅書、YouTube 等社交媒體）。
-請仔細分析圖片中的所有文字，提取完整的食譜資訊並以 JSON 格式回傳。
-如果圖片中沒有足夠的食譜資訊，請在 name 回傳「需要手動輸入」，並在 description 說明原因。
-食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
+      const systemPrompt = `你是一個專業的食譜創作助手。請仔細分析用戶上傳的圖片：
+1. 如果圖片中有食物或菜餚，請根據外觀、顏色、質地和常見烹飪方式推測可能的食材和做法。
+2. 如果圖片中同時有文字（例如食材清單、步驟），請把文字資訊作為輔助，提高準確度。
+3. 只有在完全無法判斷圖片內容（例如圖片空白、過度模糊、或與食物無關）時，才在 name 回傳「需要手動輸入」，並在 description 說明原因。
+請以繁體中文回傳，並使用以下 JSON 格式。食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
 
-      const userPrompt = `請分析這張食譜截圖，提取所有可見的食材、份量和烹飪步驟。
+      const userPrompt = `請分析這張圖片，盡力識別或推測出食材和烹飪步驟。
 請回傳以下 JSON 格式（所有文字使用繁體中文）：
 {
   "name": "食譜名稱",
@@ -1196,7 +1197,7 @@ export const recipesRouter = router({
   "steps": [
     { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
-  "tags": ["標籤1", "標籤2"],
+  "tags": ["標籤 1", "標籤 2"],
   "sourceAuthor": "創作者名稱（如圖片中有顯示）",
   "thumbnailUrl": ""
 }`;
