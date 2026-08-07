@@ -1,0 +1,279 @@
+
+> kindcipe-backend@1.0.0 dev
+> tsx watch server/index.ts
+
+[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+12:27:56 PM [tsx] change in ./server/index.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+12:28:00 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+12:28:05 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+12:28:11 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+12:28:15 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+12:28:22 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+[Auth] Missing session token
+1:12:09 PM [tsx] change in ./server/db.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:12:13 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:12:25 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:12:34 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:12:42 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:13:08 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:13:12 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:13:15 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:13:18 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:13:31 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:13:40 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:29:00 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:29:13 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:29:29 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:29:39 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:31:47 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:31:57 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:32:40 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+Error [TransformError]: Transform failed with 5 errors:
+/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1606:12: ERROR: The symbol "totalOfficialResult" has already been declared
+/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1609:12: ERROR: The symbol "totalOfficial" has already been declared
+/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1611:12: ERROR: The symbol "totalCustomResult" has already been declared
+/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1614:12: ERROR: The symbol "totalCustom" has already been declared
+/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1616:12: ERROR: The symbol "total" has already been declared
+    at failureErrorWithLog (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:1748:15)
+    at /Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:1017:50
+    at responseCallbacks.<computed> (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:884:9)
+    at handleIncomingPacket (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:939:12)
+    at Socket.readFromStdout (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:862:7)
+    at Socket.emit (node:events:524:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:191:23)
+
+Node.js v20.20.2
+1:32:47 PM [tsx] change in ./server/routers/recipes.ts Rerunning...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:32:56 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:33:08 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:33:20 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:40:15 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:40:20 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:40:25 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:56:38 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:03 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:07 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:10 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:20 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:29 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:55 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:57:59 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:58:26 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:59:03 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+1:59:19 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:00:06 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:00:14 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:00:43 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:16:24 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:16:51 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:17:12 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:17:22 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:17:36 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:17:51 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:18:03 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:18:11 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:18:17 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:18:24 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:19:54 PM [tsx] change in ./server/routers/recipes.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+2:43:41 PM [tsx] change in ./server/index.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/
+[Auth] Session verification failed JWSSignatureVerificationFailed: signature verification failed
+[Auth] Session verification failed JWSSignatureVerificationFailed: signature verification failed
+[tRPC] mutation recipes.parseUrl user=a9044e7c-6f4b-41e2-b655-697597657438 family=30 code=INTERNAL_SERVER_ERROR
+  message: DASHSCOPE_API_KEY is not set. Get one from https://modelstudio.console.alibabacloud.com
+  input: {"url":"https://www.instagram.com/reel/DaUY9NIoObj/?igsh=MXhqdmh2d204czhjdw=="}
+[tRPC] mutation recipes.parseUrl user=a9044e7c-6f4b-41e2-b655-697597657438 family=30 code=INTERNAL_SERVER_ERROR
+  message: DASHSCOPE_API_KEY is not set. Get one from https://modelstudio.console.alibabacloud.com
+  input: {"url":"https://www.instagram.com/reel/DaUY9NIoObj/?igsh=MXhqdmh2d204czhjdw=="}
+[tRPC] mutation mealPlan.add user=a9044e7c-6f4b-41e2-b655-697597657438 family=30 code=BAD_REQUEST
+  message: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "recipeImage"
+    ],
+    "message": "Invalid input: expected string, received null"
+  }
+]
+  input: {"date":"2026-08-05","mealType":"lunch","recipeId":"official_3685","recipeName":"蓮藕炆排骨","recipeImage":null,"autoAddIngredients":false}
+8:21:34 PM [tsx] change in ./server/routers.ts Restarting...
+c[OAuth] Initialized with baseURL: 
+[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
+Kindcipe backend running on http://localhost:3000/

@@ -749,9 +749,34 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
         } catch { /* continue */ }
       }
 
-      // Fallback: use Instagram's media endpoint if no thumbnail from other methods
+      // Fallback: use Instagram's direct image URL pattern (works for most posts)
       if (shortcode && !igThumbnail) {
-        igThumbnail = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
+        try {
+          const directResp = await fetch(
+            `https://www.instagram.com/${shortcode}/?__a=1&__d=dis`,
+            {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+                "Accept": "application/json",
+              },
+              signal: AbortSignal.timeout(8000),
+            }
+          );
+          if (directResp.ok) {
+            const directData = await directResp.json() as {
+              graphql?: { shortcode_media?: { display_url?: string; thumbnail_src?: string; video_thumbnail?: string } };
+            };
+            igThumbnail = directData?.graphql?.shortcode_media?.display_url
+              || directData?.graphql?.shortcode_media?.video_thumbnail
+              || directData?.graphql?.shortcode_media?.thumbnail_src
+              || "";
+          }
+        } catch { /* use fallback pattern */ }
+      }
+
+      // Last resort fallback
+      if (shortcode && !igThumbnail) {
+        igThumbnail = `https://scontent.cdninstagram.com/v/t51.2885-15/sh0.08/e35/s640x640/https://www.instagram.com/p/${shortcode}/?__a=1`;
       }
 
       const parts: string[] = [];
@@ -948,7 +973,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
 
 // ─── AI Parse URL ─────────────────────────────────────────────────────────────
 
-async function parseRecipeFromUrl(url: string): Promise<{
+async function parseRecipeFromUrl(url: string, userLanguage?: string): Promise<{
   name: string;
   description: string;
   cookTime: number;
@@ -964,7 +989,11 @@ async function parseRecipeFromUrl(url: string): Promise<{
 }> {
   const sourceType = detectSourceType(url);
 
-  // Step 1: Try to fetch real page content
+  const targetLang = userLanguage === "en" ? "English"
+    : userLanguage === "fil" ? "Filipino"
+    : userLanguage === "id" ? "Indonesian"
+    : "繁體中文";
+
   const { text: pageContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
   const hasRealContent = pageContent.length > 30;
 
@@ -995,7 +1024,7 @@ async function parseRecipeFromUrl(url: string): Promise<{
 - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
 - 如果內容中沒有食譜資訊，請在 name 回傳"無法解析"，並在 description 說明原因
 - 食材分類：肉類/海鮮/蔬菜/調味料/乾貨/其他
-- 所有文字使用繁體中文`;
+- 所有文字使用${targetLang}`;
 
   // For YouTube/Xiaohongshu: even if we have title/author, the description may not contain full recipe steps.
   const hasTitleOnly = (sourceType === "youtube" || sourceType === "xiaohongshu" || sourceType === "threads") && hasRealContent && !hasRecipeKeywords;
@@ -1124,9 +1153,9 @@ Platform: ${sourceType}
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
   parseUrl: protectedProcedure
-    .input(z.object({ url: z.string().url() }))
+    .input(z.object({ url: z.string().url(), language: z.string().optional() }))
     .mutation(async ({ input }) => {
-      const parsed = await parseRecipeFromUrl(input.url);
+      const parsed = await parseRecipeFromUrl(input.url, input.language);
       return {
         ...parsed,
         sourceUrl: input.url,
