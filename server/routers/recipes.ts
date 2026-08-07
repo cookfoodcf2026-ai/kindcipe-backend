@@ -1007,7 +1007,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
 
 // ─── AI Parse URL ─────────────────────────────────────────────────────────────
 
-async function parseRecipeFromUrl(url: string, userLanguage?: string): Promise<{
+async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThumbnail?: string): Promise<{
   name: string;
   description: string;
   cookTime: number;
@@ -1064,12 +1064,15 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string): Promise<{
 
   const { text: pageContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
   const hasRealContent = pageContent.length > 30;
+  
+  // Use client-extracted thumbnail as fallback if backend extraction failed
+  const effectiveThumbnail = fetchedThumbnail || clientThumbnail;
 
   // Detect if content has actual recipe info (ingredients/steps keywords)
-  const hasRecipeKeywords = /材料|食材|做法|步驟|ingredient|step|recipe|gram|ml|tbsp|tsp|大匙|小匙|克|公克|毫升|份量|人份|準備|醃|炒|煮|蒸|烤|炸/i.test(pageContent);
+  const hasRecipeKeywords = /材料 | 食材 | 做法 | 步驟|ingredient|step|recipe|gram|ml|tbsp|tsp|大匙 | 小匙 | 克 | 公克 | 毫升 | 份量 | 人份 | 準備 | 醃 | 炒 | 煮 | 蒸 | 烤 | 炸/i.test(pageContent);
 
   // If we have text but NO recipe keywords AND no thumbnail to try Vision → return early
-  if (hasRealContent && !hasRecipeKeywords && sourceType === "instagram" && !fetchedThumbnail) {
+  if (hasRealContent && !hasRecipeKeywords && sourceType === "instagram" && !effectiveThumbnail) {
     return {
       name: "帖子沒有食譜內容",
       description: `這個 Instagram 帖子只有分享文字，沒有食材清單或烹飪步驟。請嘗試：\n1. 複製帖子文字，使用「貼上文字」功能\n2. 手動新增食譜`,
@@ -1081,7 +1084,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string): Promise<{
       steps: [],
       tags: [],
       sourceAuthor: "",
-      thumbnailUrl: fetchedThumbnail,
+      thumbnailUrl: effectiveThumbnail || "",
       parseReason: "no_recipe_content" as const,
     };
   }
@@ -1116,7 +1119,7 @@ Platform: ${sourceType}
 
 請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : sourceType === "xiaohongshu" ? "小紅書" : sourceType === "threads" ? "Threads" : "YouTube"} 複製食譜文字後貼入。"`;
 
-  const thumbnailUrlPlaceholder = fetchedThumbnail || "";
+  const thumbnailUrlPlaceholder = effectiveThumbnail || "";
 
   const userPrompt = `${contentSection}
 
@@ -1200,7 +1203,7 @@ Platform: ${sourceType}
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
-  if (!result.thumbnailUrl && fetchedThumbnail) result.thumbnailUrl = fetchedThumbnail;
+  if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
   // Re-host external thumbnail to R2 so it works in preview
   if (result.thumbnailUrl) {
     result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl);
@@ -1221,9 +1224,9 @@ Platform: ${sourceType}
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
   parseUrl: protectedProcedure
-    .input(z.object({ url: z.string().url(), language: z.string().optional() }))
+    .input(z.object({ url: z.string().url(), language: z.string().optional(), clientThumbnail: z.string().optional() }))
     .mutation(async ({ input }) => {
-      const parsed = await parseRecipeFromUrl(input.url, input.language);
+      const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail);
       return {
         ...parsed,
         sourceUrl: input.url,
