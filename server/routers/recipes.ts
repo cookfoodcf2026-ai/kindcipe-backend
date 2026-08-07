@@ -402,7 +402,7 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
   }
 }
 
-async function parseTextToRecipe(text: string): Promise<{
+async function parseTextToRecipe(text: string, userLanguage?: string): Promise<{
   name: string;
   description: string;
   cookTime: number;
@@ -416,13 +416,52 @@ async function parseTextToRecipe(text: string): Promise<{
   thumbnailUrl: string;
   parseReason?: "ok" | "no_recipe_content";
 }> {
+  const languageNameMap: Record<string, string> = {
+    "zh-TW": "繁體中文",
+    "zh-CN": "简体中文",
+    "zh": "中文",
+    "en": "English",
+    "fil": "Filipino",
+    "id": "Indonesian",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "vi": "Vietnamese",
+    "th": "Thai",
+    "ms": "Malay",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "bn": "Bengali",
+    "ur": "Urdu",
+    "tr": "Turkish",
+    "pl": "Polish",
+    "nl": "Dutch",
+    "sv": "Swedish",
+    "no": "Norwegian",
+    "da": "Danish",
+    "fi": "Finnish",
+    "el": "Greek",
+    "he": "Hebrew",
+    "fa": "Persian",
+    "sw": "Swahili",
+  };
+
+  const targetLang = userLanguage && languageNameMap[userLanguage]
+    ? languageNameMap[userLanguage]
+    : userLanguage || "繁體中文";
+
   const systemPrompt = `你是一個專業的食譜解析助手。從用戶貼上的文字（可能來自小紅書、WhatsApp、網站等）中提取完整的食譜資訊並以 JSON 格式回傳。
   
   重要規則：
   - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
   - 如果內容中沒有食譜資訊（例如純聊天、問候、食評、無食材和步驟的文字），請在 name 回傳"無法解析"，並在 description 說明原因
-  - 食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他
-  - 所有文字使用繁體中文`;
+  - 食材分類規則：肉類、海鮮/蔬菜/調味料/乾貨/其他
+  - 所有文字使用${targetLang}`;
 
   const userPrompt = `請從以下食譜文字中提取食譜資訊：
 
@@ -430,7 +469,7 @@ async function parseTextToRecipe(text: string): Promise<{
 ${text}
 ---
 
-請回傳以下 JSON 格式（所有文字使用繁體中文）：
+請回傳以下 JSON 格式（所有文字使用${targetLang}）：
 {
   "name": "食譜名稱",
   "description": "簡短描述（1-2句）",
@@ -989,10 +1028,44 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string): Promise<{
 }> {
   const sourceType = detectSourceType(url);
 
-  const targetLang = userLanguage === "en" ? "English"
-    : userLanguage === "fil" ? "Filipino"
-    : userLanguage === "id" ? "Indonesian"
-    : "繁體中文";
+  const languageNameMap: Record<string, string> = {
+    "zh-TW": "繁體中文",
+    "zh-CN": "简体中文",
+    "zh": "中文",
+    "en": "English",
+    "fil": "Filipino",
+    "id": "Indonesian",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "vi": "Vietnamese",
+    "th": "Thai",
+    "ms": "Malay",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "bn": "Bengali",
+    "ur": "Urdu",
+    "tr": "Turkish",
+    "pl": "Polish",
+    "nl": "Dutch",
+    "sv": "Swedish",
+    "no": "Norwegian",
+    "da": "Danish",
+    "fi": "Finnish",
+    "el": "Greek",
+    "he": "Hebrew",
+    "fa": "Persian",
+    "sw": "Swahili",
+  };
+
+  const targetLang = userLanguage && languageNameMap[userLanguage]
+    ? languageNameMap[userLanguage]
+    : userLanguage || "繁體中文";
 
   const { text: pageContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
   const hasRealContent = pageContent.length > 30;
@@ -1166,9 +1239,9 @@ export const recipesRouter = router({
 
   // ── Parse Text (AI extract recipe from pasted text, e.g. 小紅書) ────────────
   parseText: protectedProcedure
-    .input(z.object({ text: z.string().min(10).max(5000) }))
+    .input(z.object({ text: z.string().min(10).max(5000), language: z.string().optional() }))
     .mutation(async ({ input }) => {
-      const parsed = await parseTextToRecipe(input.text);
+      const parsed = await parseTextToRecipe(input.text, input.language);
       return {
         ...parsed,
         sourceUrl: "",
