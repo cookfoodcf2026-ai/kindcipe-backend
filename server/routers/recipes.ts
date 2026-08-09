@@ -408,12 +408,14 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
 
 // ─── parseText helper ───────────────────────────────────────────────────────
 
-async function rehostExternalImage(imageUrl: string): Promise<string> {
+async function rehostExternalImage(imageUrl: string, category?: string): Promise<string> {
   if (!imageUrl) return "";
   const isR2 = imageUrl.includes(".r2.cloudflarestorage.com/") ||
     (process.env.R2_PUBLIC_URL && imageUrl.startsWith(process.env.R2_PUBLIC_URL)) ||
     imageUrl.startsWith("/r2-storage/");
   if (isR2) return imageUrl;
+  
+  console.log("[rehostExternalImage] Attempting to rehost:", imageUrl.substring(0, 100));
   
   // Try primary fetch with Instagram referer
   try {
@@ -427,6 +429,7 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
       },
       signal: AbortSignal.timeout(10000),
     });
+    console.log("[rehostExternalImage] Primary fetch response:", resp.status, resp.headers.get("content-type"));
     if (resp.ok) {
       const contentType = resp.headers.get("content-type") || "image/jpeg";
       const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
@@ -436,10 +439,11 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
       const { url } = await storagePut(key, buf, contentType);
       const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
       const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
+      console.log("[rehostExternalImage] Successfully rehosted to:", fullUrl.substring(0, 100));
       return fullUrl;
     }
   } catch (primaryErr) {
-    console.log("[rehostExternalImage] Primary fetch failed, retrying without referer:", primaryErr);
+    console.log("[rehostExternalImage] Primary fetch failed:", (primaryErr as Error).message);
   }
   
   // Retry with clean headers (no referer) - bypasses some CDN blocks
@@ -451,6 +455,7 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
       },
       signal: AbortSignal.timeout(10000),
     });
+    console.log("[rehostExternalImage] Retry fetch response:", retryResp.status);
     if (retryResp.ok) {
       const contentType = retryResp.headers.get("content-type") || "image/jpeg";
       const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
@@ -460,14 +465,19 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
       const { url } = await storagePut(key, buf, contentType);
       const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
       const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
+      console.log("[rehostExternalImage] Successfully rehosted (retry):", fullUrl.substring(0, 100));
       return fullUrl;
     }
   } catch (retryErr) {
-    console.log("[rehostExternalImage] Retry fetch also failed:", retryErr);
+    console.log("[rehostExternalImage] Retry fetch also failed:", (retryErr as Error).message);
   }
   
-  // Final fallback: return original URL
-  return imageUrl;
+  // Final fallback: return category-based Unsplash cover
+  console.log("[rehostExternalImage] All fetches failed, using category fallback");
+  const categoryCovers = FALLBACK_COVERS[category || "其他"] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
+  const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
+  console.log("[rehostExternalImage] Using fallback:", randomCover.substring(0, 100));
+  return randomCover;
 }
 
 async function parseTextToRecipe(text: string, userLanguage?: string): Promise<{
@@ -1292,15 +1302,15 @@ Platform: ${sourceType}
   const result: any = extractJSON(parsedContent);
   if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
   // Re-host external thumbnail to R2 so it works in preview
+  const category = result.recipeCategory || "其他";
   if (result.thumbnailUrl) {
-    result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl);
+    result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl, category);
   }
   // Smart fallback: assign category-based cover if still no thumbnail
   if (!result.thumbnailUrl || result.thumbnailUrl === "") {
-    const category = result.recipeCategory || "其他";
     const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
     const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
-    result.thumbnailUrl = await rehostExternalImage(randomCover);
+    result.thumbnailUrl = randomCover;
   }
   // Determine parseReason based on result name
   if (!hasRealContent) {
@@ -1477,7 +1487,7 @@ export const recipesRouter = router({
         const category = result.recipeCategory || "其他";
         const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
         const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
-        result.thumbnailUrl = await rehostExternalImage(randomCover);
+        result.thumbnailUrl = randomCover;
       }
 
       const hasContent = (result.ingredients && result.ingredients.length > 0) ||
