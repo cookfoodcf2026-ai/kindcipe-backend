@@ -410,6 +410,9 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
 
 async function rehostExternalImage(imageUrl: string, category?: string): Promise<string> {
   if (!imageUrl) return "";
+  // Decode HTML entities that break fetch (especially Instagram's &amp;)
+  imageUrl = imageUrl.replace(/&amp;/g, "&");
+  
   const isR2 = imageUrl.includes(".r2.cloudflarestorage.com/") ||
     (process.env.R2_PUBLIC_URL && imageUrl.startsWith(process.env.R2_PUBLIC_URL)) ||
     imageUrl.startsWith("/r2-storage/");
@@ -860,7 +863,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
             if (!igThumbnail) {
               const thumbMatch = html.match(/property="og:image" content="([^"]+)"/) ||
                                  html.match(/content="([^"]+)" property="og:image"/);
-              if (thumbMatch) igThumbnail = thumbMatch[1];
+              if (thumbMatch) igThumbnail = thumbMatch[1].replace(/&amp;/g, "&");
             }
           }
         } catch { /* continue */ }
