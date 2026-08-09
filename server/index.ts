@@ -82,6 +82,20 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Kindcipe backend running on http://localhost:${port}/`);
+
+    // Warmup DB connection to prevent cold-start delay on first query
+    (async () => {
+      try {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (db) {
+          await db.execute("SELECT 1" as any);
+          console.log("DB warmup query completed");
+        }
+      } catch (e) {
+        console.warn("DB warmup failed (non-fatal):", (e as Error).message);
+      }
+    })();
   });
 }
 

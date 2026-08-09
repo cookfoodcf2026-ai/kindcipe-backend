@@ -198,6 +198,44 @@ const INDONESIAN_TO_CHINESE: Record<string, string> = {
 
 const LANG_DICTS: Record<string, string>[] = [ENGLISH_TO_CHINESE, FILIPINO_TO_CHINESE, INDONESIAN_TO_CHINESE];
 
+// ─── 智能主題後備封面（Unsplash 免費高質食物攝影）───────────────────────────────
+const FALLBACK_COVERS: Record<string, string[]> = {
+  "中菜": [
+    "https://images.unsplash.com/photo-1563245372-f21724e3856d?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1525351484163-7529414344d8?w=800&auto=format&fit=crop",
+  ],
+  "甜品": [
+    "https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&auto=format&fit=crop",
+  ],
+  "港式": [
+    "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1559314809-0d155014e79e?w=800&auto=format&fit=crop",
+  ],
+  "日式": [
+    "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1553621042-f6e144c71316?w=800&auto=format&fit=crop",
+  ],
+  "韓式": [
+    "https://images.unsplash.com/photo-1583623025817-d180a2221d0a?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1590301157890-4810ed356917?w=800&auto=format&fit=crop",
+  ],
+  "西式": [
+    "https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1467003909585-2f8a7270028d?w=800&auto=format&fit=crop",
+  ],
+  "湯水": [
+    "https://images.unsplash.com/photo-1547592166-23acbe346499?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1543826173-70651706c8f5?w=800&auto=format&fit=crop",
+  ],
+  "素食": [
+    "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1540420773420-336602813358?w=800&auto=format&fit=crop",
+  ],
+};
+
+const DEFAULT_FALLBACK = "https://images.unsplash.com/photo-1495521821758-02d0571591f8?w=800&auto=format&fit=crop"; // 通用美食封面
+
 // ─── 關鍵字變體擴充（繁 / 簡 / 同義詞）───────────────────────────────────────────
 export function getKeywordVariants(kw: string): string[] {
   const set = new Set<string>();
@@ -376,6 +414,8 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
     (process.env.R2_PUBLIC_URL && imageUrl.startsWith(process.env.R2_PUBLIC_URL)) ||
     imageUrl.startsWith("/r2-storage/");
   if (isR2) return imageUrl;
+  
+  // Try primary fetch with Instagram referer
   try {
     const resp = await fetch(imageUrl, {
       headers: {
@@ -387,19 +427,47 @@ async function rehostExternalImage(imageUrl: string): Promise<string> {
       },
       signal: AbortSignal.timeout(10000),
     });
-    if (!resp.ok) return imageUrl;
-    const contentType = resp.headers.get("content-type") || "image/jpeg";
-    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-    const arrayBuf = await resp.arrayBuffer();
-    const buf = Buffer.from(arrayBuf);
-    const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const { url } = await storagePut(key, buf, contentType);
-    const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
-    const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
-    return fullUrl;
-  } catch {
-    return imageUrl;
+    if (resp.ok) {
+      const contentType = resp.headers.get("content-type") || "image/jpeg";
+      const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+      const arrayBuf = await resp.arrayBuffer();
+      const buf = Buffer.from(arrayBuf);
+      const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { url } = await storagePut(key, buf, contentType);
+      const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+      const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
+      return fullUrl;
+    }
+  } catch (primaryErr) {
+    console.log("[rehostExternalImage] Primary fetch failed, retrying without referer:", primaryErr);
   }
+  
+  // Retry with clean headers (no referer) - bypasses some CDN blocks
+  try {
+    const retryResp = await fetch(imageUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (retryResp.ok) {
+      const contentType = retryResp.headers.get("content-type") || "image/jpeg";
+      const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+      const arrayBuf = await retryResp.arrayBuffer();
+      const buf = Buffer.from(arrayBuf);
+      const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { url } = await storagePut(key, buf, contentType);
+      const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+      const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
+      return fullUrl;
+    }
+  } catch (retryErr) {
+    console.log("[rehostExternalImage] Retry fetch also failed:", retryErr);
+  }
+  
+  // Final fallback: return original URL
+  return imageUrl;
 }
 
 async function parseTextToRecipe(text: string, userLanguage?: string): Promise<{
@@ -1066,12 +1134,16 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   const hasRealContent = pageContent.length > 30;
   
   // Use client-extracted thumbnail as fallback if backend extraction failed
-  const effectiveThumbnail = fetchedThumbnail || clientThumbnail;
+  let effectiveThumbnail = fetchedThumbnail || clientThumbnail;
+  
+  // If still no thumbnail, use category-based fallback (will be set after parsing)
+  // For now, keep it empty and assign after recipeCategory is known
 
   // Detect if content has actual recipe info (ingredients/steps keywords)
-  const hasRecipeKeywords = /材料 | 食材 | 做法 | 步驟|ingredient|step|recipe|gram|ml|tbsp|tsp|大匙 | 小匙 | 克 | 公克 | 毫升 | 份量 | 人份 | 準備 | 醃 | 炒 | 煮 | 蒸 | 烤 | 炸/i.test(pageContent);
+  const hasRecipeKeywords = /(?:材料 | 食材|做法 | 作法|步驟|ingredient|step|recipe|gram|tbsp|tsp|大匙 | 小匙 | 公克 | 毫升 | 份量 | 人份 | 醃製 | 醃漬|[0-9]+\s*(?:克|g|ml|cc|杯|匙|顆|粒|把|片|個|包|湯匙 | 茶匙))/i.test(pageContent);
 
   // If we have text but NO recipe keywords AND no thumbnail to try Vision → return early
+  // Note: For Instagram, if we have clientThumbnail (from oEmbed), continue to AI parsing even without keywords
   if (hasRealContent && !hasRecipeKeywords && sourceType === "instagram" && !effectiveThumbnail) {
     return {
       name: "帖子沒有食譜內容",
@@ -1097,10 +1169,20 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 - 食材分類：肉類/海鮮/蔬菜/調味料/乾貨/其他
 - 所有文字使用${targetLang}`;
 
+  // For Instagram with thumbnail but no keywords: use Vision AI to parse from image
+  const useVisionForInstagram = sourceType === "instagram" && effectiveThumbnail && !hasRecipeKeywords && hasRealContent;
+  
   // For YouTube/Xiaohongshu: even if we have title/author, the description may not contain full recipe steps.
   const hasTitleOnly = (sourceType === "youtube" || sourceType === "xiaohongshu" || sourceType === "threads") && hasRealContent && !hasRecipeKeywords;
 
-  const contentSection = hasTitleOnly
+  const contentSection = useVisionForInstagram
+    ? `這是一個 Instagram 帖子，有封面圖片但文字內容沒有明顯的食譜關鍵字。請使用提供的圖片進行視覺分析，識別菜餚並推斷食材和步驟。
+    
+Instagram 帖子文字內容：
+${pageContent}
+
+請根據圖片中的菜餚外觀和文字提示，生成合理的食譜。`
+    : hasTitleOnly
     ? `以下是從${sourceType === "youtube" ? "YouTube 影片" : sourceType === "threads" ? "Threads 帖子" : "小紅書筆記"}頁面提取的資訊：
 
 ${pageContent}
@@ -1142,8 +1224,13 @@ Platform: ${sourceType}
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
 }`;
 
-  // Text-only parsing (thumbnail is video cover, not recipe card — no need for Vision LLM)
-  const visionImage: MessageContent = userPrompt;
+  // For Instagram with thumbnail: use Vision AI to parse from image
+  const visionImage: MessageContent = useVisionForInstagram && effectiveThumbnail
+    ? [
+        { type: "image_url", image_url: { url: effectiveThumbnail, detail: "high" } },
+        { type: "text", text: userPrompt }
+      ]
+    : userPrompt;
 
   const response = await invokeLLM({
     messages: [
@@ -1207,6 +1294,13 @@ Platform: ${sourceType}
   // Re-host external thumbnail to R2 so it works in preview
   if (result.thumbnailUrl) {
     result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl);
+  }
+  // Smart fallback: assign category-based cover if still no thumbnail
+  if (!result.thumbnailUrl || result.thumbnailUrl === "") {
+    const category = result.recipeCategory || "其他";
+    const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
+    const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
+    result.thumbnailUrl = await rehostExternalImage(randomCover);
   }
   // Determine parseReason based on result name
   if (!hasRealContent) {
@@ -1369,9 +1463,21 @@ export const recipesRouter = router({
 
       // Use real storage URL as thumbnail if AI didn't extract one
       if (!result.thumbnailUrl) {
-        const { storageGet } = await import("../storage");
-        const { url: realUrl } = await storageGet(input.storageKey);
-        result.thumbnailUrl = realUrl;
+        try {
+          const { storageGet } = await import("../storage");
+          const { url: realUrl } = await storageGet(input.storageKey);
+          result.thumbnailUrl = realUrl;
+        } catch {
+          // Storage fetch failed — will fall back to category cover below
+        }
+      }
+
+      // Smart fallback: assign category-based cover if still no thumbnail
+      if (!result.thumbnailUrl || result.thumbnailUrl === "") {
+        const category = result.recipeCategory || "其他";
+        const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
+        const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
+        result.thumbnailUrl = await rehostExternalImage(randomCover);
       }
 
       const hasContent = (result.ingredients && result.ingredients.length > 0) ||
@@ -1508,6 +1614,7 @@ export const recipesRouter = router({
       cookTimeMax: z.number().optional(),
       popularChips: z.array(z.string()).optional(),
       ingredientCategory: z.string().optional(),  // 食材類別篩選
+      source: z.enum(["all", "official", "user"]).optional(),  // 搜尋來源：all=全部，official=只官方，user=只自訂
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -1825,16 +1932,27 @@ export const recipesRouter = router({
       orderByCustom.push(desc(customRecipes.popularity));
       orderByCustom.push(desc(customRecipes.createdAt));
 
-      // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
-      const totalOfficialResult = await db.select({ count: count() })
-        .from(officialRecipes)
-        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]);
-      const totalOfficial = Number(totalOfficialResult[0]?.count ?? 0);
+      // 根據 source 參數決定是否查詢官方/自訂食譜
+      const shouldQueryOfficial = !input.source || input.source === "all" || input.source === "official";
+      const shouldQueryCustom = !input.source || input.source === "all" || input.source === "user";
 
-      const totalCustomResult = await db.select({ count: count() })
-        .from(customRecipes)
-        .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined);
-      const totalCustom = Number(totalCustomResult[0]?.count ?? 0);
+      // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
+      let totalOfficial = 0;
+      let totalCustom = 0;
+
+      if (shouldQueryOfficial) {
+        const totalOfficialResult = await db.select({ count: count() })
+          .from(officialRecipes)
+          .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]);
+        totalOfficial = Number(totalOfficialResult[0]?.count ?? 0);
+      }
+
+      if (shouldQueryCustom) {
+        const totalCustomResult = await db.select({ count: count() })
+          .from(customRecipes)
+          .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined);
+        totalCustom = Number(totalCustomResult[0]?.count ?? 0);
+      }
 
       const total = totalOfficial + totalCustom;
 
@@ -1846,14 +1964,16 @@ export const recipesRouter = router({
       const customLimit = input.limit - officialLimit;
 
       // Query official recipes
-      const officialRows = await db.select().from(officialRecipes)
-        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0])
-        .orderBy(...orderByOfficial)
-        .limit(officialLimit)
-        .offset(officialOffset);
+      const officialRows = shouldQueryOfficial && officialLimit > 0
+        ? await db.select().from(officialRecipes)
+          .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0])
+          .orderBy(...orderByOfficial)
+          .limit(officialLimit)
+          .offset(officialOffset)
+        : [];
 
       // Query custom recipes (family-scoped)
-      const customRows = customLimit > 0 && customConditions.length > 0
+      const customRows = shouldQueryCustom && customLimit > 0 && customConditions.length > 0
         ? await db.select().from(customRecipes)
           .where(customConditions.length > 1 ? and(...customConditions) : customConditions[0])
           .orderBy(...orderByCustom)
@@ -2471,11 +2591,13 @@ export const recipesRouter = router({
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
         tags: JSON.stringify(input.tags ?? ["自訂", "我的食譜"]),
-        sourceType: "manual",
+        sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
+        sourceUrl: input.sourceUrl,
+        sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
-      });
+      }).returning();
 
-      return { success: true, id: (inserted as { insertId: number }).insertId };
+      return { success: true, id: inserted.id };
     }),
 
   // ── User: update own recipe ────────────────────────────────────────────────
@@ -2507,6 +2629,9 @@ export const recipesRouter = router({
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
         tags: JSON.stringify(input.tags ?? []),
+        sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
+        sourceUrl: input.sourceUrl,
+        sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
         updatedAt: new Date(),
       }).where(eq(customRecipes.id, input.id));
@@ -2585,8 +2710,8 @@ export const recipesRouter = router({
         sourceUrl: input.sourceUrl ?? '',
         tips: input.tips ?? '',
         isActive: true,
-      });
-      return { success: true, id: (inserted as { insertId: number }).insertId };
+      }).returning();
+      return { success: true, id: inserted.id };
     }),
 
   // ── Admin: update official recipe ─────────────────────────────────────────
@@ -2689,6 +2814,49 @@ export const recipesRouter = router({
         tags: r.tags ? JSON.parse(r.tags) : [],
         source: "user" as const,
       };
+    }),
+
+  // ── Admin: migrate external images to R2 ───────────────────────────────────
+  adminMigrateExternalImages: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(50) }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: '只有管理員可以執行遷移' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+      const EXTERNAL_PATTERNS = ['instagram.com', 'cdninstagram.com', 'scontent-', '.fbcdn.net'];
+      const isExternal = (url: string) => {
+        if (!url) return false;
+        const isR2 = url.includes('.r2.cloudflarestorage.com/') || url.startsWith('/r2-storage/');
+        if (isR2) return false;
+        return EXTERNAL_PATTERNS.some(p => url.includes(p));
+      };
+
+      const recipes = await db.select().from(customRecipes)
+        .where(sql`${customRecipes.image} LIKE '%instagram%' OR ${customRecipes.thumbnailUrl} LIKE '%instagram%'`)
+        .limit(input?.limit ?? 50);
+
+      let migrated = 0;
+      let failed = 0;
+
+      for (const recipe of recipes) {
+        if (!isExternal(recipe.image || '') && !isExternal(recipe.thumbnailUrl || '')) continue;
+
+        try {
+          const newImage = recipe.image ? await rehostExternalImage(recipe.image) : '';
+          const newThumbnail = recipe.thumbnailUrl ? await rehostExternalImage(recipe.thumbnailUrl) : newImage || '';
+
+          await db.update(customRecipes)
+            .set({ image: newImage, thumbnailUrl: newThumbnail, updatedAt: new Date() })
+            .where(eq(customRecipes.id, recipe.id));
+
+          migrated++;
+        } catch {
+          failed++;
+        }
+      }
+
+      return { success: true, migrated, failed, total: recipes.length };
     }),
 
 });
