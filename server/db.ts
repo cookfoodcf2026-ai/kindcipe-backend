@@ -362,7 +362,7 @@ export async function getMealPlansByDateRange(familyId: number, startDate: strin
     updatedAt: mealPlans.updatedAt,
     hasShoppingItem: sql<boolean>`EXISTS(
       SELECT 1 FROM shopping_items 
-      WHERE shopping_items.from_meal_plan_id = mealPlans.id
+      WHERE shopping_items.from_meal_plan_id = ${mealPlans.id}
       AND shopping_items.status IN ('active', 'pending')
     )`
   }).from(mealPlans).where(
