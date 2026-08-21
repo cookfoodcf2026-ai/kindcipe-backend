@@ -34,28 +34,28 @@ async function startServer() {
   // Social auth routes (Google, Apple)
   registerSocialAuthRoutes(app);
 
-  // tRPC API
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-      onError: ({ error, path, input, type, ctx }) => {
-        const userId = ctx?.user?.id ?? "anon";
-        const familyId = ctx?.activeFamilyId ?? "-";
-        const safeInput = (() => {
-          try {
-            if (typeof input !== "object" || input === null) return input;
-            const s = JSON.stringify(input);
-            return s && s.length > 2000 ? `${s.slice(0, 2000)}…(truncated)` : s;
-          } catch {
-            return "[unserializable]";
-          }
-        })();
-        console.error(`[tRPC] ${type} ${path} user=${userId} family=${familyId} code=${error.code}\n  message: ${error.message}\n  input: ${safeInput}`);
-      },
-    })
-  );
+  // tRPC API — mounted on both the versioned path (/api/v1/trpc) and the
+  // legacy path (/api/trpc) so already-shipped clients keep working.
+  const trpcMiddleware = createExpressMiddleware({
+    router: appRouter,
+    createContext,
+    onError: ({ error, path, input, type, ctx }) => {
+      const userId = ctx?.user?.id ?? "anon";
+      const familyId = ctx?.activeFamilyId ?? "-";
+      const safeInput = (() => {
+        try {
+          if (typeof input !== "object" || input === null) return input;
+          const s = JSON.stringify(input);
+          return s && s.length > 2000 ? `${s.slice(0, 2000)}…(truncated)` : s;
+        } catch {
+          return "[unserializable]";
+        }
+      })();
+      console.error(`[tRPC] ${type} ${path} user=${userId} family=${familyId} code=${error.code}\n  message: ${error.message}\n  input: ${safeInput}`);
+    },
+  });
+  app.use("/api/v1/trpc", trpcMiddleware);
+  app.use("/api/trpc", trpcMiddleware);
 
   // Health check
   app.get("/health", (_req, res) => {
@@ -94,6 +94,39 @@ async function startServer() {
         }
       } catch (e) {
         console.warn("DB warmup failed (non-fatal):", (e as Error).message);
+      }
+    })();
+
+    // Startup integrity check: flag official recipes that are missing a
+    // thumbnail URL so blank cover images can NEVER silently recur.
+    (async () => {
+      try {
+        const { getDb } = await import("./db");
+        const { officialRecipes } = await import("../drizzle/schema");
+        const { or, isNull, eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return;
+        const rows = await db
+          .select({ id: officialRecipes.id, name: officialRecipes.name })
+          .from(officialRecipes)
+          .where(
+            or(
+              isNull(officialRecipes.thumbnailUrl),
+              eq(officialRecipes.thumbnailUrl, "")
+            )
+          )
+          .limit(50);
+        if (rows.length > 0) {
+          console.warn(
+            `[Integrity] ⚠️ ${rows.length}+ official recipes missing thumbnailUrl. ` +
+              `Run scripts/upload-recipe-images.ts to backfill.\n` +
+              rows.map((r) => `  - id=${r.id} ${r.name}`).join("\n")
+          );
+        } else {
+          console.log("[Integrity] ✅ all official recipes have thumbnailUrl");
+        }
+      } catch (e) {
+        console.warn("[Integrity] check failed (non-fatal):", (e as Error).message);
       }
     })();
   });
