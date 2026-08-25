@@ -1,279 +1,471 @@
-
-> kindcipe-backend@1.0.0 dev
-> tsx watch server/index.ts
-
 [OAuth] Initialized with baseURL: 
 [OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
 Kindcipe backend running on http://localhost:3000/
-12:27:56 PM [tsx] change in ./server/index.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-12:28:00 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-12:28:05 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-12:28:11 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-12:28:15 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-12:28:22 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
+DB warmup query completed
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[rehostExternalImage] R2 not configured, keeping original URL
+[tRPC] unknown shopping.lastPrices user=0341066c-33db-4778-b6d2-466962978e13 family=40 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=0341066c-33db-4778-b6d2-466962978e13 family=40 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=0341066c-33db-4778-b6d2-466962978e13 family=40 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=0341066c-33db-4778-b6d2-466962978e13 family=40 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+Fri, 14 Aug 2026 18:14:27 GMT express deprecated res.clearCookie: Passing "options.maxAge" is deprecated. In v5.0.0 of Express, this option will be ignored, as res.clearCookie will automatically set cookies to expire immediately. Please update your code to omit this option. at file:/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/dist/index.js:7521:15
 [Auth] Missing session token
-1:12:09 PM [tsx] change in ./server/db.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:12:13 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:12:25 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:12:34 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:12:42 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:13:08 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:13:12 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:13:15 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:13:18 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:13:31 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:13:40 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:29:00 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:29:13 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:29:29 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:29:39 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:31:47 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:31:57 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:32:40 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c
-node:internal/modules/run_main:123
-    triggerUncaughtException(
-    ^
-Error [TransformError]: Transform failed with 5 errors:
-/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1606:12: ERROR: The symbol "totalOfficialResult" has already been declared
-/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1609:12: ERROR: The symbol "totalOfficial" has already been declared
-/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1611:12: ERROR: The symbol "totalCustomResult" has already been declared
-/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1614:12: ERROR: The symbol "totalCustom" has already been declared
-/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/server/routers/recipes.ts:1616:12: ERROR: The symbol "total" has already been declared
-    at failureErrorWithLog (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:1748:15)
-    at /Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:1017:50
-    at responseCallbacks.<computed> (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:884:9)
-    at handleIncomingPacket (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:939:12)
-    at Socket.readFromStdout (/Users/mavisng/Desktop/Kindcipe/manus/kindcipe-backend/node_modules/tsx/node_modules/esbuild/lib/main.js:862:7)
-    at Socket.emit (node:events:524:28)
-    at addChunk (node:internal/streams/readable:561:12)
-    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
-    at Readable.push (node:internal/streams/readable:392:5)
-    at Pipe.onStreamRead (node:internal/stream_base_commons:191:23)
+[Auth] Missing session token
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[rehostExternalImage] R2 not configured, keeping original URL
+[Auth] Missing session token
+[tRPC] query family.get user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[Auth] Missing session token
+[tRPC] query family.get user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[Auth] Missing session token
+[Auth] Missing session token
+[tRPC] query family.get user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[Auth] Missing session token
+[Auth] Missing session token
+[Auth] Missing session token
+[Auth] Missing session token
+[tRPC] query recipes.search user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[tRPC] query recipes.search user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[AI Chef] Failed to parse recipes from response: 無問題！將經典嘅「鮑汁花菇炆扣肉」改成素食版，關鍵在於搵到可以代替五花腩口感同油脂嘅食材。
 
-Node.js v20.20.2
-1:32:47 PM [tsx] change in ./server/routers/recipes.ts Rerunning...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:32:56 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:33:08 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:33:20 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:40:15 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:40:20 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:40:25 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:56:38 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:03 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:07 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:10 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:20 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:29 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:55 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:57:59 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:58:26 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:59:03 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-1:59:19 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:00:06 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:00:14 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:00:43 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:16:24 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:16:51 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:17:12 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:17:22 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:17:36 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:17:51 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:18:03 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:18:11 PM [tsx] change in ./server/routers/aiRecipe.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:18:17 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:18:24 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:19:54 PM [tsx] change in ./server/routers/recipes.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-2:43:41 PM [tsx] change in ./server/index.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
-[Auth] Session verification failed JWSSignatureVerificationFailed: signature verification failed
-[Auth] Session verification failed JWSSignatureVerificationFailed: signature verification failed
-[tRPC] mutation recipes.parseUrl user=a9044e7c-6f4b-41e2-b655-697597657438 family=30 code=INTERNAL_SERVER_ERROR
-  message: DASHSCOPE_API_KEY is not set. Get one from https://modelstudio.console.alibabacloud.com
-  input: {"url":"https://www.instagram.com/reel/DaUY9NIoObj/?igsh=MXhqdmh2d204czhjdw=="}
-[tRPC] mutation recipes.parseUrl user=a9044e7c-6f4b-41e2-b655-697597657438 family=30 code=INTERNAL_SERVER_ERROR
-  message: DASHSCOPE_API_KEY is not set. Get one from https://modelstudio.console.alibabacloud.com
-  input: {"url":"https://www.instagram.com/reel/DaUY9NIoObj/?igsh=MXhqdmh2d204czhjdw=="}
-[tRPC] mutation mealPlan.add user=a9044e7c-6f4b-41e2-b655-697597657438 family=30 code=BAD_REQUEST
-  message: [
-  {
-    "expected": "string",
-    "code": "invalid_type",
-    "path": [
-      "recipeImage"
-    ],
-    "message": "Invalid input: expected string, received null"
-  }
-]
-  input: {"date":"2026-08-05","mealType":"lunch","recipeId":"official_3685","recipeName":"蓮藕炆排骨","recipeImage":null,"autoAddIngredients":false}
-8:21:34 PM [tsx] change in ./server/routers.ts Restarting...
-c[OAuth] Initialized with baseURL: 
-[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.
-Kindcipe backend running on http://localhost:3000/
+我建議用**厚身炸腐竹**或者**素雞**嚟代替五花腩。佢哋吸汁能力強，而且經過燜煮之後會變得軟淋入味，好有「肉感」。另外，為了增加膠質同濃稠度，可以加多啲冬菇或者木耳。
+
+既然你手頭上已有花菇、鮑汁（請確認係素食鮑汁）同基本調味，我只需幫你調整主料同少少步驟就可以。以下係為你改寫嘅**素食版食譜**：
+
+---next-steps---
+1. 幫我設計今晚 3餸1湯
+2. 畀我完整食譜
+3. 加入排餐
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[rehostExternalImage] R2 not configured, keeping original URL
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[LLM] Calling qwen3.5-plus with 4 messages
+[LLM] Response status: 200
+[AI Chef] Failed to parse recipes from response: 收到，想食清淡少油少鹽嘅晚餐，健康又舒服！不過目前我哋嘅食譜庫暫時未有完全符合「清淡、少油、少鹽」標籤嘅現成食譜。
+
+你可以按下面嘅 **✨ AI 生成** 掣，我會即刻幫你原創一組專為今晚設計嘅清淡菜式（例如：清蒸魚、上湯浸時蔬、豆腐蒸肉餅等），保證少油少鹽又美味！
+
+---next-steps---
+1. 幫我設計今晚 3 餸 1 湯（清淡版）
+2. ✨ AI 生成清淡食譜
+3. 加入排餐
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.savePrice user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.savePrice"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.savePrice user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.savePrice"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.savePrice user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.savePrice"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.savePrice user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.savePrice"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[LLM] Calling qwen3.5-plus with 4 messages
+[LLM] Response status: 200
+[LLM] Calling qwen3.5-plus with 4 messages
+[LLM] Response status: 200
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.savePrice user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.savePrice"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.savePrice user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.savePrice"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[tRPC] mutation weeklyMenu.setWeek user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=FORBIDDEN
+  message: You do not have required permission (10002)
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] mutation weeklyMenu.setWeek user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=FORBIDDEN
+  message: You do not have required permission (10002)
+  input: undefined
+[tRPC] mutation weeklyMenu.setWeek user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=FORBIDDEN
+  message: You do not have required permission (10002)
+  input: undefined
+[tRPC] query recipes.getById user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=BAD_REQUEST
+  message: Invalid recipe id
+  input: {"id":"official:3653"}
+[tRPC] query recipes.getById user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=BAD_REQUEST
+  message: Invalid recipe id
+  input: {"id":"official:3653"}
+[tRPC] query recipes.getById user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=BAD_REQUEST
+  message: Invalid recipe id
+  input: {"id":"official:3653"}
+[tRPC] query recipes.getById user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=BAD_REQUEST
+  message: Invalid recipe id
+  input: {"id":"official:3653"}
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[AI Chef] Failed to parse recipes from response: 冇問題！將「番茄芝士焗肉丸」改成素食版好簡單，我哋可以用**植物肉碎**或者**蘑菇混合豆腐**嚟代替免治牛肉，一樣可以做出多汁又惹味嘅效果。
+
+既然你要求改做素食版，我就為你設計一個完整嘅**「素製番茄芝士焗『肉』丸」**食譜，用蘑菇同豆腐增加口感同鮮味：
+
+---next-steps---
+1. 幫我設計今晚 3餸1湯（包含呢道素菜）
+2. 畀我完整食譜（詳細步驟同份量）
+3. 加入排餐
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[AI Chef] Failed to parse recipes from response: 無問題！將經典嘅青紅蘿蔔椰子豬骨湯改成素食版其實好簡單，主要係用植物性食材代替豬骨，同時保留湯水嘅清甜同椰香。
+
+由於你提供嘅原本食譜入面，豬骨主要係提供鮮味同油脂感，喺素食版我哋可以用**粟米**、**腰果**或者**大豆芽**嚟增加湯嘅濃度同甜味，令湯頭更加豐富。以下係為你調整後嘅**素食版青紅蘿蔔椰子湯**：
+
+---next-steps---
+1. 幫我設計今晚 3餸1湯（全素）
+2. 畀我完整食譜（包括詳細火候時間）
+3. 加入排餐
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[tRPC] unknown aiRecipe.saveEditedRecipe user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "aiRecipe.saveEditedRecipe"
+  input: undefined
+[LLM] Calling qwen3.5-plus with 2 messages
+[LLM] Response status: 200
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[tRPC] unknown shopping.lastPrices user=c26ef69c-5f92-4289-acfe-0cf3abd04ad4 family=13 code=NOT_FOUND
+  message: No procedure found on path "shopping.lastPrices"
+  input: undefined
+[Auth] Missing session token
+[tRPC] query mealPlan.list user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[tRPC] query shopping.list user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[tRPC] unknown undefined user=anon family=- code=UNSUPPORTED_MEDIA_TYPE
+  message: Unsupported content-type "text/plain;charset=UTF-8
+  input: undefined
+[tRPC] unknown undefined user=anon family=- code=UNSUPPORTED_MEDIA_TYPE
+  message: Unsupported content-type "text/plain;charset=UTF-8
+  input: undefined
+[tRPC] unknown undefined user=anon family=- code=UNSUPPORTED_MEDIA_TYPE
+  message: Unsupported content-type "text/plain;charset=UTF-8
+  input: undefined
+[Auth] Missing session token
+[tRPC] query recipes.listOfficial user=anon family=- code=METHOD_NOT_SUPPORTED
+  message: Unsupported POST-request to query procedure at path "recipes.listOfficial"
+  input: undefined
+[Auth] Missing session token
+[tRPC] query recipes.search user=anon family=- code=METHOD_NOT_SUPPORTED
+  message: Unsupported POST-request to query procedure at path "recipes.search"
+  input: undefined
+[Auth] Missing session token
+[tRPC] mutation recipes.uploadRecipeImage user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[tRPC] unknown aiRecipe.saveEditedRecipe user=anon family=- code=NOT_FOUND
+  message: No procedure found on path "aiRecipe.saveEditedRecipe"
+  input: undefined
+[Auth] Missing session token
+[tRPC] mutation aiRecipe.chat user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[tRPC] mutation mealPlan.addBatch user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined
+[Auth] Missing session token
+[tRPC] mutation shopping.addBatch user=anon family=- code=UNAUTHORIZED
+  message: Please login (10001)
+  input: undefined

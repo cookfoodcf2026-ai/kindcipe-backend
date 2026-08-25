@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
-import { getDb } from "../db";
+import { getDb, getFamilySubscription, addMealPlanBatch } from "../db";
 import { weeklyMenu, officialRecipes, mealPlans, customRecipes } from "../../drizzle/schema";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON } from "../_core/llm";
 
 type SlotType = "meat" | "seafood" | "veg" | "soup";
@@ -150,6 +150,53 @@ function getWeekStart(date: Date = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
+type RuleRecipe = { id: string; name: string; cookTime: number | null; tags: string[]; image: string | null; dishType: string };
+
+/**
+ * 規則式一週餐單（免費無限使用，毋須 AI）。
+ * 依序輪換各類別食譜，避免重複最近食過的菜式。
+ */
+function buildRuleBasedWeek(
+  byType: Record<"meat" | "seafood" | "vegetable" | "soup", RuleRecipe[]>,
+  recentMeals: string[],
+): Array<{
+  dayOfWeek: number;
+  meatId: string; meatReason: string;
+  seafoodId: string; seafoodReason: string;
+  vegId: string; vegReason: string;
+  soupId: string; soupReason: string;
+}> {
+  const recentSet = new Set(recentMeals.map(m => m.trim()));
+  const pick = (list: RuleRecipe[], offset: number, dayIndex: number) => {
+    const sorted = [...list];
+    sorted.sort((a, b) => Number(recentSet.has(a.name)) - Number(recentSet.has(b.name)));
+    return sorted[(dayIndex + offset) % sorted.length];
+  };
+  const days: Array<{
+    dayOfWeek: number;
+    meatId: string; meatReason: string;
+    seafoodId: string; seafoodReason: string;
+    vegId: string; vegReason: string;
+    soupId: string; soupReason: string;
+  }> = [];
+  for (let i = 1; i <= 7; i++) {
+    const dayIndex = i - 1;
+    const isWeekend = i >= 6;
+    days.push({
+      dayOfWeek: i,
+      meatId: pick(byType.meat, 0, dayIndex).id,
+      meatReason: isWeekend ? "週末可慢慢煮" : "快手家常菜",
+      seafoodId: pick(byType.seafood, 1, dayIndex).id,
+      seafoodReason: "均衡海鮮",
+      vegId: pick(byType.vegetable, 2, dayIndex).id,
+      vegReason: "清爽配菜",
+      soupId: pick(byType.soup, 3, dayIndex).id,
+      soupReason: "滋潤例湯",
+    });
+  }
+  return days;
+}
+
 // ─── Zod schema for a single dish slot ───────────────────────────────────────
 const dishSlotSchema = z.object({
   id: z.string(),
@@ -167,7 +214,7 @@ export const weeklyMenuRouter = router({
     const items = await db
       .select()
       .from(weeklyMenu)
-      .where(eq(weeklyMenu.weekStart, weekStart))
+      .where(and(eq(weeklyMenu.weekStart, weekStart), eq(weeklyMenu.familyId, 0)))
       .orderBy(weeklyMenu.dayOfWeek);
     return { weekStart, items };
   }),
@@ -181,13 +228,13 @@ export const weeklyMenuRouter = router({
       const items = await db
         .select()
         .from(weeklyMenu)
-        .where(eq(weeklyMenu.weekStart, input.weekStart))
+        .where(and(eq(weeklyMenu.weekStart, input.weekStart), eq(weeklyMenu.familyId, 0)))
         .orderBy(weeklyMenu.dayOfWeek);
       return { weekStart: input.weekStart, items };
     }),
 
   /** Admin: set a day's full 4-dish dinner */
-  setDay: protectedProcedure
+  setDay: adminProcedure
     .input(
       z.object({
         weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -202,53 +249,67 @@ export const weeklyMenuRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
-      }
-      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active family" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
       await db
-        .delete(weeklyMenu)
-        .where(
-          and(
-            eq(weeklyMenu.weekStart, input.weekStart),
-            eq(weeklyMenu.dayOfWeek, input.dayOfWeek)
-          )
-        );
-
-      await db.insert(weeklyMenu).values({
-        familyId: ctx.activeFamilyId,
-        weekStart: input.weekStart,
-        dayOfWeek: input.dayOfWeek,
-        meatId: input.meat?.id ?? null,
-        meatName: input.meat?.name ?? null,
-        meatImage: input.meat?.image ?? null,
-        meatCookTime: input.meat?.cookTime ?? null,
-        seafoodId: input.seafood?.id ?? null,
-        seafoodName: input.seafood?.name ?? null,
-        seafoodImage: input.seafood?.image ?? null,
-        seafoodCookTime: input.seafood?.cookTime ?? null,
-        vegId: input.veg?.id ?? null,
-        vegName: input.veg?.name ?? null,
-        vegImage: input.veg?.image ?? null,
-        vegCookTime: input.veg?.cookTime ?? null,
-        soupId: input.soup?.id ?? null,
-        soupName: input.soup?.name ?? null,
-        soupImage: input.soup?.image ?? null,
-        soupCookTime: input.soup?.cookTime ?? null,
-        sponsorName: input.sponsorName ?? null,
-        sponsorUrl: input.sponsorUrl ?? null,
-        sponsorLogoUrl: input.sponsorLogoUrl ?? null,
-        setByUserId: ctx.user.id,
-      });
+        .insert(weeklyMenu)
+        .values({
+          familyId: 0,
+          weekStart: input.weekStart,
+          dayOfWeek: input.dayOfWeek,
+          meatId: input.meat?.id ?? null,
+          meatName: input.meat?.name ?? null,
+          meatImage: input.meat?.image ?? null,
+          meatCookTime: input.meat?.cookTime ?? null,
+          seafoodId: input.seafood?.id ?? null,
+          seafoodName: input.seafood?.name ?? null,
+          seafoodImage: input.seafood?.image ?? null,
+          seafoodCookTime: input.seafood?.cookTime ?? null,
+          vegId: input.veg?.id ?? null,
+          vegName: input.veg?.name ?? null,
+          vegImage: input.veg?.image ?? null,
+          vegCookTime: input.veg?.cookTime ?? null,
+          soupId: input.soup?.id ?? null,
+          soupName: input.soup?.name ?? null,
+          soupImage: input.soup?.image ?? null,
+          soupCookTime: input.soup?.cookTime ?? null,
+          sponsorName: input.sponsorName ?? null,
+          sponsorUrl: input.sponsorUrl ?? null,
+          sponsorLogoUrl: input.sponsorLogoUrl ?? null,
+          setByUserId: ctx.user.id,
+        })
+        .onConflictDoUpdate({
+          target: [weeklyMenu.weekStart, weeklyMenu.dayOfWeek],
+          set: {
+            meatId: input.meat?.id ?? null,
+            meatName: input.meat?.name ?? null,
+            meatImage: input.meat?.image ?? null,
+            meatCookTime: input.meat?.cookTime ?? null,
+            seafoodId: input.seafood?.id ?? null,
+            seafoodName: input.seafood?.name ?? null,
+            seafoodImage: input.seafood?.image ?? null,
+            seafoodCookTime: input.seafood?.cookTime ?? null,
+            vegId: input.veg?.id ?? null,
+            vegName: input.veg?.name ?? null,
+            vegImage: input.veg?.image ?? null,
+            vegCookTime: input.veg?.cookTime ?? null,
+            soupId: input.soup?.id ?? null,
+            soupName: input.soup?.name ?? null,
+            soupImage: input.soup?.image ?? null,
+            soupCookTime: input.soup?.cookTime ?? null,
+            sponsorName: input.sponsorName ?? null,
+            sponsorUrl: input.sponsorUrl ?? null,
+            sponsorLogoUrl: input.sponsorLogoUrl ?? null,
+            setByUserId: ctx.user.id,
+          },
+        });
 
       return { success: true };
     }),
 
   /** Admin: remove a day's recommendation */
-  removeDay: protectedProcedure
+  removeDay: adminProcedure
     .input(
       z.object({
         weekStart: z.string(),
@@ -256,9 +317,6 @@ export const weeklyMenuRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
-      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       await db
@@ -266,14 +324,15 @@ export const weeklyMenuRouter = router({
         .where(
           and(
             eq(weeklyMenu.weekStart, input.weekStart),
-            eq(weeklyMenu.dayOfWeek, input.dayOfWeek)
+            eq(weeklyMenu.dayOfWeek, input.dayOfWeek),
+            eq(weeklyMenu.familyId, 0)
           )
         );
       return { success: true };
     }),
 
   /** Admin: bulk set the whole week at once (from AI suggest confirm) */
-  setWeek: protectedProcedure
+  setWeek: adminProcedure
     .input(
       z.object({
         weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -289,20 +348,37 @@ export const weeklyMenuRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can modify the weekly menu" });
-      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      await db.delete(weeklyMenu).where(eq(weeklyMenu.weekStart, input.weekStart));
-
-      if (input.days.length > 0 && ctx.activeFamilyId) {
-        await db.insert(weeklyMenu).values(
-          input.days.map((d) => ({
-            familyId: ctx.activeFamilyId!,
-            weekStart: input.weekStart,
-            dayOfWeek: d.dayOfWeek,
+      for (const d of input.days) {
+        await db.insert(weeklyMenu).values({
+          familyId: 0,
+          weekStart: input.weekStart,
+          dayOfWeek: d.dayOfWeek,
+          meatId: d.meat?.id ?? null,
+          meatName: d.meat?.name ?? null,
+          meatImage: d.meat?.image ?? null,
+          meatCookTime: d.meat?.cookTime ?? null,
+          seafoodId: d.seafood?.id ?? null,
+          seafoodName: d.seafood?.name ?? null,
+          seafoodImage: d.seafood?.image ?? null,
+          seafoodCookTime: d.seafood?.cookTime ?? null,
+          vegId: d.veg?.id ?? null,
+          vegName: d.veg?.name ?? null,
+          vegImage: d.veg?.image ?? null,
+          vegCookTime: d.veg?.cookTime ?? null,
+          soupId: d.soup?.id ?? null,
+          soupName: d.soup?.name ?? null,
+          soupImage: d.soup?.image ?? null,
+          soupCookTime: d.soup?.cookTime ?? null,
+          sponsorName: null,
+          sponsorUrl: null,
+          sponsorLogoUrl: null,
+          setByUserId: ctx.user.id,
+        }).onConflictDoUpdate({
+          target: [weeklyMenu.weekStart, weeklyMenu.dayOfWeek],
+          set: {
             meatId: d.meat?.id ?? null,
             meatName: d.meat?.name ?? null,
             meatImage: d.meat?.image ?? null,
@@ -323,17 +399,18 @@ export const weeklyMenuRouter = router({
             sponsorUrl: null,
             sponsorLogoUrl: null,
             setByUserId: ctx.user.id,
-          }))
-        );
+          },
+        });
       }
 
       return { success: true, count: input.days.length };
     }),
 
-  /** Admin: AI-powered weekly dinner suggestion — 4 dishes per day, ONLY from officialRecipes DB */
+  /** AI / 規則式 weekly dinner suggestion — 4 dishes per day, ONLY from DB recipes */
   aiSuggest: protectedProcedure
     .input(z.object({
       city: z.string().default("香港"),
+      writeToMealPlans: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
@@ -341,6 +418,10 @@ export const weeklyMenuRouter = router({
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // 免費 = 規則式（無限、零 AI 成本）＋升級提示；付費 = AI 智能排程
+      const sub = ctx.activeFamilyId ? await getFamilySubscription(ctx.activeFamilyId) : null;
+      const isPaid = sub?.isPaid ?? false;
 
       // 1. Get current weather
       const weather = await getHKWeather();
@@ -462,8 +543,27 @@ export const weeklyMenuRouter = router({
         });
       }
 
-      // 6. Build AI prompt — only IDs from DB, AI picks from the list
-      const systemPrompt = `你是「煮飯啦 Cookfood」的 AI 家庭晚餐規劃助手。
+      // 6. 免費版：規則式生成（無限，零 AI 成本）；付費版：AI 智能排程
+      let parsed: {
+        reasoning: string;
+        days: Array<{
+          dayOfWeek: number;
+          meatId: string; meatReason: string;
+          seafoodId: string; seafoodReason: string;
+          vegId: string; vegReason: string;
+          soupId: string; soupReason: string;
+        }>;
+      } | null = null;
+      if (!isPaid) {
+        parsed = {
+          reasoning: "規則式週餐（免費版）：按食譜庫輪換安排，避免重複近日菜式。升級家庭版可享 AI 智能排程。",
+          days: buildRuleBasedWeek(byType, recentMeals),
+        };
+      }
+
+      if (!parsed) {
+        // 7. Build AI prompt — only IDs from DB, AI picks from the list
+        const systemPrompt = `你是「煮飯啦 Cookfood」的 AI 家庭晚餐規劃助手。
 每天晚餐固定為四道菜：
 - 肉類主餸（meat）：1 道豬/牛/雞等肉類菜式
 - 海鮮/魚副餸（seafood）：1 道海鮮或魚類菜式
@@ -572,27 +672,28 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
       const content = typeof rawContent === "string" ? rawContent : null;
       if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 未返回結果" });
 
-      let parsed: {
-        reasoning: string;
-        days: Array<{
-          dayOfWeek: number;
-          meatId: string; meatReason: string;
-          seafoodId: string; seafoodReason: string;
-          vegId: string; vegReason: string;
-          soupId: string; soupReason: string;
-        }>;
-      };
       try {
         parsed = extractJSON(content);
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 返回格式錯誤" });
+      }
+      }
+
+      if (!parsed) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 未返回結果" });
       }
 
       // Build a lookup map from DB recipes (id → full recipe info with real image)
       const recipeMap = new Map(allDbRecipes.map(r => [r.id, r]));
 
       // Validate and fill missing days
-      const validDays = parsed.days.filter(d => d.dayOfWeek >= 1 && d.dayOfWeek <= 7);
+      const dayMap = new Map<number, any>();
+      parsed.days
+        .filter(d => d.dayOfWeek >= 1 && d.dayOfWeek <= 7)
+        .forEach((d: any) => {
+          dayMap.set(d.dayOfWeek, d);
+        });
+      const validDays = Array.from(dayMap.values());
       const uniqueDayNums = new Set(validDays.map(d => d.dayOfWeek));
       if (uniqueDayNums.size < 7) {
         // Fill missing days with first available recipe in each category
@@ -661,104 +762,51 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
           soup: getInfo(d.soupId, d.soupReason, "soup"),
         };
       });
+      // 8. 寫入自己廚房嘅 mealPlans（每日晚餐 4 道菜）
+      if (input.writeToMealPlans && ctx.activeFamilyId && enrichedDays.length > 0) {
+        const weekStart = getWeekStart();
+        const base = new Date(`${weekStart}T00:00:00`);
+        const userId = String(ctx.user.id);
+        const rows: Array<{
+          familyId: number;
+          date: string;
+          mealType: "dinner";
+          recipeId: string;
+          recipeName: string;
+          recipeImage: string | null;
+          status: "confirmed";
+          proposedByUserId: string;
+          proposedByName: string;
+        }> = [];
+        for (const d of enrichedDays) {
+          const date = new Date(base);
+          date.setDate(base.getDate() + (d.dayOfWeek - 1));
+          const ds = date.toISOString().slice(0, 10);
+          for (const key of ["meat", "seafood", "veg", "soup"] as const) {
+            const info = (d as any)[key] as { id: string | null; name: string | null; image: string | null };
+            if (info?.id && info.name) {
+              rows.push({
+                familyId: ctx.activeFamilyId,
+                date: ds,
+                mealType: "dinner",
+                recipeId: info.id,
+                recipeName: info.name,
+                recipeImage: info.image,
+                status: "confirmed",
+                proposedByUserId: userId,
+                proposedByName: ctx.user.name || "",
+              });
+            }
+          }
+        }
+        if (rows.length > 0) await addMealPlanBatch(rows);
+      }
 
       return {
         reasoning: parsed.reasoning,
         weather,
         days: enrichedDays,
+        upgradeRequired: !isPaid,
       };
-    }),
-
-  setEatOut: protectedProcedure
-    .input(z.object({
-      weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      dayOfWeek: z.number().int().min(1).max(7),
-      eatOut: z.boolean(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      if (!ctx.activeFamilyId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
-      }
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-
-      // Calculate actual date from weekStart and dayOfWeek
-      const weekStart = new Date(input.weekStart);
-      const actualDate = new Date(weekStart);
-      actualDate.setDate(weekStart.getDate() + input.dayOfWeek - 1);
-      const dateStr = actualDate.toISOString().split("T")[0];
-
-      // If setting eatOut to true, automatically delete meal plans for that day
-      if (input.eatOut) {
-        try {
-          await db.delete(mealPlans).where(
-            and(
-              eq(mealPlans.familyId, ctx.activeFamilyId),
-              eq(mealPlans.date, dateStr),
-              eq(mealPlans.mealType, "dinner")
-            )
-          );
-        } catch (e) {
-          console.error("[setEatOut] Failed to delete meal plans:", {
-            error: e,
-            familyId: ctx.activeFamilyId,
-            date: dateStr,
-          });
-          // Continue with eatOut setting, don't block
-        }
-      }
-
-      // Preserve the day's existing dishes when toggling eatOut (do NOT wipe them)
-      const existing = await db.select().from(weeklyMenu).where(
-        and(
-          eq(weeklyMenu.weekStart, input.weekStart),
-          eq(weeklyMenu.dayOfWeek, input.dayOfWeek),
-          eq(weeklyMenu.familyId, ctx.activeFamilyId)
-        )
-      );
-
-      if (existing.length > 0) {
-        // Row exists → only update eatOut flag, keep the 4 dish slots intact
-        await db.update(weeklyMenu).set({
-          eatOut: input.eatOut,
-          setByUserId: String(ctx.user.id),
-        }).where(
-          and(
-            eq(weeklyMenu.weekStart, input.weekStart),
-            eq(weeklyMenu.dayOfWeek, input.dayOfWeek),
-            eq(weeklyMenu.familyId, ctx.activeFamilyId)
-          )
-        );
-      } else {
-        // No row yet → insert with null dishes + eatOut flag
-        await db.insert(weeklyMenu).values({
-          familyId: ctx.activeFamilyId,
-          weekStart: input.weekStart,
-          dayOfWeek: input.dayOfWeek,
-          meatId: null,
-          meatName: null,
-          meatImage: null,
-          meatCookTime: null,
-          seafoodId: null,
-          seafoodName: null,
-          seafoodImage: null,
-          seafoodCookTime: null,
-          vegId: null,
-          vegName: null,
-          vegImage: null,
-          vegCookTime: null,
-          soupId: null,
-          soupName: null,
-          soupImage: null,
-          soupCookTime: null,
-          eatOut: input.eatOut,
-          sponsorName: null,
-          sponsorUrl: null,
-          sponsorLogoUrl: null,
-          setByUserId: String(ctx.user.id),
-        });
-      }
-
-      return { success: true };
     }),
 });

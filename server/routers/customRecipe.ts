@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import {
   getCustomRecipes,
   insertCustomRecipe,
@@ -13,6 +13,7 @@ import {
   getFamilySubscription,
   getImportUsage,
   incrementImportUsage,
+  countCustomRecipesCreatedThisMonth,
   getPushTokensByFamily,
 } from "../db";
 import { sendPushNotifications } from "../pushNotification";
@@ -25,7 +26,7 @@ export const customRecipeRouter = router({
   }),
 
   /** Create a new custom recipe */
-  create: protectedProcedure
+  create: familyWriteProcedure
     .input(
       z.object({
         name: z.string().min(1).max(128),
@@ -53,11 +54,20 @@ export const customRecipeRouter = router({
       // Check import limits for non-paid families
       const sub = await getFamilySubscription(ctx.activeFamilyId);
       if (sub && !sub.isPaid) {
-        const usage = await getImportUsage(ctx.user.id);
-        if (usage >= 5) {
+        const usage = await getImportUsage(ctx.activeFamilyId);
+        if (usage >= sub.maxImportsPerMonth) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: `Free plan allows 5 recipe imports per month. You've used ${usage}/5. Upgrade to import unlimited recipes.`,
+            message: `免費版每月最多匯入 ${usage}/${sub.maxImportsPerMonth} 條食譜，升級家庭版可匯入 200 條`,
+          });
+        }
+
+        // 免費版每月最多建立 20 條自訂食譜（含匯入）
+        const createdThisMonth = await countCustomRecipesCreatedThisMonth(ctx.activeFamilyId);
+        if (createdThisMonth >= 20) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `免費版每月最多建立 20 條自訂食譜（已用 ${createdThisMonth}/20），升級家庭版可無限建立`,
           });
         }
       }
@@ -65,7 +75,7 @@ export const customRecipeRouter = router({
       // Only count as "import" if it came from an external source
       const isImport = input.sourceType && input.sourceType !== "manual";
       if (isImport) {
-        await incrementImportUsage(ctx.user.id);
+        await incrementImportUsage(ctx.user.id, ctx.activeFamilyId);
       }
 
       const recipe = await insertCustomRecipe({
@@ -89,7 +99,7 @@ export const customRecipeRouter = router({
     }),
 
   /** Update an existing custom recipe (must belong to same family) */
-  update: protectedProcedure
+  update: familyWriteProcedure
     .input(
       z.object({
         id: z.number().int(),
@@ -114,7 +124,7 @@ export const customRecipeRouter = router({
     }),
 
   /** Delete a custom recipe (must belong to same family) */
-  delete: protectedProcedure
+  delete: familyWriteProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) {

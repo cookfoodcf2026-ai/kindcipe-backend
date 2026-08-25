@@ -9,6 +9,7 @@ import {
   timestamp,
   varchar,
   index,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -33,6 +34,7 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   loginMethod: varchar("login_method", { length: 64 }),
   role: roleEnum("role").default("user").notNull(),
+  trialCount: integer("trial_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   lastSignedIn: timestamp("last_signed_in").defaultNow().notNull(),
@@ -49,6 +51,7 @@ export const families = pgTable("families", {
   ownerId: text("owner_id").notNull(),
   settings: jsonb("settings").default({ approvalRequired: false }).notNull(),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").default("trial").notNull(),
+  subscriptionPlan: varchar("subscription_plan", { length: 16 }),
   trialStartedAt: timestamp("trial_started_at").defaultNow().notNull(),
   trialEndsAt: timestamp("trial_ends_at"),
   subscriptionExpiresAt: timestamp("subscription_expires_at"),
@@ -71,10 +74,40 @@ export const familyMembers = pgTable("family_members", {
   nickname: varchar("nickname", { length: 64 }),
   isDefault: boolean("is_default").default(false).notNull(),
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  familyUserUniq: uniqueIndex("family_members_family_user_unique").on(t.familyId, t.userId),
+}));
 
 export type FamilyMember = typeof familyMembers.$inferSelect;
 export type InsertFamilyMember = typeof familyMembers.$inferInsert;
+
+// ─── Removed Family Members (banned from rejoining) ──────────────────────────
+export const removedFamilyMembers = pgTable("removed_family_members", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  removedAt: timestamp("removed_at").defaultNow().notNull(),
+}, (t) => ({
+  uniq: uniqueIndex("removed_family_members_family_user_unique").on(t.familyId, t.userId),
+}));
+
+export type RemovedFamilyMember = typeof removedFamilyMembers.$inferSelect;
+export type InsertRemovedFamilyMember = typeof removedFamilyMembers.$inferInsert;
+
+// ─── Family Eat Out (per-family, per-day) ─────────────────────────────────────
+export const familyEatOut = pgTable("family_eat_out", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  date: varchar("date", { length: 16 }).notNull(), // YYYY-MM-DD
+  setByUserId: text("set_by_user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  uniq: uniqueIndex("family_eat_out_family_date_unique").on(t.familyId, t.date),
+}));
+
+export type FamilyEatOut = typeof familyEatOut.$inferSelect;
+export type InsertFamilyEatOut = typeof familyEatOut.$inferInsert;
 
 // ─── Push Tokens ─────────────────────────────────────────────────────────────
 export const pushTokens = pgTable("push_tokens", {
@@ -162,6 +195,7 @@ export const customRecipes = pgTable("custom_recipes", {
   sourceUrlHash: varchar("source_url_hash", { length: 64 }),
   sourceAuthor: varchar("source_author", { length: 128 }),
   visibility: visibilityEnum("visibility").default("private").notNull(),
+  isDraft: boolean("is_draft").default(false).notNull(),
   approvedByUserId: text("approved_by_user_id"),
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),
@@ -304,7 +338,9 @@ export const weeklyMenu = pgTable("weekly_menu", {
   setByUserId: text("set_by_user_id").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  weekDayUniq: uniqueIndex("weekly_menu_week_day_unique").on(t.weekStart, t.dayOfWeek),
+}));
 
 export type WeeklyMenu = typeof weeklyMenu.$inferSelect;
 export type InsertWeeklyMenu = typeof weeklyMenu.$inferInsert;
@@ -313,13 +349,49 @@ export type InsertWeeklyMenu = typeof weeklyMenu.$inferInsert;
 export const importUsage = pgTable("import_usage", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
+  familyId: integer("family_id").notNull().default(0),
   yearMonth: varchar("year_month", { length: 7 }).notNull(),
   count: integer("count").default(0).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  familyMonthUniq: uniqueIndex("import_usage_family_month_unique").on(t.familyId, t.yearMonth),
+}));
 
 export type ImportUsage = typeof importUsage.$inferSelect;
 export type InsertImportUsage = typeof importUsage.$inferInsert;
+
+// ─── IAP Transactions (subscription receipts) ─────────────────────────────────
+export const iapTransactions = pgTable("iap_transactions", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  productId: varchar("product_id", { length: 128 }).notNull(),
+  planType: varchar("plan_type", { length: 16 }).notNull().default("monthly"),
+  receipt: text("receipt").notNull(),
+  purchaseToken: text("purchase_token"),
+  transactionId: varchar("transaction_id", { length: 256 }).notNull(),
+  transactionDate: timestamp("transaction_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  txnUniq: uniqueIndex("iap_transactions_transaction_id_unique").on(t.transactionId),
+}));
+
+export type IapTransaction = typeof iapTransactions.$inferSelect;
+export type InsertIapTransaction = typeof iapTransactions.$inferInsert;
+
+// ─── AI Chat Usage (per-kitchen monthly pool) ──────────────────────────────────
+export const aiChatUsage = pgTable("ai_chat_usage", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  yearMonth: varchar("year_month", { length: 7 }).notNull(), // YYYY-MM
+  count: integer("count").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyMonthUniq: uniqueIndex("ai_chat_usage_family_month_unique").on(t.familyId, t.yearMonth),
+}));
+
+export type AiChatUsage = typeof aiChatUsage.$inferSelect;
+export type InsertAiChatUsage = typeof aiChatUsage.$inferInsert;
 
 // ─── Common Ingredients ───────────────────────────────────────────────────────
 export const commonIngredients = pgTable("common_ingredients", {
@@ -356,3 +428,15 @@ export const pantryItems = pgTable("pantry_items", {
 });
 export type PantryItem = typeof pantryItems.$inferSelect;
 export type InsertPantryItem = typeof pantryItems.$inferInsert;
+
+// ─── Redirect Logs ────────────────────────────────────────────────────────────
+export const redirectLogs = pgTable("redirect_logs", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id"),
+  userId: text("user_id"),
+  platform: varchar("platform", { length: 64 }).notNull(),
+  keyword: varchar("keyword", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type RedirectLog = typeof redirectLogs.$inferSelect;
+export type InsertRedirectLog = typeof redirectLogs.$inferInsert;

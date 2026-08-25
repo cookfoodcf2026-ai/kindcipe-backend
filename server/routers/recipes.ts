@@ -400,7 +400,7 @@ function hashUrl(url: string): string {
 function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "manual" {
   if (url.includes("instagram.com")) return "instagram";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
-  if (url.includes("xiaohongshu.com") || url.includes("xhslink.com")) return "xiaohongshu";
+  if (url.includes("xiaohongshu.com") || url.includes("xhslink.com") || url.includes("xhslink.cn")) return "xiaohongshu";
   if (url.includes("threads.net")) return "threads";
   if (url.includes("tiktok.com")) return "tiktok";
   return "manual";
@@ -418,6 +418,12 @@ async function rehostExternalImage(imageUrl: string, category?: string): Promise
     imageUrl.startsWith("/r2-storage/");
   if (isR2) return imageUrl;
   
+  // If R2 is not configured (local dev), keep the original URL instead of falling back to Unsplash
+  if (!process.env.R2_ACCOUNT_ID) {
+    console.log("[rehostExternalImage] R2 not configured, keeping original URL");
+    return imageUrl;
+  }
+
   console.log("[rehostExternalImage] Attempting to rehost:", imageUrl.substring(0, 100));
   
   // Try primary fetch with Instagram referer
@@ -1143,11 +1149,45 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     ? languageNameMap[userLanguage]
     : userLanguage || "繁體中文";
 
+  // For Instagram: try /media endpoint first to get a clean thumbnail (no "Video" overlay)
+  let cleanInstagramThumbnail = "";
+  if (sourceType === "instagram") {
+    const shortcodeMatch = url.match(/\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
+    const shortcode = shortcodeMatch?.[1];
+    if (shortcode) {
+      try {
+        const mediaResp = await fetch(
+          `https://www.instagram.com/${shortcode}/media/?__a=1&__d=dis`,
+          {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+              "Accept": "application/json",
+              "X-IG-App-ID": "936619743392459",
+            },
+            signal: AbortSignal.timeout(10000),
+          }
+        );
+        if (mediaResp.ok) {
+          const json = await mediaResp.json() as any;
+          const items = json.items || json.graphql?.shortcode_media || json;
+          const mediaItem = Array.isArray(items) ? items[0] : items;
+          cleanInstagramThumbnail = mediaItem?.image_versions2?.candidates?.[0]?.url
+            || mediaItem?.display_url
+            || mediaItem?.thumbnail_src
+            || "";
+          if (cleanInstagramThumbnail) {
+            console.log("[parseRecipeFromUrl] Got clean Instagram thumbnail via /media:", cleanInstagramThumbnail.substring(0, 80));
+          }
+        }
+      } catch { /* continue with fallback */ }
+    }
+  }
+
   const { text: pageContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
   const hasRealContent = pageContent.length > 30;
   
-  // Use client-extracted thumbnail as fallback if backend extraction failed
-  let effectiveThumbnail = fetchedThumbnail || clientThumbnail;
+  // Prefer clean /media thumbnail, then backend-fetched, then client-provided
+  let effectiveThumbnail = cleanInstagramThumbnail || fetchedThumbnail || clientThumbnail;
   
   // If still no thumbnail, use category-based fallback (will be set after parsing)
   // For now, keep it empty and assign after recipeCategory is known
@@ -1235,7 +1275,9 @@ Platform: ${sourceType}
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱",
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
-}`;
+}
+
+翻譯規則：name、description、ingredients、steps、tags 必須全部使用${targetLang}；食材名稱要用常見煮食用字，不要保留原文；如果原文係英文/簡體/其他語言，請翻譯後再回傳。`;
 
   // For Instagram with thumbnail: use Vision AI to parse from image
   const visionImage: MessageContent = useVisionForInstagram && effectiveThumbnail
@@ -1373,6 +1415,19 @@ export const recipesRouter = router({
       return { key, url: url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url };
     }),
 
+  // ── Delete uploaded recipe screenshot (clean up orphan R2 files) ────────────
+  deleteRecipeImage: protectedProcedure
+    .input(z.object({ key: z.string() }))
+    .mutation(async ({ input }) => {
+      try {
+        const { storageDelete } = await import("../storage");
+        await storageDelete(input.key);
+      } catch (e) {
+        console.warn("[deleteRecipeImage] Failed to delete:", input.key, e);
+      }
+      return { success: true };
+    }),
+
   // ── Parse Image (Vision AI: extract recipe from uploaded screenshot) ────────
   parseImage: protectedProcedure
     .input(z.object({
@@ -1387,7 +1442,7 @@ export const recipesRouter = router({
 1. 如果圖片中有食物或菜餚，請根據外觀、顏色、質地和常見烹飪方式推測可能的食材和做法。
 2. 如果圖片中同時有文字（例如食材清單、步驟），請把文字資訊作為輔助，提高準確度。
 3. 只有在完全無法判斷圖片內容（例如圖片空白、過度模糊、或與食物無關）時，才在 name 回傳「需要手動輸入」，並在 description 說明原因。
-請以繁體中文回傳，並使用以下 JSON 格式。食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
+請以繁體中文回傳，並使用以下 JSON 格式。name、description、ingredients、steps、tags 全部要用繁體中文；食材名稱要翻譯成常見煮食用字，唔好保留原文。食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
 
       const userPrompt = `請分析這張圖片，盡力識別或推測出食材和烹飪步驟。
 請回傳以下 JSON 格式（所有文字使用繁體中文）：
@@ -2583,7 +2638,9 @@ export const recipesRouter = router({
   // ── User: create blank recipe manually ─────────────────────────────────────
   createBlank: protectedProcedure
     .input(recipeInputSchema.extend({
+      name: z.string().max(128),
       visibility: z.enum(["private", "pending_public"]).default("private"),
+      isDraft: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房，才能儲存食譜" });
@@ -2593,7 +2650,7 @@ export const recipesRouter = router({
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
-        name: input.name,
+        name: (input.name && input.name.trim()) || (input.isDraft ? "未命名草稿" : input.name),
         description: input.description ?? "",
         image: input.image ?? "",
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
@@ -2608,6 +2665,7 @@ export const recipesRouter = router({
         sourceUrl: input.sourceUrl,
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
+        isDraft: input.isDraft,
       }).returning();
 
       return { success: true, id: inserted.id };
@@ -2617,7 +2675,9 @@ export const recipesRouter = router({
   updateUser: protectedProcedure
     .input(recipeInputSchema.extend({
       id: z.number().int(),
+      name: z.string().max(128),
       visibility: z.enum(["private", "pending_public"]).default("private"),
+      isDraft: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房" });
@@ -2631,7 +2691,7 @@ export const recipesRouter = router({
       if (recipe.createdByUserId !== String(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN" });
 
       await db.update(customRecipes).set({
-        name: input.name,
+        name: (input.name && input.name.trim()) || (input.isDraft ? "未命名草稿" : input.name),
         description: input.description ?? "",
         image: input.image ?? "",
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
@@ -2646,10 +2706,32 @@ export const recipesRouter = router({
         sourceUrl: input.sourceUrl,
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
+        isDraft: input.isDraft,
         updatedAt: new Date(),
       }).where(eq(customRecipes.id, input.id));
 
       return { success: true };
+    }),
+
+  // ── Get family draft recipe (auto-saved partial recipe) ─────────────────
+  getDraft: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (!ctx.activeFamilyId) return null;
+      const db = await getDb();
+      if (!db) return null;
+      const [r] = await db.select().from(customRecipes)
+        .where(and(eq(customRecipes.familyId, ctx.activeFamilyId), eq(customRecipes.isDraft, true)))
+        .orderBy(desc(customRecipes.updatedAt))
+        .limit(1);
+      if (!r) return null;
+      return {
+        ...r,
+        id: `user_${r.id}`,
+        ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+        steps: r.steps ? JSON.parse(r.steps) : [],
+        tags: r.tags ? JSON.parse(r.tags) : [],
+        source: "user" as const,
+      };
     }),
 
   // ── Admin: delete (soft-delete) official recipe ─────────────────────────

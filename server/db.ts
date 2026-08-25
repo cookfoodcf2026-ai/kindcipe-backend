@@ -5,6 +5,7 @@ import {
   InsertUser,
   commonIngredients,
   customRecipes,
+  familyEatOut,
   familyMembers,
   families,
   favoriteItems,
@@ -15,8 +16,12 @@ import {
   purchaseHistory,
   pushTokens,
   recipeEvents,
+  removedFamilyMembers,
   shoppingItems,
   users,
+  weeklyMenu,
+  iapTransactions,
+  aiChatUsage,
   type InsertCommonIngredient,
   type InsertFamily,
   type InsertFamilyMember,
@@ -24,7 +29,10 @@ import {
   type InsertMealPlan,
   type InsertPantryItem,
   type InsertRecipeEvent,
+  type InsertRedirectLog,
   type InsertShoppingItem,
+  type InsertIapTransaction,
+  redirectLogs,
   recipeNotes,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -131,12 +139,18 @@ export async function getUserDefaultFamily(userId: string | number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+/**
+ * Set the user's default family atomically.
+ * Single UPDATE statement: isDefault = (family_id = target) — kills the
+ * clear-then-set interleave window where two concurrent calls could leave
+ * a user with 0 or 2 defaults.
+ */
 export async function setDefaultFamily(userId: string | number, familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(familyMembers).set({ isDefault: false }).where(eq(familyMembers.userId, String(userId)));
-  await db.update(familyMembers).set({ isDefault: true })
-    .where(and(eq(familyMembers.userId, String(userId)), eq(familyMembers.familyId, familyId)));
+  await db.update(familyMembers)
+    .set({ isDefault: sql`${familyMembers.familyId} = ${familyId}` })
+    .where(eq(familyMembers.userId, String(userId)));
 }
 
 export async function updateFamilyMemberRole(familyId: number, userId: string | number, role: "owner" | "admin" | "helper" | "member") {
@@ -185,13 +199,22 @@ export async function renameFamily(familyId: number, newName: string) {
 export async function deleteFamily(familyId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(shoppingItems).where(eq(shoppingItems.familyId, familyId));
-  await db.delete(pantryItems).where(eq(pantryItems.familyId, familyId));
-  await db.delete(mealPlans).where(eq(mealPlans.familyId, familyId));
-  await db.delete(purchaseHistory).where(eq(purchaseHistory.familyId, familyId));
-  await db.delete(pushTokens).where(eq(pushTokens.familyId, familyId));
-  await db.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
-  await db.delete(families).where(eq(families.id, familyId));
+  await db.transaction(async (tx) => {
+    await tx.delete(shoppingItems).where(eq(shoppingItems.familyId, familyId));
+    await tx.delete(pantryItems).where(eq(pantryItems.familyId, familyId));
+    await tx.delete(mealPlans).where(eq(mealPlans.familyId, familyId));
+    await tx.delete(purchaseHistory).where(eq(purchaseHistory.familyId, familyId));
+    await tx.delete(pushTokens).where(eq(pushTokens.familyId, familyId));
+    await tx.delete(customRecipes).where(eq(customRecipes.familyId, familyId));
+    await tx.delete(recipeNotes).where(eq(recipeNotes.familyId, familyId));
+    await tx.delete(familyEatOut).where(eq(familyEatOut.familyId, familyId));
+    await tx.delete(removedFamilyMembers).where(eq(removedFamilyMembers.familyId, familyId));
+    await tx.delete(recipeEvents).where(eq(recipeEvents.familyId, familyId));
+    await tx.delete(favoriteItems).where(eq(favoriteItems.familyId, familyId));
+    await tx.delete(importUsage).where(eq(importUsage.familyId, familyId));
+    await tx.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
+    await tx.delete(families).where(eq(families.id, familyId));
+  });
 }
 
 // ─── Families ─────────────────────────────────────────────────────────────────
@@ -220,10 +243,49 @@ export async function getFamilyByInviteCode(code: string) {
 }
 
 // ─── Family Members ───────────────────────────────────────────────────────────
+
+/**
+ * Count how many kitchens a user created (ownerId).
+ */
+export async function countKitchensByOwner(userId: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db.select({ count: sql<number>`count(*)::int` }).from(families).where(eq(families.ownerId, userId));
+  return rows[0]?.count ?? 0;
+}
+
+/**
+ * Increment the user's trial usage counter (1 trial per user anti-abuse).
+ */
+export async function incrementTrialCount(userId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ trialCount: sql`${users.trialCount} + 1` }).where(eq(users.id, userId));
+}
+
 export async function addFamilyMember(data: InsertFamilyMember) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(familyMembers).values(data);
+  await db.insert(familyMembers).values(data)
+    .onConflictDoNothing({ target: [familyMembers.familyId, familyMembers.userId] });
+}
+
+export async function addRemovedFamilyMember(familyId: number, userId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(removedFamilyMembers).values({ familyId, userId })
+    .onConflictDoNothing({ target: [removedFamilyMembers.familyId, removedFamilyMembers.userId] });
+}
+
+export async function getRemovedFamilyMember(familyId: number, userId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(removedFamilyMembers)
+    .where(and(eq(removedFamilyMembers.familyId, familyId), eq(removedFamilyMembers.userId, userId)))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }
 
 export async function getFamilyMembers(familyId: number) {
@@ -362,8 +424,7 @@ export async function getMealPlansByDateRange(familyId: number, startDate: strin
     updatedAt: mealPlans.updatedAt,
     hasShoppingItem: sql<boolean>`EXISTS(
       SELECT 1 FROM shopping_items 
-      WHERE shopping_items.from_meal_plan_id = ${mealPlans.id}
-      AND shopping_items.status IN ('active', 'pending')
+      WHERE shopping_items.from_meal_plan_id = meal_plans.id
     )`
   }).from(mealPlans).where(
     and(
@@ -444,6 +505,21 @@ export async function deleteMealPlan(id: number, familyId: number) {
   await db.delete(mealPlans).where(and(eq(mealPlans.id, id), eq(mealPlans.familyId, familyId)));
 }
 
+// 將購物清單項目同 meal plan 斷開 link（唔刪除）
+export async function unlinkShoppingItemsFromMealPlan(
+  familyId: number,
+  mealPlanId: number
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(shoppingItems)
+    .set({ fromMealPlanId: null })
+    .where(and(
+      eq(shoppingItems.familyId, familyId),
+      eq(shoppingItems.fromMealPlanId, mealPlanId)
+    ));
+}
+
 // 刪除由某排餐（mealPlanId）加入、且尚未購買的購物清單項目
 export async function deleteShoppingItemsByMealPlan(
   familyId: number,
@@ -455,7 +531,6 @@ export async function deleteShoppingItemsByMealPlan(
     and(
       eq(shoppingItems.familyId, familyId),
       eq(shoppingItems.fromMealPlanId, mealPlanId),
-      // 只刪除未購買的（active / pending），已買的保留作記錄
       inArray(shoppingItems.status, ["active", "pending"])
     )
   );
@@ -464,16 +539,14 @@ export async function deleteShoppingItemsByMealPlan(
 // 將某排餐相關的 pending 購物食材自動改為 active
 export async function approveShoppingItemsByMealPlan(
   familyId: number,
-  recipeId: string,
-  plannedDate: string
+  mealPlanId: number
 ) {
   const db = await getDb();
   if (!db) return;
   await db.update(shoppingItems).set({ status: "active" }).where(
     and(
       eq(shoppingItems.familyId, familyId),
-      eq(shoppingItems.fromRecipeId, recipeId),
-      eq(shoppingItems.plannedDate, plannedDate),
+      eq(shoppingItems.fromMealPlanId, mealPlanId),
       eq(shoppingItems.status, "pending")
     )
   );
@@ -678,6 +751,19 @@ export async function getCustomRecipes(familyId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(customRecipes).where(eq(customRecipes.familyId, familyId));
+}
+
+/**
+ * Count custom recipes created by a family in the current calendar month.
+ */
+export async function countCustomRecipesCreatedThisMonth(familyId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const ym = new Date().toISOString().slice(0, 7); // "2026-08"
+  const rows = await db.select({ count: sql<number>`count(*)::int` })
+    .from(customRecipes)
+    .where(and(eq(customRecipes.familyId, familyId), sql`to_char(${customRecipes.createdAt}, 'YYYY-MM') = ${ym}`));
+  return rows[0]?.count ?? 0;
 }
 
 // ─── Recipe Events (analytics / ranking) ─────────────────────────────────────
@@ -1004,7 +1090,7 @@ export async function getFamilySubscription(familyId: number) {
     const db = await getDb();
     if (db) {
       await db.update(families)
-        .set({ subscriptionStatus: "free", maxMembers: 2 })
+        .set({ subscriptionStatus: "free", maxMembers: 1 })
         .where(eq(families.id, familyId));
     }
   }
@@ -1015,20 +1101,24 @@ export async function getFamilySubscription(familyId: number) {
     const db = await getDb();
     if (db) {
       await db.update(families)
-        .set({ subscriptionStatus: "expired", maxMembers: 2 })
+        .set({ subscriptionStatus: "expired", maxMembers: 1 })
         .where(eq(families.id, familyId));
     }
   }
 
   const isPaid = status === "active" || status === "trial";
+  const memberCount = (await countFamilyMembers([familyId])).get(familyId) ?? 0;
   return {
     status,
     isPaid,
-    maxMembers: isPaid ? 6 : 2,
-    maxImportsPerMonth: isPaid ? Infinity : 5,
-    maxCustomRecipes: isPaid ? Infinity : 15,
+    maxMembers: isPaid ? 6 : 1,
+    maxImportsPerMonth: isPaid ? 200 : 5,
+    maxCustomRecipesPerMonth: isPaid ? null : 20,
+    aiChatLimit: isPaid ? 200 : 30,
+    sharedLocked: !isPaid && memberCount > 1,
     trialEndsAt: family.trialEndsAt,
     subscriptionExpiresAt: family.subscriptionExpiresAt,
+    subscriptionPlan: family.subscriptionPlan,
   };
 }
 
@@ -1044,36 +1134,98 @@ export async function initFamilyTrial(familyId: number) {
     .where(eq(families.id, familyId));
 }
 
+/**
+ * Activate (or renew) a family's paid subscription. Never deletes anything.
+ */
+export async function activateFamilySubscription(familyId: number, plan: "monthly" | "yearly", expiresAt: Date) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(families)
+    .set({
+      subscriptionStatus: "active",
+      subscriptionPlan: plan,
+      subscriptionExpiresAt: expiresAt,
+      maxMembers: 6,
+    })
+    .where(eq(families.id, familyId));
+}
+
+/**
+ * Record an IAP transaction (idempotent by transactionId).
+ */
+export async function getIapTransactionByTransactionId(transactionId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(iapTransactions)
+    .where(eq(iapTransactions.transactionId, transactionId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function insertIapTransaction(data: InsertIapTransaction) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(iapTransactions).values(data).onConflictDoNothing({ target: [iapTransactions.transactionId] });
+}
+
 // ─── Import Usage helpers ─────────────────────────────────────────────────────
 
 /**
- * Get current month's import count for a user.
+ * Get current month's import count for a family.
  */
-export async function getImportUsage(userId: string): Promise<number> {
+export async function getImportUsage(familyId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
   const yearMonth = new Date().toISOString().slice(0, 7); // "2025-06"
   const result = await db.select().from(importUsage)
-    .where(and(eq(importUsage.userId, userId), eq(importUsage.yearMonth, yearMonth)))
+    .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth)))
     .limit(1);
   return result[0]?.count ?? 0;
 }
 
 /**
- * Increment import count for a user. Returns new count.
+ * Increment import count for a family. Returns new count.
  */
-export async function incrementImportUsage(userId: string): Promise<number> {
+export async function incrementImportUsage(userId: string, familyId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
   const yearMonth = new Date().toISOString().slice(0, 7);
   await db.insert(importUsage)
-    .values({ userId, yearMonth, count: 1 })
-    .onConflictDoUpdate({ target: [importUsage.userId, importUsage.yearMonth], set: { count: sql`${importUsage.count} + 1` } });
+    .values({ userId, familyId, yearMonth, count: 1 })
+    .onConflictDoUpdate({ target: [importUsage.familyId, importUsage.yearMonth], set: { count: sql`${importUsage.count} + 1` } });
   // Re-fetch the updated count
   const result = await db.select().from(importUsage)
-    .where(and(eq(importUsage.userId, userId), eq(importUsage.yearMonth, yearMonth)))
+    .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth)))
     .limit(1);
   return result[0]?.count ?? 1;
+}
+
+// ─── AI Chat Usage (per-kitchen monthly quota) ────────────────────────────────
+
+export async function getAiChatUsage(familyId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const yearMonth = new Date().toISOString().slice(0, 7);
+  const rows = await db.select().from(aiChatUsage)
+    .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth)))
+    .limit(1);
+  return rows[0]?.count ?? 0;
+}
+
+export async function incrementAiChatUsage(familyId: number, turns: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const yearMonth = new Date().toISOString().slice(0, 7);
+  await db.insert(aiChatUsage)
+    .values({ familyId, yearMonth, count: turns })
+    .onConflictDoUpdate({
+      target: [aiChatUsage.familyId, aiChatUsage.yearMonth],
+      set: { count: sql`${aiChatUsage.count} + ${turns}` },
+    });
+  const rows = await db.select().from(aiChatUsage)
+    .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth)))
+    .limit(1);
+  return rows[0]?.count ?? turns;
 }
 
 // ─── Push Token helpers ───────────────────────────────────────────────────────
@@ -1276,5 +1428,15 @@ export async function setRecipePopularity(recipeId: string, score: number): Prom
   } else if (recipeId.startsWith("user_")) {
     const id = parseInt(recipeId.replace("user_", ""), 10);
     await db.update(customRecipes).set({ popularity: score }).where(eq(customRecipes.id, id));
+  }
+}
+
+export async function addRedirectLog(data: InsertRedirectLog) {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(redirectLogs).values(data);
+  } catch (err) {
+    console.warn("[RedirectLog] insert failed:", err);
   }
 }

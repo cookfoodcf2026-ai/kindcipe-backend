@@ -10,7 +10,7 @@
  *   R2_PUBLIC_URL       - 公開存取 URL（例如 https://pub-xxx.r2.dev 或自訂域名）
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function getR2Config() {
@@ -27,6 +27,19 @@ function getR2Config() {
   }
 
   return { accountId, accessKeyId, secretAccessKey, bucketName, publicUrl };
+}
+
+/**
+ * Public base URL of the backend used to build absolute image URLs when no
+ * R2_PUBLIC_URL is configured. Default: Railway production host.
+ * Override with PUBLIC_BASE_URL env.
+ */
+function getBackendBaseUrl(): string {
+  return (
+    process.env.PUBLIC_BASE_URL ??
+    process.env.BACKEND_PUBLIC_URL ??
+    "https://kindcipe-backend-production.up.railway.app"
+  );
 }
 
 function getS3Client() {
@@ -78,10 +91,10 @@ export async function storagePut(
   );
 
   // 如果有設定公開 URL（R2 public bucket 或自訂域名），直接返回公開 URL
-  // 否則返回 /r2-storage/ 路徑（需要後端代理）
+  // 否則返回後端代理的絕對 URL（確保任何 client 都能直接使用）
   const url = publicUrl
     ? `${publicUrl.replace(/\/+$/, "")}/${key}`
-    : `/r2-storage/${key}`;
+    : `${getBackendBaseUrl().replace(/\/+$/, "")}/r2-storage/${key}`;
 
   return { key, url };
 }
@@ -122,4 +135,20 @@ export async function storageGetSignedUrl(
   });
 
   return getSignedUrl(client, command, { expiresIn });
+}
+
+/**
+ * 刪除 R2 檔案（清理孤兒檔案用）
+ */
+export async function storageDelete(relKey: string): Promise<void> {
+  const { bucketName } = getR2Config();
+  const client = getS3Client();
+  const key = normalizeKey(relKey);
+
+  await client.send(
+    new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    })
+  );
 }

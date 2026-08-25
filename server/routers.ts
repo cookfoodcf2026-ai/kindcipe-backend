@@ -10,8 +10,10 @@ import { priceWatchRouter } from "./routers/priceWatch";
 import { recipesRouter } from "./routers/recipes";
 import { customRecipeRouter } from "./routers/customRecipe";
 import { weeklyMenuRouter } from "./routers/weeklyMenu";
+import { eatOutRouter } from "./routers/eatOut";
+import { subscriptionRouter } from "./routers/subscription";
 import { commonIngredientRouter } from "./routers/commonIngredient";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
 import { broadcastToFamily } from "./_core/sseSync";
 import { notifyOwner } from "./_core/notification";
 import { sendPushNotifications } from "./pushNotification";
@@ -27,6 +29,7 @@ import {
   createFamily,
   deleteMealPlan,
   deleteShoppingItemsByMealPlan,
+  unlinkShoppingItemsFromMealPlan,
   approveShoppingItemsByMealPlan,
   getDb,
   getMealPlanById,
@@ -35,8 +38,10 @@ import {
   deleteShoppingItemsByIds,
   getFamilySubscription,
   initFamilyTrial,
+  incrementTrialCount,
   getImportUsage,
-  incrementImportUsage,
+  countCustomRecipesCreatedThisMonth,
+  getAiChatUsage,
   upsertPushToken,
   getPushTokensByFamily,
   getPushTokensByUserIds,
@@ -83,9 +88,14 @@ import {
   verifyPassword,
   touchUserSignIn,
   incrementRecipePopularity,
+  getRemovedFamilyMember,
+  addRemovedFamilyMember,
+  addRedirectLog,
 } from "./db";
-import { mealPlans, weeklyMenu } from "../drizzle/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families } from "../drizzle/schema";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+
+const joinAttempts = new Map<string, { count: number; resetAt: number }>();
 
 const familyRouter = router({
   get: protectedProcedure
@@ -95,6 +105,13 @@ const familyRouter = router({
       if (!familyId) return null;
       const family = await getFamilyById(familyId);
       if (!family) return null;
+      const member = await getFamilyMemberByUserId(familyId, String(ctx.user.id));
+      if (!member) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "你唔係呢個廚房嘅成員",
+        });
+      }
       const members = await getFamilyMembers(familyId);
       const result = {
         ...family,
@@ -135,11 +152,34 @@ const familyRouter = router({
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(64), nickname: z.string().max(64).optional() }))
     .mutation(async ({ ctx, input }) => {
+      const myFamilies = await getUserFamilies(String(ctx.user.id));
+      const owned = myFamilies.find((f) => f.member.familyRole === "owner");
+      if (owned) {
+        await setDefaultFamily(String(ctx.user.id), owned.family.id);
+        await addFamilyMember({ familyId: owned.family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: input.nickname || ctx.user.name || "Owner", isDefault: true });
+        return { ...owned.family, role: "owner", reused: true as const };
+      }
+
+      if (myFamilies.length > 0) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "每個帳號最多建立 1 個廚房，請先離開目前廚房",
+        });
+      }
+
       const inviteCode = nanoid(6).toUpperCase();
       const family = await createFamily({ name: input.name, inviteCode, ownerId: String(ctx.user.id) });
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await initFamilyTrial(family.id);
-      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: input.nickname || ctx.user.name || "Owner", isDefault: true });
+
+      // 試用防濫用：每位用戶只送 1 次試用（trialCount 0 → 1）
+      const canStartTrial = (ctx.user.trialCount ?? 0) === 0;
+      if (canStartTrial) {
+        await initFamilyTrial(family.id);
+        await incrementTrialCount(String(ctx.user.id));
+      }
+
+      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: input.nickname || ctx.user.name || "Owner", isDefault: false });
+      await setDefaultFamily(String(ctx.user.id), family.id);
       return { ...family, role: "owner" };
     }),
 
@@ -152,14 +192,40 @@ const familyRouter = router({
     .mutation(async ({ ctx, input }) => {
       const trimmedCode = input.inviteCode.trim();
       
+      // Rate limit: 10 failed attempts per hour per user
+      const now = Date.now();
+      const attemptKey = String(ctx.user.id);
+      const attempts = joinAttempts.get(attemptKey);
+      if (attempts && attempts.resetAt > now && attempts.count >= 10) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "嘗試次數過多，請稍後再試" });
+      }
+      
       const family = await getFamilyByInviteCode(trimmedCode);
       if (!family) {
+        const entry = joinAttempts.get(attemptKey) ?? { count: 0, resetAt: now + 60 * 60 * 1000 };
+        entry.count = (entry.count || 0) + 1;
+        entry.resetAt = now + 60 * 60 * 1000;
+        joinAttempts.set(attemptKey, entry);
         throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite code" });
       }
       
       const existing = await getFamilyMemberByUserId(family.id, String(ctx.user.id));
       if (existing) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
+      }
+
+      const myFamilies = await getUserFamilies(String(ctx.user.id));
+      if (myFamilies.length > 0) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "每個帳號只可加入 1 個廚房，請先離開目前廚房",
+        });
+      }
+
+      // Banned check
+      const banned = await getRemovedFamilyMember(family.id, String(ctx.user.id));
+      if (banned) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "你已被移出此廚房，請聯絡廚房主人" });
       }
       
       const sub = await getFamilySubscription(family.id);
@@ -170,17 +236,42 @@ const familyRouter = router({
           code: "FORBIDDEN",
           message: sub.isPaid
             ? `This kitchen has reached the maximum of ${sub.maxMembers} members.`
-            : `Free plan allows up to 2 members. The kitchen owner needs to upgrade to add more members.`,
+            : "想同家人一齊plan 晚餐，即刻試用 7 日或升級可邀家人",
         });
       }
       
       await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
+      
+      // Success — reset rate limit counter
+      joinAttempts.delete(attemptKey);
+      
       return { success: true, family };
     }),
 
   subscription: protectedProcedure.query(async ({ ctx }) => {
     if (!ctx.activeFamilyId) return null;
     return getFamilySubscription(ctx.activeFamilyId);
+  }),
+
+  usage: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.activeFamilyId) return null;
+    const familyId = ctx.activeFamilyId;
+    const sub = await getFamilySubscription(familyId);
+    const aiLimit = sub?.aiChatLimit ?? 30;
+    return {
+      imports: {
+        used: await getImportUsage(familyId),
+        limit: sub?.maxImportsPerMonth ?? 5,
+      },
+      customRecipes: {
+        used: await countCustomRecipesCreatedThisMonth(familyId),
+        limit: sub?.maxCustomRecipesPerMonth ?? null,
+      },
+      aiChat: {
+        used: await getAiChatUsage(familyId),
+        limit: aiLimit,
+      },
+    };
   }),
 
   registerPushToken: protectedProcedure
@@ -239,6 +330,7 @@ const familyRouter = router({
       }
       
       await removeFamilyMember(input.familyId, userId);
+      await addRemovedFamilyMember(input.familyId, userId);
       return { success: true };
     }),
 
@@ -293,6 +385,33 @@ const familyRouter = router({
       await deleteFamily(ctx.activeFamilyId);
       return { success: true };
     }),
+
+  regenerateInviteCode: protectedProcedure.mutation(async ({ ctx }) => {
+    if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a kitchen" });
+    if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can regenerate invite code" });
+    const newCode = nanoid(6).toUpperCase();
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+    await db.update(families).set({ inviteCode: newCode }).where(eq(families.id, ctx.activeFamilyId));
+    return { inviteCode: newCode };
+  }),
+
+  transferOwnership: protectedProcedure
+    .input(z.object({ userId: z.union([z.string(), z.number()]) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a kitchen" });
+      if (ctx.activeFamilyRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can transfer ownership" });
+      const targetId = String(input.userId);
+      if (targetId === String(ctx.user.id)) throw new TRPCError({ code: "BAD_REQUEST", message: "Already owner" });
+      const target = await getFamilyMemberByUserId(ctx.activeFamilyId, targetId);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Not a member" });
+      await updateFamilyMemberRole(ctx.activeFamilyId, String(ctx.user.id), "admin");
+      await updateFamilyMemberRole(ctx.activeFamilyId, targetId, "owner");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      await db.update(families).set({ ownerId: targetId }).where(eq(families.id, ctx.activeFamilyId));
+      return { success: true };
+    }),
 });
 
 const shoppingRouter = router({
@@ -301,7 +420,22 @@ const shoppingRouter = router({
     return getShoppingItems(ctx.activeFamilyId);
   }),
 
-  add: protectedProcedure
+  logRedirect: familyWriteProcedure
+    .input(z.object({
+      platform: z.string().max(64).nonempty(),
+      keyword: z.string().max(128).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await addRedirectLog({
+        familyId: ctx.activeFamilyId ?? undefined,
+        userId: ctx.user.id,
+        platform: input.platform,
+        keyword: input.keyword,
+      });
+      return { success: true };
+    }),
+
+  add: familyWriteProcedure
     .input(z.object({
       name: z.string().min(1).max(128),
       nameEn: z.string().max(128).optional(),
@@ -362,7 +496,7 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
-  addBatch: protectedProcedure
+  addBatch: familyWriteProcedure
     .input(z.object({
       items: z.array(z.object({
         name: z.string().min(1).max(128),
@@ -371,6 +505,8 @@ const shoppingRouter = router({
         quantity: z.string().max(64).optional(),
         unit: z.string().max(32).optional(),
         commonIngredientId: z.number().int().optional(),
+        fromRecipeId: z.string().max(64).optional(),
+        fromRecipeName: z.string().max(128).optional(),
       })),
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
@@ -427,8 +563,8 @@ const shoppingRouter = router({
           status: status as "pending" | "active",
           proposedByUserId: needsApproval ? ctx.user.id : undefined,
           proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
-          fromRecipeId: input.fromRecipeId?.slice(0, 64),
-          fromRecipeName: input.fromRecipeName?.slice(0, 128),
+          fromRecipeId: item.fromRecipeId ?? input.fromRecipeId?.slice(0, 64),
+          fromRecipeName: item.fromRecipeName ?? input.fromRecipeName?.slice(0, 128),
           fromMealPlanId: input.fromMealPlanId,
           plannedDate: input.plannedDate,
           commonIngredientId: item.commonIngredientId ?? null,
@@ -440,7 +576,7 @@ const shoppingRouter = router({
       return { success: true, count: toInsert.length + toUpdate.length, merged: toUpdate.length };
     }),
 
-  toggleBought: protectedProcedure
+  toggleBought: familyWriteProcedure
     .input(z.object({ id: z.number().int(), bought: z.boolean(), actualPrice: z.number().int().optional() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -466,7 +602,7 @@ const shoppingRouter = router({
       broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
-  updateItem: protectedProcedure
+  updateItem: familyWriteProcedure
     .input(z.object({
       id: z.number().int(),
       name: z.string().min(1).max(128).optional(),
@@ -485,7 +621,7 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
-  approve: protectedProcedure
+  approve: familyWriteProcedure
     .input(z.object({ id: z.number().int(), itemName: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -503,7 +639,7 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
-  reject: protectedProcedure
+  reject: familyWriteProcedure
     .input(z.object({ id: z.number().int(), itemName: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -521,7 +657,7 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: familyWriteProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -530,7 +666,7 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
-  deleteMany: protectedProcedure
+  deleteMany: familyWriteProcedure
     .input(z.object({ ids: z.array(z.number().int()) }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -539,7 +675,7 @@ const shoppingRouter = router({
       return { success: true };
     }),
 
-  approveAll: protectedProcedure
+  approveAll: familyWriteProcedure
     .mutation(async ({ ctx }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
@@ -554,7 +690,7 @@ const shoppingRouter = router({
       return { success: true, count: pendingIds.length };
     }),
 
-  rejectAll: protectedProcedure
+  rejectAll: familyWriteProcedure
     .mutation(async ({ ctx }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       if (!ctx.activeFamilyRole || (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin")) {
@@ -569,7 +705,7 @@ const shoppingRouter = router({
       return { success: true, count: pendingIds.length };
     }),
 
-  clearBought: protectedProcedure
+  clearBought: familyWriteProcedure
     .mutation(async ({ ctx }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       await clearBoughtItems(ctx.activeFamilyId);
@@ -582,7 +718,7 @@ const shoppingRouter = router({
     return getShoppingItemsWithRecipeInfo(ctx.activeFamilyId);
   }),
   
-  addIngredientsForMealPlans: protectedProcedure
+  addIngredientsForMealPlans: familyWriteProcedure
     .input(z.object({
       mealPlanIds: z.array(z.number().int()),
     }))
@@ -671,7 +807,7 @@ const mealPlanRouter = router({
       return getMealPlansByDateRange(ctx.activeFamilyId, input.startDate, input.endDate);
     }),
 
-  add: protectedProcedure
+  add: familyWriteProcedure
     .input(z.object({
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).default("dinner"),
@@ -698,28 +834,17 @@ const mealPlanRouter = router({
       let warning: string | undefined;
       
       if (input.mealType === "dinner") {
-        // Calculate weekStart and dayOfWeek from input.date
-        const date = new Date(input.date);
-        const dayOfWeek = date.getDay();
-        const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust to Monday
-        const weekStart = new Date(date);
-        weekStart.setDate(diff);
-        const weekStartStr = weekStart.toISOString().split("T")[0];
-        const dayOfWeekNum = dayOfWeek === 0 ? 7 : dayOfWeek; // 1=Mon, 7=Sun
-        
-        // Check if eatOut is set for this day
-        const weeklyMenuRecord = await db.select()
-          .from(weeklyMenu)
+        const eatOutRows = await db.select()
+          .from(familyEatOut)
           .where(
             and(
-              eq(weeklyMenu.familyId, ctx.activeFamilyId),
-              eq(weeklyMenu.weekStart, weekStartStr),
-              eq(weeklyMenu.dayOfWeek, dayOfWeekNum)
+              eq(familyEatOut.familyId, ctx.activeFamilyId),
+              eq(familyEatOut.date, input.date),
             )
           )
           .limit(1);
         
-        if (weeklyMenuRecord.length > 0 && weeklyMenuRecord[0].eatOut) {
+        if (eatOutRows.length > 0) {
           hasConflict = true;
           warning = "今天已設定外出，確定要排餐嗎？";
         }
@@ -737,19 +862,26 @@ const mealPlanRouter = router({
         );
       
       if (existingPlans.length > 0 && !hasConflict) {
-        // Check if it's a different meal type
-        const sameDayDifferentMeal = existingPlans.filter(
-          p => p.mealType !== input.mealType
+        const mealTypeLabel = (m: string) => m === 'breakfast' ? '早餐' : m === 'lunch' ? '午餐' : m === 'dinner' ? '晚餐' : '小食';
+        const currentMealLabel = mealTypeLabel(input.mealType);
+
+        // 同一餐次重複 → 強制 reconfirm（Plan B：預設唔加，確認先加）
+        const sameSlotRepeat = existingPlans.filter(
+          p => p.mealType === input.mealType
         );
-        
-        if (sameDayDifferentMeal.length > 0) {
+        if (sameSlotRepeat.length > 0) {
           hasConflict = true;
-          const mealLabels = sameDayDifferentMeal.map(p => 
-            p.mealType === 'breakfast' ? '早餐' : 
-            p.mealType === 'lunch' ? '午餐' : '晚餐'
-          ).join('、');
-          const currentMealLabel = input.mealType === 'breakfast' ? '早餐' : input.mealType === 'lunch' ? '午餐' : '晚餐';
-          warning = `呢個食譜已經排咗今日 [${mealLabels}]，確定要排 [${currentMealLabel}] 嗎？`;
+          warning = `呢個食譜已經排咗今日 [${currentMealLabel}]，如果再加會重複，確定要排多一份？`;
+        } else {
+          // 唔同餐次 → 亦要 reconfirm
+          const sameDayDifferentMeal = existingPlans.filter(
+            p => p.mealType !== input.mealType
+          );
+          if (sameDayDifferentMeal.length > 0) {
+            hasConflict = true;
+            const mealLabels = sameDayDifferentMeal.map(p => mealTypeLabel(p.mealType)).join('、');
+            warning = `呢個食譜已經排咗今日 [${mealLabels}]，確定要排 [${currentMealLabel}] 嗎？`;
+          }
         }
       }
       
@@ -775,11 +907,7 @@ const mealPlanRouter = router({
       // Add ingredients with fromMealPlanId linked to the new plan
       if (input.autoAddIngredients && input.ingredients && input.ingredients.length > 0 && newPlanId) {
         const ingredientStatus = needsApproval ? "pending" as const : "active" as const;
-        const shoppingDate = input.shoppingDate || (() => {
-          const d = new Date(input.date + "T00:00:00");
-          d.setDate(d.getDate() - 1);
-          return d.toISOString().split("T")[0];
-        })();
+        const shoppingDate = input.shoppingDate || input.date;
         const rows = input.ingredients.map((ing) => ({
           familyId: ctx.activeFamilyId!,
           name: ing.name,
@@ -830,7 +958,7 @@ const mealPlanRouter = router({
       };
     }),
 
-  addBatch: protectedProcedure
+  addBatch: familyWriteProcedure
     .input(z.object({
       items: z.array(z.object({
         date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -864,33 +992,43 @@ const mealPlanRouter = router({
         newPlanId?: number;
       }> = [];
       const skippedDays: string[] = [];
+      let skippedDueToDuplicate = false;
       
       // Process each item individually to handle conflicts and link ingredients
       for (const item of input.items) {
         // Check for eat-out conflict (dinner only)
         let hasConflict = false;
         if (item.mealType === "dinner") {
-          const date = new Date(item.date);
-          const dayOfWeek = date.getDay();
-          const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-          const weekStart = new Date(date);
-          weekStart.setDate(diff);
-          const weekStartStr = weekStart.toISOString().split("T")[0];
-          const dayOfWeekNum = dayOfWeek === 0 ? 7 : dayOfWeek;
-          
-          const weeklyMenuRecord = await db.select()
-            .from(weeklyMenu)
+          const eatOutRows = await db.select()
+            .from(familyEatOut)
             .where(
               and(
-                eq(weeklyMenu.familyId, ctx.activeFamilyId),
-                eq(weeklyMenu.weekStart, weekStartStr),
-                eq(weeklyMenu.dayOfWeek, dayOfWeekNum)
+                eq(familyEatOut.familyId, ctx.activeFamilyId),
+                eq(familyEatOut.date, item.date),
               )
             )
             .limit(1);
           
-          if (weeklyMenuRecord.length > 0 && weeklyMenuRecord[0].eatOut) {
+          if (eatOutRows.length > 0) {
             hasConflict = true;
+          }
+        }
+        
+        // Check for duplicate recipe on the same day (keep batch consistent with single add)
+        if (!hasConflict) {
+          const dupPlans = await db.select()
+            .from(mealPlans)
+            .where(
+              and(
+                eq(mealPlans.familyId, ctx.activeFamilyId),
+                eq(mealPlans.date, item.date),
+                eq(mealPlans.recipeId, item.recipeId),
+              )
+            )
+            .limit(1);
+          if (dupPlans.length > 0) {
+            hasConflict = true;
+            skippedDueToDuplicate = true;
           }
         }
         
@@ -977,10 +1115,12 @@ const mealPlanRouter = router({
         count: successfulItems.length,
         skippedCount: skippedDays.length,
         skippedDays,
+        items: successfulItems,
+        skippedDueToDuplicate,
       };
     }),
 
-  confirm: protectedProcedure
+  confirm: familyWriteProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -992,14 +1132,14 @@ const mealPlanRouter = router({
       // 自動 approve 該排餐相關的 pending 購物食材
       const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
       if (plan?.recipeId && plan?.date) {
-        await approveShoppingItemsByMealPlan(ctx.activeFamilyId, plan.recipeId, plan.date);
+        await approveShoppingItemsByMealPlan(ctx.activeFamilyId, plan.id);
       }
       
       broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true };
     }),
 
-  reject: protectedProcedure
+  reject: familyWriteProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -1018,13 +1158,88 @@ const mealPlanRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
-    .input(z.object({ id: z.number().int() }))
+  updateDate: familyWriteProcedure
+    .input(z.object({
+      id: z.number().int(),
+      newDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      moveShoppingItems: z.boolean().default(true),
+      shoppingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
       const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND", message: "Meal plan not found" });
+      
+      if (plan.date === input.newDate) {
+        return { success: true, warning: undefined };
+      }
+      
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      
+      const conflict = await db.select()
+        .from(mealPlans)
+        .where(and(
+          eq(mealPlans.familyId, ctx.activeFamilyId),
+          eq(mealPlans.date, input.newDate),
+          eq(mealPlans.recipeId, plan.recipeId),
+          ne(mealPlans.id, input.id),
+        ));
+      
+      let warning: string | undefined;
+      if (conflict.length > 0) {
+        const mealLabels = conflict.map(p => 
+          p.mealType === "breakfast" ? "早餐" : 
+          p.mealType === "lunch" ? "午餐" : 
+          p.mealType === "dinner" ? "晚餐" : "小食"
+        ).join("、");
+        warning = `${input.newDate} 已有同一食譜（${mealLabels}），已成功移動`;
+      }
+      
+      await db.update(mealPlans)
+        .set({ date: input.newDate })
+        .where(and(eq(mealPlans.id, input.id), eq(mealPlans.familyId, ctx.activeFamilyId)));
+      
+      if (input.moveShoppingItems) {
+        const targetShoppingDate = input.shoppingDate || input.newDate;
+        if (targetShoppingDate > input.newDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "購物日期不能遲過排餐日" });
+        }
+        await db.update(shoppingItems)
+          .set({ plannedDate: targetShoppingDate })
+          .where(and(
+            eq(shoppingItems.familyId, ctx.activeFamilyId),
+            or(
+              eq(shoppingItems.fromMealPlanId, input.id),
+              and(
+                eq(shoppingItems.fromRecipeName, plan.recipeName),
+                eq(shoppingItems.plannedDate, plan.date),
+              ),
+            ),
+          ));
+      }
+      
+      if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
+      return { success: true, warning };
+    }),
+
+  delete: familyWriteProcedure
+    .input(z.object({ 
+      id: z.number().int(),
+      keepRelatedItems: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      const plan = await getMealPlanById(input.id, ctx.activeFamilyId);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND", message: "Meal plan not found" });
+      
+      if (input.keepRelatedItems) {
+        await unlinkShoppingItemsFromMealPlan(ctx.activeFamilyId, plan.id);
+      }
+      
       await deleteMealPlan(input.id, ctx.activeFamilyId);
-      if (plan?.id) {
+      
+      if (!input.keepRelatedItems) {
         await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.id);
       }
       broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
@@ -1038,7 +1253,7 @@ const pantryRouter = router({
     return getPantryItems(ctx.activeFamilyId);
   }),
 
-  add: protectedProcedure
+  add: familyWriteProcedure
     .input(z.object({
       name: z.string().min(1),
       category: z.string().optional(),
@@ -1060,7 +1275,7 @@ const pantryRouter = router({
     }),
 
   /** Batch import bought shopping items into pantry */
-  importFromShopping: protectedProcedure
+  importFromShopping: familyWriteProcedure
     .input(z.array(z.object({
       name: z.string(),
       category: z.string().optional(),
@@ -1081,7 +1296,7 @@ const pantryRouter = router({
       return { success: true, count: items.length };
     }),
 
-  delete: protectedProcedure
+  delete: familyWriteProcedure
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -1090,7 +1305,7 @@ const pantryRouter = router({
     }),
 
   /** Toggle inStock flag */
-  toggleInStock: protectedProcedure
+  toggleInStock: familyWriteProcedure
     .input(z.object({ id: z.number().int(), inStock: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -1099,7 +1314,7 @@ const pantryRouter = router({
     }),
 
   /** Toggle isLow flag */
-  toggleLow: protectedProcedure
+  toggleLow: familyWriteProcedure
     .input(z.object({ id: z.number().int(), isLow: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -1108,7 +1323,7 @@ const pantryRouter = router({
     }),
 
   /** Add bought shopping items to pantry (one-click import) */
-  addFromShopping: protectedProcedure
+  addFromShopping: familyWriteProcedure
     .input(z.array(z.object({
       name: z.string(),
       category: z.string().optional(),
@@ -1249,7 +1464,7 @@ const recipeNotesRouter = router({
       if (!ctx.activeFamilyId) return [];
       return getRecipeNotes(ctx.activeFamilyId, input.recipeId);
     }),
-  add: protectedProcedure
+  add: familyWriteProcedure
     .input(z.object({
       recipeId: z.string(),
       recipeName: z.string().optional(),
@@ -1267,7 +1482,7 @@ const recipeNotesRouter = router({
       });
       return { ok: true };
     }),
-  delete: protectedProcedure
+  delete: familyWriteProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new Error('No family');
@@ -1357,8 +1572,10 @@ export const appRouter = router({
   purchaseHistory: purchaseHistoryRouter,
   customRecipe: customRecipeRouter,
   weeklyMenu: weeklyMenuRouter,
+  eatOut: eatOutRouter,
   recipeNotes: recipeNotesRouter,
   commonIngredient: commonIngredientRouter,
+  subscription: subscriptionRouter,
 });
 
 export type AppRouter = typeof appRouter;
