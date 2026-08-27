@@ -555,7 +555,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 
 // ─── Direct recipe parser (replaces extractRecipes) ─────────
 
-const ING_UNIT = "克|公斤|毫升|ml|g|kg|個|條|隻|片|碗|湯匙|茶匙|匙|包|盒|粒|瓣|棵|紮|杯|量杯|碟|勺|份|根|塊|斤|磅|oz|lb|升|罐|支|樽|件|段";
+const ING_UNIT = "克|公斤|毫升|ml|g|kg|個|條|隻|片|碗|湯匙|茶匙|匙|包|盒|粒|瓣|棵|紮|杯|量杯|碟|勺|份|根|塊|斤|磅|oz|lb|升|罐|支|樽|件|段|朵|兩|扎|把|顆|頭|尾";
 const ING_NUM = "[零〇一二兩三四五六七八九十百千萬半點]+|\\d+(?:\\.\\d+)?";
 
 function stripParens(s: string): string {
@@ -587,25 +587,50 @@ function isPlaceholderIngredientName(name: string): boolean {
   return PLACEHOLDER_INGREDIENT_NAMES.has(String(name ?? "").trim());
 }
 
+const INGREDIENT_NOTE_KEYWORDS = [
+  "潤肺", "止咳", "平喘", "唔好落太多", "唔好落", "不要落太多", "不要落", "少落", "少放",
+  "可選", "建議", "功效", "養生", "清熱", "去濕", "補氣", "止咳平喘",
+  "洗淨", "切片", "切碎", "切段", "切絲", "去皮", "去核", "浸泡", "泡發",
+  "攪拌", "備用", "斬件", "拍扁", "選", "但唔好", "不要太", "不要過", "不宜", "避免",
+  "隨意", "視乎", "喜歡", "喜愛", "偏好", "口味", "喜好",
+];
+
+function isIngredientNoteFragment(name: string): boolean {
+  const n = String(name ?? "").trim();
+  if (!n) return false;
+  // 過濾烹飪指示/備註
+  if (INGREDIENT_NOTE_KEYWORDS.some((kw) => n.includes(kw))) return true;
+  // 過濾標點句（例如「選少少但唔好太淋，」）
+  if (/[,,.．.!！？?]/.test(n)) return true;
+  return false;
+}
+
 // 拆「調味料：生抽 1湯匙、蠔油 半湯匙…」呢類一行多料／無空格中文數量
 function parseIngredientPart(part: string, parentName?: string): Array<{ name: string; quantity: string; unit: string }> {
   const p = stripParens(part);
-  if (!p) return [{ name: parentName ?? "", quantity: "適量", unit: "" }];
+  if (!p) return [];
 
-  // 份量在前嘅格式（「300克 雞肉」「2個 番茄」）→ 後面文字先係食材名
+  // 份量在前嘅格式（「300 克 雞肉」「2 個 番茄」）→ 後面文字先係食材名
   const qtyFirst = p.match(new RegExp(`^(${ING_NUM})\\s*(${ING_UNIT})\\s+(.+)$`));
   if (qtyFirst && qtyFirst[3].trim()) {
-    return [{ name: qtyFirst[3].trim(), quantity: qtyFirst[1], unit: qtyFirst[2] }];
+    const name = qtyFirst[3].trim();
+    if (!isPlaceholderIngredientName(name) && !isIngredientNoteFragment(name)) {
+      return [{ name, quantity: qtyFirst[1], unit: qtyFirst[2] }];
+    }
+    return [];
   }
 
-  // 純數量 + 單位（例如「一湯匙」「半茶匙」「300克」）→ 用父名
+  // 純數量 + 單位（例如「一湯匙」「半茶匙」「300 克」）→ 用父名
   const pureQty = p.match(new RegExp(`^(${ING_NUM})\\s*(${ING_UNIT})$`));
   if (pureQty) {
-    // 如果有父名就用父名做食材名，否則整返一個有意義嘅 fallback name（避免「只睇到份量」）
-    return [{ name: parentName || "食材", quantity: pureQty[1], unit: pureQty[2] }];
+    // 如果有父名就用父名做食材名，否則丟棄（避免「1 朵」、「4 兩」呢類無名食材）
+    if (parentName && !isPlaceholderIngredientName(parentName) && !isIngredientNoteFragment(parentName)) {
+      return [{ name: parentName, quantity: pureQty[1], unit: pureQty[2] }];
+    }
+    return [];
   }
 
-  // 搵所有「數量+單位」token，將 token 前嘅文字當 ingredient 名
+  // 搵所有「數量 + 單位」token，將 token 前嘅文字當 ingredient 名
   const re = new RegExp(`(${ING_NUM})\\s*(${ING_UNIT})`, "g");
   const tokens: Array<{ idx: number; end: number; qty: string; unit: string }> = [];
   let m: RegExpExecArray | null;
@@ -614,39 +639,54 @@ function parseIngredientPart(part: string, parentName?: string): Array<{ name: s
   }
 
   if (tokens.length === 0) {
-    const salt = p.match(/^(.+?)\s*(適量|少許)$/);
-    return [{ name: (salt ? salt[1] : p).trim(), quantity: salt ? salt[2] : "適量", unit: "" }];
+    const salt = p.match(/^(.+?)\\s*(適量 | 少許)$/);
+    if (salt) {
+      const name = salt[1].trim();
+      if (!isPlaceholderIngredientName(name) && !isIngredientNoteFragment(name)) {
+        return [{ name, quantity: salt[2], unit: "" }];
+      }
+    }
+    // 無數量單位，檢查是否有效食材名
+    const trimmed = p.trim();
+    if (trimmed && !isPlaceholderIngredientName(trimmed) && !isIngredientNoteFragment(trimmed)) {
+      return [{ name: trimmed, quantity: "適量", unit: "" }];
+    }
+    return [];
   }
 
   const items: Array<{ name: string; quantity: string; unit: string }> = [];
   let consumedTrailing = false;
   tokens.forEach((t, i) => {
     const nameStart = i === 0 ? 0 : tokens[i - 1].end;
-    let namePart = p.slice(nameStart, t.idx).replace(/[、，,;；]+$/, "").trim();
+    let namePart = p.slice(nameStart, t.idx).replace(/[,，,;；]+$/, "").trim();
     if (!namePart) {
-      // 「1條鱸魚」「300克雞肉」呢類：數量+單位喺最前、冇名
+      // 「1 條鱸魚」「300 克雞肉」呢類：數量 + 單位喺最前、冇名
       // → 啱啱有一次 token、之後先係食材名，直接用後方文字做名
-      const afterToken = p.slice(t.end).replace(/^[、，,;；\s]+|[、，,;；\s]+$/g, "").trim();
-      if (i === 0 && afterToken) {
+      const afterToken = p.slice(t.end).replace(/^[,，,;；\s]+|[,，,;；\s]+$/g, "").trim();
+      if (i === 0 && afterToken && !isPlaceholderIngredientName(afterToken) && !isIngredientNoteFragment(afterToken)) {
         items.push({ name: afterToken, quantity: t.qty, unit: t.unit });
         consumedTrailing = true;
         return;
       }
-      namePart = i === 0 ? (parentName ?? p) : p;
+      // 無食材名，丟棄
+      return;
     } else {
-      namePart = namePart.replace(/^[、，,;；\s]+/, "");
+      namePart = namePart.replace(/^[,，,;；\s]+/, "");
     }
-    items.push({ name: namePart, quantity: t.qty, unit: t.unit });
+    if (!isPlaceholderIngredientName(namePart) && !isIngredientNoteFragment(namePart)) {
+      items.push({ name: namePart, quantity: t.qty, unit: t.unit });
+    }
   });
 
   const lastEnd = tokens[tokens.length - 1].end;
-  const trailing = p.slice(lastEnd).replace(/^[、，,;；\s]+|[、，,;；\s]+$/g, "").trim();
-  if (trailing && !consumedTrailing) items.push({ name: trailing, quantity: "適量", unit: "" });
+  const trailing = p.slice(lastEnd).replace(/^[,，,;；\s]+|[,，,;；\s]+$/g, "").trim();
+  if (trailing && !consumedTrailing && !isPlaceholderIngredientName(trailing) && !isIngredientNoteFragment(trailing)) {
+    items.push({ name: trailing, quantity: "適量", unit: "" });
+  }
 
-  return items.filter(it => it.name).length > 0
-    ? items.filter(it => it.name)
-    : [{ name: parentName ?? p, quantity: "適量", unit: "" }];
+  return items;
 }
+
 
 function parseIngredientLine(line: string): Array<{ name: string; quantity: string; unit: string }> {
   const l = line.replace(/^[-–—*•·]\s*/, "").trim();
