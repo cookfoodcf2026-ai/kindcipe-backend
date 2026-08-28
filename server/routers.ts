@@ -1562,6 +1562,28 @@ export const appRouter = router({
         return { success: true, token: sessionToken };
 
       }),
+
+    // ── Admin Email Login ───────────────────────────────────────────────────
+    adminLogin: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        password: z.string().min(1),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByEmail(input.email);
+        if (!user || !user.passwordHash || user.role !== "admin") {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "管理員帳號或密碼錯誤" });
+        }
+        const valid = verifyPassword(input.password, user.passwordHash);
+        if (!valid) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "管理員帳號或密碼錯誤" });
+        }
+        await touchUserSignIn(user.id);
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true, token: sessionToken };
+      }),
   }),
   family: familyRouter,
   shopping: shoppingRouter,

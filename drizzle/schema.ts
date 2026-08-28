@@ -20,7 +20,7 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", ["free", "tr
 export const shoppingStatusEnum = pgEnum("shopping_status", ["pending", "active", "bought"]);
 export const mealTypeEnum = pgEnum("meal_type", ["breakfast", "lunch", "dinner", "snack"]);
 export const mealStatusEnum = pgEnum("meal_status", ["pending", "confirmed", "rejected"]);
-export const sourceTypeEnum = pgEnum("source_type", ["instagram", "youtube", "xiaohongshu", "threads", "tiktok", "manual"]);
+export const sourceTypeEnum = pgEnum("source_type", ["instagram", "youtube", "xiaohongshu", "threads", "tiktok", "manual", "kol"]);
 export const visibilityEnum = pgEnum("visibility", ["private", "pending_public", "public"]);
 export const eventTypeEnum = pgEnum("event_type", ["view", "plan", "save", "cook"]);
 
@@ -308,6 +308,21 @@ export const recipeNotes = pgTable("recipe_notes", {
 
 export type RecipeNote = typeof recipeNotes.$inferSelect;
 export type InsertRecipeNote = typeof recipeNotes.$inferInsert;
+
+// ─── User Recipe Collections (bookmarked recipes) ─────────────────────────────
+export const userRecipeCollections = pgTable("user_recipe_collections", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  recipeId: varchar("recipe_id", { length: 64 }).notNull(),
+  recipeType: varchar("recipe_type", { length: 16 }).notNull(), // "official" or "custom"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  uniq: uniqueIndex("user_recipe_collections_user_recipe_unique").on(t.userId, t.recipeId, t.recipeType),
+  userIdx: index("user_recipe_collections_user_idx").on(t.userId),
+}));
+
+export type UserRecipeCollection = typeof userRecipeCollections.$inferSelect;
+export type InsertUserRecipeCollection = typeof userRecipeCollections.$inferInsert;
 
 // ─── Weekly Menu ──────────────────────────────────────────────────────────────
 export const weeklyMenu = pgTable("weekly_menu", {

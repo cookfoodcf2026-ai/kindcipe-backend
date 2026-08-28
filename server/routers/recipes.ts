@@ -17,7 +17,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb, getCommonIngredients } from "../db";
-import { customRecipes, officialRecipes } from "../../drizzle/schema";
+import { customRecipes, officialRecipes, userRecipeCollections } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
@@ -1682,7 +1682,7 @@ export const recipesRouter = router({
       cookTimeMax: z.number().optional(),
       popularChips: z.array(z.string()).optional(),
       ingredientCategory: z.string().optional(),  // 食材類別篩選
-      source: z.enum(["all", "official", "user"]).optional(),  // 搜尋來源：all=全部，official=只官方，user=只自訂
+      source: z.enum(["all", "official", "user", "kol"]).optional(),  // 搜尋來源：all=全部，official=只官方，user=只自訂，kol=只 KOL 食譜
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -1690,7 +1690,7 @@ export const recipesRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         const db = await getDb();
-        if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, nextCursor: undefined };
+        if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, kolCount: 0, nextCursor: undefined };
 
       const offset = input.cursor ?? input.offset ?? 0;
 
@@ -2002,7 +2002,22 @@ export const recipesRouter = router({
 
       // 根據 source 參數決定是否查詢官方/自訂食譜
       const shouldQueryOfficial = !input.source || input.source === "all" || input.source === "official";
-      const shouldQueryCustom = !input.source || input.source === "all" || input.source === "user";
+      let shouldQueryCustom = !input.source || input.source === "all" || input.source === "user";
+      
+      // KOL 過濾：只查 customRecipes 中 source_type = 'kol' 或 external platforms
+      if (input.source === "kol") {
+        shouldQueryCustom = true;
+        customConditions.push(
+          or(
+            eq(customRecipes.sourceType, "kol"),
+            eq(customRecipes.sourceType, "instagram"),
+            eq(customRecipes.sourceType, "youtube"),
+            eq(customRecipes.sourceType, "xiaohongshu"),
+            eq(customRecipes.sourceType, "threads"),
+            eq(customRecipes.sourceType, "tiktok")
+          )
+        );
+      }
 
       // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
       let totalOfficial = 0;
@@ -2129,7 +2144,26 @@ export const recipesRouter = router({
       const hasMore = offset + input.limit < total;
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
-      return { recipes, total, officialCount: totalOfficial, customCount: totalCustom, nextCursor };
+      // Calculate kolCount separately
+      let kolCount = 0;
+      if (input.source === "kol" || input.source === "all" || !input.source) {
+        const kolResult = await db.select({ count: count() })
+          .from(customRecipes)
+          .where(and(
+            ...customConditions,
+            or(
+              eq(customRecipes.sourceType, "kol"),
+              eq(customRecipes.sourceType, "instagram"),
+              eq(customRecipes.sourceType, "youtube"),
+              eq(customRecipes.sourceType, "xiaohongshu"),
+              eq(customRecipes.sourceType, "threads"),
+              eq(customRecipes.sourceType, "tiktok")
+            )
+          ));
+        kolCount = Number(kolResult[0]?.count ?? 0);
+      }
+
+      return { recipes, total, officialCount: totalOfficial, customCount: totalCustom, kolCount, nextCursor };
       } catch (error) {
         console.error("[recipes.search] Error:", {
           error: error instanceof Error ? error.message : error,
@@ -2824,6 +2858,7 @@ export const recipesRouter = router({
       tags: z.array(z.string()).optional(),
       sourceAuthor: z.string().optional(),
       sourceUrl: z.string().optional(),
+      sourceType: z.enum(["instagram", "youtube", "xiaohongshu", "threads", "tiktok", "manual", "kol"]).optional(),
       tips: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -2847,6 +2882,7 @@ export const recipesRouter = router({
         tags: JSON.stringify(input.tags ?? []),
         sourceAuthor: input.sourceAuthor ?? '',
         sourceUrl: input.sourceUrl ?? '',
+        sourceType: input.sourceType,
         tips: input.tips ?? '',
         updatedAt: new Date(),
       }).where(eq(officialRecipes.id, input.id));
@@ -2952,6 +2988,139 @@ export const recipesRouter = router({
       }
 
       return { success: true, migrated, failed, total: recipes.length };
+    }),
+
+  // ── User: toggle recipe collection (bookmark) ──────────────────────────────
+  toggleCollection: protectedProcedure
+    .input(z.object({ 
+      recipeId: z.string(),
+      recipeType: z.enum(["official", "custom"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const userId = String(ctx.user.id);
+      const { recipeId, recipeType } = input;
+
+      // Check if already collected
+      const existing = await db.select()
+        .from(userRecipeCollections)
+        .where(and(
+          eq(userRecipeCollections.userId, userId),
+          eq(userRecipeCollections.recipeId, recipeId),
+          eq(userRecipeCollections.recipeType, recipeType)
+        ))
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Remove collection
+        await db.delete(userRecipeCollections)
+          .where(and(
+            eq(userRecipeCollections.userId, userId),
+            eq(userRecipeCollections.recipeId, recipeId),
+            eq(userRecipeCollections.recipeType, recipeType)
+          ));
+        return { collected: false };
+      } else {
+        // Add collection
+        await db.insert(userRecipeCollections).values({
+          userId,
+          recipeId,
+          recipeType,
+        });
+        return { collected: true };
+      }
+    }),
+
+  // ── User: get collected recipes ────────────────────────────────────────────
+  listCollections: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const userId = String(ctx.user.id);
+      const collections = await db.select()
+        .from(userRecipeCollections)
+        .where(eq(userRecipeCollections.userId, userId));
+
+      const recipes: any[] = [];
+
+      for (const collection of collections) {
+        if (collection.recipeType === "official") {
+          const numericId = parseInt(collection.recipeId, 10);
+          const [r] = await db.select()
+            .from(officialRecipes)
+            .where(eq(officialRecipes.id, numericId))
+            .limit(1);
+          if (r) {
+            recipes.push({
+              ...r,
+              id: `official_${r.id}`,
+              ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+              steps: r.steps ? JSON.parse(r.steps) : [],
+              tags: r.tags ? JSON.parse(r.tags) : [],
+              source: "official" as const,
+              isCollected: true,
+            });
+          }
+        } else if (collection.recipeType === "custom") {
+          const numericId = parseInt(collection.recipeId, 10);
+          const [r] = await db.select()
+            .from(customRecipes)
+            .where(eq(customRecipes.id, numericId))
+            .limit(1);
+          if (r && (r.visibility === "public" || r.visibility === "pending_public")) {
+            recipes.push({
+              ...r,
+              id: `user_${r.id}`,
+              ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+              steps: r.steps ? JSON.parse(r.steps) : [],
+              tags: r.tags ? JSON.parse(r.tags) : [],
+              source: "user" as const,
+              isCollected: true,
+            });
+          }
+        }
+      }
+
+      return recipes;
+    }),
+
+  // ── Public: list KOL recipes (source_type = 'kol' or external platforms) ───
+  listKol: publicProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
+    }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const recipes = await db.select()
+        .from(customRecipes)
+        .where(
+          or(
+            eq(customRecipes.sourceType, "kol"),
+            eq(customRecipes.sourceType, "instagram"),
+            eq(customRecipes.sourceType, "youtube"),
+            eq(customRecipes.sourceType, "xiaohongshu"),
+            eq(customRecipes.sourceType, "threads"),
+            eq(customRecipes.sourceType, "tiktok")
+          )
+        )
+        .orderBy(desc(customRecipes.popularity))
+        .limit(input?.limit ?? 20)
+        .offset(input?.offset ?? 0);
+
+      return recipes.map((r) => ({
+        ...r,
+        id: `user_${r.id}`,
+        ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+        steps: r.steps ? JSON.parse(r.steps) : [],
+        tags: r.tags ? JSON.parse(r.tags) : [],
+        source: "user" as const,
+      }));
     }),
 
 });
