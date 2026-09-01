@@ -86,6 +86,7 @@ import {
   getPurchaseHistory,
   getPurchaseFrequency,
   getLastPurchasePrices,
+  updatePurchaseHistory,
   getRecipeNotes,
   addRecipeNote,
   deleteRecipeNote,
@@ -1456,6 +1457,26 @@ const purchaseHistoryRouter = router({
         await updateShoppingItemDetailsSolo(input.itemId, ctx.user.id, { estimatedPrice: input.price });
         // Solo 用戶唔記錄 purchase history（未來可以加）
       }
+      return { success: true };
+    }),
+  /**
+   * Update an existing purchase history record (price/quantity).
+   * Used when user edits a purchased item in the history page.
+   */
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number().int(),
+      actualPrice: z.number().int().min(1).nullable().optional(),
+      quantity: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No active family' });
+      }
+      await updatePurchaseHistory(input.id, {
+        actualPrice: input.actualPrice ?? undefined,
+        quantity: input.quantity ?? undefined,
+      });
       return { success: true };
     }),
 });

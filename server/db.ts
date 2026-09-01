@@ -972,6 +972,24 @@ export async function getPurchaseHistory(familyId: number, limit = 200) {
 }
 
 /**
+ * Update an existing purchase history record (price/quantity).
+ */
+export async function updatePurchaseHistory(
+  id: number,
+  data: { actualPrice?: number; quantity?: string }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(purchaseHistory)
+    .set({
+      actualPrice: data.actualPrice ?? null,
+      quantity: data.quantity ?? null,
+    })
+    .where(eq(purchaseHistory.id, id));
+}
+
+/**
  * Returns the last actual purchase price for a single item name within a family.
  * Used to show price diff when user inputs a new price.
  */
