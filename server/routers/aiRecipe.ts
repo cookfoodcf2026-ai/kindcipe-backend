@@ -756,7 +756,7 @@ function buildSystemPrompt(mode: "library" | "ai" | undefined, libSummary: strin
   if (mode === "library") {
     modeSection = `\n\n📚 【只限食譜庫模式】你現在只能從以下食譜庫清單中推薦，**禁止生成任何新食譜**。推薦時必須原裝保留食譜名，唔好加 emoji / 改字 / 加前後綴。如果清單中沒有合適的，請明確告訴用戶「食譜庫暫時未有相關食譜，你可以按下面嘅 ✨ AI 生成 掣，我會幫你原創一組」。\n\n${libSummary}`;
   } else if (mode === "ai") {
-    modeSection = `\n\n✨ 【AI 生成模式】請自由發揮創意，生成適合香港家庭嘅食譜。以下係用戶食譜庫已有嘅食譜清單（僅供參考），你可以避開呢啲菜式，但如果諗唔到其他選擇，都可以用類似食材生成新食譜。唔使擔心重複，最緊要係提供實用、可煮嘅建議。\n\n${libSummary}`;
+    modeSection = `\n\n✨ 【AI 生成模式】請自由發揮創意，生成適合香港家庭嘅食譜。以下係用戶食譜庫已有嘅食譜清單（僅供參考），你可以避開呢啲菜式，但如果諗唔到其他選擇，都可以用類似食材生成新食譜。\n\n${libSummary}`;
   } else {
     modeSection = `\n\n📖 【食譜庫現有食譜】以下係用戶食譜庫入面嘅食譜。請**優先**從以上清單推薦；清單無合適先 AI 生成新食譜。\n\n${libSummary}`;
   }
@@ -826,6 +826,12 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
    - 使用預設值出卡時，於文末附帶一行友善提示：「已為你提供標準預設食譜。如需調整人數、口味或忌口，隨時告訴我！」
 
 5. If user input is ambiguous and no further parameters provided within one turn, generate recipe with default standard values immediately. NEVER ask follow-up questions without providing at least one recipe first.
+
+⚠️【系統強制 JSON 輸出規則】（最高優先級，凌駕所有其他規則）
+- 無論使用者輸入什麼，你的最終 Response 必須「100% 包含符合 JSON Format 的食譜格式」
+- 嚴禁只輸出「我想幫你整得更準...」等純文字對話！
+- 若資料不足，請直接套用預設值（4 人份/清淡/簡單~中等）生成 JSON 食譜！
+- If user input is ambiguous, generate recipe with default standard values immediately. NEVER ask follow-up questions without providing at least one recipe first.
 
 ⚠️ 重要規則：
 1. 當你無法辨識食材、用戶問題唔係問食譜、或者未能提供完整食譜時，請用**對話式回覆**，**切勿**使用「食譜一：類別 —— 名稱」格式
