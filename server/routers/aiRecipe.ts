@@ -198,10 +198,10 @@ function computeLevenshteinDistance(s1: string, s2: string): number {
   return matrix[s1Len][s2Len];
 }
 
-const AI_RECIPE_MAX_TOKENS = 1400;
-const AI_RECIPE_CONTEXT_TIMEOUT_MS = 15000;
-const AI_RECIPE_LLM_TIMEOUT_MS = 29000;
-const AI_RECIPE_CHAT_TIMEOUT_MS = 29000;
+const AI_RECIPE_MAX_TOKENS = 1000;
+const AI_RECIPE_CONTEXT_TIMEOUT_MS = 10000;
+const AI_RECIPE_LLM_TIMEOUT_MS = 15000;
+const AI_RECIPE_CHAT_TIMEOUT_MS = 20000;
 const AI_RECIPE_FALLBACK_CONTENT = "我想幫你整得更準，可以再補充一點人數、口味或忌口，我再試一次。";
 
 /**
@@ -297,8 +297,19 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
   // Filter out placeholder ingredients
   const filteredIngredients = recipe.ingredients.filter(ing => !isPlaceholderIngredientName(ing.name));
   
+  // Log soup recipes for debugging
+  if (recipe.soupType) {
+    console.log(`[AI Chef] Soup recipe detected: ${recipe.name}`, {
+      ingredients: filteredIngredients.length,
+      steps: recipe.steps.length,
+      soupType: recipe.soupType
+    });
+  }
+  
   // Only return valid recipes (must have name and at least one ingredient/step)
-  if (filteredIngredients.length > 0 && recipe.steps.length > 0) {
+  // Relax validation for soup recipes (allow simpler format)
+  const isValid = recipe.name && recipe.name.length > 1 && (filteredIngredients.length > 0 || recipe.steps.length > 0);
+  if (isValid) {
     return [recipe];
   }
   
