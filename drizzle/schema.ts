@@ -33,6 +33,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   emailVerified: boolean("email_verified").default(false).notNull(),
   loginMethod: varchar("login_method", { length: 64 }),
+  passwordVersion: integer("password_version").default(0).notNull(),
   role: roleEnum("role").default("user").notNull(),
   trialCount: integer("trial_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -42,6 +43,20 @@ export const users = pgTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+// ─── Password Reset Tokens ───────────────────────────────────────────────────
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = typeof passwordResetTokens.$inferInsert;
 
 // ─── Families ─────────────────────────────────────────────────────────────────
 export const families = pgTable("families", {
@@ -369,7 +384,7 @@ export const importUsage = pgTable("import_usage", {
   count: integer("count").default(0).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
-  familyMonthUniq: uniqueIndex("import_usage_family_month_unique").on(t.familyId, t.yearMonth),
+  familyMonthUserUniq: uniqueIndex("import_usage_family_month_user_unique").on(t.familyId, t.yearMonth, t.userId),
 }));
 
 export type ImportUsage = typeof importUsage.$inferSelect;
@@ -397,12 +412,13 @@ export type InsertIapTransaction = typeof iapTransactions.$inferInsert;
 // ─── AI Chat Usage (per-kitchen monthly pool) ──────────────────────────────────
 export const aiChatUsage = pgTable("ai_chat_usage", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
   familyId: integer("family_id").notNull(),
   yearMonth: varchar("year_month", { length: 7 }).notNull(), // YYYY-MM
   count: integer("count").default(0).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
-  familyMonthUniq: uniqueIndex("ai_chat_usage_family_month_unique").on(t.familyId, t.yearMonth),
+  familyMonthUserUniq: uniqueIndex("ai_chat_usage_family_month_user_unique").on(t.familyId, t.yearMonth, t.userId),
 }));
 
 export type AiChatUsage = typeof aiChatUsage.$inferSelect;

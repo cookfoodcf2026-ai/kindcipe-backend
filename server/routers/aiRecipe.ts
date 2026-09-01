@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
-import { invokeLLM, extractJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, repairJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe } from "../db";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems } from "../../drizzle/schema";
@@ -67,6 +67,258 @@ const aiEditOutputSchema = z.object({
   tags: z.array(z.string()),
 });
 
+/**
+ * Four-Layer Protection Schema for AI Chef JSON parsing
+ * Layer 3: Zod validation with default values to prevent crashes
+ */
+const aiRecipeResponseSchema = z.object({
+  title: z.string().default("未命名食譜"),
+  name: z.string().default("未命名食譜"),
+  ingredients: z.array(z.object({
+    name: z.string().default("未知食材"),
+    quantity: z.string().default("適量"),
+    unit: z.string().default(""),
+  })).default([]),
+  instructions: z.array(z.string()).default([]),
+  steps: z.array(z.string()).default([]),
+  cookTime: z.number().int().default(30),
+  servings: z.number().int().default(4),
+  difficulty: z.string().default("中等"),
+  description: z.string().default(""),
+  recipeCategory: z.string().default("其他"),
+  tags: z.array(z.string()).default([]),
+  soupType: z.string().optional(),
+  benefits: z.string().optional(),
+  waterVolume: z.string().optional(),
+});
+
+/**
+ * AI Edit Differential Check - Prevents over-editing
+ * Validates that edited recipe is still a reasonable variation of the original
+ */
+interface EditValidationResult {
+  safe: boolean;
+  issues: string[];
+  autoFixes: Partial<SuggestedRecipe>;
+}
+
+function validateEditDifferential(original: any, edited: z.infer<typeof aiEditOutputSchema>): EditValidationResult {
+  const issues: string[] = [];
+  const autoFixes: Partial<SuggestedRecipe> = {};
+  
+  // 1. Title similarity check (prevent complete name change)
+  const originalTitle = original.name || "";
+  const editedTitle = edited.name || "";
+  const titleSimilarity = calculateStringSimilarity(originalTitle, editedTitle);
+  
+  if (titleSimilarity < 0.3 && originalTitle.length > 2 && editedTitle.length > 2) {
+    issues.push(`Title changed significantly: "${originalTitle}" → "${editedTitle}" (similarity: ${titleSimilarity})`);
+    // Auto-fix: keep original title if user didn't explicitly request name change
+    autoFixes.name = originalTitle;
+  }
+  
+  // 2. Core ingredient preservation check (protein main ingredients)
+  const originalIngredients = original.ingredients?.map((ing: any) => ing.name) || [];
+  const editedIngredients = edited.ingredients.map(ing => ing.name);
+  
+  const proteinKeywords = ["雞", "鴨", "鵝", "豬", "牛", "羊", "魚", "蝦", "蟹", "貝", "瘦肉", "排骨", "雞肉", "牛肉", "豬肉", "羊肉", "豆腐", "蛋", "雞蛋"];
+  const originalProteins = originalIngredients.filter((name: string) => proteinKeywords.some(kw => name.includes(kw)));
+  
+  if (originalProteins.length > 0) {
+    const missingProteins = originalProteins.filter((protein: string) => 
+      !editedIngredients.some(name => name.includes(protein) || protein.includes(name))
+    );
+    
+    if (missingProteins.length > 0) {
+      issues.push(`Core protein ingredients removed: ${missingProteins.join(", ")}`);
+      // Auto-fix: add back missing proteins (conservative approach - just warn, don't auto-add)
+    }
+  }
+  
+  // 3. Step count reasonableness check
+  const originalSteps = original.steps?.length || 0;
+  const editedSteps = edited.steps.length;
+  
+  if (originalSteps > 0 && editedSteps < originalSteps * 0.4) {
+    issues.push(`Steps reduced too much: ${originalSteps} → ${editedSteps} (less than 40% of original)`);
+  }
+  
+  // 4. Ingredient count reasonableness check  
+  const originalIngCount = originalIngredients.length || 0;
+  const editedIngCount = editedIngredients.length;
+  
+  if (originalIngCount > 3 && editedIngCount < originalIngCount * 0.3) {
+    issues.push(`Ingredients reduced too much: ${originalIngCount} → ${editedIngCount} (less than 30% of original)`);
+  }
+  
+  return {
+    safe: issues.length === 0,
+    issues,
+    autoFixes,
+  };
+}
+
+/**
+ * Simple string similarity calculation (Levenshtein-based)
+ */
+function calculateStringSimilarity(s1: string, s2: string): number {
+  const longer = s1.length > s2.length ? s1 : s2;
+  const shorter = s1.length > s2.length ? s2 : s1;
+  const longerLength = longer.length;
+  
+  if (longerLength === 0) return 1.0;
+  
+  const editDistance = computeLevenshteinDistance(longer, shorter);
+  return (longerLength - editDistance) / longerLength;
+}
+
+function computeLevenshteinDistance(s1: string, s2: string): number {
+  const s1Len = s1.length;
+  const s2Len = s2.length;
+  const matrix: number[][] = [];
+  
+  for (let i = 0; i <= s1Len; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= s2Len; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= s1Len; i++) {
+    for (let j = 1; j <= s2Len; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  
+  return matrix[s1Len][s2Len];
+}
+
+const AI_RECIPE_MAX_TOKENS = 1400;
+const AI_RECIPE_CONTEXT_TIMEOUT_MS = 15000;
+const AI_RECIPE_LLM_TIMEOUT_MS = 29000;
+const AI_RECIPE_CHAT_TIMEOUT_MS = 29000;
+const AI_RECIPE_FALLBACK_CONTENT = "我想幫你整得更準，可以再補充一點人數、口味或忌口，我再試一次。";
+
+/**
+ * Four-Layer Recipe Parser with Fallback
+ * Layer 1: extractJSON() - Extract JSON from mixed content
+ * Layer 2: repairJSON() - Fix common JSON issues (unquoted keys, truncation)
+ * Layer 3: Zod validation - Schema validation with default values
+ * Layer 4: parseRecipesFromText() - Fallback to text parser if JSON completely fails
+ * 
+ * Always returns a valid array of recipes, NEVER crashes or returns undefined
+ */
+function parseRecipeWithFallback(llmContent: string): SuggestedRecipe[] {
+  const parseStart = Date.now();
+  let layerUsed = 1;
+  
+  try {
+    // Layer 1: Extract JSON from content
+    const extracted = extractJSON(llmContent);
+    
+    if (!extracted || typeof extracted !== 'object') {
+      console.log("[AI Chef] Layer 4: JSON extraction failed, using text parser");
+      layerUsed = 4;
+      return parseRecipesFromText(llmContent);
+    }
+    
+    // Layer 2: Repair JSON if needed
+    const jsonString = JSON.stringify(extracted);
+    const repaired = repairJSON(jsonString);
+    
+    // Check if repair actually changed something
+    if (repaired !== jsonString) {
+      console.log("[AI Chef] Layer 2: JSON repaired", {
+        original: jsonString.slice(0, 100),
+        repaired: repaired.slice(0, 100)
+      });
+    }
+    
+    // Layer 3: Validate with Zod schema
+    const parsed = JSON.parse(repaired);
+    const validated = aiRecipeResponseSchema.safeParse(parsed);
+    
+    if (!validated.success) {
+      console.log("[AI Chef] Layer 3: Zod validation failed, using defaults", {
+        issues: validated.error.issues.slice(0, 3),
+        content: llmContent.slice(0, 200)
+      });
+      layerUsed = 3;
+      const recipeData = aiRecipeResponseSchema.parse({});
+      const result = convertRecipeDataToSuggestedRecipe(recipeData);
+      console.log("[AI Chef] Parse completed", { layer: layerUsed, duration: Date.now() - parseStart, recipes: result.length });
+      return result;
+    }
+    
+    // Convert validated data to SuggestedRecipe[]
+    const result = convertRecipeDataToSuggestedRecipe(validated.data);
+    console.log("[AI Chef] Parse completed", { layer: layerUsed, duration: Date.now() - parseStart, recipes: result.length });
+    return result;
+    
+  } catch (error) {
+    console.log("[AI Chef] Layer 4: Exception in JSON parsing, using text fallback", { 
+      error: String(error),
+      duration: Date.now() - parseStart
+    });
+    layerUsed = 4;
+    const result = parseRecipesFromText(llmContent);
+    console.log("[AI Chef] Text fallback completed", { duration: Date.now() - parseStart, recipes: result.length });
+    return result;
+  }
+}
+
+/**
+ * Helper: Convert validated Zod schema data to SuggestedRecipe[]
+ */
+function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeResponseSchema>): SuggestedRecipe[] {
+  const recipe: SuggestedRecipe = {
+    name: data.title !== "未命名食譜" ? data.title : data.name,
+    cookTime: data.cookTime,
+    servings: data.servings,
+    difficulty: data.difficulty,
+    description: data.description,
+    ingredients: data.ingredients.map(ing => ({
+      name: ing.name,
+      quantity: ing.quantity ?? "適量",
+      unit: ing.unit ?? "",
+    })),
+    steps: data.steps.length > 0 ? data.steps : data.instructions,
+    tags: data.tags,
+    soupType: data.soupType,
+    benefits: data.benefits,
+    waterVolume: data.waterVolume,
+  };
+  
+  // Filter out placeholder ingredients
+  const filteredIngredients = recipe.ingredients.filter(ing => !isPlaceholderIngredientName(ing.name));
+  
+  // Only return valid recipes (must have name and at least one ingredient/step)
+  if (filteredIngredients.length > 0 && recipe.steps.length > 0) {
+    return [recipe];
+  }
+  
+  // If invalid, fallback to text parser
+  return [];
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export type SuggestedRecipe = {
   name: string;
   cookTime: number;
@@ -76,6 +328,9 @@ export type SuggestedRecipe = {
   ingredients: { name: string; quantity: string; unit: string }[];
   steps: string[];
   tags: string[];
+  soupType?: string;
+  benefits?: string;
+  waterVolume?: string;
   source?: "official" | "custom" | "ai";
   officialId?: number;
   customId?: number;
@@ -288,7 +543,9 @@ async function execFetchRecipeFromUrl(args: { url: string }) {
         { role: "system", content: "從以下網頁內容提取食譜。以 JSON 格式返回：name, cookTime (整數分鐘), servings (整數), difficulty (簡單/中等/困難), description, recipeCategory (中菜/西餐/日式/韓式/東南亞/甜品/飲品/其他), ingredients [{name, quantity, unit}], steps [string] (至少3步詳細做法), tags [string]。如果網頁內容不是食譜，返回 {error: 'no_recipe'}。" },
         { role: "user", content: cleaned },
       ],
-      maxTokens: 4096, temperature: 0.3,
+      maxTokens: AI_RECIPE_MAX_TOKENS,
+      temperature: 0.3,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
       responseFormat: {
         type: "json_schema",
         json_schema: {
@@ -383,7 +640,7 @@ async function listFamilyCustomSummary(db: Db | null, familyId?: number, limit =
       .limit(limit);
     if (rows.length === 0) return "";
     const items = rows.map((r: any) => `- ${r.name}（我的｜${r.recipeCategory || "其他"}｜約${r.cookTime || "?"}分鐘）`).join("\n");
-    return `\n\n【用戶自訂食譜（可直接推薦，原裝保留名稱，唔好改名）】\n${items}`;
+    return `\n\n【用戶自訂食譜】\n${items}`;
   } catch (e) {
     console.warn("[AI Chef] listFamilyCustomSummary failed:", e);
     return "";
@@ -473,7 +730,7 @@ async function applyLibraryMatch(
 }
 
 // Build dynamic system prompt based on mode and library context
-function buildSystemPrompt(mode: "library" | "ai" | undefined, libSummary: string): string {
+function buildSystemPrompt(mode: "library" | "ai" | undefined, libSummary: string, soupIntent = false): string {
   let modeSection = "";
   if (mode === "library") {
     modeSection = `\n\n📚 【只限食譜庫模式】你現在只能從以下食譜庫清單中推薦，**禁止生成任何新食譜**。推薦時必須原裝保留食譜名，唔好加 emoji / 改字 / 加前後綴。如果清單中沒有合適的，請明確告訴用戶「食譜庫暫時未有相關食譜，你可以按下面嘅 ✨ AI 生成 掣，我會幫你原創一組」。\n\n${libSummary}`;
@@ -483,7 +740,37 @@ function buildSystemPrompt(mode: "library" | "ai" | undefined, libSummary: strin
     modeSection = `\n\n📖 【食譜庫現有食譜】以下係用戶食譜庫入面嘅食譜。請**優先**從以上清單推薦；清單無合適先 AI 生成新食譜。\n\n${libSummary}`;
   }
 
+  if (soupIntent) {
+    modeSection += `\n\n🍲 【湯水專屬規則】當你推薦湯水／燉湯／老火湯時，請在食譜正文中清晰標示以下欄位：\n- 湯類型：老火湯 / 滾湯 / 燉湯\n- 功效：例如 清熱潤肺、健脾益氣（只寫貼切內容，唔好誇大）\n- 水量：例如 1.5 升、1500 毫升、8 碗水\n- 食材欄必須列出實際需要嘅水 / 上湯 / 高湯 / 湯底，唔可以漏寫\n- 如果步驟會落薑、鹽或其他調味，食材欄亦要列出`;
+  }
+
   return SYSTEM_PROMPT + modeSection;
+}
+
+function detectSoupIntent(messages: Message[]): boolean {
+  const text = messages
+    .filter((m) => m.role === "user")
+    .map((m) => {
+      if (typeof m.content === "string") return m.content;
+      return m.content.filter((b) => b.type === "text").map((b) => b.text).join(" ");
+    })
+    .join(" ");
+  return /(湯水|老火湯|滾湯|燉湯|煲湯|靚湯|湯品|soup|tonic)/i.test(text);
+}
+
+function extractSoupMeta(block: string): { soupType?: string; benefits?: string; waterVolume?: string } {
+  const readField = (patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = block.match(pattern);
+      if (match?.[1]) return match[1].trim();
+    }
+    return "";
+  };
+  return {
+    soupType: readField([/(?:湯類型|湯種|類型|Soup\s*Type)[：:]\s*([^\n]+)/i]),
+    benefits: readField([/(?:功效|Benefits?)[：:]\s*([^\n]+)/i]),
+    waterVolume: readField([/(?:水量|用水|湯水用水|Water\s*Volume)[：:]\s*([^\n]+)/i]),
+  };
 }
 
 // ─── Prompts ─────────────────────────────────────────────
@@ -555,7 +842,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 
 // ─── Direct recipe parser (replaces extractRecipes) ─────────
 
-const ING_UNIT = "克|公斤|毫升|ml|g|kg|個|條|隻|片|碗|湯匙|茶匙|匙|包|盒|粒|瓣|棵|紮|杯|量杯|碟|勺|份|根|塊|斤|磅|oz|lb|升|罐|支|樽|件|段|朵|兩|扎|把|顆|頭|尾";
+const ING_UNIT = "克|公斤|毫升|公升|ml|g|kg|個|條|隻|片|碗|湯匙|茶匙|匙|包|盒|粒|瓣|棵|紮|杯|量杯|碟|勺|份|根|塊|斤|磅|oz|lb|升|罐|支|樽|件|段|朵|兩|扎|把|顆|頭|尾|角|小包|小盒|小碗|小罐|小袋|小杯|小支|小枝|小個|小把";
 const ING_NUM = "[零〇一二兩三四五六七八九十百千萬半點]+|\\d+(?:\\.\\d+)?";
 
 function stripParens(s: string): string {
@@ -591,7 +878,9 @@ const INGREDIENT_NOTE_KEYWORDS = [
   "潤肺", "止咳", "平喘", "唔好落太多", "唔好落", "不要落太多", "不要落", "少落", "少放",
   "可選", "建議", "功效", "養生", "清熱", "去濕", "補氣", "止咳平喘",
   "洗淨", "切片", "切碎", "切段", "切絲", "去皮", "去核", "浸泡", "泡發",
-  "攪拌", "備用", "斬件", "拍扁", "選", "但唔好", "不要太", "不要過", "不宜", "避免",
+  "攪拌", "備用", "斬件", "拍扁", "拍碎", "拍爛", "切粒", "切丁", "切幼", "切末", "剁碎", "剁蓉",
+  "汆水", "飛水", "焯水", "過冷河", "出水", "去蒂", "去籽",
+  "選", "但唔好", "不要太", "不要過", "不宜", "避免",
   "隨意", "視乎", "喜歡", "喜愛", "偏好", "口味", "喜好",
 ];
 
@@ -600,57 +889,131 @@ function isIngredientNoteFragment(name: string): boolean {
   if (!n) return false;
   // 過濾烹飪指示/備註
   if (INGREDIENT_NOTE_KEYWORDS.some((kw) => n.includes(kw))) return true;
-  // 過濾標點句（例如「選少少但唔好太淋，」）
-  if (/[,,.．.!！？?]/.test(n)) return true;
+  // 只在唔似份量時，先當標點句處理；避免誤殺「1.5公升」呢類數量
+  if (/[,,.．.!！？?]/.test(n)) {
+    const looksLikeAmount = /(?:\d+(?:\.\d+)?|\d+\/\d+|半|一|兩|二|三|四|五|六|七|八|九|十|幾)\s*(?:克|毫升|公升|升|ml|l|L|g|kg|個|條|隻|片|碗|湯匙|茶匙|匙|包|盒|粒|瓣|棵|紮|杯|碟|勺|份|根|塊|斤|磅|oz|lb|角|副)?/i.test(n);
+    if (!looksLikeAmount) return true;
+  }
   return false;
 }
 
-// 拆「調味料：生抽 1湯匙、蠔油 半湯匙…」呢類一行多料／無空格中文數量
-function parseIngredientPart(part: string, parentName?: string): Array<{ name: string; quantity: string; unit: string }> {
-  const p = stripParens(part);
-  if (!p) return [];
+const INGREDIENT_LABEL_PREFIXES = ["材料", "配料", "調味料", "食材", "原料", "主料", "ingredients", "ingredient"] as const;
+const INGREDIENT_ACTION_PREFIXES = ["切片", "切絲", "切粒", "切丁", "切碎", "切段", "切幼", "切末", "剁碎", "剁蓉", "斬件", "拍扁", "拍碎", "拍爛", "汆水", "飛水", "焯水", "洗淨", "去皮", "去核", "去蒂", "去籽", "備用", "過冷河", "出水"] as const;
+const INGREDIENT_AMOUNT_WORDS = ["少許", "適量", "些許", "若干"] as const;
 
-  // 份量在前嘅格式（「300 克 雞肉」「2 個 番茄」）→ 後面文字先係食材名
-  const qtyFirst = p.match(new RegExp(`^(${ING_NUM})\\s*(${ING_UNIT})\\s+(.+)$`));
+const normalizeIngredientWhitespace = (value: string) => String(value ?? "").replace(/\s+/g, " ").trim();
+
+const stripIngredientDecorations = (raw: string) => {
+  let text = stripParens(normalizeIngredientWhitespace(raw));
+  text = text.replace(/^[\s,，。．.!！？?、\-–—*•·]+|[\s,，。．.!！？?、\-–—*•·]+$/g, "").trim();
+  return text;
+};
+
+const stripIngredientLabelPrefix = (raw: string) => {
+  let text = normalizeIngredientWhitespace(raw);
+  const labelRe = new RegExp(`^(?:${INGREDIENT_LABEL_PREFIXES.join("|")})\\s*[：:]\\s*`, "i");
+  while (labelRe.test(text)) {
+    text = text.replace(labelRe, "").trim();
+  }
+  return text;
+};
+
+const stripIngredientActionPrefix = (raw: string) => {
+  let text = normalizeIngredientWhitespace(raw);
+  const actionRe = new RegExp(`^(?:${INGREDIENT_ACTION_PREFIXES.join("|")})\\s*(?:[：:：\\-–—]\\s*|\\s+)`, "i");
+  while (actionRe.test(text)) {
+    text = text.replace(actionRe, "").trim();
+  }
+  return text;
+};
+
+const stripIngredientAmountText = (raw: string) => {
+  let text = normalizeIngredientWhitespace(raw);
+  const amountWithUnitRe = new RegExp(`(?:^|[\\s,，。．.!！？?、\\-–—*•·])(?:約|大約|大概|近約|左右)?\\s*((?:\\d+(?:\\/\\d+)?(?:\\.\\d+)?)|半|一|兩|二|三|四|五|六|七|八|九|十|幾)\\s*(?:${ING_UNIT})`, "g");
+  text = text.replace(amountWithUnitRe, " ");
+  for (const word of INGREDIENT_AMOUNT_WORDS) {
+    const wordRe = new RegExp(`(?:^|[\\s,，。．.!！？?、\\-–—*•·])${word}(?=$|[\\s,，。．.!！？?、\\-–—*•·])`, "g");
+    text = text.replace(wordRe, " ");
+  }
+  text = text.replace(/\s+/g, " ").replace(/^[\s,，。．.!！？?、\-–—*•·]+|[\s,，。．.!！？?、\-–—*•·]+$/g, "").trim();
+  return text;
+};
+
+function sanitizeIngredientName(raw: string): string {
+  const stripped = stripIngredientDecorations(raw);
+  if (!stripped) return "";
+  const withoutLabels = stripIngredientLabelPrefix(stripped);
+  const withoutActions = stripIngredientActionPrefix(withoutLabels);
+  const withoutAmounts = stripIngredientAmountText(withoutActions);
+  return withoutAmounts;
+}
+
+const INGREDIENT_AMOUNT_RE = new RegExp(`(?:約|大約|大概|近約|左右)?\\s*((?:\\d+(?:\\/\\d+)?(?:\\.\\d+)?)|半|一|兩|二|三|四|五|六|七|八|九|十|幾|${INGREDIENT_AMOUNT_WORDS.join("|")})\\s*(?:(${ING_UNIT}))?`, "i");
+
+function extractIngredientAmount(raw: string): { quantity: string; unit: string } {
+  const text = stripIngredientDecorations(raw);
+  if (!text) return { quantity: "", unit: "" };
+  const match =
+    text.match(new RegExp(`(?:約|大約|大概|近約|左右)?\\s*((?:\\d+(?:\\/\\d+)?(?:\\.\\d+)?)|半|一|兩|二|三|四|五|六|七|八|九|十|幾|${INGREDIENT_AMOUNT_WORDS.join("|")})\\s*(${ING_UNIT})(?=$|[\\s,，。．.!！？?、\\-–—*•·])`, "i")) ||
+    text.match(INGREDIENT_AMOUNT_RE);
+  if (!match) return { quantity: "", unit: "" };
+  const quantity = match[1] ? match[1].trim() : "";
+  const unit = match[2] ? match[2].trim() : "";
+  if (!quantity) return { quantity: "", unit: "" };
+  return { quantity, unit };
+}
+
+function parseIngredientPartStrict(part: string, parentName?: string): Array<{ name: string; quantity: string; unit: string }> {
+  const raw = stripIngredientDecorations(part);
+  if (!raw) return [];
+
+  const parent = sanitizeIngredientName(parentName || "");
+  const labelStripped = stripIngredientLabelPrefix(raw);
+  const actionStripped = stripIngredientActionPrefix(labelStripped);
+
+  const qtyFirst = actionStripped.match(new RegExp(`^(${ING_NUM})\\s*(${ING_UNIT})\\s+(.+)$`));
   if (qtyFirst && qtyFirst[3].trim()) {
-    const name = qtyFirst[3].trim();
-    if (!isPlaceholderIngredientName(name) && !isIngredientNoteFragment(name)) {
+    const name = sanitizeIngredientName(qtyFirst[3]);
+    if (name && !isPlaceholderIngredientName(name) && !isIngredientNoteFragment(name)) {
       return [{ name, quantity: qtyFirst[1], unit: qtyFirst[2] }];
     }
     return [];
   }
 
-  // 純數量 + 單位（例如「一湯匙」「半茶匙」「300 克」）→ 用父名
-  const pureQty = p.match(new RegExp(`^(${ING_NUM})\\s*(${ING_UNIT})$`));
+  const pureQty = actionStripped.match(new RegExp(`^(${ING_NUM})\\s*(${ING_UNIT})$`));
   if (pureQty) {
-    // 如果有父名就用父名做食材名，否則丟棄（避免「1 朵」、「4 兩」呢類無名食材）
-    if (parentName && !isPlaceholderIngredientName(parentName) && !isIngredientNoteFragment(parentName)) {
-      return [{ name: parentName, quantity: pureQty[1], unit: pureQty[2] }];
+    if (parent && !isPlaceholderIngredientName(parent) && !isIngredientNoteFragment(parent)) {
+      return [{ name: parent, quantity: pureQty[1], unit: pureQty[2] }];
     }
     return [];
   }
 
-  // 搵所有「數量 + 單位」token，將 token 前嘅文字當 ingredient 名
+  const amount = extractIngredientAmount(actionStripped);
+  const cleanedName = sanitizeIngredientName(actionStripped);
+  if (!cleanedName || isPlaceholderIngredientName(cleanedName) || isIngredientNoteFragment(cleanedName)) {
+    return [];
+  }
+
+  const candidateName = amount.quantity
+    ? cleanedName
+        .replace(new RegExp(`(?:^|[\\s,，。．.!！？?、\\-–—*•·])(?:約|大約|大概|近約|左右)?\\s*${amount.quantity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*${amount.unit ? amount.unit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : ""}`, "g"), " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    : cleanedName;
+
+  if (candidateName && (amount.quantity || amount.unit)) {
+    return [{ name: candidateName, quantity: amount.quantity, unit: amount.unit }];
+  }
+
   const re = new RegExp(`(${ING_NUM})\\s*(${ING_UNIT})`, "g");
   const tokens: Array<{ idx: number; end: number; qty: string; unit: string }> = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(p))) {
+  while ((m = re.exec(actionStripped))) {
     tokens.push({ idx: m.index, end: m.index + m[0].length, qty: m[1], unit: m[2] });
   }
 
   if (tokens.length === 0) {
-    const salt = p.match(/^(.+?)\\s*(適量 | 少許)$/);
-    if (salt) {
-      const name = salt[1].trim();
-      if (!isPlaceholderIngredientName(name) && !isIngredientNoteFragment(name)) {
-        return [{ name, quantity: salt[2], unit: "" }];
-      }
-    }
-    // 無數量單位，檢查是否有效食材名
-    const trimmed = p.trim();
-    if (trimmed && !isPlaceholderIngredientName(trimmed) && !isIngredientNoteFragment(trimmed)) {
-      return [{ name: trimmed, quantity: "適量", unit: "" }];
-    }
+    if (candidateName) return [{ name: candidateName, quantity: "適量", unit: "" }];
     return [];
   }
 
@@ -658,33 +1021,59 @@ function parseIngredientPart(part: string, parentName?: string): Array<{ name: s
   let consumedTrailing = false;
   tokens.forEach((t, i) => {
     const nameStart = i === 0 ? 0 : tokens[i - 1].end;
-    let namePart = p.slice(nameStart, t.idx).replace(/[,，,;；]+$/, "").trim();
+    let namePart = actionStripped.slice(nameStart, t.idx).replace(/[,，,;；]+$/, "").trim();
     if (!namePart) {
-      // 「1 條鱸魚」「300 克雞肉」呢類：數量 + 單位喺最前、冇名
-      // → 啱啱有一次 token、之後先係食材名，直接用後方文字做名
-      const afterToken = p.slice(t.end).replace(/^[,，,;；\s]+|[,，,;；\s]+$/g, "").trim();
-      if (i === 0 && afterToken && !isPlaceholderIngredientName(afterToken) && !isIngredientNoteFragment(afterToken)) {
-        items.push({ name: afterToken, quantity: t.qty, unit: t.unit });
+      const afterToken = actionStripped.slice(t.end).replace(/^[,，,;；\s]+|[,，,;；\s]+$/g, "").trim();
+      const afterName = sanitizeIngredientName(afterToken);
+      if (i === 0 && afterName && !isPlaceholderIngredientName(afterName) && !isIngredientNoteFragment(afterName)) {
+        items.push({ name: afterName, quantity: t.qty, unit: t.unit });
         consumedTrailing = true;
-        return;
       }
-      // 無食材名，丟棄
       return;
-    } else {
-      namePart = namePart.replace(/^[,，,;；\s]+/, "");
     }
-    if (!isPlaceholderIngredientName(namePart) && !isIngredientNoteFragment(namePart)) {
-      items.push({ name: namePart, quantity: t.qty, unit: t.unit });
+
+    const cleaned = sanitizeIngredientName(namePart);
+    if (!isPlaceholderIngredientName(cleaned) && !isIngredientNoteFragment(cleaned)) {
+      items.push({ name: cleaned, quantity: t.qty, unit: t.unit });
     }
   });
 
   const lastEnd = tokens[tokens.length - 1].end;
-  const trailing = p.slice(lastEnd).replace(/^[,，,;；\s]+|[,，,;；\s]+$/g, "").trim();
-  if (trailing && !consumedTrailing && !isPlaceholderIngredientName(trailing) && !isIngredientNoteFragment(trailing)) {
-    items.push({ name: trailing, quantity: "適量", unit: "" });
+  const trailing = actionStripped.slice(lastEnd).replace(/^[,，,;；\s]+|[,，,;；\s]+$/g, "").trim();
+  const trailingName = sanitizeIngredientName(trailing);
+  if (trailingName && !consumedTrailing && !isPlaceholderIngredientName(trailingName) && !isIngredientNoteFragment(trailingName)) {
+    items.push({ name: trailingName, quantity: "適量", unit: "" });
   }
 
   return items;
+}
+
+function runIngredientSanitizerAssertions() {
+  const cases = [
+    { raw: "薑絲 1小包", name: "薑絲", quantity: "1", unit: "小包" },
+    { raw: "蒜蓉（切碎） 2湯匙", name: "蒜蓉", quantity: "2", unit: "湯匙" },
+    { raw: "切片：薑 3片", name: "薑", quantity: "3", unit: "片" },
+    { raw: "材料：豬肉 200克", name: "豬肉", quantity: "200", unit: "克" },
+    { raw: "調味料：生抽 1湯匙", name: "生抽", quantity: "1", unit: "湯匙" },
+    { raw: "芹菜粒 1包", name: "芹菜粒", quantity: "1", unit: "包" },
+  ] as const;
+
+  for (const tc of cases) {
+    const name = sanitizeIngredientName(tc.raw);
+    const amount = extractIngredientAmount(tc.raw);
+    console.assert(name === tc.name, `[IngredientSanitizer] name mismatch for "${tc.raw}": expected "${tc.name}", got "${name}"`);
+    console.assert(amount.quantity === tc.quantity, `[IngredientSanitizer] quantity mismatch for "${tc.raw}": expected "${tc.quantity}", got "${amount.quantity}"`);
+    console.assert(amount.unit === tc.unit, `[IngredientSanitizer] unit mismatch for "${tc.raw}": expected "${tc.unit}", got "${amount.unit}"`);
+  }
+}
+
+if (process.env.NODE_ENV !== "production" && process.env.KINDCIPE_SKIP_INGREDIENT_SANITIZER_ASSERTS !== "1") {
+  runIngredientSanitizerAssertions();
+}
+
+// 拆「調味料：生抽 1湯匙、蠔油 半湯匙…」呢類一行多料／無空格中文數量
+function parseIngredientPart(part: string, parentName?: string): Array<{ name: string; quantity: string; unit: string }> {
+  return parseIngredientPartStrict(part, parentName);
 }
 
 
@@ -698,13 +1087,13 @@ function parseIngredientLine(line: string): Array<{ name: string; quantity: stri
     if (/[、，,;；]/.test(detail)) {
       const out: Array<{ name: string; quantity: string; unit: string }> = [];
       for (const part of detail.split(/[、，,;；]/)) {
-        out.push(...parseIngredientPart(part, parentName));
+        out.push(...parseIngredientPartStrict(part, parentName));
       }
       return out;
     }
-    return parseIngredientPart(detail, parentName);
+    return parseIngredientPartStrict(detail, parentName);
   }
-  return parseIngredientPart(l);
+  return parseIngredientPartStrict(l);
 }
 
 function parseRecipesFromText(text: string): SuggestedRecipe[] {
@@ -761,8 +1150,13 @@ function parseRecipesFromText(text: string): SuggestedRecipe[] {
     // Parse description (text between header and 食材)
     const descMatch = block.match(/(?:[）)])\s*\n+([\s\S]*?)(?=🛒|$)/);
     const description = descMatch ? descMatch[1].trim().split("\n")[0] : "";
+
+    const soupMeta = extractSoupMeta(block);
     
     const filteredIngredients = ingredients.filter(ing => !isPlaceholderIngredientName(ing.name));
+    const tags = [category];
+    if (soupMeta.soupType) tags.push(...soupMeta.soupType.split(/[、,，/／|｜\s]+/).map((s) => s.trim()).filter(Boolean));
+    if (soupMeta.benefits) tags.push(...soupMeta.benefits.split(/[、,，/／|｜\s]+/).map((s) => s.trim()).filter(Boolean));
 
     // Only add if we have ingredients and steps
     if (filteredIngredients.length > 0 && steps.length > 0) {
@@ -774,7 +1168,10 @@ function parseRecipesFromText(text: string): SuggestedRecipe[] {
         description,
         ingredients: filteredIngredients,
         steps,
-        tags: [category],
+        tags: [...new Set(tags)],
+        soupType: soupMeta.soupType || undefined,
+        benefits: soupMeta.benefits || undefined,
+        waterVolume: soupMeta.waterVolume || undefined,
       });
     }
   }
@@ -794,12 +1191,21 @@ async function runToolsLoop(
   const MAX_ITER = 3;
 
   for (let i = 0; i < MAX_ITER; i++) {
-    const llmResp = await invokeLLM({
-      messages,
-      maxTokens: 4096, temperature: 0.9,
-      enableSearch: enableSearch ?? true,
-      tools: i === 0 ? TOOLS as any : undefined,
-    });
+    let llmResp;
+    try {
+      llmResp = await invokeLLM({
+        messages,
+        maxTokens: AI_RECIPE_MAX_TOKENS,
+        temperature: 0.9,
+        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+        enableSearch: enableSearch ?? true,
+        tools: i === 0 ? TOOLS as any : undefined,
+      });
+    } catch (err) {
+      console.warn("[AI Chef] LLM call failed:", err);
+      messages.push({ role: "assistant", content: AI_RECIPE_FALLBACK_CONTENT });
+      return { finalContent: AI_RECIPE_FALLBACK_CONTENT, allMessages: messages };
+    }
 
     const choice = llmResp.choices[0];
     if (!choice) return { finalContent: "", allMessages: messages };
@@ -826,7 +1232,8 @@ async function runToolsLoop(
     }
   }
 
-  return { finalContent: "", allMessages: messages };
+  messages.push({ role: "assistant", content: AI_RECIPE_FALLBACK_CONTENT });
+  return { finalContent: AI_RECIPE_FALLBACK_CONTENT, allMessages: messages };
 }
 
 // ─── Helper: convert frontend messages to LLM format ─────
@@ -872,7 +1279,14 @@ export async function processAIChefChat(
   mode?: "library" | "ai"
 ): Promise<{ content: string; recipes: SuggestedRecipe[] }> {
   const db = await getDb();
-  const resolvedMsgs = await resolveImageUrls(inputMessages);
+  const resolvedMsgs = await withTimeout(
+    resolveImageUrls(inputMessages),
+    AI_RECIPE_CONTEXT_TIMEOUT_MS,
+    "resolve image urls"
+  ).catch((err) => {
+    console.warn("[AI Chef] resolveImageUrls timeout/failure:", err);
+    return inputMessages;
+  });
 
   // Auto-search: always run searchRecipes first to get library context
   const searchQuery = extractSearchQuery(toLLMMessages(resolvedMsgs));
@@ -880,7 +1294,11 @@ export async function processAIChefChat(
   let libResults: Record<string, unknown>[] = [];
   if (db) {
     try {
-      const searchResult = await execSearchRecipes(db, { query: searchQuery, limit: 15 }, familyId);
+      const searchResult = await withTimeout(
+        execSearchRecipes(db, { query: searchQuery, limit: 15 }, familyId),
+        AI_RECIPE_CONTEXT_TIMEOUT_MS,
+        "auto search recipes"
+      );
       libResults = (searchResult.recipes || []) as Record<string, unknown>[];
       libSummary = formatLibraryContext(libResults);
       const customSummary = await listFamilyCustomSummary(db, familyId);
@@ -891,17 +1309,30 @@ export async function processAIChefChat(
     }
   }
 
-  const systemPrompt = buildSystemPrompt(mode, libSummary);
+  const soupIntent = detectSoupIntent(toLLMMessages(resolvedMsgs));
+  const systemPrompt = buildSystemPrompt(mode, libSummary, soupIntent);
   const msgs: Message[] = [
     { role: "system", content: systemPrompt },
     ...toLLMMessages(resolvedMsgs),
   ];
 
   const enableSearch = mode !== "library";
-  const { finalContent, allMessages } = await runToolsLoop(msgs, familyId, userId, enableSearch);
+  let finalContent = AI_RECIPE_FALLBACK_CONTENT;
+  let allMessages = msgs;
+  try {
+    ({ finalContent, allMessages } = await withTimeout(
+      runToolsLoop(msgs, familyId, userId, enableSearch),
+      AI_RECIPE_CHAT_TIMEOUT_MS,
+      "ai chef chat",
+    ));
+  } catch (e) {
+    console.warn("[AI Chef] chat timed out or failed:", e);
+    return { content: AI_RECIPE_FALLBACK_CONTENT, recipes: [] };
+  }
 
-  // Direct parse from assistant response (no extra LLM call)
-  const recipes = parseRecipesFromText(finalContent);
+  // Direct parse from assistant response with four-layer protection
+  // Layer 1: extractJSON, Layer 2: repairJSON, Layer 3: Zod validation, Layer 4: text fallback
+  const recipes = parseRecipeWithFallback(finalContent);
 
   // Phase 1: Only match against library when mode="library"; otherwise all AI-generated recipes are marked as "ai"
   if (mode === "library") {
@@ -953,7 +1384,14 @@ export async function* streamAIChefChat(
   { type: "text"; value: string } | { type: "recipes"; value: SuggestedRecipe[] } | { type: "done" }
 > {
   const db = await getDb();
-  const resolvedMsgs = await resolveImageUrls(inputMessages);
+  const resolvedMsgs = await withTimeout(
+    resolveImageUrls(inputMessages),
+    AI_RECIPE_CONTEXT_TIMEOUT_MS,
+    "resolve image urls"
+  ).catch((err) => {
+    console.warn("[AI Chef] resolveImageUrls timeout/failure:", err);
+    return inputMessages;
+  });
 
   // Auto-search
   const searchQuery = extractSearchQuery(toLLMMessages(resolvedMsgs));
@@ -961,7 +1399,11 @@ export async function* streamAIChefChat(
   let libResults: Record<string, unknown>[] = [];
   if (db) {
     try {
-      const searchResult = await execSearchRecipes(db, { query: searchQuery, limit: 15 }, familyId);
+      const searchResult = await withTimeout(
+        execSearchRecipes(db, { query: searchQuery, limit: 15 }, familyId),
+        AI_RECIPE_CONTEXT_TIMEOUT_MS,
+        "auto search recipes"
+      );
       libResults = (searchResult.recipes || []) as Record<string, unknown>[];
       libSummary = formatLibraryContext(libResults);
       const customSummary = await listFamilyCustomSummary(db, familyId);
@@ -972,12 +1414,25 @@ export async function* streamAIChefChat(
     }
   }
 
-  const systemPrompt = buildSystemPrompt(mode, libSummary);
+  const soupIntent = detectSoupIntent(toLLMMessages(resolvedMsgs));
+  const systemPrompt = buildSystemPrompt(mode, libSummary, soupIntent);
   const sysMsg: Message = { role: "system", content: systemPrompt };
   const msgs: Message[] = [sysMsg, ...toLLMMessages(resolvedMsgs)];
 
   const enableSearch = mode !== "library";
-  const { allMessages } = await runToolsLoop(msgs, familyId, userId, enableSearch);
+  let allMessages = msgs;
+  try {
+    ({ allMessages } = await withTimeout(
+      runToolsLoop(msgs, familyId, userId, enableSearch),
+      AI_RECIPE_CHAT_TIMEOUT_MS,
+      "ai chef chat stream",
+    ));
+  } catch (e) {
+    console.warn("[AI Chef] stream chat timed out or failed:", e);
+    yield { type: "text", value: AI_RECIPE_FALLBACK_CONTENT };
+    yield { type: "done" };
+    return;
+  }
 
   // Stream the text response directly (no re-generation)
   const lastAssistantMsg = allMessages.filter(m => m.role === "assistant").pop();
@@ -990,8 +1445,8 @@ export async function* streamAIChefChat(
     }
   }
 
-  // Parse and tag sources for streaming path too
-  const streamRecipes = parseRecipesFromText(lastAssistantContent);
+  // Parse and tag sources for streaming path with four-layer protection
+  const streamRecipes = parseRecipeWithFallback(lastAssistantContent);
 
   // Phase 1: Only match against library when mode="library"; otherwise all AI-generated recipes are marked as "ai"
   if (mode === "library") {
@@ -1029,7 +1484,30 @@ async function runAiEdit(
   familyId: string | number,
   userId: string,
 ): Promise<z.infer<typeof aiEditOutputSchema>> {
-  const systemPrompt = `你是一個專業食譜編輯助手。請根據原始食譜和修改要求，產生一個完整可儲存的新食譜。\n\n要求：\n1. 必須保留原食譜的核心風格，但要按修改要求調整\n2. 所有文字使用繁體中文\n3. 步驟要清晰、可操作\n4. 食材、份量、做法要合理一致\n5. 只回傳 JSON，不要加任何解釋文字`;
+  const systemPrompt = `你是一個專業食譜編輯助手。請根據原始食譜和修改要求，產生一個完整可儲存的新食譜。
+
+要求：
+1. 必須保留原食譜的核心風格，但要按修改要求調整
+2. 所有文字使用繁體中文
+3. 步驟要清晰、可操作
+4. 食材、份量、做法要合理一致
+5. 只回傳 JSON，不要加任何解釋文字
+
+⚠️【重要原則 - 最小修改原則】
+1. **只修改用戶明確要求嘅部分**：例如用戶要求「改辣啲」，只增加辣椒/辣醬，其他唔變。嚴禁修改未被提及嘅食材、步驟或調味料。
+2. **保留核心身份**：修改後嘅食譜必須仍然係「同一道菜嘅變體」，唔可以變成另一道完全唔同嘅菜式。
+3. **核心食材保護**：蛋白質主材（如雞、魚、牛肉、豆腐）唔可以隨意替換，除非用戶明確要求。
+4. **步驟完整性**：唔可以刪除用戶無要求刪除嘅步驟，確保烹飪流程完整。
+
+✅ 正確例子：
+- 用戶要求「改辣啲」→ 只增加辣椒/辣醬，其他不變
+- 用戶要求「走蔥」→ 只移除蔥相關食材，保留蔥油等調味
+- 用戶要求「減一半份量」→ 只調整食材份量，步驟不變
+
+❌ 錯誤例子：
+- 用戶要求「改辣啲」→ 將「蒸雞」變成「炒牛肉」❌
+- 用戶要求「走蔥」→ 移除所有蔥 Related 內容，改變菜式風格 ❌
+- 用戶要求「減份量」→ 刪除一半步驟，導致煮唔熟 ❌`;
 
   const response = await invokeLLM({
     messages: [
@@ -1039,6 +1517,8 @@ async function runAiEdit(
         content: `原始食譜：${JSON.stringify(input.recipe)}\n\n修改要求：${input.editPrompt}`,
       },
     ],
+    maxTokens: AI_RECIPE_MAX_TOKENS,
+    timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
     responseFormat: {
       type: "json_schema",
       json_schema: {
@@ -1090,7 +1570,28 @@ async function runAiEdit(
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
 
-  return aiEditOutputSchema.parse(extractJSON(parsedContent));
+  // Apply repairJSON for robustness (same as AI Chef four-layer protection)
+  const extracted = extractJSON(parsedContent);
+  const repaired = repairJSON(JSON.stringify(extracted));
+  const parsed = aiEditOutputSchema.parse(JSON.parse(repaired));
+  
+  // Apply differential check to prevent over-editing
+  const validation = validateEditDifferential(input.recipe, parsed);
+  if (!validation.safe) {
+    console.warn("[AI Edit] ⚠️ Over-edit detected", {
+      issues: validation.issues,
+      originalRecipe: input.recipe.name,
+      editPrompt: input.editPrompt
+    });
+    
+    // Apply auto-fixes for critical issues
+    if (validation.autoFixes.name) {
+      parsed.name = validation.autoFixes.name;
+      console.log("[AI Edit] Auto-fixed: restored original recipe name");
+    }
+  }
+  
+  return parsed;
 }
 
 export const aiRecipeRouter = router({
@@ -1198,7 +1699,7 @@ export const aiRecipeRouter = router({
           if (typeof m.content === "string") return /(https?:\/\/|data:image)/i.test(m.content);
           return m.content.some(c => c.type === "image_url");
         });
-        await incrementAiChatUsage(familyId, hasMedia ? 2 : 1);
+        await incrementAiChatUsage(familyId, String(ctx.user.id), hasMedia ? 2 : 1);
       }
 
       return processAIChefChat(

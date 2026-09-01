@@ -51,6 +51,7 @@ export interface LLMParams {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  timeoutMs?: number;
   responseFormat?: {
     type: "json_schema";
     json_schema: {
@@ -134,7 +135,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 29000);
 
   try {
     console.log(`[LLM] Calling ${model} with ${params.messages.length} messages`);
@@ -265,7 +266,57 @@ export function extractJSON<T = Record<string, unknown>>(raw: string): T {
   if (content.startsWith("```")) {
     content = content.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
   }
-  return JSON.parse(content) as T;
+  if (!content || /^undefined|null$/i.test(content)) {
+    console.warn("[LLM] extractJSON received empty/invalid content");
+    return {} as T;
+  }
+  const objectStart = content.indexOf("{");
+  const objectEnd = content.lastIndexOf("}");
+  const arrayStart = content.indexOf("[");
+  const arrayEnd = content.lastIndexOf("]");
+
+  if (objectStart !== -1 && objectEnd > objectStart) {
+    content = content.slice(objectStart, objectEnd + 1);
+  } else if (arrayStart !== -1 && arrayEnd > arrayStart) {
+    content = content.slice(arrayStart, arrayEnd + 1);
+  }
+  try {
+    return JSON.parse(content) as T;
+  } catch (err) {
+    console.warn("[LLM] extractJSON parse failed:", String((err as Error)?.message || err));
+    return {} as T;
+  }
+}
+
+/**
+ * Repair common JSON issues from LLM output
+ * Handles: unquoted keys, truncated strings, unclosed braces
+ */
+export function repairJSON(content: string): string {
+  // 1. 修復無引號鍵名：{title: "x"} -> {"title": "x"}
+  content = content.replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');
+  
+  // 2. 修復無引號字符串值 (簡單情況)
+  content = content.replace(/:\s*([A-Za-z\u4e00-\u9fff]+)\s*([,}])/g, ': "$1"$2');
+  
+  // 3. 處理截斷字符串：補完未閉合的引號
+  content = content.replace(/"[^"\\]*(?:\\.[^"\\]*)*$/g, (match) => {
+    return match.endsWith('"') ? match : match + '"';
+  });
+  
+  // 4. 補未閉合括號
+  const openBraces = (content.match(/{/g) || []).length;
+  const closeBraces = (content.match(/}/g) || []).length;
+  const openBrackets = (content.match(/\[/g) || []).length;
+  const closeBrackets = (content.match(/]/g) || []).length;
+  
+  content += '}'.repeat(Math.max(0, openBraces - closeBraces));
+  content += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
+  
+  // 5. 修復結尾逗號問題
+  content = content.replace(/,(\s*[}\]])/g, '$1');
+  
+  return content;
 }
 
 // ─── Streaming LLM call for SSE ──────────────────────────
@@ -292,14 +343,23 @@ export async function* invokeLLMStream(
 
   if (params.enableSearch) body.enable_search = true;
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 29000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");

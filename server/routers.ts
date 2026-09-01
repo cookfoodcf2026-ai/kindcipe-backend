@@ -40,6 +40,9 @@ import {
   initFamilyTrial,
   incrementTrialCount,
   getImportUsage,
+  getFamilyUsageHistory,
+  getFamilyUsageHistoryWithMembers,
+  getFamilyUsageByMember,
   countCustomRecipesCreatedThisMonth,
   getAiChatUsage,
   upsertPushToken,
@@ -69,17 +72,20 @@ import {
   addShoppingItemsBatch,
   getPantryItems,
   getShoppingItems,
+  getShoppingItemsSolo,
   rejectShoppingItem,
   toggleFavoriteItem,
   updatePantryItem,
   updateShoppingItemStatus,
+  updateShoppingItemStatusSolo,
+  updateShoppingItemDetails,
+  updateShoppingItemDetailsSolo,
   insertRecipeEvent,
   getTrendingRecipes,
   recordPurchase,
   getPurchaseHistory,
   getPurchaseFrequency,
   getLastPurchasePrices,
-  updateShoppingItemDetails,
   getRecipeNotes,
   addRecipeNote,
   deleteRecipeNote,
@@ -87,11 +93,16 @@ import {
   createEmailUser,
   verifyPassword,
   touchUserSignIn,
+  updateUserPassword,
+  createPasswordResetToken,
+  getPasswordResetTokenByToken,
+  consumePasswordResetToken,
   incrementRecipePopularity,
   getRemovedFamilyMember,
   addRemovedFamilyMember,
   addRedirectLog,
 } from "./db";
+import { sendPasswordResetEmail } from "./_core/email";
 import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families } from "../drizzle/schema";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 
@@ -251,6 +262,27 @@ const familyRouter = router({
   subscription: protectedProcedure.query(async ({ ctx }) => {
     if (!ctx.activeFamilyId) return null;
     return getFamilySubscription(ctx.activeFamilyId);
+  }),
+
+  usageHistory: protectedProcedure
+    .input(z.object({ months: z.number().int().min(1).max(12).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) return [];
+      const months = input?.months ?? 6;
+      return getFamilyUsageHistory(ctx.activeFamilyId, months);
+    }),
+
+  usageHistoryByMember: protectedProcedure
+    .input(z.object({ months: z.number().int().min(1).max(12).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) return [];
+      const months = input?.months ?? 6;
+      return getFamilyUsageHistoryWithMembers(ctx.activeFamilyId, months);
+    }),
+
+  usageByMember: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.activeFamilyId) return [];
+    return getFamilyUsageByMember(ctx.activeFamilyId);
   }),
 
   usage: protectedProcedure.query(async ({ ctx }) => {
@@ -416,8 +448,13 @@ const familyRouter = router({
 
 const shoppingRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.activeFamilyId) return [];
-    return getShoppingItems(ctx.activeFamilyId);
+    if (ctx.activeFamilyId) {
+      // Family 用戶：返回家庭購物車
+      return getShoppingItems(ctx.activeFamilyId);
+    } else {
+      // Solo 用戶：返回自己嘅購物車
+      return getShoppingItemsSolo(ctx.user.id);
+    }
   }),
 
   logRedirect: familyWriteProcedure
@@ -576,33 +613,40 @@ const shoppingRouter = router({
       return { success: true, count: toInsert.length + toUpdate.length, merged: toUpdate.length };
     }),
 
-  toggleBought: familyWriteProcedure
+  toggleBought: protectedProcedure
     .input(z.object({ id: z.number().int(), bought: z.boolean(), actualPrice: z.number().int().optional() }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      const status = input.bought ? "bought" : "active";
-      await updateShoppingItemStatus(input.id, ctx.activeFamilyId, status, input.bought ? ctx.user.id : undefined, input.bought ? (ctx.user.name || "Someone") : undefined);
-      if (input.bought) {
-        const items = await getShoppingItems(ctx.activeFamilyId);
-        const item = items.find(i => i.id === input.id);
-        if (item) {
-          recordPurchase({
-            familyId: ctx.activeFamilyId!,
-            userId: ctx.user.id,
-            userName: ctx.user.name || 'Someone',
-            name: item.name,
-            category: item.category ?? undefined,
-            unit: item.unit ?? undefined,
-            quantity: item.quantity ?? undefined,
-            shoppingItemId: input.id,
-            actualPrice: input.actualPrice,
-          }).catch(() => {});
+      if (ctx.activeFamilyId) {
+        // Family 用戶：現有邏輯
+        const status = input.bought ? "bought" : "active";
+        await updateShoppingItemStatus(input.id, ctx.activeFamilyId, status, input.bought ? ctx.user.id : undefined, input.bought ? (ctx.user.name || "Someone") : undefined);
+        if (input.bought) {
+          const items = await getShoppingItems(ctx.activeFamilyId);
+          const item = items.find(i => i.id === input.id);
+          if (item) {
+            recordPurchase({
+              familyId: ctx.activeFamilyId!,
+              userId: ctx.user.id,
+              userName: ctx.user.name || 'Someone',
+              name: item.name,
+              category: item.category ?? undefined,
+              unit: item.unit ?? undefined,
+              quantity: item.quantity ?? undefined,
+              shoppingItemId: input.id,
+              actualPrice: input.actualPrice,
+            }).catch(() => {});
+          }
         }
+        broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
+      } else {
+        // Solo 用戶：用新函數
+        const status = input.bought ? "bought" : "active";
+        await updateShoppingItemStatusSolo(input.id, ctx.user.id, status, input.bought ? (ctx.user.name || "Someone") : undefined);
+        // Solo 用戶唔需要 broadcast
       }
-      broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
     }),
-  updateItem: familyWriteProcedure
+  updateItem: protectedProcedure
     .input(z.object({
       id: z.number().int(),
       name: z.string().min(1).max(128).optional(),
@@ -611,13 +655,23 @@ const shoppingRouter = router({
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
-      await updateShoppingItemDetails(input.id, ctx.activeFamilyId, {
-        name: input.name,
-        quantity: input.quantity,
-        unit: input.unit,
-        plannedDate: input.plannedDate,
-      });
+      if (ctx.activeFamilyId) {
+        // Family 用戶：現有邏輯
+        await updateShoppingItemDetails(input.id, ctx.activeFamilyId, {
+          name: input.name,
+          quantity: input.quantity,
+          unit: input.unit,
+          plannedDate: input.plannedDate,
+        });
+      } else {
+        // Solo 用戶：用新函數
+        await updateShoppingItemDetailsSolo(input.id, ctx.user.id, {
+          name: input.name,
+          quantity: input.quantity,
+          unit: input.unit,
+          plannedDate: input.plannedDate,
+        });
+      }
       return { success: true };
     }),
 
@@ -1383,21 +1437,25 @@ const purchaseHistoryRouter = router({
       quantity: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.activeFamilyId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not in a family' });
-      // Update the estimatedPrice on the shopping item
-      await updateShoppingItemDetails(input.itemId, ctx.activeFamilyId, { estimatedPrice: input.price });
-      // Record to purchase history for future price diff display
-      await recordPurchase({
-        familyId: ctx.activeFamilyId!,
-        userId: ctx.user.id,
-        userName: ctx.user.name || 'Someone',
-        name: input.itemName,
-        category: input.category,
-        unit: input.unit,
-        quantity: input.quantity,
-        shoppingItemId: input.itemId,
-        actualPrice: input.price,
-      });
+      if (ctx.activeFamilyId) {
+        // Family 用戶：更新家庭購物車 + 記錄購買
+        await updateShoppingItemDetails(input.itemId, ctx.activeFamilyId, { estimatedPrice: input.price });
+        await recordPurchase({
+          familyId: ctx.activeFamilyId!,
+          userId: ctx.user.id,
+          userName: ctx.user.name || 'Someone',
+          name: input.itemName,
+          category: input.category,
+          unit: input.unit,
+          quantity: input.quantity,
+          shoppingItemId: input.itemId,
+          actualPrice: input.price,
+        });
+      } else {
+        // Solo 用戶：只更新自己嘅購物車
+        await updateShoppingItemDetailsSolo(input.itemId, ctx.user.id, { estimatedPrice: input.price });
+        // Solo 用戶唔記錄 purchase history（未來可以加）
+      }
       return { success: true };
     }),
 });
@@ -1500,8 +1558,9 @@ export const appRouter = router({
     me: publicProcedure.query((opts) => {
       const user = opts.ctx.user;
       if (!user) return null;
+      const { passwordHash: _passwordHash, ...safeUser } = user as typeof user & { passwordHash?: string | null };
       return {
-        ...user,
+        ...safeUser,
         activeFamilyId: opts.ctx.activeFamilyId,
         activeFamilyRole: opts.ctx.activeFamilyRole,
       };
@@ -1511,6 +1570,30 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+
+    requestPasswordReset: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByEmail(input.email);
+        if (!user || !user.email) {
+          return { success: true } as const;
+        }
+
+        const { token } = await createPasswordResetToken({
+          userId: String(user.id),
+          email: user.email,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        });
+
+        const resetLink = `kindcipe://reset-password?token=${encodeURIComponent(token)}`;
+        await sendPasswordResetEmail({
+          email: user.email,
+          name: user.name,
+          resetLink,
+        });
+
+        return { success: true } as const;
+      }),
 
     // ── Email Registration ────────────────────────────────────────────────────
     emailRegister: publicProcedure
@@ -1534,7 +1617,7 @@ export const appRouter = router({
         if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "建立帳號失敗，請稍後再試" });
 
         // Create session token (for React Native / Bearer auth)
-        const sessionToken = await sdk.createSessionToken(created.openId, { name: input.name, expiresInMs: ONE_YEAR_MS });
+        const sessionToken = await sdk.createSessionToken(created.openId, { name: input.name, expiresInMs: ONE_YEAR_MS, passwordVersion: 0 });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };
@@ -1556,7 +1639,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "電郵或密碼錯誤" });
         }
         await touchUserSignIn(user.id);
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS });
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };
@@ -1579,10 +1662,72 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "管理員帳號或密碼錯誤" });
         }
         await touchUserSignIn(user.id);
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS });
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };
+      }),
+
+    changePassword: protectedProcedure
+      .input(z.object({
+        currentPassword: z.string().optional(),
+        newPassword: z.string().min(8, "新密碼至少需要 8 個字元"),
+        confirmPassword: z.string().min(8, "確認密碼至少需要 8 個字元"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const user = ctx.user;
+        if (!user) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "請先登入" });
+        }
+        if (input.newPassword !== input.confirmPassword) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "新密碼與確認密碼不一致" });
+        }
+
+        if (user.passwordHash) {
+          if (!input.currentPassword) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "請輸入舊密碼" });
+          }
+          const valid = verifyPassword(input.currentPassword, user.passwordHash);
+          if (!valid) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: "舊密碼不正確" });
+          }
+        }
+
+        await updateUserPassword(String(user.id), input.newPassword);
+        await touchUserSignIn(user.id);
+        return { success: true } as const;
+      }),
+
+    resetPassword: publicProcedure
+      .input(z.object({
+        token: z.string().min(1),
+        newPassword: z.string().min(8, "新密碼至少需要 8 個字元"),
+        confirmPassword: z.string().min(8, "確認密碼至少需要 8 個字元"),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.newPassword !== input.confirmPassword) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "新密碼與確認密碼不一致" });
+        }
+
+        const tokenRow = await getPasswordResetTokenByToken(input.token);
+        if (!tokenRow) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "重設連結無效或已過期" });
+        }
+        if (tokenRow.usedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "重設連結已使用" });
+        }
+        if (tokenRow.expiresAt.getTime() < Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "重設連結已過期" });
+        }
+
+        const user = await getUserByEmail(tokenRow.email);
+        if (!user || String(user.id) !== String(tokenRow.userId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "重設連結無效" });
+        }
+
+        await updateUserPassword(String(user.id), input.newPassword);
+        await consumePasswordResetToken(tokenRow.tokenHash);
+        return { success: true } as const;
       }),
   }),
   family: familyRouter,

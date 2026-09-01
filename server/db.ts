@@ -22,6 +22,7 @@ import {
   weeklyMenu,
   iapTransactions,
   aiChatUsage,
+  passwordResetTokens,
   type InsertCommonIngredient,
   type InsertFamily,
   type InsertFamilyMember,
@@ -32,6 +33,7 @@ import {
   type InsertRedirectLog,
   type InsertShoppingItem,
   type InsertIapTransaction,
+  type InsertPasswordResetToken,
   redirectLogs,
   recipeNotes,
 } from "../drizzle/schema";
@@ -79,6 +81,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     textFields.forEach(assignNullable);
     if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
+    if (user.passwordVersion !== undefined) { values.passwordVersion = user.passwordVersion; updateSet.passwordVersion = user.passwordVersion; }
     if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
     else if (user.openId === ENV.ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
     if (!values.lastSignedIn) values.lastSignedIn = new Date();
@@ -88,6 +91,47 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
   }
+}
+
+// ─── Password Reset Tokens ───────────────────────────────────────────────────
+function hashResetToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export async function createPasswordResetToken(params: {
+  userId: string;
+  email: string;
+  expiresAt: Date;
+}): Promise<{ token: string; tokenHash: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashResetToken(token);
+
+  await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, params.userId));
+  const values: InsertPasswordResetToken = {
+    userId: params.userId,
+    email: params.email.toLowerCase(),
+    tokenHash,
+    expiresAt: params.expiresAt,
+  };
+  await db.insert(passwordResetTokens).values(values);
+  return { token, tokenHash };
+}
+
+export async function getPasswordResetTokenByToken(token: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const tokenHash = hashResetToken(token);
+  const rows = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, tokenHash)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function consumePasswordResetToken(tokenHash: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.tokenHash, tokenHash));
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -212,6 +256,7 @@ export async function deleteFamily(familyId: number) {
     await tx.delete(recipeEvents).where(eq(recipeEvents.familyId, familyId));
     await tx.delete(favoriteItems).where(eq(favoriteItems.familyId, familyId));
     await tx.delete(importUsage).where(eq(importUsage.familyId, familyId));
+    await tx.delete(aiChatUsage).where(eq(aiChatUsage.familyId, familyId));
     await tx.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
     await tx.delete(families).where(eq(families.id, familyId));
   });
@@ -378,6 +423,62 @@ export async function deleteShoppingItem(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(shoppingItems).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
+}
+
+/**
+ * Solo 用戶專用：更新購物車物品狀態（不需要 familyId）
+ */
+export async function updateShoppingItemStatusSolo(
+  id: number,
+  userId: string,
+  status: "pending" | "active" | "bought",
+  boughtByName?: string
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(shoppingItems).set({
+    status,
+    boughtByUserId: boughtByName ? userId : null,
+    boughtByName: boughtByName ?? null,
+    boughtAt: status === "bought" ? new Date() : null,
+  }).where(and(
+    eq(shoppingItems.id, id),
+    eq(shoppingItems.proposedByUserId, userId)
+  ));
+}
+
+/**
+ * Solo 用戶專用：更新購物車物品詳情（不需要 familyId）
+ */
+export async function updateShoppingItemDetailsSolo(
+  id: number,
+  userId: string,
+  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number; plannedDate?: string }
+) {
+  const db = await getDb();
+  if (!db) return;
+  const set: Record<string, unknown> = {};
+  if (updates.name !== undefined) set.name = updates.name;
+  if (updates.quantity !== undefined) set.quantity = updates.quantity;
+  if (updates.unit !== undefined) set.unit = updates.unit;
+  if (updates.estimatedPrice !== undefined) set.estimatedPrice = updates.estimatedPrice;
+  if (updates.plannedDate !== undefined) set.plannedDate = updates.plannedDate;
+  if (Object.keys(set).length === 0) return;
+  await db.update(shoppingItems).set(set).where(and(
+    eq(shoppingItems.id, id),
+    eq(shoppingItems.proposedByUserId, userId)
+  ));
+}
+
+/**
+ * Solo 用戶專用：獲取購物車物品（不需要 familyId）
+ */
+export async function getShoppingItemsSolo(userId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(shoppingItems)
+    .where(eq(shoppingItems.proposedByUserId, userId))
+    .orderBy(desc(shoppingItems.createdAt));
 }
 
 export async function clearBoughtItems(familyId: number) {
@@ -1170,17 +1271,56 @@ export async function insertIapTransaction(data: InsertIapTransaction) {
 
 // ─── Import Usage helpers ─────────────────────────────────────────────────────
 
+export interface FamilyUsageHistoryRow {
+  yearMonth: string;
+  imports: number;
+  aiChat: number;
+}
+
+export interface FamilyUsageHistoryMemberRow {
+  userId: string;
+  name: string;
+  familyRole: string;
+  imports: number;
+  aiChat: number;
+}
+
+export interface FamilyUsageHistoryMonthRow extends FamilyUsageHistoryRow {
+  members: FamilyUsageHistoryMemberRow[];
+}
+
+function getYearMonthKey(date = new Date()): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getRecentYearMonths(months: number): string[] {
+  const safeMonths = Math.max(1, Math.floor(months));
+  const now = new Date();
+  const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const result: string[] = [];
+
+  for (let i = safeMonths - 1; i >= 0; i--) {
+    const date = new Date(base);
+    date.setUTCMonth(date.getUTCMonth() - i);
+    result.push(getYearMonthKey(date));
+  }
+
+  return result;
+}
+
 /**
  * Get current month's import count for a family.
  */
 export async function getImportUsage(familyId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const yearMonth = new Date().toISOString().slice(0, 7); // "2025-06"
-  const result = await db.select().from(importUsage)
-    .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth)))
-    .limit(1);
-  return result[0]?.count ?? 0;
+  const yearMonth = getYearMonthKey();
+  const rows = await db.select({ count: importUsage.count })
+    .from(importUsage)
+    .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth)));
+  return rows.reduce((sum, row) => sum + (row.count ?? 0), 0);
 }
 
 /**
@@ -1189,13 +1329,13 @@ export async function getImportUsage(familyId: number): Promise<number> {
 export async function incrementImportUsage(userId: string, familyId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const yearMonth = new Date().toISOString().slice(0, 7);
+  const yearMonth = getYearMonthKey();
   await db.insert(importUsage)
     .values({ userId, familyId, yearMonth, count: 1 })
-    .onConflictDoUpdate({ target: [importUsage.familyId, importUsage.yearMonth], set: { count: sql`${importUsage.count} + 1` } });
+    .onConflictDoUpdate({ target: [importUsage.familyId, importUsage.yearMonth, importUsage.userId], set: { count: sql`${importUsage.count} + 1` } });
   // Re-fetch the updated count
-  const result = await db.select().from(importUsage)
-    .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth)))
+  const result = await db.select({ count: importUsage.count }).from(importUsage)
+    .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth), eq(importUsage.userId, userId)))
     .limit(1);
   return result[0]?.count ?? 1;
 }
@@ -1205,27 +1345,142 @@ export async function incrementImportUsage(userId: string, familyId: number): Pr
 export async function getAiChatUsage(familyId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const yearMonth = new Date().toISOString().slice(0, 7);
-  const rows = await db.select().from(aiChatUsage)
-    .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth)))
-    .limit(1);
-  return rows[0]?.count ?? 0;
+  const yearMonth = getYearMonthKey();
+  const rows = await db.select({ count: aiChatUsage.count })
+    .from(aiChatUsage)
+    .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth)));
+  return rows.reduce((sum, row) => sum + (row.count ?? 0), 0);
 }
 
-export async function incrementAiChatUsage(familyId: number, turns: number): Promise<number> {
+export async function incrementAiChatUsage(familyId: number, userId: string, turns: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const yearMonth = new Date().toISOString().slice(0, 7);
+  const yearMonth = getYearMonthKey();
   await db.insert(aiChatUsage)
-    .values({ familyId, yearMonth, count: turns })
+    .values({ familyId, userId, yearMonth, count: turns })
     .onConflictDoUpdate({
-      target: [aiChatUsage.familyId, aiChatUsage.yearMonth],
+      target: [aiChatUsage.familyId, aiChatUsage.yearMonth, aiChatUsage.userId],
       set: { count: sql`${aiChatUsage.count} + ${turns}` },
     });
   const rows = await db.select().from(aiChatUsage)
-    .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth)))
+    .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth), eq(aiChatUsage.userId, userId)))
     .limit(1);
   return rows[0]?.count ?? turns;
+}
+
+export async function getFamilyUsageHistory(familyId: number, months = 6): Promise<FamilyUsageHistoryRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const yearMonths = getRecentYearMonths(months);
+  const [importRows, aiRows] = await Promise.all([
+    db.select({ yearMonth: importUsage.yearMonth, count: importUsage.count })
+      .from(importUsage)
+      .where(and(eq(importUsage.familyId, familyId), inArray(importUsage.yearMonth, yearMonths))),
+    db.select({ yearMonth: aiChatUsage.yearMonth, count: aiChatUsage.count })
+      .from(aiChatUsage)
+      .where(and(eq(aiChatUsage.familyId, familyId), inArray(aiChatUsage.yearMonth, yearMonths))),
+  ]);
+
+  const importMap = new Map(importRows.map((row) => [row.yearMonth, row.count]));
+  const aiMap = new Map(aiRows.map((row) => [row.yearMonth, row.count]));
+
+  return yearMonths.map((yearMonth) => ({
+    yearMonth,
+    imports: importMap.get(yearMonth) ?? 0,
+    aiChat: aiMap.get(yearMonth) ?? 0,
+  }));
+}
+
+export async function getFamilyUsageHistoryWithMembers(familyId: number, months = 6): Promise<FamilyUsageHistoryMonthRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const yearMonths = getRecentYearMonths(months);
+  const members = await getFamilyMembers(familyId);
+  const [importRows, aiRows] = await Promise.all([
+    db.select({ yearMonth: importUsage.yearMonth, userId: importUsage.userId, count: importUsage.count })
+      .from(importUsage)
+      .where(and(eq(importUsage.familyId, familyId), inArray(importUsage.yearMonth, yearMonths))),
+    db.select({ yearMonth: aiChatUsage.yearMonth, userId: aiChatUsage.userId, count: aiChatUsage.count })
+      .from(aiChatUsage)
+      .where(and(eq(aiChatUsage.familyId, familyId), inArray(aiChatUsage.yearMonth, yearMonths))),
+  ]);
+
+  const importMap = new Map<string, Map<string, number>>();
+  for (const row of importRows) {
+    const monthMap = importMap.get(row.yearMonth) ?? new Map<string, number>();
+    monthMap.set(row.userId, (monthMap.get(row.userId) ?? 0) + (row.count ?? 0));
+    importMap.set(row.yearMonth, monthMap);
+  }
+
+  const aiMap = new Map<string, Map<string, number>>();
+  for (const row of aiRows) {
+    const monthMap = aiMap.get(row.yearMonth) ?? new Map<string, number>();
+    monthMap.set(row.userId, (monthMap.get(row.userId) ?? 0) + (row.count ?? 0));
+    aiMap.set(row.yearMonth, monthMap);
+  }
+
+  return yearMonths.map((yearMonth) => {
+    const monthImports = importMap.get(yearMonth) ?? new Map<string, number>();
+    const monthAi = aiMap.get(yearMonth) ?? new Map<string, number>();
+    const memberRows = members.map(({ member, user }) => ({
+      userId: user.id,
+      name: user.name || member.nickname || "Member",
+      familyRole: member.familyRole,
+      imports: monthImports.get(user.id) ?? 0,
+      aiChat: monthAi.get(user.id) ?? 0,
+    }));
+
+    return {
+      yearMonth,
+      imports: memberRows.reduce((sum, row) => sum + row.imports, 0),
+      aiChat: memberRows.reduce((sum, row) => sum + row.aiChat, 0),
+      members: memberRows,
+    };
+  });
+}
+
+export interface FamilyUsageMemberRow {
+  userId: string;
+  name: string;
+  familyRole: string;
+  imports: number;
+  aiChat: number;
+}
+
+export async function getFamilyUsageByMember(familyId: number): Promise<FamilyUsageMemberRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const yearMonth = getYearMonthKey();
+  const [members, importRows, aiRows] = await Promise.all([
+    getFamilyMembers(familyId),
+    db.select({ userId: importUsage.userId, count: importUsage.count })
+      .from(importUsage)
+      .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth))),
+    db.select({ userId: aiChatUsage.userId, count: aiChatUsage.count })
+      .from(aiChatUsage)
+      .where(and(eq(aiChatUsage.familyId, familyId), eq(aiChatUsage.yearMonth, yearMonth))),
+  ]);
+
+  const importMap = new Map<string, number>();
+  for (const row of importRows) {
+    importMap.set(row.userId, (importMap.get(row.userId) ?? 0) + (row.count ?? 0));
+  }
+
+  const aiMap = new Map<string, number>();
+  for (const row of aiRows) {
+    aiMap.set(row.userId, (aiMap.get(row.userId) ?? 0) + (row.count ?? 0));
+  }
+
+  return members.map(({ member, user }) => ({
+    userId: user.id,
+    name: user.name || member.nickname || "Member",
+    familyRole: member.familyRole,
+    imports: importMap.get(user.id) ?? 0,
+    aiChat: aiMap.get(user.id) ?? 0,
+  }));
 }
 
 // ─── Push Token helpers ───────────────────────────────────────────────────────
@@ -1321,6 +1576,7 @@ export async function createEmailUser(params: {
     passwordHash,
     emailVerified: false,
     loginMethod: "email",
+    passwordVersion: 0,
     lastSignedIn: new Date(),
   });
   const created = await getUserByEmail(params.email);
@@ -1333,7 +1589,10 @@ export async function updateUserPassword(userId: string, newPassword: string): P
   const db = await getDb();
   if (!db) return;
   const passwordHash = hashPassword(newPassword);
-  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+  await db.update(users).set({
+    passwordHash,
+    passwordVersion: sql`${users.passwordVersion} + 1`,
+  }).where(eq(users.id, userId));
 }
 
 /** Update user's last signed in timestamp */

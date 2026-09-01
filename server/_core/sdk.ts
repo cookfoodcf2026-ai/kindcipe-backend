@@ -22,6 +22,7 @@ export type SessionPayload = {
   openId: string;
   appId: string;
   name: string;
+  passwordVersion?: number;
 };
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
@@ -166,13 +167,14 @@ class SDKServer {
    */
   async createSessionToken(
     openId: string,
-    options: { expiresInMs?: number; name?: string } = {}
+    options: { expiresInMs?: number; name?: string; passwordVersion?: number } = {}
   ): Promise<string> {
     return this.signSession(
       {
         openId,
         appId: ENV.appId,
         name: options.name || "",
+        passwordVersion: options.passwordVersion ?? 0,
       },
       options
     );
@@ -191,6 +193,7 @@ class SDKServer {
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name,
+      passwordVersion: payload.passwordVersion ?? 0,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setExpirationTime(expirationSeconds)
@@ -199,7 +202,7 @@ class SDKServer {
 
   async verifySession(
     token: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<{ openId: string; appId: string; name: string; passwordVersion: number } | null> {
     if (!token) {
       console.warn("[Auth] Missing session token");
       return null;
@@ -210,7 +213,7 @@ class SDKServer {
       const { payload } = await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name } = payload as Record<string, unknown>;
+      const { openId, appId, name, passwordVersion } = payload as Record<string, unknown>;
 
       if (
         !isNonEmptyString(openId) ||
@@ -225,6 +228,7 @@ class SDKServer {
         openId,
         appId,
         name,
+        passwordVersion: typeof passwordVersion === "number" ? passwordVersion : 0,
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
@@ -308,6 +312,10 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
+    if (typeof session.passwordVersion === "number" && user.passwordVersion !== session.passwordVersion) {
+      throw ForbiddenError("Session expired, please sign in again");
+    }
+
     await db.upsertUser({
       openId: user.openId,
       lastSignedIn: signedInAt,
@@ -337,6 +345,7 @@ function buildCronUser(
     passwordHash: null,
     emailVerified: false,
     loginMethod: null,
+    passwordVersion: 0,
     trialCount: 0,
     role: "user",
     createdAt: now,

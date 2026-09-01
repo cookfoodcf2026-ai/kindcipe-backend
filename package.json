@@ -7,7 +7,8 @@
     "dev": "tsx watch server/index.ts",
     "build": "tsc --noEmit && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "promote:admin": "tsx scripts/promote-admin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
