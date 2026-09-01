@@ -213,7 +213,7 @@ const AI_RECIPE_FALLBACK_CONTENT = "我想幫你整得更準，可以再補充�
  * 
  * Always returns a valid array of recipes, NEVER crashes or returns undefined
  */
-function parseRecipeWithFallback(llmContent: string): SuggestedRecipe[] {
+function parseRecipeWithFallback(llmContent: string, contextText = "", mode?: "library" | "ai"): SuggestedRecipe[] {
   const parseStart = Date.now();
   let layerUsed = 1;
   
@@ -224,7 +224,9 @@ function parseRecipeWithFallback(llmContent: string): SuggestedRecipe[] {
     if (!extracted || typeof extracted !== 'object') {
       console.log("[AI Chef] Layer 4: JSON extraction failed, using text parser");
       layerUsed = 4;
-      return parseRecipesFromText(llmContent);
+      const textFallback = parseRecipesFromText(llmContent);
+      if (textFallback.length > 0) return textFallback;
+      return buildEmergencyFallbackRecipes(contextText || llmContent, mode);
     }
     
     // Layer 2: Repair JSON if needed
@@ -252,13 +254,15 @@ function parseRecipeWithFallback(llmContent: string): SuggestedRecipe[] {
       const recipeData = aiRecipeResponseSchema.parse({});
       const result = convertRecipeDataToSuggestedRecipe(recipeData);
       console.log("[AI Chef] Parse completed", { layer: layerUsed, duration: Date.now() - parseStart, recipes: result.length });
-      return result;
+      if (result.length > 0) return result;
+      return buildEmergencyFallbackRecipes(contextText || llmContent, mode);
     }
     
     // Convert validated data to SuggestedRecipe[]
     const result = convertRecipeDataToSuggestedRecipe(validated.data);
     console.log("[AI Chef] Parse completed", { layer: layerUsed, duration: Date.now() - parseStart, recipes: result.length });
-    return result;
+    if (result.length > 0) return result;
+    return buildEmergencyFallbackRecipes(contextText || llmContent, mode);
     
   } catch (error) {
     console.log("[AI Chef] Layer 4: Exception in JSON parsing, using text fallback", { 
@@ -268,7 +272,8 @@ function parseRecipeWithFallback(llmContent: string): SuggestedRecipe[] {
     layerUsed = 4;
     const result = parseRecipesFromText(llmContent);
     console.log("[AI Chef] Text fallback completed", { duration: Date.now() - parseStart, recipes: result.length });
-    return result;
+    if (result.length > 0) return result;
+    return buildEmergencyFallbackRecipes(contextText || llmContent, mode);
   }
 }
 
@@ -325,6 +330,227 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
   
   // If invalid, fallback to text parser
   return [];
+}
+
+function makeSuggestedRecipe(input: SuggestedRecipe): SuggestedRecipe {
+  return {
+    ...input,
+    source: input.source ?? "ai",
+    tags: input.tags.length > 0 ? input.tags : ["AI 生成"],
+  };
+}
+
+function normalizeQueryLocal(query: string): string {
+  return String(query ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
+    .replace(/[，,。．.、!！?？:：;；/\\()（）【】\[\]{}<>《》'"“”‘’·—-]/g, "")
+    .trim();
+}
+
+function buildEmergencyFallbackRecipes(contextText: string, mode?: "library" | "ai"): SuggestedRecipe[] {
+  const text = normalizeQueryLocal(contextText || "");
+  const isKid = /(小朋友|寶寶|兒童|幼兒)/i.test(text);
+  const isDiet = /(減肥|瘦身|減脂|健身|低卡|高蛋白)/i.test(text);
+  const isSoup = /(湯水|老火湯|滾湯|燉湯|煲湯|靚湯|湯品|soup|tonic)/i.test(text);
+  const isThreeDishesOneSoup = /(3\s*餸\s*1\s*湯|3\s*菜\s*1\s*湯|三餸一湯|三菜一湯|3餸1湯)/i.test(text);
+
+  if (isThreeDishesOneSoup) {
+    return [
+      makeSuggestedRecipe({
+        name: "蒜蓉炒菜心",
+        cookTime: 15,
+        servings: 4,
+        difficulty: "簡單",
+        description: "快手家常小炒，清爽易配搭，適合做 3 餸 1 湯中的青菜。",
+        ingredients: [
+          { name: "菜心", quantity: "1", unit: "斤" },
+          { name: "蒜頭", quantity: "4", unit: "瓣" },
+          { name: "油", quantity: "1", unit: "湯匙" },
+          { name: "鹽", quantity: "少許", unit: "" },
+        ],
+        steps: [
+          "菜心洗淨，蒜頭拍扁切碎備用。",
+          "燒熱鑊落油同蒜蓉爆香。",
+          "加入菜心大火快炒，落少許鹽調味。",
+          "炒至菜心轉翠綠即可上碟。",
+        ],
+        tags: ["3餸1湯", "家常", "蔬菜"],
+      }),
+      makeSuggestedRecipe({
+        name: "豉油雞扒",
+        cookTime: 25,
+        servings: 4,
+        difficulty: "簡單",
+        description: "惹味又易整嘅雞扒，配白飯一流。",
+        ingredients: [
+          { name: "雞扒", quantity: "2", unit: "塊" },
+          { name: "生抽", quantity: "1", unit: "湯匙" },
+          { name: "老抽", quantity: "1/2", unit: "湯匙" },
+          { name: "糖", quantity: "1", unit: "茶匙" },
+        ],
+        steps: [
+          "雞扒抹乾，醃入生抽、老抽同糖 10 分鐘。",
+          "平底鑊落少少油，將雞扒煎至兩面金黃。",
+          "加少許水，加蓋焗 3 分鐘令雞扒熟透。",
+          "收汁後切件上碟。",
+        ],
+        tags: ["3餸1湯", "主菜", "雞"],
+      }),
+      makeSuggestedRecipe({
+        name: "蒸水蛋",
+        cookTime: 18,
+        servings: 4,
+        difficulty: "簡單",
+        description: "口感滑溜，老少咸宜，最適合配多餸晚餐。",
+        ingredients: [
+          { name: "雞蛋", quantity: "3", unit: "隻" },
+          { name: "暖水", quantity: "1.5", unit: "倍蛋液" },
+          { name: "鹽", quantity: "少許", unit: "" },
+          { name: "生抽", quantity: "1", unit: "茶匙" },
+        ],
+        steps: [
+          "雞蛋打散，加入少許鹽同暖水拌勻。",
+          "過篩倒入碗中，蓋上錫紙或碟。",
+          "中火蒸約 10 至 12 分鐘。",
+          "蒸好後淋少少生抽即可。",
+        ],
+        tags: ["3餸1湯", "蛋", "蒸"],
+      }),
+      makeSuggestedRecipe({
+        name: "番茄薯仔瘦肉湯",
+        cookTime: 35,
+        servings: 4,
+        difficulty: "簡單",
+        description: "經典家庭湯水，清甜開胃，做 3 餸 1 湯最穩陣。",
+        ingredients: [
+          { name: "番茄", quantity: "3", unit: "個" },
+          { name: "薯仔", quantity: "2", unit: "個" },
+          { name: "瘦肉", quantity: "300", unit: "克" },
+          { name: "薑", quantity: "2", unit: "片" },
+          { name: "水", quantity: "2", unit: "升" },
+        ],
+        steps: [
+          "瘦肉汆水，番茄切塊，薯仔去皮切件。",
+          "煲滾水後加入薑片同瘦肉。",
+          "放入番茄同薯仔，轉中火煲 20 分鐘。",
+          "最後加少許鹽調味即可。",
+        ],
+        tags: ["3餸1湯", "湯水", "家庭菜"],
+        soupType: "滾湯",
+        benefits: "健脾開胃",
+        waterVolume: "2升",
+      }),
+    ];
+  }
+
+  if (isKid) {
+    return [makeSuggestedRecipe({
+      name: "番茄蛋花豆腐湯",
+      cookTime: 20,
+      servings: 2,
+      difficulty: "簡單",
+      description: "清淡無辣，適合小朋友和大人一起食。",
+      ingredients: [
+        { name: "番茄", quantity: "2", unit: "個" },
+        { name: "嫩豆腐", quantity: "1", unit: "盒" },
+        { name: "雞蛋", quantity: "1", unit: "隻" },
+        { name: "水", quantity: "500", unit: "毫升" },
+      ],
+      steps: [
+        "番茄切件，豆腐切粒，雞蛋打散。",
+        "煲滾水後放番茄煮至軟身。",
+        "加入豆腐，慢慢倒入蛋液成蛋花。",
+        "加少許鹽調味即可。",
+      ],
+      tags: ["小朋友", "清淡", "無辣"],
+      soupType: "滾湯",
+      benefits: "清淡開胃",
+      waterVolume: "500毫升",
+    })];
+  }
+
+  if (isDiet) {
+    return [makeSuggestedRecipe({
+      name: "香煎雞胸配西蘭花",
+      cookTime: 20,
+      servings: 2,
+      difficulty: "簡單",
+      description: "高蛋白低卡，適合健身或減脂日常。",
+      ingredients: [
+        { name: "雞胸肉", quantity: "2", unit: "件" },
+        { name: "西蘭花", quantity: "1", unit: "個" },
+        { name: "黑胡椒", quantity: "少許", unit: "" },
+        { name: "鹽", quantity: "少許", unit: "" },
+      ],
+      steps: [
+        "雞胸肉拍鬆，加入鹽同黑胡椒簡單醃味。",
+        "西蘭花切細後灼熟瀝乾。",
+        "平底鑊煎香雞胸兩面至熟。",
+        "配西蘭花上碟即可。",
+      ],
+      tags: ["減脂", "高蛋白", "低卡"],
+    })];
+  }
+
+  if (isSoup) {
+    return [makeSuggestedRecipe({
+      name: "番茄薯仔瘦肉湯",
+      cookTime: 35,
+      servings: 4,
+      difficulty: "簡單",
+      description: "經典家庭湯水，清甜易入口。",
+      ingredients: [
+        { name: "番茄", quantity: "3", unit: "個" },
+        { name: "薯仔", quantity: "2", unit: "個" },
+        { name: "瘦肉", quantity: "300", unit: "克" },
+        { name: "薑", quantity: "2", unit: "片" },
+        { name: "水", quantity: "2", unit: "升" },
+      ],
+      steps: [
+        "瘦肉汆水，番茄切塊，薯仔去皮切件。",
+        "煲滾水後加入薑片同瘦肉。",
+        "加入番茄同薯仔，中火煲 20 分鐘。",
+        "最後加少許鹽調味即可。",
+      ],
+      tags: ["湯水", "家庭菜"],
+      soupType: "滾湯",
+      benefits: "健脾開胃",
+      waterVolume: "2升",
+    })];
+  }
+
+  return [makeSuggestedRecipe({
+    name: mode === "library" ? "家常蒸水蛋" : "蒜蓉炒菜心",
+    cookTime: mode === "library" ? 18 : 15,
+    servings: 4,
+    difficulty: "簡單",
+    description: mode === "library" ? "滑嫩易食的家常小菜。" : "快手清爽的小炒，適合任何一餐。",
+    ingredients: mode === "library" ? [
+      { name: "雞蛋", quantity: "3", unit: "隻" },
+      { name: "暖水", quantity: "1.5", unit: "倍蛋液" },
+      { name: "鹽", quantity: "少許", unit: "" },
+      { name: "生抽", quantity: "1", unit: "茶匙" },
+    ] : [
+      { name: "菜心", quantity: "1", unit: "斤" },
+      { name: "蒜頭", quantity: "4", unit: "瓣" },
+      { name: "油", quantity: "1", unit: "湯匙" },
+      { name: "鹽", quantity: "少許", unit: "" },
+    ],
+    steps: mode === "library" ? [
+      "雞蛋打散，加入少許鹽同暖水拌勻。",
+      "過篩倒入碗中，蓋上錫紙或碟。",
+      "中火蒸約 10 至 12 分鐘。",
+      "蒸好後淋少少生抽即可。",
+    ] : [
+      "菜心洗淨，蒜頭拍扁切碎備用。",
+      "燒熱鑊落油同蒜蓉爆香。",
+      "加入菜心大火快炒，落少許鹽調味。",
+      "炒至菜心轉翠綠即可上碟。",
+    ],
+    tags: mode === "library" ? ["家常", "蛋", "蒸"] : ["家常", "蔬菜", "快手"],
+  })];
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -1382,7 +1608,10 @@ export async function processAIChefChat(
 
   // Direct parse from assistant response with four-layer protection
   // Layer 1: extractJSON, Layer 2: repairJSON, Layer 3: Zod validation, Layer 4: text fallback
-  const recipes = parseRecipeWithFallback(finalContent);
+  const recipes = parseRecipeWithFallback(finalContent, searchQuery, mode);
+  if (recipes.length > 0 && AI_RECIPE_FALLBACK_CONTENT === finalContent) {
+    finalContent = "已為你提供一組預設食譜。";
+  }
 
   // Phase 1: Only match against library when mode="library"; otherwise all AI-generated recipes are marked as "ai"
   if (mode === "library") {
@@ -1486,7 +1715,13 @@ export async function* streamAIChefChat(
 
   // Stream the text response directly (no re-generation)
   const lastAssistantMsg = allMessages.filter(m => m.role === "assistant").pop();
-  const lastAssistantContent = typeof lastAssistantMsg?.content === "string" ? lastAssistantMsg.content : "";
+  let lastAssistantContent = typeof lastAssistantMsg?.content === "string" ? lastAssistantMsg.content : "";
+
+  // Parse and tag sources for streaming path with four-layer protection
+  const streamRecipes = parseRecipeWithFallback(lastAssistantContent, searchQuery, mode);
+  if (streamRecipes.length > 0 && lastAssistantContent === AI_RECIPE_FALLBACK_CONTENT) {
+    lastAssistantContent = "已為你提供一組預設食譜。";
+  }
 
   if (lastAssistantContent) {
     // Stream character by character for smooth UX
@@ -1494,9 +1729,6 @@ export async function* streamAIChefChat(
       yield { type: "text", value: lastAssistantContent.slice(i, i + 50) };
     }
   }
-
-  // Parse and tag sources for streaming path with four-layer protection
-  const streamRecipes = parseRecipeWithFallback(lastAssistantContent);
 
   // Phase 1: Only match against library when mode="library"; otherwise all AI-generated recipes are marked as "ai"
   if (mode === "library") {
