@@ -1470,14 +1470,24 @@ const purchaseHistoryRouter = router({
       quantity: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      console.log('[DEBUG] UPDATE REQUEST:', JSON.stringify({ ctx: { activeFamilyId: ctx.activeFamilyId }, input }, null, 2));
+      
       if (!ctx.activeFamilyId) {
+        console.error('[DEBUG] UPDATE FAILED: No active family');
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No active family' });
       }
-      await updatePurchaseHistory(input.id, {
-        actualPrice: input.actualPrice ?? undefined,
-        quantity: input.quantity ?? undefined,
-      });
-      return { success: true };
+      
+      try {
+        await updatePurchaseHistory(input.id, {
+          actualPrice: input.actualPrice ?? undefined,
+          quantity: input.quantity ?? undefined,
+        });
+        console.log('[DEBUG] UPDATE SUCCESS');
+        return { success: true };
+      } catch (err) {
+        console.error('[DEBUG] UPDATE ERROR:', err);
+        throw err;
+      }
     }),
 });
 
