@@ -314,8 +314,11 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
     });
   }
   
-  // Only return valid recipes (must have name and at least 2 actual ingredients)
-  const isValid = recipe.name && recipe.name.length > 1 && actualIngredients.length >= 2 && recipe.steps.length > 0;
+  // Only return valid recipes (must have name + at least 1 actual ingredient OR 3+ steps)
+  // Relax validation for soup recipes which may have fewer ingredients but complete steps
+  const hasMinIngredients = actualIngredients.length >= 1;
+  const hasMinSteps = recipe.steps.length >= 3;
+  const isValid = recipe.name && recipe.name.length > 1 && (hasMinIngredients || hasMinSteps);
   if (isValid) {
     return [recipe];
   }
