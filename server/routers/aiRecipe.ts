@@ -297,18 +297,25 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
   // Filter out placeholder ingredients
   const filteredIngredients = recipe.ingredients.filter(ing => !isPlaceholderIngredientName(ing.name));
   
+  // Additional filter for soup recipes: remove common soup base ingredients
+  const actualIngredients = filteredIngredients.filter(ing => {
+    const name = ing.name.trim();
+    // Filter out soup base ingredients that don't need to be purchased
+    const soupBaseIngredients = ['水', '上湯', '高湯', '清湯', '湯底', '鹽', '糖', '薑', '蔥', '蒜頭'];
+    return !soupBaseIngredients.includes(name);
+  });
+  
   // Log soup recipes for debugging
   if (recipe.soupType) {
     console.log(`[AI Chef] Soup recipe detected: ${recipe.name}`, {
-      ingredients: filteredIngredients.length,
+      ingredients: actualIngredients.length,
       steps: recipe.steps.length,
       soupType: recipe.soupType
     });
   }
   
-  // Only return valid recipes (must have name and at least one ingredient/step)
-  // Relax validation for soup recipes (allow simpler format)
-  const isValid = recipe.name && recipe.name.length > 1 && (filteredIngredients.length > 0 || recipe.steps.length > 0);
+  // Only return valid recipes (must have name and at least 2 actual ingredients)
+  const isValid = recipe.name && recipe.name.length > 1 && actualIngredients.length >= 2 && recipe.steps.length > 0;
   if (isValid) {
     return [recipe];
   }
