@@ -424,6 +424,19 @@ export const aiChatUsage = pgTable("ai_chat_usage", {
 export type AiChatUsage = typeof aiChatUsage.$inferSelect;
 export type InsertAiChatUsage = typeof aiChatUsage.$inferInsert;
 
+// ─── AI Chef Seen Recipes (per-kitchen 7-day dedup, DB-persisted) ──────────────
+export const aiChefSeenRecipes = pgTable("ai_chef_seen_recipes", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  name: text("name").notNull(),
+  seenAt: timestamp("seen_at").defaultNow().notNull(),
+}, (t) => ({
+  familyNameUniq: uniqueIndex("ai_chef_seen_recipes_family_name_unique").on(t.familyId, t.name),
+}));
+
+export type AiChefSeenRecipe = typeof aiChefSeenRecipes.$inferSelect;
+export type InsertAiChefSeenRecipe = typeof aiChefSeenRecipes.$inferInsert;
+
 // ─── Common Ingredients ───────────────────────────────────────────────────────
 export const commonIngredients = pgTable("common_ingredients", {
   id: serial("id").primaryKey(),

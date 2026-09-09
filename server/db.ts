@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, lte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -394,7 +395,7 @@ export async function updateShoppingItemStatus(
 export async function updateShoppingItemDetails(
   id: number,
   familyId: number,
-  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number; plannedDate?: string }
+  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number; lastPrice?: number; plannedDate?: string }
 ) {
   const db = await getDb();
   if (!db) return;
@@ -403,6 +404,7 @@ export async function updateShoppingItemDetails(
   if (updates.quantity !== undefined) set.quantity = updates.quantity;
   if (updates.unit !== undefined) set.unit = updates.unit;
   if (updates.estimatedPrice !== undefined) set.estimatedPrice = updates.estimatedPrice;
+  if (updates.lastPrice !== undefined) set.lastPrice = updates.lastPrice;
   if (updates.plannedDate !== undefined) set.plannedDate = updates.plannedDate;
   if (Object.keys(set).length === 0) return;
   await db.update(shoppingItems).set(set).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
@@ -453,7 +455,7 @@ export async function updateShoppingItemStatusSolo(
 export async function updateShoppingItemDetailsSolo(
   id: number,
   userId: string,
-  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number; plannedDate?: string }
+  updates: { name?: string; quantity?: string; unit?: string; estimatedPrice?: number; lastPrice?: number; plannedDate?: string }
 ) {
   const db = await getDb();
   if (!db) return;
@@ -462,6 +464,7 @@ export async function updateShoppingItemDetailsSolo(
   if (updates.quantity !== undefined) set.quantity = updates.quantity;
   if (updates.unit !== undefined) set.unit = updates.unit;
   if (updates.estimatedPrice !== undefined) set.estimatedPrice = updates.estimatedPrice;
+  if (updates.lastPrice !== undefined) set.lastPrice = updates.lastPrice;
   if (updates.plannedDate !== undefined) set.plannedDate = updates.plannedDate;
   if (Object.keys(set).length === 0) return;
   await db.update(shoppingItems).set(set).where(and(
@@ -1231,9 +1234,9 @@ export async function getFamilySubscription(familyId: number) {
     status,
     isPaid,
     maxMembers: isPaid ? 6 : 1,
-    maxImportsPerMonth: isPaid ? 200 : 5,
+    maxImportsPerMonth: isPaid ? 300 : 5,
     maxCustomRecipesPerMonth: isPaid ? null : 20,
-    aiChatLimit: isPaid ? 200 : 30,
+    aiChatLimit: isPaid ? 300 : 30,
     sharedLocked: !isPaid && memberCount > 1,
     trialEndsAt: family.trialEndsAt,
     subscriptionExpiresAt: family.subscriptionExpiresAt,
@@ -1326,6 +1329,29 @@ function getRecentYearMonths(months: number): string[] {
   }
 
   return result;
+}
+
+/**
+ * Check family quota and throw error if exceeded.
+ * Returns the import limit for the family.
+ */
+export async function assertFamilyQuota(familyId: number): Promise<number> {
+  const family = await getFamilySubscription(familyId);
+  if (!family) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "家庭不存在" });
+  }
+  
+  const limit = family.maxImportsPerMonth ?? 5;
+  const count = await getImportUsage(familyId);
+  
+  if (count >= limit) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `已達到本月匯入上限 (${limit} 次)，請升級方案以繼續使用。`,
+    });
+  }
+  
+  return limit;
 }
 
 /**

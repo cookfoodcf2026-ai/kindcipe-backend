@@ -458,6 +458,13 @@ const shoppingRouter = router({
     }
   }),
 
+  lastPrices: protectedProcedure
+    .input(z.object({ itemNames: z.array(z.string().min(1)).max(100) }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) return {};
+      return getLastPurchasePrices(ctx.activeFamilyId, input.itemNames);
+    }),
+
   logRedirect: familyWriteProcedure
     .input(z.object({
       platform: z.string().max(64).nonempty(),
@@ -478,7 +485,7 @@ const shoppingRouter = router({
       name: z.string().min(1).max(128),
       nameEn: z.string().max(128).optional(),
       category: z.string().max(64).optional(),
-      quantity: z.string().max(64).optional(),
+      quantity: z.string().max(64).nullable().optional(),
       unit: z.string().max(32).optional(),
       estimatedPrice: z.number().int().optional(),
       status: z.enum(["pending", "active"]).default("active"),
@@ -508,8 +515,8 @@ const shoppingRouter = router({
           unit: input.unit?.slice(0, 32),
           estimatedPrice: input.estimatedPrice,
           status,
-          proposedByUserId: needsApproval ? ctx.user.id : undefined,
-          proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
+          proposedByUserId: ctx.user.id,
+          proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
           fromRecipeId: input.fromRecipeId?.slice(0, 64),
           fromRecipeName: input.fromRecipeName?.slice(0, 128),
           fromMealPlanId: input.fromMealPlanId,
@@ -540,7 +547,7 @@ const shoppingRouter = router({
         name: z.string().min(1).max(128),
         nameEn: z.string().max(128).optional(),
         category: z.string().max(64).optional(),
-        quantity: z.string().max(64).optional(),
+        quantity: z.string().max(64).nullable().optional(),
         unit: z.string().max(32).optional(),
         commonIngredientId: z.number().int().optional(),
         fromRecipeId: z.string().max(64).optional(),
@@ -577,10 +584,13 @@ const shoppingRouter = router({
       for (const item of input.items) {
         const match = activeItems.find(
           i => i.name.trim() === item.name.trim() &&
-               (i.unit ?? "").trim() === (item.unit ?? "").trim()
+               (i.unit ?? "").trim() === (item.unit ?? "").trim() &&
+               (i.plannedDate ?? "") === (input.plannedDate ?? "")
         );
         if (match) {
-          toUpdate.push({ id: match.id, quantity: mergeQty(match.quantity, item.quantity) });
+          // Handle null quantity: treat null as undefined (no quantity specified)
+          const itemQty = item.quantity ?? undefined;
+          toUpdate.push({ id: match.id, quantity: mergeQty(match.quantity, itemQty) });
         } else {
           toInsert.push(item);
         }
@@ -599,14 +609,17 @@ const shoppingRouter = router({
           quantity: item.quantity?.slice(0, 64),
           unit: item.unit?.slice(0, 32),
           status: status as "pending" | "active",
-          proposedByUserId: needsApproval ? ctx.user.id : undefined,
-          proposedByName: needsApproval ? (ctx.user.name || "Member") : undefined,
+          proposedByUserId: ctx.user.id,
+          proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
           fromRecipeId: item.fromRecipeId ?? input.fromRecipeId?.slice(0, 64),
           fromRecipeName: item.fromRecipeName ?? input.fromRecipeName?.slice(0, 128),
           fromMealPlanId: input.fromMealPlanId,
           plannedDate: input.plannedDate,
           commonIngredientId: item.commonIngredientId ?? null,
-        }));
+        })).filter(row => {
+          // Filter out rows with null quantity (should not happen due to schema, but safety check)
+          return row.quantity !== null;
+        });
         await addShoppingItems(rows);
       }
 
@@ -615,13 +628,14 @@ const shoppingRouter = router({
     }),
 
   toggleBought: protectedProcedure
-    .input(z.object({ id: z.number().int(), bought: z.boolean(), actualPrice: z.number().int().optional() }))
+    .input(z.object({ id: z.number().int(), bought: z.boolean(), actualPrice: z.number().int().optional(), recordPurchase: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
+      const shouldRecordPurchase = input.recordPurchase ?? true;
       if (ctx.activeFamilyId) {
         // Family 用戶：現有邏輯
         const status = input.bought ? "bought" : "active";
         await updateShoppingItemStatus(input.id, ctx.activeFamilyId, status, input.bought ? ctx.user.id : undefined, input.bought ? (ctx.user.name || "Someone") : undefined);
-        if (input.bought) {
+        if (input.bought && shouldRecordPurchase) {
           const items = await getShoppingItems(ctx.activeFamilyId);
           const item = items.find(i => i.id === input.id);
           if (item) {
@@ -654,6 +668,7 @@ const shoppingRouter = router({
       quantity: z.string().max(64).optional(),
       unit: z.string().max(32).optional(),
       plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      estimatedPrice: z.number().int().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.activeFamilyId) {
@@ -663,6 +678,7 @@ const shoppingRouter = router({
           quantity: input.quantity,
           unit: input.unit,
           plannedDate: input.plannedDate,
+          estimatedPrice: input.estimatedPrice,
         });
       } else {
         // Solo 用戶：用新函數
@@ -671,6 +687,7 @@ const shoppingRouter = router({
           quantity: input.quantity,
           unit: input.unit,
           plannedDate: input.plannedDate,
+          estimatedPrice: input.estimatedPrice,
         });
       }
       return { success: true };
@@ -1429,10 +1446,11 @@ const purchaseHistoryRouter = router({
    * Records to purchaseHistory so it appears in future lastPrices queries.
    */
   savePrice: protectedProcedure
-    .input(z.object({
+   .input(z.object({
       itemId: z.number().int(),
       itemName: z.string().min(1).max(128),
       price: z.number().int().min(1),
+      markBought: z.boolean().optional(),
       category: z.string().optional(),
       unit: z.string().optional(),
       quantity: z.string().optional(),
@@ -1440,7 +1458,6 @@ const purchaseHistoryRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (ctx.activeFamilyId) {
         // Family 用戶：更新家庭購物車 + 記錄購買
-        await updateShoppingItemDetails(input.itemId, ctx.activeFamilyId, { estimatedPrice: input.price });
         await recordPurchase({
           familyId: ctx.activeFamilyId!,
           userId: ctx.user.id,
@@ -1452,9 +1469,21 @@ const purchaseHistoryRouter = router({
           shoppingItemId: input.itemId,
           actualPrice: input.price,
         });
+        if (input.markBought) {
+          await updateShoppingItemStatus(
+            input.itemId,
+            ctx.activeFamilyId,
+            "bought",
+            ctx.user.id,
+            ctx.user.name || "Someone"
+          );
+        }
       } else {
         // Solo 用戶：只更新自己嘅購物車
-        await updateShoppingItemDetailsSolo(input.itemId, ctx.user.id, { estimatedPrice: input.price });
+        await updateShoppingItemDetailsSolo(input.itemId, ctx.user.id, { lastPrice: input.price });
+        if (input.markBought) {
+          await updateShoppingItemStatusSolo(input.itemId, ctx.user.id, "bought", ctx.user.name || "Someone");
+        }
         // Solo 用戶唔記錄 purchase history（未來可以加）
       }
       return { success: true };

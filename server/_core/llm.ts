@@ -9,8 +9,8 @@
 
 import { ENV } from "./env";
 
-const DEFAULT_TEXT_MODEL = "qwen3.5-plus";
-const DEFAULT_VISION_MODEL = "qwen3.5-plus";
+const DEFAULT_TEXT_MODEL = "qwen3.7-flash";
+const DEFAULT_VISION_MODEL = "qwen3.7-flash";
 const DEFAULT_MAX_TOKENS = 8192;
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
@@ -53,6 +53,8 @@ export interface LLMParams {
   temperature?: number;
   timeoutMs?: number;
   responseFormat?: {
+    type: "json_object";
+  } | {
     type: "json_schema";
     json_schema: {
       name: string;
@@ -106,96 +108,136 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   const model =
     params.model ?? (hasVision ? DEFAULT_VISION_MODEL : DEFAULT_TEXT_MODEL);
   const baseUrl = ENV.dashScopeBaseUrl;
-
-  const body: Record<string, unknown> = {
-    model,
-    messages: params.messages,
-    max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
-    temperature: params.temperature ?? 0.7,
-    enable_thinking: false,
-  };
-
-  if (params.enableSearch) {
-    body.enable_search = true;
-  }
-
-  if (params.tools && params.tools.length > 0) {
-    body.tools = params.tools;
-  }
-
-  if (params.responseFormat) {
-    body.response_format = {
-      type: params.responseFormat.type,
-      json_schema: {
-        name: params.responseFormat.json_schema.name,
-        strict: params.responseFormat.json_schema.strict,
-        schema: params.responseFormat.json_schema.schema,
-      },
+  
+  // Hard timeout: 15s (Gemini suggestion - fail fast, don't make user wait 60s)
+  const HARD_TIMEOUT_MS = params.timeoutMs ?? 15000;
+  
+  // Retry logic with exponential backoff (Gemini + DeepSeek)
+  const MAX_RETRIES = 2;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const retryStart = Date.now();
+    
+    if (attempt > 0) {
+      console.log(`[LLM] Retry attempt ${attempt}/${MAX_RETRIES} (simplified prompt)`);
+    }
+    
+    // Simplify prompt on retry (remove tools, shorten context)
+    const isRetry = attempt > 0;
+    const body: Record<string, unknown> = {
+      model,
+      messages: params.messages,
+      max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+      temperature: isRetry ? 0.5 : (params.temperature ?? 0.7),  // More stable on retry
+      enable_thinking: false,
     };
-  }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 29000);
-
-  try {
-    console.log(`[LLM] Calling ${model} with ${params.messages.length} messages`);
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-    console.log(`[LLM] Response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log(`[LLM] Error body: ${errorText.slice(0, 200)}`);
-      throw new Error(
-        `DashScope API failed: ${response.status} – ${errorText}`
-      );
+    // On retry, remove tools to speed up (DeepSeek suggestion)
+    if (params.tools && params.tools.length > 0 && !isRetry) {
+      body.tools = params.tools;
     }
 
-    const result = (await response.json()) as {
-      id?: string;
-      choices: Array<{
-        index: number;
-        message: { role: string; content: string | null; tool_calls?: ToolCall[] };
-        finish_reason: string;
-      }>;
-      usage?: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-      };
-    };
+    if (params.responseFormat) {
+      if (params.responseFormat.type === "json_object") {
+        body.response_format = { type: "json_object" };
+      } else {
+        body.response_format = {
+          type: params.responseFormat.type,
+          json_schema: {
+            name: params.responseFormat.json_schema.name,
+            strict: params.responseFormat.json_schema.strict,
+            schema: params.responseFormat.json_schema.schema,
+          },
+        };
+      }
+    }
 
-    return {
-      choices: result.choices.map((c) => ({
-        message: {
-          role: c.message.role ?? "assistant",
-          content: c.message.content,
-          tool_calls: c.message.tool_calls,
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), HARD_TIMEOUT_MS);
+
+    try {
+      const callStart = Date.now();
+      console.log(`[LLM] Calling ${model} with ${params.messages.length} messages (timeout: ${HARD_TIMEOUT_MS}ms, attempt: ${attempt + 1})`);
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
-        finish_reason: c.finish_reason?.toLowerCase() ?? "stop",
-      })),
-      usage: result.usage
-        ? {
-            prompt_tokens: result.usage.prompt_tokens,
-            completion_tokens: result.usage.completion_tokens,
-            total_tokens: result.usage.total_tokens,
-          }
-        : undefined,
-    };
-  } catch (err) {
-    clearTimeout(timeout);
-    console.log(`[LLM] Error: ${(err as Error).message}`);
-    throw err;
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+      const callDuration = Date.now() - callStart;
+      console.log(`[LLM] Response status: ${response.status} (duration: ${callDuration}ms)`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log(`[LLM] Error body: ${errorText.slice(0, 200)}`);
+        throw new Error(
+          `DashScope API failed: ${response.status} – ${errorText}`
+        );
+      }
+
+      const result = (await response.json()) as {
+        id?: string;
+        choices: Array<{
+          index: number;
+          message: { role: string; content: string | null; tool_calls?: ToolCall[] };
+          finish_reason: string;
+        }>;
+        usage?: {
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+        };
+      };
+
+      const totalDuration = Date.now() - retryStart;
+      console.log(`[LLM] Success! Total attempt duration: ${totalDuration}ms`);
+      return {
+        choices: result.choices.map((c) => ({
+          message: {
+            role: c.message.role ?? "assistant",
+            content: c.message.content,
+            tool_calls: c.message.tool_calls,
+          },
+          finish_reason: c.finish_reason?.toLowerCase() ?? "stop",
+        })),
+        usage: result.usage
+          ? {
+              prompt_tokens: result.usage.prompt_tokens,
+              completion_tokens: result.usage.completion_tokens,
+              total_tokens: result.usage.total_tokens,
+            }
+          : undefined,
+      };
+    } catch (err) {
+      clearTimeout(timeout);
+      lastError = err as Error;
+      const attemptDuration = Date.now() - retryStart;
+      console.log(`[LLM] Attempt ${attempt + 1} failed after ${attemptDuration}ms: ${(err as Error).message}`);
+      
+      // Exponential backoff before retry (Gemini suggestion)
+      if (attempt < MAX_RETRIES) {
+        const backoffMs = 1000 * Math.pow(2, attempt);  // 1s, 2s
+        console.log(`[LLM] Waiting ${backoffMs}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
   }
+  
+  // All retries exhausted
+  const totalWaitTime = Date.now();
+  if (lastError) {
+    console.error(`[LLM] All ${MAX_RETRIES + 1} attempts failed after ${totalWaitTime}ms`);
+    throw lastError;
+  }
+  
+  // Should never reach here
+  throw new Error("LLM call failed after all retries");
 }
 
 export async function parseRecipeFromImage(
@@ -317,6 +359,38 @@ export function repairJSON(content: string): string {
   content = content.replace(/,(\s*[}\]])/g, '$1');
   
   return content;
+}
+
+/**
+ * Fix5: 嘗試抽取「最後一個完整 JSON 值」前嘅有效部分 —— 處理 LLM 喺 array 中途截斷嘅情況
+ * 做法：由最尾開始逐步嘗試 parse，搵到第一個成功嘅 JSON 就停
+ */
+export function salvageJSON(raw: string): Record<string, unknown> | null {
+  let content = raw.trim();
+  // 先剷走前後非 JSON 文字
+  const s = content.indexOf("{");
+  const e = content.lastIndexOf("}");
+  if (s === -1 || e <= s) return null;
+  content = content.slice(s, e + 1);
+
+  // 先試直接 parse（可能已經完整）
+  try {
+    return JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    // 繼續嘗試修復
+  }
+
+  // 逐步縮短（由最尾砍 1-2 字）再試 parse
+  for (let cut = 1; cut < Math.min(400, content.length); cut += 2) {
+    const candidate = repairJSON(content.slice(0, content.length - cut));
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      // 繼續試
+    }
+  }
+  return null;
 }
 
 // ─── Streaming LLM call for SSE ──────────────────────────

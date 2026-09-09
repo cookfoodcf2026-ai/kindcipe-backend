@@ -12,13 +12,26 @@ async function startServer() {
   const server = createServer(app);
 
   // CORS — allow requests from the mobile app and web
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean);
+  const allowedOrigins = new Set(
+    (process.env.ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  );
+  const localOriginPatterns = [
+    /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/,
+    /^exp:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/,
+    /^https?:\/\/192\.168\.\d+\.\d+(?::\d+)?$/,
+    /^exp:\/\/192\.168\.\d+\.\d+(?::\d+)?$/,
+    /^https?:\/\/10\.0\.2\.2(?::\d+)?$/,
+    /^exp:\/\/10\.0\.2\.2(?::\d+)?$/,
+  ];
   app.use(
     cors({
       origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, curl, etc.)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        if (allowedOrigins.size === 0 || allowedOrigins.has(origin) || localOriginPatterns.some((pattern) => pattern.test(origin))) {
           return callback(null, true);
         }
         return callback(new Error(`CORS: origin ${origin} not allowed`));
@@ -80,8 +93,8 @@ async function startServer() {
 
   const port = parseInt(process.env.PORT ?? "3000");
 
-  server.listen(port, () => {
-    console.log(`Kindcipe backend running on http://localhost:${port}/`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`Kindcipe backend running on http://0.0.0.0:${port}/`);
 
     // Warmup DB connection to prevent cold-start delay on first query
     (async () => {

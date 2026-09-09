@@ -16,7 +16,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
-import { getDb, getCommonIngredients } from "../db";
+import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -1374,7 +1374,13 @@ export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
   parseUrl: protectedProcedure
     .input(z.object({ url: z.string().url(), language: z.string().optional(), clientThumbnail: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // 🛑 Quota check BEFORE calling LLM
+      if (!ctx.activeFamilyId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      }
+      await assertFamilyQuota(ctx.activeFamilyId);
+      
       const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail);
       return {
         ...parsed,
@@ -1387,7 +1393,13 @@ export const recipesRouter = router({
   // ── Parse Text (AI extract recipe from pasted text, e.g. 小紅書) ────────────
   parseText: protectedProcedure
     .input(z.object({ text: z.string().min(10).max(5000), language: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // 🛑 Quota check BEFORE calling LLM
+      if (!ctx.activeFamilyId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      }
+      await assertFamilyQuota(ctx.activeFamilyId);
+      
       const parsed = await parseTextToRecipe(input.text, input.language);
       return {
         ...parsed,
@@ -1433,7 +1445,13 @@ export const recipesRouter = router({
     .input(z.object({
       storageKey: z.string(), // key returned by uploadRecipeImage
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // 🛑 Quota check BEFORE calling LLM
+      if (!ctx.activeFamilyId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      }
+      await assertFamilyQuota(ctx.activeFamilyId);
+      
       // Build absolute URL for Vision API via storage signed URL
       const { storageGetSignedUrl } = await import("../storage");
       const imageUrl = await storageGetSignedUrl(input.storageKey);
