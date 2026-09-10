@@ -1119,7 +1119,7 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   if (/涼茶|飲品|飲料|清熱|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|鮮榨|梳打/.test(tagsStr)) return "drink";
   if (/海鮮|魚|蝦|蟹|蜆|蠔|帶子|鮑|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|鱸魚|蛋白|豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋/.test(tagsStr)) return "seafood";
   if (/豬|牛|雞|鴨|鵝|羊|肉|排骨|腩|雞翼|雞腿|雞髀|肉丸|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(tagsStr)) return "meat";
-  if (/蔬菜|菜|素|瓜|蔬|菇|菌|葉|芽|時蔬|雲耳|木耳|豆芽|豆角|青豆|毛豆/.test(tagsStr)) return "vegetable";
+  if (/蔬菜|素菜|青菜|時蔬|菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜|瓜|菇|菌|芽|豆芽|豆角|青豆|毛豆|雲耳|木耳/.test(tagsStr)) return "vegetable";
 
   // 4) recipeCategory（菜系中含甜品/飲品/湯水）
   if (category === "甜品") return "dessert";
@@ -1132,8 +1132,16 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|茶飲/.test(name)) return "drink";
   if (/蒸魚|清蒸|炒蝦|蝦|蟹|鮑魚|蒸鱸|魚片|帶子|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|蜆|蠔|豆腐|豆卜|豆干|腐皮|蒸蛋|炒蛋/.test(name)) return "seafood";
   if (/排骨|牛|雞|豬|肉|鴨|鵝|羊|腩|雞翼|雞腿|雞髀|肉丸|焗豬|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(name)) return "meat";
-  if (/炒.*菜|菜|素|瓜|菇|豆芽|豆角|青豆|毛豆|雲耳|木耳|菌|莧|芥蘭|通菜|菜心|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜/.test(name)) return "vegetable";
+  if (/炒.*菜|蔬菜|青菜|時蔬|菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜|瓜|菇|菌|芽|豆芽|豆角|青豆|毛豆|雲耳|木耳/.test(name)) return "vegetable";
 
+  return "other";
+}
+
+// 將餸再細分「家族」（麵/飯/點心/其他），避免 3 餸 1 湯抽到兩款麵/兩款飯
+function dishFamily(name: string): string {
+  if (/麵|粉|米線|河粉|烏冬|拉麵|伊麵|意粉|通粉|粉絲|炒麵|撈麵|公仔麵/.test(name)) return "noodle";
+  if (/飯|炒飯|焗飯|糯米|煲仔飯|丼|蓋飯/.test(name)) return "rice";
+  if (/包|饅頭|餃|雲吞|點心/.test(name)) return "dumpling";
   return "other";
 }
 
@@ -1158,19 +1166,37 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   };
 
   const soup = pickN(soupPool, 1);
+  const usedFams = new Set<string>();
+  // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），fresh 優先次序保留
+  const pickNByFamily = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
+    if (n <= 0 || arr.length === 0) return [];
+    const fresh = arr.filter(r => !excluded.has(normalizeName(String(r.name ?? ""))));
+    const reused = arr.filter(r => excluded.has(normalizeName(String(r.name ?? ""))));
+    const pool = (fresh.length > 0 ? fresh : reused).sort((a, b) => {
+      const pa = usedFams.has(dishFamily(String(a.name ?? ""))) ? 1 : 0;
+      const pb = usedFams.has(dishFamily(String(b.name ?? ""))) ? 1 : 0;
+      return pa - pb || Math.random() - 0.5;
+    });
+    return pool.slice(0, n);
+  };
+  const addDish = (arr: Record<string, unknown>[], n: number) => {
+    const picked = pickNByFamily(arr, n);
+    picked.forEach(r => usedFams.add(dishFamily(String(r.name ?? ""))));
+    return picked;
+  };
+
   let dishes: Record<string, unknown>[] = [];
-  dishes = dishes.concat(pickN(meatPool, 1));
-  dishes = dishes.concat(pickN(seafoodPool, 1));
-  dishes = dishes.concat(pickN(vegPool, 1));
+  dishes = dishes.concat(addDish(meatPool, 1));
+  dishes = dishes.concat(addDish(seafoodPool, 1));
+  dishes = dishes.concat(addDish(vegPool, 1));
   let want = 3 - dishes.length;
   if (want > 0) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(pickN(otherPool.filter(r => !already.has(r)), want));
+    dishes = dishes.concat(addDish(otherPool.filter(r => !already.has(r)), want));
   }
   if (dishes.length < 3) {
     const already = new Set(dishes.map(r => r));
-    const rest = dishPool.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
-    dishes = dishes.concat(rest.slice(0, 3 - dishes.length));
+    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), 3 - dishes.length));
   }
 
   let picked = [...soup, ...dishes];
