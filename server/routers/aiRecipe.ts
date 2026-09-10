@@ -1160,7 +1160,6 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   const seafoodPool = pool.filter(r => classify(r) === "seafood");
   const vegPool = pool.filter(r => classify(r) === "vegetable");
   const otherPool = pool.filter(r => classify(r) === "other");
-  const carbPool = pool.filter(r => classify(r) !== "soup" && classify(r) !== "dessert" && classify(r) !== "drink" && (family(r) === "noodle" || family(r) === "rice"));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
 
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
@@ -1194,35 +1193,34 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   let dishes: Record<string, unknown>[] = [];
   dishes = dishes.concat(addDish(meatPool, 1));
   dishes = dishes.concat(addDish(seafoodPool, 1));
-  // Option B：有時用麵/飯（碳水）代替蔬菜（最多 1 個 carb，同家族唔重複）
-  const wantCarb = carbPool.length > 0 && Math.random() < 0.3;
-  if (wantCarb) {
-    const freshCarb = carbPool.filter(r => !usedFams.has(family(r)));
-    const carb = addDish(freshCarb.length > 0 ? freshCarb : carbPool, 1)[0];
-    if (carb) dishes.push(carb);
-    else dishes = dishes.concat(addDish(vegPool, 1));
-  } else {
-    dishes = dishes.concat(addDish(vegPool, 1));
-  }
+  dishes = dishes.concat(addDish(vegPool, 1));
+  // 3餸1湯：主食（麵/飯）唔做餸，永遠 1肉 + 1海鮮 + 1菜(+補其他) = 真3餸
+  const isCarb = (r: Record<string, unknown>) => { const f = family(r); return f === "noodle" || f === "rice"; };
+  const fillDishes = (arr: Record<string, unknown>[]) => arr.filter(r => !isCarb(r));
   let want = 3 - dishes.length;
   if (want > 0) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(otherPool.filter(r => !already.has(r)), want));
+    dishes = dishes.concat(addDish(fillDishes(otherPool).filter(r => !already.has(r)), want));
   }
+  if (dishes.length < 3) {
+    const already = new Set(dishes.map(r => r));
+    dishes = dishes.concat(addDish(fillDishes(dishPool).filter(r => !already.has(r)), 3 - dishes.length));
+  }
+  // 極兜底：連非主食餸都唔夠先准用主食（保證唔少過 3 餸）
   if (dishes.length < 3) {
     const already = new Set(dishes.map(r => r));
     dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), 3 - dishes.length));
   }
 
   let picked = [...soup, ...dishes];
-  // 兜底：唔夠 4 張 → 由全庫非甜品/飲品補（保證有卡，之後 AI 補尾數）
+  // 兜底：唔夠 4 張 → 由全庫非甜品/飲品/主食補（保證有卡，之後 AI 補尾數）
   if (picked.length < 4) {
     const already = new Set(picked.map(r => r));
-    const rest = rows.filter(r => !already.has(r) && classify(r) !== "dessert" && classify(r) !== "drink")
+    const rest = rows.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink")
       .sort(() => Math.random() - 0.5);
     picked = picked.concat(rest.slice(0, 4 - picked.length));
   }
-  // 極兜底：全庫都係甜品飲品先俾
+  // 極兜底：全庫都係甜品/飲品/主食先准用
   if (picked.length < 4) {
     const already = new Set(picked.map(r => r));
     const rest = rows.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
@@ -2158,7 +2156,7 @@ export async function processAIChefChat(
   // ══════════ mode === "library"：快路徑（3餸1湯 → 1湯3餸 + AI補；一般 → 1 個）══════════
   if (mode === "library") {
     const isMealLib = /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
-    const rows = await trySearch("", 200);
+    const rows = await trySearch("", 1000);
 
     if (isMealLib) {
       // 1) 先從庫揀 1 湯 + 3 餸（可能少過 4）
@@ -2262,7 +2260,7 @@ export async function processAIChefChat(
     // 打字「N分鐘」都尊重時間：由 raw text 抽 cookTimeMax（cleanFoodQuery 會剷走數字，所以要喺 raw 度抽）
     const chatTimeMatch = lastUserText.match(/(\d{1,3})\s*分鐘/);
     const chatCookTimeMax = chatTimeMatch ? parseInt(chatTimeMatch[1], 10) : undefined;
-    const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 60, chatCookTimeMax);
+    const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
     const picked = rowsToSuggested(rows, mergedExclude, 1);
     if (picked.length > 0) {
       console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
@@ -2515,7 +2513,7 @@ export async function processAIChefChat(
         let fb = rowsToSuggested(fbRows, mergedExclude, 1);
         if (fb.length === 0 && keyword) {
           // keyword 搜唔到合適替代 → fallback 去 generic pool，保證一定有卡（排除咗已睇過）
-          const genRows = await trySearch("", 60);
+          const genRows = await trySearch("", 1000);
           fb = rowsToSuggested(genRows, mergedExclude, 1);
         }
         if (fb.length > 0) {
