@@ -1114,12 +1114,12 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   if (soupType) return "soup";
 
   // 3) tags 關鍵字
-  if (/湯水|煲湯|燉湯|老火湯|滾湯|湯品|(^|[\s,、])湯($|[\s,、])/.test(tagsStr)) return "soup";
-  if (/甜品|糖水|西米露|布甸|糕|點心|糖水舖/.test(tagsStr)) return "dessert";
-  if (/涼茶|飲品|飲料|清熱|竹蔗茅根|茅根水|山楂水|薏米水|蘆根/.test(tagsStr)) return "drink";
-  if (/海鮮|魚|蝦|蟹|蜆|帶子|鮑|海參|花膠/.test(tagsStr)) return "seafood";
-  if (/豬|牛|雞|鴨|鵝|肉|排骨|腩|雞翼|雞腿|肉丸/.test(tagsStr)) return "meat";
-  if (/蔬菜|菜|素|瓜|蔬|菇|豆|葉|芽/.test(tagsStr)) return "vegetable";
+  if (/湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯|(^|[\s,、])湯($|[\s,、])/.test(tagsStr)) return "soup";
+  if (/甜品|糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓/.test(tagsStr)) return "dessert";
+  if (/涼茶|飲品|飲料|清熱|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|鮮榨|梳打/.test(tagsStr)) return "drink";
+  if (/海鮮|魚|蝦|蟹|蜆|蠔|帶子|鮑|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|鱸魚|蛋白|豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋/.test(tagsStr)) return "seafood";
+  if (/豬|牛|雞|鴨|鵝|羊|肉|排骨|腩|雞翼|雞腿|雞髀|肉丸|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(tagsStr)) return "meat";
+  if (/蔬菜|菜|素|瓜|蔬|菇|菌|葉|芽|時蔬|雲耳|木耳|豆芽|豆角|青豆|毛豆/.test(tagsStr)) return "vegetable";
 
   // 4) recipeCategory（菜系中含甜品/飲品/湯水）
   if (category === "甜品") return "dessert";
@@ -1127,12 +1127,12 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   if (category === "湯水") return "soup";
 
   // 5) 菜名關鍵字
-  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品/.test(name)) return "soup";
-  if (/糖水|西米露|布甸|糕$|點心/.test(name)) return "dessert";
-  if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根/.test(name)) return "drink";
-  if (/蒸魚|清蒸|炒蝦|蝦|蟹|鮑魚|蒸鱸|魚片|帶子|海參|花膠/.test(name)) return "seafood";
-  if (/排骨|牛|雞|豬|肉|鴨|鵝|腩|雞翼|雞腿|肉丸|焗豬/.test(name)) return "meat";
-  if (/炒.*菜|菜|素|瓜|菇|豆|莧|芥蘭|通菜|菜心|芽|番茄|薯/.test(name)) return "vegetable";
+  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯/.test(name)) return "soup";
+  if (/糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓|糕$/.test(name)) return "dessert";
+  if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|茶飲/.test(name)) return "drink";
+  if (/蒸魚|清蒸|炒蝦|蝦|蟹|鮑魚|蒸鱸|魚片|帶子|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|蜆|蠔|豆腐|豆卜|豆干|腐皮|蒸蛋|炒蛋/.test(name)) return "seafood";
+  if (/排骨|牛|雞|豬|肉|鴨|鵝|羊|腩|雞翼|雞腿|雞髀|肉丸|焗豬|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(name)) return "meat";
+  if (/炒.*菜|菜|素|瓜|菇|豆芽|豆角|青豆|毛豆|雲耳|木耳|菌|莧|芥蘭|通菜|菜心|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜/.test(name)) return "vegetable";
 
   return "other";
 }
@@ -2042,10 +2042,10 @@ export async function processAIChefChat(
   const db = await getDb();
 
   // ── 本機 helpers ─────────────────────────────────────────────
-  const trySearch = async (query: string, limit = 24): Promise<Record<string, unknown>[]> => {
+  const trySearch = async (query: string, limit = 24, cookTimeMax?: number): Promise<Record<string, unknown>[]> => {
     if (!db) return [];
     try {
-      const res = await withTimeout(execSearchRecipes(db, { query, limit }, familyId), 8000, "lib search");
+      const res = await withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax }, familyId), 8000, "lib search");
       return (res.recipes || []) as Record<string, unknown>[];
     } catch (e) {
       console.warn("[AI Chef] lib search failed:", e);
@@ -2179,6 +2179,9 @@ export async function processAIChefChat(
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
       const filteredRows = applySearchFilters(rows, search);
       picked = rowsToSuggested(filteredRows, mergedExclude, searchCount);
+      if (search.rank === "shortestTime" && picked.length > 1) {
+        picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
+      }
       if (picked.length > 0) {
         console.log(`[AI Chef] library structured fallback: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
         await recordFamilySeenNames(familyId, picked.map(r => r.name));
@@ -2215,7 +2218,10 @@ export async function processAIChefChat(
   const keyword = cleanFoodQuery(lastUserText);
   const isVague = !keyword; // 抽唔到關鍵字 = 模糊想食
   if (mode === "chat" && !isPlain && !hasImage) {
-    const rows = keyword ? await trySearch(keyword, 30) : await trySearch("", 60);
+    // 打字「N分鐘」都尊重時間：由 raw text 抽 cookTimeMax（cleanFoodQuery 會剷走數字，所以要喺 raw 度抽）
+    const chatTimeMatch = lastUserText.match(/(\d{1,3})\s*分鐘/);
+    const chatCookTimeMax = chatTimeMatch ? parseInt(chatTimeMatch[1], 10) : undefined;
+    const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 60, chatCookTimeMax);
     const picked = rowsToSuggested(rows, mergedExclude, 1);
     if (picked.length > 0) {
       console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
