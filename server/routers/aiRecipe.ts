@@ -648,6 +648,7 @@ export type SuggestedRecipe = {
   customId?: number;
   thumbnailUrl?: string;
   image?: string;
+  dishType?: string;
 };
 
 // ─── Tools ─────────────────────────────────────────────────
@@ -757,6 +758,7 @@ async function execSearchRecipes(
       cookTime: officialRecipes.cookTime, servings: officialRecipes.servings, difficulty: officialRecipes.difficulty,
       recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
       steps: officialRecipes.steps, tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
+      dishType: officialRecipes.dishType,
     })
     .from(officialRecipes)
     .where(and(
@@ -772,7 +774,7 @@ async function execSearchRecipes(
     servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
     ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
     steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
-    thumbnailUrl: r.thumbnailUrl, image: r.image,
+    thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
   });
 
   if (familyId) {
@@ -782,6 +784,7 @@ async function execSearchRecipes(
         cookTime: customRecipes.cookTime, servings: customRecipes.servings, difficulty: customRecipes.difficulty,
         recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
         steps: customRecipes.steps, tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
+        dishType: customRecipes.dishType,
       })
       .from(customRecipes)
       .where(and(
@@ -797,7 +800,7 @@ async function execSearchRecipes(
       servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
       ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
       steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
-      thumbnailUrl: r.thumbnailUrl, image: r.image,
+      thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
     });
   }
 
@@ -1073,34 +1076,118 @@ async function getMixedRecipes(
 }
 
 // ─── 3餸1湯 library helper（1 湯 + 3 餸，唔夠就由 AI 補）──────────────────
-function isSoupRow(r: Record<string, unknown>): boolean {
-  const tagsStr = JSON.stringify(r.tags || "");
-  const soupTypeStr = JSON.stringify((r as any).soupType || "");
-  return tagsStr.includes("湯") || soupTypeStr.includes("湯") || String(r.name || "").includes("湯");
+type DishType = "soup" | "meat" | "seafood" | "vegetable" | "dessert" | "drink" | "other";
+
+const DISH_TYPE_MAP: Record<string, DishType> = {
+  "湯": "soup", "湯水": "soup", "湯品": "soup", "煲湯": "soup", "老火湯": "soup", "燉湯": "soup", "滾湯": "soup",
+  "肉類": "meat", "主菜": "meat", "肉": "meat", "豬": "meat", "牛": "meat", "雞": "meat", "肉類主菜": "meat",
+  "海鮮": "seafood", "魚": "seafood", "蝦": "seafood", "蟹": "seafood", "海鮮類": "seafood", "蛋白": "seafood", "海鮮/蛋白": "seafood",
+  "蔬菜": "vegetable", "菜": "vegetable", "素菜": "vegetable", "蔬果": "vegetable", "蔬菜類": "vegetable", "小炒": "vegetable",
+  "甜品": "dessert", "糖水": "dessert", "糕": "dessert", "點心": "dessert",
+  "飲品": "drink", "涼茶": "drink", "飲料": "drink", "清熱飲": "drink",
+};
+
+function normalizeDishType(v: string | undefined): DishType | undefined {
+  if (!v) return undefined;
+  const s = String(v).trim();
+  if (DISH_TYPE_MAP[s]) return DISH_TYPE_MAP[s];
+  for (const [k, t] of Object.entries(DISH_TYPE_MAP)) {
+    if (s.includes(k)) return t;
+  }
+  return undefined;
+}
+
+// 將食譜分類為「餸 / 湯 / 甜品 / 飲品」等，令 3 餸 1 湯 唔會揀錯甜品湯水做餸。
+// 優先：明確 dishType 欄 → soupType → tags → recipeCategory → 菜名關鍵字 → other
+function classifyDishType(r: Record<string, unknown>): DishType {
+  const tags = (Array.isArray(r.tags) ? r.tags : []).map(String);
+  const tagsStr = tags.join(" ");
+  const name = String(r?.name ?? "").trim();
+  const category = String(r?.recipeCategory ?? "").trim();
+  const soupType = String((r as any)?.soupType ?? "").trim();
+
+  // 1) 明確 dishType 欄（用戶/官方可控）
+  const explicit = normalizeDishType(String((r as any)?.dishType ?? "").trim());
+  if (explicit) return explicit;
+
+  // 2) 明確 soupType（真湯）
+  if (soupType) return "soup";
+
+  // 3) tags 關鍵字
+  if (/湯水|煲湯|燉湯|老火湯|滾湯|湯品|(^|[\s,、])湯($|[\s,、])/.test(tagsStr)) return "soup";
+  if (/甜品|糖水|西米露|布甸|糕|點心|糖水舖/.test(tagsStr)) return "dessert";
+  if (/涼茶|飲品|飲料|清熱|竹蔗茅根|茅根水|山楂水|薏米水|蘆根/.test(tagsStr)) return "drink";
+  if (/海鮮|魚|蝦|蟹|蜆|帶子|鮑|海參|花膠/.test(tagsStr)) return "seafood";
+  if (/豬|牛|雞|鴨|鵝|肉|排骨|腩|雞翼|雞腿|肉丸/.test(tagsStr)) return "meat";
+  if (/蔬菜|菜|素|瓜|蔬|菇|豆|葉|芽/.test(tagsStr)) return "vegetable";
+
+  // 4) recipeCategory（菜系中含甜品/飲品/湯水）
+  if (category === "甜品") return "dessert";
+  if (category === "飲品") return "drink";
+  if (category === "湯水") return "soup";
+
+  // 5) 菜名關鍵字
+  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品/.test(name)) return "soup";
+  if (/糖水|西米露|布甸|糕$|點心/.test(name)) return "dessert";
+  if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根/.test(name)) return "drink";
+  if (/蒸魚|清蒸|炒蝦|蝦|蟹|鮑魚|蒸鱸|魚片|帶子|海參|花膠/.test(name)) return "seafood";
+  if (/排骨|牛|雞|豬|肉|鴨|鵝|腩|雞翼|雞腿|肉丸|焗豬/.test(name)) return "meat";
+  if (/炒.*菜|菜|素|瓜|菇|豆|莧|芥蘭|通菜|菜心|芽|番茄|薯/.test(name)) return "vegetable";
+
+  return "other";
 }
 
 // 由 library rows 揀「1 湯 + 3 餸」；排除已睇過（優先 fresh，池盡翻兜）
 function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): SuggestedRecipe[] {
   const excluded = new Set(exclude.map(normalizeName).filter(Boolean));
-  const soupRows = rows.filter(r => isSoupRow(r));
-  const nonSoupRows = rows.filter(r => !isSoupRow(r));
+
+  const classify = (r: Record<string, unknown>) => classifyDishType(r);
+  const soupPool = rows.filter(r => classify(r) === "soup");
+  const meatPool = rows.filter(r => classify(r) === "meat");
+  const seafoodPool = rows.filter(r => classify(r) === "seafood");
+  const vegPool = rows.filter(r => classify(r) === "vegetable");
+  const otherPool = rows.filter(r => classify(r) === "other");
+  const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
 
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
+    if (n <= 0 || arr.length === 0) return [];
     const fresh = arr.filter(r => !excluded.has(normalizeName(String(r.name ?? ""))));
     const reused = arr.filter(r => excluded.has(normalizeName(String(r.name ?? ""))));
     const pool = (fresh.length > 0 ? fresh : reused).sort(() => Math.random() - 0.5);
     return pool.slice(0, n);
   };
 
-  const soup = pickN(soupRows, 1);
-  const nonSoup = pickN(nonSoupRows, 3);
-  const picked = [...soup, ...nonSoup];
-  // 唔夠 4 個 → 由另一邊 / 全部補足（保證有卡，之後 AI 補尾數）
-  if (picked.length < 4) {
-    const rest = rows.filter(r => !picked.includes(r)).sort(() => Math.random() - 0.5);
-    picked.push(...rest.slice(0, 4 - picked.length));
+  const soup = pickN(soupPool, 1);
+  let dishes: Record<string, unknown>[] = [];
+  dishes = dishes.concat(pickN(meatPool, 1));
+  dishes = dishes.concat(pickN(seafoodPool, 1));
+  dishes = dishes.concat(pickN(vegPool, 1));
+  let want = 3 - dishes.length;
+  if (want > 0) {
+    const already = new Set(dishes.map(r => r));
+    dishes = dishes.concat(pickN(otherPool.filter(r => !already.has(r)), want));
   }
-  // 轉 SuggestedRecipe（source 由 r.source 決定，官方=official）
+  if (dishes.length < 3) {
+    const already = new Set(dishes.map(r => r));
+    const rest = dishPool.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
+    dishes = dishes.concat(rest.slice(0, 3 - dishes.length));
+  }
+
+  let picked = [...soup, ...dishes];
+  // 兜底：唔夠 4 張 → 由全庫非甜品/飲品補（保證有卡，之後 AI 補尾數）
+  if (picked.length < 4) {
+    const already = new Set(picked.map(r => r));
+    const rest = rows.filter(r => !already.has(r) && classify(r) !== "dessert" && classify(r) !== "drink")
+      .sort(() => Math.random() - 0.5);
+    picked = picked.concat(rest.slice(0, 4 - picked.length));
+  }
+  // 極兜底：全庫都係甜品飲品先俾
+  if (picked.length < 4) {
+    const already = new Set(picked.map(r => r));
+    const rest = rows.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
+    picked = picked.concat(rest.slice(0, 4 - picked.length));
+  }
+
   return picked.map((r: any): SuggestedRecipe | null => {
     const steps = (Array.isArray(r.steps) ? r.steps : [])
       .map((st: any) => typeof st === "string" ? st : String(st?.instruction ?? st?.text ?? st ?? ""))
@@ -1123,11 +1210,30 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
       source: official ? "official" : "custom",
       officialId: official ? Number(r.id) : undefined,
       customId: !official ? Number(r.id) : undefined,
+      thumbnailUrl: String(r?.thumbnailUrl ?? "").trim() || undefined,
+      image: String(r?.image ?? "").trim() || undefined,
+      dishType: String(r?.dishType ?? "").trim() || undefined,
       soupType: (r as any).soupType || undefined,
       benefits: (r as any).benefits || undefined,
       waterVolume: (r as any).waterVolume || undefined,
     };
   }).filter((r: SuggestedRecipe | null): r is SuggestedRecipe => !!r);
+}
+
+// 將 search 條件（時間上限 + 排除類別）後置套用喺 generic pool，令「30 分鐘 button」等唔會抽到超時/甜品/湯水/飲品
+function applySearchFilters(rows: Record<string, unknown>[], search?: { cookTimeMax?: number; excludeCategories?: string[] }): Record<string, unknown>[] {
+  if (!search) return rows;
+  const exc = (search.excludeCategories ?? []).map(String);
+  return rows.filter(r => {
+    const ct = Number(r.cookTime ?? 0);
+    if (search.cookTimeMax && ct > search.cookTimeMax) return false;
+    const d = classifyDishType(r);
+    if (exc.includes("甜品") && d === "dessert") return false;
+    if (exc.includes("湯水") && d === "soup") return false;
+    if (exc.includes("飲品") && d === "drink") return false;
+    if (d === "drink") return false; // 一餐唔會淨係得飲品
+    return true;
+  });
 }
 
 // 由 AI 補缺（library 唔夠時）
@@ -1987,6 +2093,7 @@ export async function processAIChefChat(
         customId: !official ? Number(r.id) : undefined,
         thumbnailUrl: String((r as any)?.thumbnailUrl ?? "").trim() || undefined,
         image: String((r as any)?.image ?? "").trim() || undefined,
+        dishType: String((r as any)?.dishType ?? "").trim() || undefined,
         soupType: (r as any).soupType || undefined,
         benefits: (r as any).benefits || undefined,
         waterVolume: (r as any).waterVolume || undefined,
@@ -2057,7 +2164,7 @@ export async function processAIChefChat(
           console.warn("[AI Chef] structured lib search failed:", e);
         }
       }
-      picked = rowsToSuggested(searchRows, mergedExclude, searchCount);
+      picked = rowsToSuggested(applySearchFilters(searchRows, search), mergedExclude, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -2068,6 +2175,14 @@ export async function processAIChefChat(
           ? `我喺食譜庫搵到呢個配合「${search.tags?.join("、") || search.query}」嘅食譜：`
           : `我喺食譜庫搵到呢個食譜：`;
         return { content, recipes: picked, llmUsed };
+      }
+      // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
+      const filteredRows = applySearchFilters(rows, search);
+      picked = rowsToSuggested(filteredRows, mergedExclude, searchCount);
+      if (picked.length > 0) {
+        console.log(`[AI Chef] library structured fallback: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
+        await recordFamilySeenNames(familyId, picked.map(r => r.name));
+        return { content: `我喺食譜庫搵到呢個食譜：`, recipes: picked, llmUsed };
       }
     } else if (swapQuery) {
       const singleRows = await trySearch(swapQuery, 30);
