@@ -1113,23 +1113,27 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   // 2) 明確 soupType（真湯）
   if (soupType) return "soup";
 
-  // 3) tags 關鍵字
+  // 3) tags 湯/甜品/飲品（先）
   if (/湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯|(^|[\s,、])湯($|[\s,、])/.test(tagsStr)) return "soup";
-  if (/甜品|糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓/.test(tagsStr)) return "dessert";
   if (/涼茶|飲品|飲料|清熱|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|鮮榨|梳打/.test(tagsStr)) return "drink";
-  if (/海鮮|魚|蝦|蟹|蜆|蠔|帶子|鮑|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|鱸魚|蛋白|豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋/.test(tagsStr)) return "seafood";
-  if (/豬|牛|雞|鴨|鵝|羊|肉|排骨|腩|雞翼|雞腿|雞髀|肉丸|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(tagsStr)) return "meat";
-  if (/蔬菜|素菜|青菜|時蔬|菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜|瓜|菇|菌|芽|豆芽|豆角|青豆|毛豆|雲耳|木耳/.test(tagsStr)) return "vegetable";
+  if (/甜品|糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓/.test(tagsStr)) return "dessert";
 
-  // 4) recipeCategory（菜系中含甜品/飲品/湯水）
+  // 4) 菜名湯/甜品/飲品（優先過 tags 蛋白/蔬菜，避免「魚湯/蜆湯」被當海鮮餸，令一餐兩個湯）
+  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯/.test(name)) return "soup";
+  if (/糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓|糕$/.test(name)) return "dessert";
+  if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|茶飲/.test(name)) return "drink";
+
+  // 5) recipeCategory（菜系中含甜品/飲品/湯水）
   if (category === "甜品") return "dessert";
   if (category === "飲品") return "drink";
   if (category === "湯水") return "soup";
 
-  // 5) 菜名關鍵字
-  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯/.test(name)) return "soup";
-  if (/糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓|糕$/.test(name)) return "dessert";
-  if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|茶飲/.test(name)) return "drink";
+  // 6) tags 蛋白/蔬菜（淨係湯/甜品/飲品以外先至係餸）
+  if (/海鮮|魚|蝦|蟹|蜆|蠔|帶子|鮑|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|鱸魚|蛋白|豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋/.test(tagsStr)) return "seafood";
+  if (/豬|牛|雞|鴨|鵝|羊|肉|排骨|腩|雞翼|雞腿|雞髀|肉丸|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(tagsStr)) return "meat";
+  if (/蔬菜|素菜|青菜|時蔬|菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜|瓜|菇|菌|芽|豆芽|豆角|青豆|毛豆|雲耳|木耳/.test(tagsStr)) return "vegetable";
+
+  // 7) 菜名蛋白/蔬菜
   if (/蒸魚|清蒸|炒蝦|蝦|蟹|鮑魚|蒸鱸|魚片|帶子|海參|花膠|龍蝦|石斑|魷魚|章魚|墨魚|三文魚|蜆|蠔|豆腐|豆卜|豆干|腐皮|蒸蛋|炒蛋/.test(name)) return "seafood";
   if (/排骨|牛|雞|豬|肉|鴨|鵝|羊|腩|雞翼|雞腿|雞髀|肉丸|焗豬|叉燒|燒肉|豬扒|牛扒|雞扒|豬手|豬腳/.test(name)) return "meat";
   if (/炒.*菜|蔬菜|青菜|時蔬|菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|粟米|節瓜|勝瓜|苦瓜|西洋菜|瓜|菇|菌|芽|豆芽|豆角|青豆|毛豆|雲耳|木耳/.test(name)) return "vegetable";
@@ -1350,7 +1354,7 @@ async function generateOneType(
   exclude: string[]
 ): Promise<SuggestedRecipe | null> {
   try {
-    const soupHint = isSoup ? "必須係湯水。" : "呢道餸唔可以係麵、飯、湯水類（只係主菜/小炒，唔係主食）。";
+    const soupHint = isSoup ? "必須係湯水。" : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
     const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
@@ -1368,7 +1372,16 @@ async function generateOneType(
       return null;
     }
     const converted = manuallyConvertRecipes([extracted], undefined);
-    return converted[0] ?? null;
+    const rec = converted[0] ?? null;
+    // 後置驗證：非湯位唔可以生湯/甜品/飲品（避免一餐兩個湯）
+    if (rec && !isSoup) {
+      const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
+      if (t === "soup" || t === "dessert" || t === "drink") {
+        console.warn(`[AI Chef] meal item wrong type (${t}) for dish slot, dropped: ${rec.name}`);
+        return null;
+      }
+    }
+    return rec;
   } catch (e) {
     console.warn("[AI Chef] meal item failed:", e);
     return null;
