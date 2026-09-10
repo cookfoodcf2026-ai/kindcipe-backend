@@ -1155,11 +1155,15 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   // ── 唔再輪換菜系（避免 pool 收窄到細菜系 → 重複）——由成個 library pool 抽，食譜庫大先有變化 ──
   const pool = rows;
 
-  const soupPool = pool.filter(r => classify(r) === "soup");
-  const meatPool = pool.filter(r => classify(r) === "meat");
-  const seafoodPool = pool.filter(r => classify(r) === "seafood");
-  const vegPool = pool.filter(r => classify(r) === "vegetable");
-  const otherPool = pool.filter(r => classify(r) === "other");
+  // 主食（麵/飯）喺 3餸1湯 唔做餸、唔做湯：無論 classify 分做咩，一律排除，避免誤分類嘅麵/飯偷入
+  const isCarb = (r: Record<string, unknown>) => { const f = family(r); return f === "noodle" || f === "rice"; };
+  const noCarb = (r: Record<string, unknown>) => !isCarb(r);
+
+  const soupPool = pool.filter(r => classify(r) === "soup" && noCarb(r));
+  const meatPool = pool.filter(r => classify(r) === "meat" && noCarb(r));
+  const seafoodPool = pool.filter(r => classify(r) === "seafood" && noCarb(r));
+  const vegPool = pool.filter(r => classify(r) === "vegetable" && noCarb(r));
+  const otherPool = pool.filter(r => classify(r) === "other" && noCarb(r));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
 
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
@@ -1194,17 +1198,15 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   dishes = dishes.concat(addDish(meatPool, 1));
   dishes = dishes.concat(addDish(seafoodPool, 1));
   dishes = dishes.concat(addDish(vegPool, 1));
-  // 3餸1湯：主食（麵/飯）唔做餸，永遠 1肉 + 1海鮮 + 1菜(+補其他) = 真3餸
-  const isCarb = (r: Record<string, unknown>) => { const f = family(r); return f === "noodle" || f === "rice"; };
-  const fillDishes = (arr: Record<string, unknown>[]) => arr.filter(r => !isCarb(r));
+  // 3餸1湯：主食（麵/飯）唔做餸（上面 pool 已排除），永遠 1肉 + 1海鮮 + 1菜(+補其他) = 真3餸
   let want = 3 - dishes.length;
   if (want > 0) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(fillDishes(otherPool).filter(r => !already.has(r)), want));
+    dishes = dishes.concat(addDish(otherPool.filter(r => !already.has(r)), want));
   }
   if (dishes.length < 3) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(fillDishes(dishPool).filter(r => !already.has(r)), 3 - dishes.length));
+    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), 3 - dishes.length));
   }
   // 極兜底：連非主食餸都唔夠先准用主食（保證唔少過 3 餸）
   if (dishes.length < 3) {
@@ -1276,14 +1278,43 @@ function applySearchFilters(rows: Record<string, unknown>[], search?: { cookTime
 }
 
 // 由 AI 補缺（library 唔夠時）
+const MEAL_TYPE_LABEL: Record<string, { label: string; isSoup: boolean }> = {
+  meat: { label: "肉類主菜（如豬/牛/雞）", isSoup: false },
+  seafood: { label: "海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）", isSoup: false },
+  vegetable: { label: "蔬菜/小炒", isSoup: false },
+  soup: { label: "湯水", isSoup: true },
+};
+
+// 由 library 揀出嚟嘅 SuggestedRecipe 判斷屬邊類（用返 classifyDishType 規則）
+function mealTypeOf(r: SuggestedRecipe): DishType {
+  return classifyDishType({
+    name: r.name,
+    tags: r.tags,
+    dishType: r.dishType,
+    soupType: r.soupType,
+  } as unknown as Record<string, unknown>);
+}
+
+// 由 AI 補缺（library 唔夠時）。neededTypes 指定缺失類別 → 逐類生成，確保 3餸1湯 結構。
 async function generateMissingRecipes(
   count: number,
   needSoup: boolean,
   exclude: string[],
   familyId: number | undefined,
-  userId: number | undefined
+  userId: number | undefined,
+  neededTypes?: DishType[]
 ): Promise<SuggestedRecipe[]> {
   if (count <= 0) return [];
+  // 指定缺失類別 → 逐類生成（避免 AI 亂補出麵/飯/錯類）
+  if (neededTypes && neededTypes.length > 0) {
+    const results = await Promise.all(
+      neededTypes.map(t => {
+        const meta = MEAL_TYPE_LABEL[t];
+        return generateOneType(meta?.label ?? "家常菜", meta?.isSoup ?? false, exclude);
+      })
+    );
+    return results.filter((r): r is SuggestedRecipe => !!r).slice(0, count);
+  }
   try {
     const soupHint = needSoup ? "必須包含 1 個湯水食譜。" : "";
     const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
@@ -1312,6 +1343,38 @@ async function generateMissingRecipes(
   }
 }
 
+// 生成單一類別嘅一個食譜（用嚟 3餸1湯 按「缺失類別」補缺，避免 AI 亂補出麵/飯/錯類）
+async function generateOneType(
+  label: string,
+  isSoup: boolean,
+  exclude: string[]
+): Promise<SuggestedRecipe | null> {
+  try {
+    const soupHint = isSoup ? "必須係湯水。" : "呢道餸唔可以係麵、飯、湯水類（只係主菜/小炒，唔係主食）。";
+    const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 2200,
+      temperature: 0.7,
+      timeoutMs: 30000,
+      enableSearch: false,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    // 單一食譜 object → 包裝成 recipes array 再用現有 converter
+    const extracted = extractJSON<Record<string, unknown>>(raw);
+    if (!extracted || typeof extracted !== "object" || !extracted.name) {
+      console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
+      return null;
+    }
+    const converted = manuallyConvertRecipes([extracted], undefined);
+    return converted[0] ?? null;
+  } catch (e) {
+    console.warn("[AI Chef] meal item failed:", e);
+    return null;
+  }
+}
+
 // 3餸1湯 AI 生成：並行 4 個獨立 call（1 湯 + 3 餸），每個 ~8-10s，總時間 ~10s（比起一次過生成 4 個 20-30s 快好多）
 async function generateMealRecipesParallel(
   exclude: string[],
@@ -1324,34 +1387,7 @@ async function generateMealRecipesParallel(
     { label: "蔬菜/小炒", isSoup: false },
     { label: "湯水", isSoup: true },
   ];
-  const results = await Promise.all(
-    types.map(async (t) => {
-      try {
-        const soupHint = t.isSoup ? "必須係湯水。" : "";
-        const prompt = `請生成 1 個${t.label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
-        const resp = await invokeLLM({
-          messages: [{ role: "user", content: prompt }],
-          maxTokens: 2200,
-          temperature: 0.7,
-          timeoutMs: 30000,
-          enableSearch: false,
-          responseFormat: { type: "json_object" },
-        });
-        const raw = resp.choices?.[0]?.message?.content || "";
-        // 單一食譜 object → 包裝成 recipes array 再用現有 converter
-        const extracted = extractJSON<Record<string, unknown>>(raw);
-        if (!extracted || typeof extracted !== "object" || !extracted.name) {
-          console.warn("[AI Chef] parallel meal item bad JSON:", raw.slice(0, 120));
-          return null;
-        }
-        const converted = manuallyConvertRecipes([extracted], undefined);
-        return converted[0] ?? null;
-      } catch (e) {
-        console.warn("[AI Chef] parallel meal item failed:", e);
-        return null;
-      }
-    })
-  );
+  const results = await Promise.all(types.map(t => generateOneType(t.label, t.isSoup, exclude)));
   return results.filter((r): r is SuggestedRecipe => !!r);
 }
 
@@ -2163,11 +2199,12 @@ export async function processAIChefChat(
       const libPicked = pickSoupMeal(rows, mergedExclude);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
-      // 2) 唔夠 4 個 → AI 補缺（缺湯就補湯）
+      // 2) 唔夠 4 個 → 按「缺失類別」逐類 AI 補缺（保證 1肉+1海鮮+1菜+1湯）
       if (libPicked.length < 4) {
         const missing = 4 - libPicked.length;
-        const needSoup = !libPicked.some(r => r.soupType) || libPicked.filter(r => r.soupType).length === 0;
-        const aiPicked = await generateMissingRecipes(missing, needSoup, [...mergedExclude, ...libNames], familyId, userId);
+        const haveTypes = new Set(libPicked.map(mealTypeOf));
+        const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t)).slice(0, missing);
+        const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes);
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
         const all = [...libPicked, ...aiPicked].slice(0, 4);
