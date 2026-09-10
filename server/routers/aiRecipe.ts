@@ -1200,7 +1200,25 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
 
   let dishes: Record<string, unknown>[] = [];
   dishes = dishes.concat(addDish(meatPool, 1));
-  dishes = dishes.concat(addDish(seafoodPool, 1));
+  // 海鮮位：魚最常見（權重最高）、蝦/蟹/其他海鮮/豆腐蛋次之（平排 random）
+  const seafoodSlot = () => {
+    const nm = (r: Record<string, unknown>) => String(r.name ?? "");
+    const isFish = (r: Record<string, unknown>) => /魚|鱸|三文魚|鯇|鯪|鯧|黃花|多寶|龍躉|鱈|鰻|海鮮|蒸.*魚/.test(nm(r));
+    const isShrimpCrab = (r: Record<string, unknown>) => /蝦|蟹|龍蝦|瀨尿蝦/.test(nm(r));
+    const isTofuEgg = (r: Record<string, unknown>) => /豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋|炒蛋|蛋/.test(nm(r));
+    const groups = [
+      { arr: seafoodPool.filter(isFish), w: 5 },
+      { arr: seafoodPool.filter(isShrimpCrab), w: 2 },
+      { arr: seafoodPool.filter(r => !isFish(r) && !isShrimpCrab(r) && !isTofuEgg(r)), w: 2 },
+      { arr: seafoodPool.filter(isTofuEgg), w: 2 },
+    ].filter(g => g.arr.length > 0);
+    if (groups.length === 0) return addDish(seafoodPool, 1);
+    const total = groups.reduce((s, g) => s + g.w, 0);
+    let r = Math.random() * total;
+    for (const g of groups) { r -= g.w; if (r <= 0) return addDish(g.arr, 1); }
+    return addDish(groups[groups.length - 1].arr, 1);
+  };
+  dishes = dishes.concat(seafoodSlot());
   dishes = dishes.concat(addDish(vegPool, 1));
   // 3餸1湯：主食（麵/飯）唔做餸（上面 pool 已排除），永遠 1肉 + 1海鮮 + 1菜(+補其他) = 真3餸
   let want = 3 - dishes.length;
@@ -1313,8 +1331,7 @@ async function generateMissingRecipes(
   if (neededTypes && neededTypes.length > 0) {
     const results = await Promise.all(
       neededTypes.map(t => {
-        const meta = MEAL_TYPE_LABEL[t];
-        return generateOneType(meta?.label ?? "家常菜", meta?.isSoup ?? false, exclude);
+        return generateOneType(MEAL_TYPE_LABEL[t]?.label ?? "家常菜", t, exclude);
       })
     );
     return results.filter((r): r is SuggestedRecipe => !!r).slice(0, count);
@@ -1350,10 +1367,11 @@ async function generateMissingRecipes(
 // 生成單一類別嘅一個食譜（用嚟 3餸1湯 按「缺失類別」補缺，避免 AI 亂補出麵/飯/錯類）
 async function generateOneType(
   label: string,
-  isSoup: boolean,
+  expectedType: DishType,
   exclude: string[]
 ): Promise<SuggestedRecipe | null> {
   try {
+    const isSoup = expectedType === "soup";
     const soupHint = isSoup ? "必須係湯水。" : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
     const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
     const resp = await invokeLLM({
@@ -1373,11 +1391,11 @@ async function generateOneType(
     }
     const converted = manuallyConvertRecipes([extracted], undefined);
     const rec = converted[0] ?? null;
-    // 後置驗證：非湯位唔可以生湯/甜品/飲品（避免一餐兩個湯）
-    if (rec && !isSoup) {
+    // 後置驗證：格一定要係「預期類別」先收（肉位=meat、海鮮位=seafood、菜位=vegetable、湯位=soup）
+    if (rec) {
       const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
-      if (t === "soup" || t === "dessert" || t === "drink") {
-        console.warn(`[AI Chef] meal item wrong type (${t}) for dish slot, dropped: ${rec.name}`);
+      if (t !== expectedType) {
+        console.warn(`[AI Chef] meal item type mismatch (got ${t}, want ${expectedType}), dropped: ${rec.name}`);
         return null;
       }
     }
@@ -1395,13 +1413,21 @@ async function generateMealRecipesParallel(
   userId: number | undefined
 ): Promise<SuggestedRecipe[]> {
   const types = [
-    { label: "肉類主菜（如豬/牛/雞）", isSoup: false },
-    { label: "海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）", isSoup: false },
-    { label: "蔬菜/小炒", isSoup: false },
-    { label: "湯水", isSoup: true },
+    { label: "肉類主菜（如豬/牛/雞）", expectedType: "meat" as DishType },
+    { label: "海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）", expectedType: "seafood" as DishType },
+    { label: "蔬菜/小炒", expectedType: "vegetable" as DishType },
+    { label: "湯水", expectedType: "soup" as DishType },
   ];
-  const results = await Promise.all(types.map(t => generateOneType(t.label, t.isSoup, exclude)));
-  return results.filter((r): r is SuggestedRecipe => !!r);
+  const results = await Promise.all(types.map(t => generateOneType(t.label, t.expectedType, exclude)));
+  // 去重：同一個名出現兩次就刪，確保每道唔重複
+  const seen = new Set<string>();
+  return results.filter((r): r is SuggestedRecipe => {
+    if (!r) return false;
+    const k = normalizeName(r.name);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 // #1: 將用戶自己的 custom 食譜列出嚟俾 AI 認返（即使關鍵字搜尋 miss 咗）
@@ -2523,18 +2549,18 @@ export async function processAIChefChat(
       }
     }
 
-    // 3餸1湯：hard filter 之後少過 4 卡 → AI 補返（補嗰啲都避開已睇過；湯被剔走就補湯）
+    // 3餸1湯：hard filter 之後少過 4 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
     if (soupIntent && recipes.length > 0 && recipes.length < 4) {
       const missing = 4 - recipes.length;
-      const hasSoup = recipes.some(r =>
-        r.soupType || (r.tags || []).some(t => String(t).includes("湯")) || r.name.includes("湯")
-      );
+      const haveTypes = new Set(recipes.map(mealTypeOf));
+      const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t)).slice(0, missing);
       const aiPicked = await generateMissingRecipes(
-        missing,
-        !hasSoup,
+        neededTypes.length,
+        false,
         [...mergedExclude, ...recipes.map(r => r.name)],
         familyId,
-        userId
+        userId,
+        neededTypes
       );
       if (aiPicked.length > 0) {
         llmUsed = true;
