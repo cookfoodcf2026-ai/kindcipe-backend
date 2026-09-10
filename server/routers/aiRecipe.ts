@@ -1145,16 +1145,54 @@ function dishFamily(name: string): string {
   return "other";
 }
 
+// 由 recipeCategory 歸一為 cuisine 群組（用嚟 3餸1湯 輪換菜系，成餐 coherent）
+function cuisineOf(recipeCategory: string): string {
+  const c = String(recipeCategory ?? "").trim();
+  if (/粵|中|家常/.test(c)) return "中式";
+  if (/西/.test(c)) return "西式";
+  if (/日/.test(c)) return "日式";
+  if (/韓/.test(c)) return "韓式";
+  if (/東南亞|台式|台/.test(c)) return "東南亞";
+  return "其他";
+}
+
 // 由 library rows 揀「1 湯 + 3 餸」；排除已睇過（優先 fresh，池盡翻兜）
-function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): SuggestedRecipe[] {
+function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], opts?: { cuisine?: string }): SuggestedRecipe[] {
   const excluded = new Set(exclude.map(normalizeName).filter(Boolean));
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
-  const soupPool = rows.filter(r => classify(r) === "soup");
-  const meatPool = rows.filter(r => classify(r) === "meat");
-  const seafoodPool = rows.filter(r => classify(r) === "seafood");
-  const vegPool = rows.filter(r => classify(r) === "vegetable");
-  const otherPool = rows.filter(r => classify(r) === "other");
+  const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
+
+  // ── E: cuisine 輪換（成餐 coherent 同一菜系，有時轉西式/日式/韓式/東南亞）──
+  let pool = rows;
+  if (opts?.cuisine) {
+    const cRows = rows.filter(r => cuisineOf(String(r.recipeCategory ?? "")) === opts.cuisine);
+    if (cRows.length >= 4) pool = cRows;
+  } else {
+    const groups = new Map<string, Record<string, unknown>[]>();
+    for (const r of rows) {
+      const c = cuisineOf(String(r.recipeCategory ?? ""));
+      if (!groups.has(c)) groups.set(c, []);
+      groups.get(c)!.push(r);
+    }
+    const sorted = [...groups.entries()].filter(([, arr]) => arr.length >= 4).sort((a, b) => b[1].length - a[1].length);
+    if (sorted.length > 0) {
+      // 65% 用最大嗰組（通常粵式/家常）；35% 隨機轉去另一組菜系
+      if (sorted.length > 1 && Math.random() < 0.35) {
+        const others = sorted.slice(1);
+        pool = others[Math.floor(Math.random() * others.length)][1];
+      } else {
+        pool = sorted[0][1];
+      }
+    }
+  }
+
+  const soupPool = pool.filter(r => classify(r) === "soup");
+  const meatPool = pool.filter(r => classify(r) === "meat");
+  const seafoodPool = pool.filter(r => classify(r) === "seafood");
+  const vegPool = pool.filter(r => classify(r) === "vegetable");
+  const otherPool = pool.filter(r => classify(r) === "other");
+  const carbPool = pool.filter(r => classify(r) !== "soup" && classify(r) !== "dessert" && classify(r) !== "drink" && (family(r) === "noodle" || family(r) === "rice"));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
 
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
@@ -1188,7 +1226,16 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   let dishes: Record<string, unknown>[] = [];
   dishes = dishes.concat(addDish(meatPool, 1));
   dishes = dishes.concat(addDish(seafoodPool, 1));
-  dishes = dishes.concat(addDish(vegPool, 1));
+  // Option B：有時用麵/飯（碳水）代替蔬菜（最多 1 個 carb，同家族唔重複）
+  const wantCarb = carbPool.length > 0 && Math.random() < 0.3;
+  if (wantCarb) {
+    const freshCarb = carbPool.filter(r => !usedFams.has(family(r)));
+    const carb = addDish(freshCarb.length > 0 ? freshCarb : carbPool, 1)[0];
+    if (carb) dishes.push(carb);
+    else dishes = dishes.concat(addDish(vegPool, 1));
+  } else {
+    dishes = dishes.concat(addDish(vegPool, 1));
+  }
   let want = 3 - dishes.length;
   if (want > 0) {
     const already = new Set(dishes.map(r => r));

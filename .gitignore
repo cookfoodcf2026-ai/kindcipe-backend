@@ -2,5 +2,6 @@ node_modules/
 dist/
 .env
 *.bak
-drizzle/migrations/
+# drizzle/migrations/ 而家會 commit（可重現），只有 generated 元數據用一個穩陣 script apply
+# drizzle/migrations/
 .DS_Store

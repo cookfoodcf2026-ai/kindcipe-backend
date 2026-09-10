@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "trial_count" integer DEFAULT 0 NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE "weekly_menu" ADD COLUMN "eat_out" boolean DEFAULT false NOT NULL;

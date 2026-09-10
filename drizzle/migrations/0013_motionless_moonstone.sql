@@ -1,0 +1,1 @@
+ALTER TABLE "custom_recipes" ADD COLUMN "is_draft" boolean DEFAULT false NOT NULL;
