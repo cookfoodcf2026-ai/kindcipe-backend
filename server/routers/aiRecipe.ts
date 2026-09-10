@@ -772,6 +772,7 @@ async function execSearchRecipes(
     servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
     ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
     steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
+    thumbnailUrl: r.thumbnailUrl, image: r.image,
   });
 
   if (familyId) {
@@ -796,6 +797,7 @@ async function execSearchRecipes(
       servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
       ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
       steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
+      thumbnailUrl: r.thumbnailUrl, image: r.image,
     });
   }
 
