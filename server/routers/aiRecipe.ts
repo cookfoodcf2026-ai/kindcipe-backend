@@ -1472,18 +1472,20 @@ async function generateMealRecipesParallel(
     { label: "蔬菜/小炒", expectedType: "vegetable" as DishType },
     { label: "湯水", expectedType: "soup" as DishType },
   ];
-  // 先將 exclude 去重（移除近似），令 prompt 排除名單代表「唔同菜」，並且用嚟 post-filter
+  // 先將 exclude 去重（移除近似），令 prompt 排除名單代表「唔同菜」；但唔用嚟 post-filter（去重留返最後 mergedExclude 做）
   const dedupedExclude = dedupeNames(exclude);
-  const results = await Promise.all(types.map(t => generateOneType(t.label, t.expectedType, dedupedExclude)));
-  // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複；亦 drop 走同「已推薦過」近似嘅
+  const results = await Promise.allSettled(types.map(t => generateOneType(t.label, t.expectedType, dedupedExclude)));
+  // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複
+  // 一個 slot 失敗（LLM 抽風/非 JSON）唔會 reject 成個 meal —— 只 drop 佢，下面 backfill 會補返
   const seen = new Set<string>();
-  return results.filter((r): r is SuggestedRecipe => {
-    if (!r) return false;
-    if (isNearDuplicate(r.name, dedupedExclude)) return false; // 同已睇過近似 → 唔收
-    const k = normalizeName(r.name);
-    if (seen.has(k)) return false;
+  return results.flatMap((r): SuggestedRecipe[] => {
+    if (r.status !== "fulfilled" || !r.value) return [];
+    const recipe = r.value;
+    if (isNearDuplicate(recipe.name, dedupedExclude)) return [];
+    const k = normalizeName(recipe.name);
+    if (seen.has(k)) return [];
     seen.add(k);
-    return true;
+    return [recipe];
   });
 }
 

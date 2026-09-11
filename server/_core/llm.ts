@@ -183,7 +183,7 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
         );
       }
 
-      const result = (await response.json()) as {
+      let result: {
         id?: string;
         choices: Array<{
           index: number;
@@ -196,6 +196,13 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
           total_tokens: number;
         };
       };
+      // LLM 有時會回非 JSON body（如 gateway 錯誤頁），response.json() 會拋 cryptic "Unexpected character: u"。
+      // 包一層 catch，拋乾淨可重試嘅 error（仍會行下面 retry 邏輯）。
+      try {
+        result = (await response.json()) as typeof result;
+      } catch (jsonErr) {
+        throw new Error(`LLM 回覆格式異常（非 JSON）: ${String((jsonErr as Error)?.message || jsonErr).slice(0, 120)}`);
+      }
 
       const totalDuration = Date.now() - retryStart;
       console.log(`[LLM] Success! Total attempt duration: ${totalDuration}ms`);
