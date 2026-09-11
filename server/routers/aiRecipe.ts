@@ -1445,22 +1445,19 @@ async function generateOneType(
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
 
-  // 菜位：第一次生成，若非真蔬菜 → 重試一次（更強調「蔬菜、唔配肉」）；其餘類別一次過
-  if (isVeg) {
-    let rec = await attempt("");
-    if (validate(rec)) return rec;
-    rec = await attempt("（注意：一定要係純蔬菜，唔可以配肉/海鮮做主食材，例如蒜蓉炒菜心、清炒西蘭花。）");
-    if (validate(rec)) return rec;
-    console.warn(`[AI Chef] veg slot retry still not a vegetable, dropped`);
-    return null;
-  }
+  // 任何 slot 都「重試一次」：第一次驗證唔過就 retry（湯位最易被近似去重刪走 → 要 retry 保底）
+  const retryHint = isSoup
+    ? "（注意：一定要係真湯水，例如老火湯、燉湯、滾湯、湯羹；唔可以係菜/肉/主食。）"
+    : isVeg
+      ? "（注意：一定要係純蔬菜，唔可以配肉/海鮮做主食材，例如蒜蓉炒菜心、清炒西蘭花。）"
+      : "（注意：一定要係一道主菜/小炒，唔可以係湯、麵、飯。）";
 
-  const rec = await attempt("");
-  if (!validate(rec)) {
-    console.warn(`[AI Chef] meal item wrong type (want ${expectedType}), dropped`);
-    return null;
-  }
-  return rec;
+  let rec = await attempt("");
+  if (validate(rec)) return rec;
+  rec = await attempt(retryHint);
+  if (validate(rec)) return rec;
+  console.warn(`[AI Chef] ${expectedType} slot retry still invalid, dropped`);
+  return null;
 }
 
 // 3餸1湯 AI 生成：並行 4 個獨立 call（1 湯 + 3 餸），每個 ~8-10s，總時間 ~10s（比起一次過生成 4 個 20-30s 快好多）
@@ -2580,6 +2577,10 @@ export async function processAIChefChat(
       const excluded = mergedExclude.map(normalizeName).filter(Boolean);
       recipes = recipes.filter(r => {
         const n = normalizeName(r.name);
+        // 3餸1湯：如果呢個係唯一嘅湯，即使同已睇過近似都保住（寧願有湯，唔好冇湯）
+        if (soupIntent && (r.soupType || (r.tags || []).some(t => String(t).includes("湯")) || String(r.name).includes("湯")) && !recipes.some(x => x !== r && (x.soupType || String(x.name).includes("湯")))) {
+          return true;
+        }
         return !excluded.some(e => e && (e === n || nameSimilarity(e, n) >= 0.6));
       });
     }
