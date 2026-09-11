@@ -1122,6 +1122,8 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯/.test(name)) return "soup";
   if (/糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓|糕$/.test(name)) return "dessert";
   if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|茶飲/.test(name)) return "drink";
+  // 4b) 菜名含明確蔬菜字 → 蔬菜（優先過 tags 蛋白，避免「蠔油芥蘭」因為蠔油=蠔而被誤判海鮮）
+  if (/菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|時蔬|素菜|青菜|蔬菜|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|節瓜|勝瓜|苦瓜|西洋菜|冬瓜|青瓜|黃瓜|絲瓜|豆芽|豆角|青豆|毛豆|雲耳|木耳|菇|菌|芽菜/.test(name)) return "vegetable";
 
   // 5) recipeCategory（菜系中含甜品/飲品/湯水）
   if (category === "甜品") return "dessert";
@@ -1174,6 +1176,7 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   const vegPool = pool.filter(r => classify(r) === "vegetable" && noCarb(r));
   const otherPool = pool.filter(r => classify(r) === "other" && noCarb(r));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
+  console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} (raw rows=${rows.length}, noSteps=${rows.length - pool.length})`);
 
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
@@ -1346,7 +1349,7 @@ async function generateMissingRecipes(
       messages: [{ role: "user", content: prompt }],
       maxTokens: 2200 * count,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: 15000,
       enableSearch: false,
       responseFormat: { type: "json_object" },
     });
@@ -1381,7 +1384,7 @@ async function generateOneType(
       messages: [{ role: "user", content: prompt }],
       maxTokens: 2200,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: 15000,
       enableSearch: false,
       responseFormat: { type: "json_object" },
     });
