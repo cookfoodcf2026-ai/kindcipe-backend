@@ -326,6 +326,31 @@ function recipeNameSimilarity(a: string, b: string): number {
   return overlap / short.length;
 }
 
+// 判斷名係咪同 exclude 列表任何一個「近似」（exact 或 similarity ≥ 0.75）—— 用嚟 AI 去重，避免「粟米紅蘿蔔排骨湯 vs 粟米紅蘿蔔湯」呢種近似重複
+function isNearDuplicate(name: string, names: string[]): boolean {
+  const n = normalizeName(name);
+  if (!n) return false;
+  for (const x of names) {
+    const xn = normalizeName(x);
+    if (!xn) continue;
+    if (n === xn) return true;
+    if (recipeNameSimilarity(n, xn) >= 0.75) return true;
+  }
+  return false;
+}
+
+// 將 exclude 列表去重（移除近似），令 prompt 嘅排除名單代表「唔同菜」，唔會浪費 slots
+function dedupeNames(names: string[]): string[] {
+  const out: string[] = [];
+  for (const n of names) {
+    const nn = normalizeName(n);
+    if (!nn) continue;
+    if (isNearDuplicate(nn, out)) continue;
+    out.push(nn);
+  }
+  return out;
+}
+
 function parseRecipeWithFallback(llmContent: string): { content: string; recipes: SuggestedRecipe[] } {
   const parseStart = Date.now();
   
@@ -1344,7 +1369,7 @@ async function generateMissingRecipes(
   }
   try {
     const soupHint = needSoup ? "必須包含 1 個湯水食譜。" : "";
-    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
+    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
       maxTokens: 1600 * count,
@@ -1380,7 +1405,7 @@ async function generateOneType(
   try {
     const isSoup = expectedType === "soup";
     const soupHint = isSoup ? "必須係湯水。" : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
-    const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
+    const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${exclude.slice(0, 15).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
       maxTokens: 1600,
@@ -1427,11 +1452,14 @@ async function generateMealRecipesParallel(
     { label: "蔬菜/小炒", expectedType: "vegetable" as DishType },
     { label: "湯水", expectedType: "soup" as DishType },
   ];
-  const results = await Promise.all(types.map(t => generateOneType(t.label, t.expectedType, exclude)));
-  // 去重：同一個名出現兩次就刪，確保每道唔重複
+  // 先將 exclude 去重（移除近似），令 prompt 排除名單代表「唔同菜」，並且用嚟 post-filter
+  const dedupedExclude = dedupeNames(exclude);
+  const results = await Promise.all(types.map(t => generateOneType(t.label, t.expectedType, dedupedExclude)));
+  // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複；亦 drop 走同「已推薦過」近似嘅
   const seen = new Set<string>();
   return results.filter((r): r is SuggestedRecipe => {
     if (!r) return false;
+    if (isNearDuplicate(r.name, dedupedExclude)) return false; // 同已睇過近似 → 唔收
     const k = normalizeName(r.name);
     if (seen.has(k)) return false;
     seen.add(k);
