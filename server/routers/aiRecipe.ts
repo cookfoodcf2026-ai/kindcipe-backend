@@ -326,7 +326,7 @@ function recipeNameSimilarity(a: string, b: string): number {
   return overlap / short.length;
 }
 
-// 判斷名係咪同 exclude 列表任何一個「近似」（exact 或 similarity ≥ 0.75）—— 用嚟 AI 去重，避免「粟米紅蘿蔔排骨湯 vs 粟米紅蘿蔔湯」呢種近似重複
+// 判斷名係咪同 exclude 列表任何一個「近似」（exact 或 similarity ≥ 0.6）—— 用嚟 AI 去重，避免「黑椒牛柳炒X」呢類近似重複
 function isNearDuplicate(name: string, names: string[]): boolean {
   const n = normalizeName(name);
   if (!n) return false;
@@ -334,7 +334,7 @@ function isNearDuplicate(name: string, names: string[]): boolean {
     const xn = normalizeName(x);
     if (!xn) continue;
     if (n === xn) return true;
-    if (recipeNameSimilarity(n, xn) >= 0.75) return true;
+    if (recipeNameSimilarity(n, xn) >= 0.6) return true;
   }
   return false;
 }
@@ -1402,42 +1402,65 @@ async function generateOneType(
   expectedType: DishType,
   exclude: string[]
 ): Promise<SuggestedRecipe | null> {
-  try {
-    const isSoup = expectedType === "soup";
-    const soupHint = isSoup ? "必須係湯水。" : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
-    const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${exclude.slice(0, 15).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
-    const resp = await invokeLLM({
-      messages: [{ role: "user", content: prompt }],
-      maxTokens: 1600,
-      temperature: 0.7,
-      timeoutMs: 15000,
-      maxRetries: 1,
-      enableSearch: false,
-      responseFormat: { type: "json_object" },
-    });
-    const raw = resp.choices?.[0]?.message?.content || "";
-    // 單一食譜 object → 包裝成 recipes array 再用現有 converter
-    const extracted = extractJSON<Record<string, unknown>>(raw);
-    if (!extracted || typeof extracted !== "object" || !extracted.name) {
-      console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
-      return null;
-    }
-    const converted = manuallyConvertRecipes([extracted], undefined);
-    const rec = converted[0] ?? null;
-    // 後置驗證（放鬆，確保補到 4 張）：湯位必須係湯；餸位只要唔係湯/甜品/飲品/主食（麵飯）就收，
-    // 唔再要求「exactly 係嗰類」，避免 AI 生咗菜但 classify 話 other 就被 reject 導致餐得 3 張。
-    if (rec) {
-      const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
-      if (expectedType === "soup" ? t !== "soup" : (t === "soup" || t === "dessert" || t === "drink")) {
-        console.warn(`[AI Chef] meal item wrong type (got ${t}, want ${expectedType}), dropped: ${rec.name}`);
+  const isSoup = expectedType === "soup";
+  const isVeg = expectedType === "vegetable";
+  const soupHint = isSoup
+    ? "必須係湯水。"
+    : isVeg
+      ? "呢道必須係一道蔬菜（清淡為主，唔好配肉/海鮮做主角，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬）；唔可以係湯、唔可以係麵/飯。"
+      : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
+  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${exclude.slice(0, 15).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
+
+  const attempt = async (extra: string): Promise<SuggestedRecipe | null> => {
+    try {
+      const resp = await invokeLLM({
+        messages: [{ role: "user", content: basePrompt + extra }],
+        maxTokens: 1600,
+        temperature: 0.7,
+        timeoutMs: 15000,
+        maxRetries: 1,
+        enableSearch: false,
+        responseFormat: { type: "json_object" },
+      });
+      const raw = resp.choices?.[0]?.message?.content || "";
+      const extracted = extractJSON<Record<string, unknown>>(raw);
+      if (!extracted || typeof extracted !== "object" || !extracted.name) {
+        console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
         return null;
       }
+      const converted = manuallyConvertRecipes([extracted], undefined);
+      return converted[0] ?? null;
+    } catch (e) {
+      console.warn("[AI Chef] meal item failed:", e);
+      return null;
     }
-    return rec;
-  } catch (e) {
-    console.warn("[AI Chef] meal item failed:", e);
+  };
+
+  // 驗證：湯位必須湯；菜位必須真蔬菜（清淡，唔配肉）；肉/海鮮位只要唔係湯/甜品/飲品就收（避免 3 卡）
+  const validate = (rec: SuggestedRecipe | null): boolean => {
+    if (!rec) return false;
+    const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
+    if (isSoup) return t === "soup";
+    if (isVeg) return t === "vegetable";
+    return t !== "soup" && t !== "dessert" && t !== "drink";
+  };
+
+  // 菜位：第一次生成，若非真蔬菜 → 重試一次（更強調「蔬菜、唔配肉」）；其餘類別一次過
+  if (isVeg) {
+    let rec = await attempt("");
+    if (validate(rec)) return rec;
+    rec = await attempt("（注意：一定要係純蔬菜，唔可以配肉/海鮮做主食材，例如蒜蓉炒菜心、清炒西蘭花。）");
+    if (validate(rec)) return rec;
+    console.warn(`[AI Chef] veg slot retry still not a vegetable, dropped`);
     return null;
   }
+
+  const rec = await attempt("");
+  if (!validate(rec)) {
+    console.warn(`[AI Chef] meal item wrong type (want ${expectedType}), dropped`);
+    return null;
+  }
+  return rec;
 }
 
 // 3餸1湯 AI 生成：並行 4 個獨立 call（1 湯 + 3 餸），每個 ~8-10s，總時間 ~10s（比起一次過生成 4 個 20-30s 快好多）
