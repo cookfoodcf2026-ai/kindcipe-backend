@@ -2556,21 +2556,12 @@ export async function processAIChefChat(
   if (forceNoCards) {
     recipes = [];
   } else {
-    // Mark recipes as AI-generated and match with library
+    // 撳 AI（mode="ai"/chat）→ 一律保持 source="ai"（AI 生成），唔會因為個名 match 到食譜庫就 relabel 做食譜庫
+    // （mode="library" 已經喺上面快路徑 return 咗；淨係 AI/chat 會到呢度）
     for (const r of recipes) {
-      const match = matchRecipeSource(r.name, libResults);
-      r.source = match.source;
-      if (match.officialId) r.officialId = match.officialId;
-      if (match.customId) r.customId = match.customId;
-      if (match.source === "official" || match.source === "custom") {
-        const libEntry = libResults.find(lr => (match.source === "official" ? lr.id === match.officialId : lr.id === match.customId));
-        if (libEntry) {
-          if (libEntry.servings && typeof libEntry.servings === "number") r.servings = libEntry.servings;
-          if (libEntry.cookTime && typeof libEntry.cookTime === "number") r.cookTime = libEntry.cookTime;
-          if (libEntry.difficulty && typeof libEntry.difficulty === "string") r.difficulty = libEntry.difficulty as any;
-          if (libEntry.category && typeof libEntry.category === "string") r.tags = [...(r.tags ?? []), libEntry.category];
-        }
-      }
+      r.source = "ai";
+      delete r.officialId;
+      delete r.customId;
     }
     // 唔重複：filter 走 mergedExclude（soupIntent 都做 hard filter，避免已睇過菜式再出；少過 4 卡會喺下面 AI 補返）
     if (mergedExclude.length > 0 && recipes.length > 0) {
