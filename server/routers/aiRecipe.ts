@@ -1404,12 +1404,20 @@ async function generateOneType(
 ): Promise<SuggestedRecipe | null> {
   const isSoup = expectedType === "soup";
   const isVeg = expectedType === "vegetable";
+  // 由 exclude 抽「出過嘅湯」：湯位用完整清單（唔 slice-15），確保唔再出返已睇過嘅湯
+  const soupExclude = exclude.filter(n => /湯|羹/.test(String(n ?? "")));
+  // 撞到「出過」嘅菜/湯（近似）就唔收 → retry 出新（連餸菜都唔重複）
+  const seenCheck = (name: string) => {
+    const n = normalizeName(name);
+    return exclude.some(e => e && (e === n || nameSimilarity(e, n) >= 0.6));
+  };
+  const avoidList = isSoup ? soupExclude : exclude.slice(0, 15);
   const soupHint = isSoup
-    ? "必須係湯水。"
+    ? `必須係湯水。唔好淨係出例湯/老火湯，試下唔同種類嘅湯（清湯/燉湯/羹/西式/素湯等），要同之前唔同。絕對唔可以再出以下出過嘅湯：${soupExclude.join("、")}。`
     : isVeg
       ? "呢道必須係一道蔬菜（清淡為主，唔好配肉/海鮮做主角，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬）；唔可以係湯、唔可以係麵/飯。"
       : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
-  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${exclude.slice(0, 15).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
+  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
 
   const attempt = async (extra: string): Promise<SuggestedRecipe | null> => {
     try {
@@ -1437,8 +1445,10 @@ async function generateOneType(
   };
 
   // 驗證：湯位必須湯；菜位必須真蔬菜（清淡，唔配肉）；肉/海鮮位只要唔係湯/甜品/飲品就收（避免 3 卡）
+  // 另外：撞到「出過」嘅菜/湯（近似）都唔收 → retry 出新，確保唔重複（尤其湯）
   const validate = (rec: SuggestedRecipe | null): boolean => {
     if (!rec) return false;
+    if (seenCheck(rec.name)) return false;
     const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
     if (isSoup) return t === "soup";
     if (isVeg) return t === "vegetable";
@@ -1447,7 +1457,7 @@ async function generateOneType(
 
   // 任何 slot 都「重試一次」：第一次驗證唔過就 retry（湯位最易被近似去重刪走 → 要 retry 保底）
   const retryHint = isSoup
-    ? "（注意：一定要係真湯水，例如老火湯、燉湯、滾湯、湯羹；唔可以係菜/肉/主食。）"
+    ? `（注意：一定要係一個全新、未出過嘅湯，唔可以係：${soupExclude.join("、")}。）`
     : isVeg
       ? "（注意：一定要係純蔬菜，唔可以配肉/海鮮做主食材，例如蒜蓉炒菜心、清炒西蘭花。）"
       : "（注意：一定要係一道主菜/小炒，唔可以係湯、麵、飯。）";
@@ -1474,11 +1484,10 @@ async function generateMealRecipesParallel(
   ];
   // 每個類型並行生成 2 個候選（共 8 個），令最後可以「揀 4 個多樣化 + 唔重複」，
   // 減少要行第二輪 backfill（多樣化保留，但一輪搞掂、快返）。
-  const dedupedExclude = dedupeNames(exclude);
   const results = await Promise.allSettled(
     types.flatMap(t => [
-      generateOneType(t.label, t.expectedType, dedupedExclude),
-      generateOneType(t.label, t.expectedType, dedupedExclude),
+      generateOneType(t.label, t.expectedType, exclude),
+      generateOneType(t.label, t.expectedType, exclude),
     ])
   );
   // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複（只喺「並行結果內部」去重）。
