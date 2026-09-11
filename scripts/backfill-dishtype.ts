@@ -1,11 +1,12 @@
 import { config } from "dotenv";
 import { resolve } from "path";
-import { isNull, or, eq } from "drizzle-orm";
-import { getDb } from "../server/db";
-import { customRecipes, officialRecipes } from "../drizzle/schema";
-import { classifyRecipeDishTypeLLM } from "../server/utils/dishType";
-
 config({ path: resolve(process.cwd(), ".env") });
+
+// 動態 import：確保 _core/env 喺 config() 之後先載入（否則 DASHSCOPE_API_KEY / DATABASE_URL 讀唔到）
+const { isNull, or, eq } = await import("drizzle-orm");
+const { getDb } = await import("../server/db");
+const { customRecipes, officialRecipes } = await import("../drizzle/schema");
+const { classifyRecipeDishTypeLLM } = await import("../server/utils/dishType");
 
 function parseTags(raw: string | null): string[] {
   if (!raw) return [];
