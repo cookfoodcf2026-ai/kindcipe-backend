@@ -205,7 +205,7 @@ function computeLevenshteinDistance(s1: string, s2: string): number {
   return matrix[s1Len][s2Len];
 }
 
-const AI_RECIPE_MAX_TOKENS = 1600;
+const AI_RECIPE_MAX_TOKENS = 2200;
 const AI_RECIPE_CONTEXT_TIMEOUT_MS = 4000;
 const AI_RECIPE_LLM_TIMEOUT_MS = 30000;
 const AI_RECIPE_CHAT_TIMEOUT_MS = 30000;
@@ -1372,7 +1372,7 @@ async function generateMissingRecipes(
     const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 1600 * count,
+      maxTokens: 2200 * count,
       temperature: 0.7,
       timeoutMs: 15000,
       maxRetries: 1,
@@ -1415,7 +1415,7 @@ async function generateOneType(
     try {
       const resp = await invokeLLM({
         messages: [{ role: "user", content: basePrompt + extra }],
-        maxTokens: 1600,
+        maxTokens: 2200,
         temperature: 0.7,
         timeoutMs: 15000,
         maxRetries: 1,
