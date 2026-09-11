@@ -1347,9 +1347,10 @@ async function generateMissingRecipes(
     const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 2200 * count,
+      maxTokens: 1600 * count,
       temperature: 0.7,
       timeoutMs: 15000,
+      maxRetries: 1,
       enableSearch: false,
       responseFormat: { type: "json_object" },
     });
@@ -1382,9 +1383,10 @@ async function generateOneType(
     const prompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新：${exclude.slice(0, 10).join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 2200,
+      maxTokens: 1600,
       temperature: 0.7,
       timeoutMs: 15000,
+      maxRetries: 1,
       enableSearch: false,
       responseFormat: { type: "json_object" },
     });

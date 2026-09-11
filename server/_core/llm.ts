@@ -52,6 +52,7 @@ export interface LLMParams {
   maxTokens?: number;
   temperature?: number;
   timeoutMs?: number;
+  maxRetries?: number;
   responseFormat?: {
     type: "json_object";
   } | {
@@ -113,7 +114,8 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   const HARD_TIMEOUT_MS = params.timeoutMs ?? 15000;
   
   // Retry logic with exponential backoff (Gemini + DeepSeek)
-  const MAX_RETRIES = 2;
+  // 可以經 maxRetries 收窄（例如 meal 生成唔想重試放大 timeout），default 2 不變
+  const MAX_RETRIES = params.maxRetries ?? 2;
   let lastError: Error | null = null;
   
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
