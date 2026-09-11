@@ -1157,7 +1157,12 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
 
   // ── 唔再輪換菜系（避免 pool 收窄到細菜系 → 重複）——由成個 library pool 抽，食譜庫大先有變化 ──
-  const pool = rows;
+  // 淨係保留「有 steps」嘅食譜（避免最後 .map() 因為冇 steps 而 return null，令餐唔齊 4 張）
+  const hasSteps = (r: Record<string, unknown>) => {
+    const s = Array.isArray(r.steps) ? r.steps : [];
+    return s.some((st: any) => String(st?.instruction ?? st?.text ?? st ?? "").trim());
+  };
+  const pool = rows.filter(hasSteps);
 
   // 主食（麵/飯）喺 3餸1湯 唔做餸、唔做湯：無論 classify 分做咩，一律排除，避免誤分類嘅麵/飯偷入
   const isCarb = (r: Record<string, unknown>) => { const f = family(r); return f === "noodle" || f === "rice"; };
@@ -1238,14 +1243,14 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   // 兜底：唔夠 4 張 → 由全庫非甜品/飲品/主食補（保證有卡，之後 AI 補尾數）
   if (picked.length < 4) {
     const already = new Set(picked.map(r => r));
-    const rest = rows.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink")
+    const rest = pool.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink")
       .sort(() => Math.random() - 0.5);
     picked = picked.concat(rest.slice(0, 4 - picked.length));
   }
   // 極兜底：全庫都係甜品/飲品/主食先准用
   if (picked.length < 4) {
     const already = new Set(picked.map(r => r));
-    const rest = rows.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
+    const rest = pool.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
     picked = picked.concat(rest.slice(0, 4 - picked.length));
   }
 
@@ -1389,11 +1394,12 @@ async function generateOneType(
     }
     const converted = manuallyConvertRecipes([extracted], undefined);
     const rec = converted[0] ?? null;
-    // 後置驗證：格一定要係「預期類別」先收（肉位=meat、海鮮位=seafood、菜位=vegetable、湯位=soup）
+    // 後置驗證（放鬆，確保補到 4 張）：湯位必須係湯；餸位只要唔係湯/甜品/飲品/主食（麵飯）就收，
+    // 唔再要求「exactly 係嗰類」，避免 AI 生咗菜但 classify 話 other 就被 reject 導致餐得 3 張。
     if (rec) {
       const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
-      if (t !== expectedType) {
-        console.warn(`[AI Chef] meal item type mismatch (got ${t}, want ${expectedType}), dropped: ${rec.name}`);
+      if (expectedType === "soup" ? t !== "soup" : (t === "soup" || t === "dessert" || t === "drink")) {
+        console.warn(`[AI Chef] meal item wrong type (got ${t}, want ${expectedType}), dropped: ${rec.name}`);
         return null;
       }
     }
