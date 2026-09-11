@@ -1200,17 +1200,15 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
 
   let dishes: Record<string, unknown>[] = [];
   dishes = dishes.concat(addDish(meatPool, 1));
-  // 海鮮位：魚最常見（權重最高）、蝦/蟹/其他海鮮/豆腐蛋次之（平排 random）
+  // 海鮮位：魚/豆腐/蛋 50%、魷魚/蜆/蝦 30%、其他海鮮 20%（weighted，魚豆腐蛋出最多）
   const seafoodSlot = () => {
     const nm = (r: Record<string, unknown>) => String(r.name ?? "");
-    const isFish = (r: Record<string, unknown>) => /魚|鱸|三文魚|鯇|鯪|鯧|黃花|多寶|龍躉|鱈|鰻|海鮮|蒸.*魚/.test(nm(r));
-    const isShrimpCrab = (r: Record<string, unknown>) => /蝦|蟹|龍蝦|瀨尿蝦/.test(nm(r));
-    const isTofuEgg = (r: Record<string, unknown>) => /豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋|炒蛋|蛋/.test(nm(r));
+    const isFishTofuEgg = (r: Record<string, unknown>) => /魚|鱸|三文魚|鯇|鯪|鯧|黃花|多寶|龍躉|鱈|鰻|豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋|炒蛋|蛋/.test(nm(r));
+    const isSquidClamShrimp = (r: Record<string, unknown>) => /魷魚|章魚|墨魚|蜆|蠔|蝦/.test(nm(r));
     const groups = [
-      { arr: seafoodPool.filter(isFish), w: 5 },
-      { arr: seafoodPool.filter(isShrimpCrab), w: 2 },
-      { arr: seafoodPool.filter(r => !isFish(r) && !isShrimpCrab(r) && !isTofuEgg(r)), w: 2 },
-      { arr: seafoodPool.filter(isTofuEgg), w: 2 },
+      { arr: seafoodPool.filter(isFishTofuEgg), w: 50 },
+      { arr: seafoodPool.filter(isSquidClamShrimp), w: 30 },
+      { arr: seafoodPool.filter(r => !isFishTofuEgg(r) && !isSquidClamShrimp(r)), w: 20 },
     ].filter(g => g.arr.length > 0);
     if (groups.length === 0) return addDish(seafoodPool, 1);
     const total = groups.reduce((s, g) => s + g.w, 0);
