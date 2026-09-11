@@ -1481,13 +1481,13 @@ async function generateMealRecipesParallel(
       generateOneType(t.label, t.expectedType, dedupedExclude),
     ])
   );
-  // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複
-  // 一個 slot 失敗（LLM 抽風/非 JSON）唔會 reject 成個 meal —— 只 drop 佢，下面揀唔夠先 backfill
+  // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複（只喺「並行結果內部」去重）。
+  // 唔再對「已睇過 exclude」做近似去重 —— 令 parallel 唔會 drop 到 0（觸發慢嘅 16s 順序 fallback）；
+  // 跨 session 去重交返最後 mergedExclude filter（line 2569）做，backfill 會針對缺失類別快速並行補返。
   const seen = new Set<string>();
   return results.flatMap((r): SuggestedRecipe[] => {
     if (r.status !== "fulfilled" || !r.value) return [];
     const recipe = r.value;
-    if (isNearDuplicate(recipe.name, dedupedExclude)) return [];
     const k = normalizeName(recipe.name);
     if (seen.has(k)) return [];
     seen.add(k);
@@ -1495,25 +1495,30 @@ async function generateMealRecipesParallel(
   });
 }
 
-// 由 parallel 嘅候選池揀「4 個多樣化」：優先每個類型一個（湯/肉/海鮮/菜），多餘先用嚟填。
-// 保留多樣化之餘唔使行慢嘅 backfill。
-function pickDiverseMeal(candidates: SuggestedRecipe[]): SuggestedRecipe[] {
+// 由 parallel 嘅候選池揀「多樣化」：每個類型最多一個（湯/肉/海鮮/菜），唔好重複類別。
+// 若某類型（例如蔬菜）冇候選 → 回傳 <4（唔會用「第 2 個海鮮」填位）→ 交返下面 backfill 針對缺失類別補返。
+function pickDiverseMeal(candidates: SuggestedRecipe[], exclude: string[]): SuggestedRecipe[] {
   const byType: Record<DishType, SuggestedRecipe[]> = { meat: [], seafood: [], vegetable: [], soup: [], other: [], dessert: [], drink: [] };
+  const excluded = exclude.map(normalizeName).filter(Boolean);
+  const isSeen = (name: string) => {
+    const n = normalizeName(name);
+    return excluded.some(e => e && (e === n || nameSimilarity(e, n) >= 0.6));
+  };
   for (const c of candidates) {
     const t = mealTypeOf(c);
     if (byType[t]) byType[t].push(c);
   }
   const order: DishType[] = ["soup", "meat", "seafood", "vegetable"];
   const picked: SuggestedRecipe[] = [];
-  // 優先「一個類型一個」，順序唔重要，只要齊 4 類型
+  // 每個類型最多一個 —— 唔再用「多餘候選」填位，避免「冇菜 + 雙海鮮」
+  // 每個類型優先揀「未睇過」嗰個候選，減少最後 filter drop → 少行 backfill（更快）
   for (const t of order) {
-    if (byType[t].length > 0) picked.push(byType[t].shift()!);
+    const list = byType[t];
+    if (list.length === 0) continue;
+    const fresh = list.find(c => !isSeen(c.name));
+    picked.push(fresh ?? list[0]);
   }
-  // 有多餘候選先填返差額
-  for (const t of order) {
-    while (picked.length < 4 && byType[t].length > 0) picked.push(byType[t].shift()!);
-  }
-  return picked.slice(0, 4);
+  return picked;
 }
 
 // #1: 將用戶自己的 custom 食譜列出嚟俾 AI 認返（即使關鍵字搜尋 miss 咗）
@@ -2607,9 +2612,9 @@ export async function processAIChefChat(
     for (const r of recipes) {
       if (!r.source || r.source === "ai") r.source = "ai";
     }
-    // 3餸1湯 parallel 候選池（最多 8 個）→ 揀 4 個「多樣化」（每類型一個優先），少咗行慢嘅 backfill
+    // 3餸1湯 parallel 候選池（最多 8 個）→ 揀「每類型一個」嘅多樣化；缺類型就交返下面 backfill 針對缺失類別補返
     if (soupIntent && usedParallel && recipes.length > 4) {
-      recipes = pickDiverseMeal(recipes);
+      recipes = pickDiverseMeal(recipes, mergedExclude);
       console.log(`[AI Chef] Parallel candidates picked diverse: ${recipes.length}`);
     }
     // 單菜 AI 生成（非 3餸1湯）：強制 1 卡（LLM 有時會出 2-3 個，前端「AI 生成」期望 1 個）
