@@ -205,7 +205,7 @@ function computeLevenshteinDistance(s1: string, s2: string): number {
   return matrix[s1Len][s2Len];
 }
 
-const AI_RECIPE_MAX_TOKENS = 2200;
+const AI_RECIPE_MAX_TOKENS = 1800;
 const AI_RECIPE_CONTEXT_TIMEOUT_MS = 4000;
 const AI_RECIPE_LLM_TIMEOUT_MS = 30000;
 const AI_RECIPE_CHAT_TIMEOUT_MS = 30000;
@@ -1372,7 +1372,7 @@ async function generateMissingRecipes(
     const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 2200 * count,
+      maxTokens: 1800 * count,
       temperature: 0.7,
       timeoutMs: 15000,
       maxRetries: 1,
@@ -1415,7 +1415,7 @@ async function generateOneType(
     try {
       const resp = await invokeLLM({
         messages: [{ role: "user", content: basePrompt + extra }],
-        maxTokens: 2200,
+        maxTokens: 1800,
         temperature: 0.7,
         timeoutMs: 15000,
         maxRetries: 1,
@@ -1472,11 +1472,17 @@ async function generateMealRecipesParallel(
     { label: "蔬菜/小炒", expectedType: "vegetable" as DishType },
     { label: "湯水", expectedType: "soup" as DishType },
   ];
-  // 先將 exclude 去重（移除近似），令 prompt 排除名單代表「唔同菜」；但唔用嚟 post-filter（去重留返最後 mergedExclude 做）
+  // 每個類型並行生成 2 個候選（共 8 個），令最後可以「揀 4 個多樣化 + 唔重複」，
+  // 減少要行第二輪 backfill（多樣化保留，但一輪搞掂、快返）。
   const dedupedExclude = dedupeNames(exclude);
-  const results = await Promise.allSettled(types.map(t => generateOneType(t.label, t.expectedType, dedupedExclude)));
+  const results = await Promise.allSettled(
+    types.flatMap(t => [
+      generateOneType(t.label, t.expectedType, dedupedExclude),
+      generateOneType(t.label, t.expectedType, dedupedExclude),
+    ])
+  );
   // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複
-  // 一個 slot 失敗（LLM 抽風/非 JSON）唔會 reject 成個 meal —— 只 drop 佢，下面 backfill 會補返
+  // 一個 slot 失敗（LLM 抽風/非 JSON）唔會 reject 成個 meal —— 只 drop 佢，下面揀唔夠先 backfill
   const seen = new Set<string>();
   return results.flatMap((r): SuggestedRecipe[] => {
     if (r.status !== "fulfilled" || !r.value) return [];
@@ -1487,6 +1493,27 @@ async function generateMealRecipesParallel(
     seen.add(k);
     return [recipe];
   });
+}
+
+// 由 parallel 嘅候選池揀「4 個多樣化」：優先每個類型一個（湯/肉/海鮮/菜），多餘先用嚟填。
+// 保留多樣化之餘唔使行慢嘅 backfill。
+function pickDiverseMeal(candidates: SuggestedRecipe[]): SuggestedRecipe[] {
+  const byType: Record<DishType, SuggestedRecipe[]> = { meat: [], seafood: [], vegetable: [], soup: [], other: [], dessert: [], drink: [] };
+  for (const c of candidates) {
+    const t = mealTypeOf(c);
+    if (byType[t]) byType[t].push(c);
+  }
+  const order: DishType[] = ["soup", "meat", "seafood", "vegetable"];
+  const picked: SuggestedRecipe[] = [];
+  // 優先「一個類型一個」，順序唔重要，只要齊 4 類型
+  for (const t of order) {
+    if (byType[t].length > 0) picked.push(byType[t].shift()!);
+  }
+  // 有多餘候選先填返差額
+  for (const t of order) {
+    while (picked.length < 4 && byType[t].length > 0) picked.push(byType[t].shift()!);
+  }
+  return picked.slice(0, 4);
 }
 
 // #1: 將用戶自己的 custom 食譜列出嚟俾 AI 認返（即使關鍵字搜尋 miss 咗）
@@ -2579,6 +2606,11 @@ export async function processAIChefChat(
     }
     for (const r of recipes) {
       if (!r.source || r.source === "ai") r.source = "ai";
+    }
+    // 3餸1湯 parallel 候選池（最多 8 個）→ 揀 4 個「多樣化」（每類型一個優先），少咗行慢嘅 backfill
+    if (soupIntent && usedParallel && recipes.length > 4) {
+      recipes = pickDiverseMeal(recipes);
+      console.log(`[AI Chef] Parallel candidates picked diverse: ${recipes.length}`);
     }
     // 單菜 AI 生成（非 3餸1湯）：強制 1 卡（LLM 有時會出 2-3 個，前端「AI 生成」期望 1 個）
     if (!soupIntent && mode === "ai" && recipes.length > 1) {
