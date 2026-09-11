@@ -1445,15 +1445,15 @@ async function generateOneType(
   };
 
   // 驗證：湯位必須湯；菜位必須真蔬菜（清淡，唔配肉）；肉/海鮮位只要唔係湯/甜品/飲品就收（避免 3 卡）
-  // 另外：撞到「出過」嘅菜/湯（近似）都唔收 → retry 出新，確保唔重複（尤其湯）
-  const validate = (rec: SuggestedRecipe | null): boolean => {
+  const validateType = (rec: SuggestedRecipe | null): boolean => {
     if (!rec) return false;
-    if (seenCheck(rec.name)) return false;
     const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
     if (isSoup) return t === "soup";
     if (isVeg) return t === "vegetable";
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
+  // 「新鮮」：唔係已睇過嘅（近似）菜/湯 —— 用嚟優先揀新鮮，但唔會因為撞到近似就 drop（保證出到卡）
+  const isFresh = (rec: SuggestedRecipe | null): boolean => !!rec && !seenCheck(rec.name);
 
   // 任何 slot 都「重試一次」：第一次驗證唔過就 retry（湯位最易被近似去重刪走 → 要 retry 保底）
   const retryHint = isSoup
@@ -1462,11 +1462,14 @@ async function generateOneType(
       ? "（注意：一定要係純蔬菜，唔可以配肉/海鮮做主食材，例如蒜蓉炒菜心、清炒西蘭花。）"
       : "（注意：一定要係一道主菜/小炒，唔可以係湯、麵、飯。）";
 
-  let rec = await attempt("");
-  if (validate(rec)) return rec;
-  rec = await attempt(retryHint);
-  if (validate(rec)) return rec;
-  console.warn(`[AI Chef] ${expectedType} slot retry still invalid, dropped`);
+  // 新鮮優先：先試新鮮；揀唔到新鮮就照收「類型啱」嘅卡做保底 —— 保證每個 slot 都出到卡（唔會跌去 1 卡）
+  let first = await attempt("");
+  if (validateType(first) && isFresh(first)) return first; // 新鮮，1 次 call 就搞掂
+  let second = await attempt(retryHint); // 先唔係新鮮/類型錯 → 先 retry 再試新鮮
+  if (validateType(second) && isFresh(second)) return second;
+  if (validateType(second)) return second; // 收近似，保證有卡
+  if (validateType(first)) return first;   // 收近似，保證有卡
+  console.warn(`[AI Chef] ${expectedType} slot type-invalid, dropped`);
   return null;
 }
 
@@ -2606,25 +2609,21 @@ export async function processAIChefChat(
       delete r.officialId;
       delete r.customId;
     }
-    // 唔重複：filter 走 mergedExclude（soupIntent 都做 hard filter，避免已睇過菜式再出；少過 4 卡會喺下面 AI 補返）
-    if (mergedExclude.length > 0 && recipes.length > 0) {
+    // 3餸1湯 AI：由並行候選池揀「每類型各一」（跳過 hard mergedExclude filter，改由「新鮮優先」處理，
+    // 保證唔會成個類型被刪走；缺類型由下面 meal backfill 針對缺失類別補返）
+    if (soupIntent && usedParallel) {
+      recipes = pickDiverseMeal(recipes, mergedExclude);
+      console.log(`[AI Chef] Parallel candidates picked diverse: ${recipes.length}`);
+    } else if (mergedExclude.length > 0 && recipes.length > 0) {
+      // 其他（單菜 AI / chat）：保留 hard mergedExclude filter
       const excluded = mergedExclude.map(normalizeName).filter(Boolean);
       recipes = recipes.filter(r => {
         const n = normalizeName(r.name);
-        // 3餸1湯：如果呢個係唯一嘅湯，即使同已睇過近似都保住（寧願有湯，唔好冇湯）
-        if (soupIntent && (r.soupType || (r.tags || []).some(t => String(t).includes("湯")) || String(r.name).includes("湯")) && !recipes.some(x => x !== r && (x.soupType || String(x.name).includes("湯")))) {
-          return true;
-        }
         return !excluded.some(e => e && (e === n || nameSimilarity(e, n) >= 0.6));
       });
     }
     for (const r of recipes) {
       if (!r.source || r.source === "ai") r.source = "ai";
-    }
-    // 3餸1湯 parallel 候選池（最多 8 個）→ 揀「每類型一個」嘅多樣化；缺類型就交返下面 backfill 針對缺失類別補返
-    if (soupIntent && usedParallel && recipes.length > 4) {
-      recipes = pickDiverseMeal(recipes, mergedExclude);
-      console.log(`[AI Chef] Parallel candidates picked diverse: ${recipes.length}`);
     }
     // 單菜 AI 生成（非 3餸1湯）：強制 1 卡（LLM 有時會出 2-3 個，前端「AI 生成」期望 1 個）
     if (!soupIntent && mode === "ai" && recipes.length > 1) {
