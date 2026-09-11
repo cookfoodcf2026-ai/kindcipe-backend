@@ -215,7 +215,7 @@ const AI_RECIPE_FALLBACK_CONTENT = "AI 暫時未能回應，請再試。";
 const SEEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 日
 type SeenEntry = { name: string; seenAt: number };
 const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
-const MAX_RECENT_PER_FAMILY = 30;
+const MAX_RECENT_PER_FAMILY = 40;
 
 async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   if (familyId === undefined) return [];
@@ -2311,17 +2311,23 @@ export async function processAIChefChat(
       }
     } else if (swapQuery) {
       const singleRows = await trySearch(swapQuery, 30);
-      picked = rowsToSuggested(singleRows, mergedExclude, 6);
+      let picked = rowsToSuggested(singleRows, mergedExclude, 6);
       if (picked.length > 1) {
         // 名直接含 swapQuery 嘅排最前（換湯先至係真湯），fresh 優先次序保留喺第二層
         picked = [...picked].sort((a, b) => (b.name.includes(swapQuery) ? 1 : 0) - (a.name.includes(swapQuery) ? 1 : 0));
+      }
+      // 強制「同 dishType 替換」（前端 marker「同類別：meat/soup/...」）—— 湯卡換湯、肉卡換肉
+      const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
+      if (swapDishType) {
+        const filtered = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
+        if (filtered.length > 0) picked = filtered;
       }
       if (picked.length === 0) {
         // 指定類別搜唔到 → 落返 generic 池，保證有卡
         picked = rowsToSuggested(rows, mergedExclude, 1);
       }
       if (picked.length > 0) {
-        console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}")`);
+        console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}" dishType="${swapDishType}")`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
         return { content: `我從食譜庫搵到呢個食譜：`, recipes: picked.slice(0, 3), llmUsed };
       }
