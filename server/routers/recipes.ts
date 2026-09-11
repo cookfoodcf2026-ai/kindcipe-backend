@@ -16,6 +16,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { classifyRecipeDishTypeLLM } from "../utils/dishType";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
@@ -2321,6 +2322,13 @@ export const recipesRouter = router({
           servings: recipe.servings,
           difficulty: recipe.difficulty,
           recipeCategory: recipe.recipeCategory || category,
+          dishType: recipe.dishType || (await classifyRecipeDishTypeLLM({
+            name: recipe.name,
+            description: recipe.description,
+            ingredients: recipe.ingredients,
+            tags: recipe.tags,
+            category: recipe.recipeCategory || category,
+          })),
           ingredients: JSON.stringify(recipe.ingredients),
           steps: JSON.stringify(recipe.steps),
           tags: JSON.stringify(recipe.tags || []),
@@ -2524,6 +2532,13 @@ export const recipesRouter = router({
         servings: input.servings,
         difficulty: input.difficulty,
         recipeCategory: input.recipeCategory,
+        dishType: input.dishType || (await classifyRecipeDishTypeLLM({
+          name: input.name,
+          description: input.description,
+          ingredients: input.ingredients,
+          tags: input.tags,
+          category: input.recipeCategory,
+        })),
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
         tags: JSON.stringify(input.tags || []),
@@ -2711,7 +2726,13 @@ export const recipesRouter = router({
         servings: input.servings ?? 2,
         difficulty: input.difficulty ?? "中等",
         recipeCategory: input.recipeCategory ?? "mixed",
-        dishType: input.dishType ?? undefined,
+        dishType: input.dishType || (await classifyRecipeDishTypeLLM({
+          name: input.name,
+          description: input.description,
+          ingredients: input.ingredients,
+          tags: input.tags,
+          category: input.recipeCategory,
+        })),
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
         tags: JSON.stringify(input.tags ?? ["自訂", "我的食譜"]),
@@ -2753,7 +2774,13 @@ export const recipesRouter = router({
         servings: input.servings ?? 2,
         difficulty: input.difficulty ?? "中等",
         recipeCategory: input.recipeCategory ?? "mixed",
-        dishType: input.dishType ?? undefined,
+        dishType: input.dishType || (await classifyRecipeDishTypeLLM({
+          name: input.name,
+          description: input.description,
+          ingredients: input.ingredients,
+          tags: input.tags,
+          category: input.recipeCategory,
+        })),
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
         tags: JSON.stringify(input.tags ?? []),

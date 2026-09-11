@@ -465,6 +465,7 @@ export const weeklyMenuRouter = router({
         thumbnailUrl: officialRecipes.thumbnailUrl,
         image: officialRecipes.image,
         tags: officialRecipes.tags,
+        dishType: officialRecipes.dishType,
       })
         .from(officialRecipes)
         .where(eq(officialRecipes.isActive, true))
@@ -510,7 +511,7 @@ export const weeklyMenuRouter = router({
         let parsedTags: string[] = [];
         try { parsedTags = r.tags ? JSON.parse(r.tags) : []; } catch { parsedTags = []; }
         const tagStr = parsedTags.join(" ");
-        const dishType = categoryToDishType(r.recipeCategory, tagStr, r.name);
+        const dishType = r.dishType || categoryToDishType(r.recipeCategory, tagStr, r.name);
         return {
           id: `official:${r.id}`,
           name: r.name,
