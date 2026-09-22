@@ -17,8 +17,9 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM } from "../utils/dishType";
+import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota } from "../db";
-import { customRecipes, officialRecipes, userRecipeCollections } from "../../drizzle/schema";
+import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
@@ -819,7 +820,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
               const media = data?.data?.xdt_shortcode_media;
               if (media) {
                 igCaption = media.edge_media_to_caption?.edges?.[0]?.node?.text ?? "";
-                igAuthor = media.owner?.full_name || media.owner?.username || "";
+                igAuthor = media.owner?.username || media.owner?.full_name || "";
                 igThumbnail = media.thumbnail_src || media.display_url || "";
               }
             }
@@ -1371,6 +1372,11 @@ Platform: ${sourceType}
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
+
+/**
+ * 存檔即譯：將食譜名 + 步驟翻譯成英/菲/印（一次 LLM call，重用於 import / manual save）。
+ * 失敗時回傳空 object（唔阻塞存檔）。
+ */
 
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
@@ -2023,21 +2029,14 @@ export const recipesRouter = router({
       // 根據 source 參數決定是否查詢官方/自訂食譜
       const shouldQueryOfficial = !input.source || input.source === "all" || input.source === "official";
       let shouldQueryCustom = !input.source || input.source === "all" || input.source === "user";
-      
-      // KOL 過濾：只查 customRecipes 中 source_type = 'kol' 或 external platforms
-      if (input.source === "kol") {
-        shouldQueryCustom = true;
-        customConditions.push(
-          or(
-            eq(customRecipes.sourceType, "kol"),
-            eq(customRecipes.sourceType, "instagram"),
-            eq(customRecipes.sourceType, "youtube"),
-            eq(customRecipes.sourceType, "xiaohongshu"),
-            eq(customRecipes.sourceType, "threads"),
-            eq(customRecipes.sourceType, "tiktok")
-          )
-        );
-      }
+
+      // KOL（網紅食譜）：全局公共內容，只查 sourceType = 'kol'，唔綁 activeFamilyId。
+      // 用戶自己由 IG/YouTube 匯入嘅食譜屬於「我的食譜」，唔應該出現喺 KOL。
+      const isKolQuery = input.source === "kol";
+      if (isKolQuery) shouldQueryCustom = true;
+      const effectiveCustomConditions: any[] = isKolQuery
+        ? [eq(customRecipes.sourceType, "kol")]
+        : customConditions;
 
       // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
       let totalOfficial = 0;
@@ -2053,7 +2052,7 @@ export const recipesRouter = router({
       if (shouldQueryCustom) {
         const totalCustomResult = await db.select({ count: count() })
           .from(customRecipes)
-          .where(customConditions.length > 0 ? (customConditions.length > 1 ? and(...customConditions) : customConditions[0]) : undefined);
+          .where(effectiveCustomConditions.length > 0 ? (effectiveCustomConditions.length > 1 ? and(...effectiveCustomConditions) : effectiveCustomConditions[0]) : undefined);
         totalCustom = Number(totalCustomResult[0]?.count ?? 0);
       }
 
@@ -2076,9 +2075,9 @@ export const recipesRouter = router({
         : [];
 
       // Query custom recipes (family-scoped)
-      const customRows = shouldQueryCustom && customLimit > 0 && customConditions.length > 0
+      const customRows = shouldQueryCustom && customLimit > 0 && effectiveCustomConditions.length > 0
         ? await db.select().from(customRecipes)
-          .where(customConditions.length > 1 ? and(...customConditions) : customConditions[0])
+          .where(effectiveCustomConditions.length > 1 ? and(...effectiveCustomConditions) : effectiveCustomConditions[0])
           .orderBy(...orderByCustom)
           .limit(customLimit)
           .offset(customOffset)
@@ -2090,6 +2089,9 @@ export const recipesRouter = router({
           id: `official_${r.id}`,
           source: "official" as const,
           name: r.name,
+          nameEn: r.nameEn,
+          nameFil: r.nameFil,
+          nameId: r.nameId,
           description: r.description,
           image: r.image || r.thumbnailUrl,
           thumbnailUrl: r.thumbnailUrl,
@@ -2113,6 +2115,9 @@ export const recipesRouter = router({
               return [];
             }
           })() : [],
+          stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
+          stepsFil: r.stepsFil ? (() => { try { return JSON.parse(r.stepsFil!); } catch { return []; } })() : [],
+          stepsId: r.stepsId ? (() => { try { return JSON.parse(r.stepsId!); } catch { return []; } })() : [],
           tags: r.tags ? (() => {
             try {
               return JSON.parse(r.tags);
@@ -2126,7 +2131,12 @@ export const recipesRouter = router({
           id: `user_${r.id}`,
           source: "custom" as const,
           name: r.name,
+          nameEn: r.nameEn,
+          nameFil: r.nameFil,
+          nameId: r.nameId,
           description: r.description,
+          sourceAuthor: r.sourceAuthor,
+          sourceType: r.sourceType,
           image: r.image || r.thumbnailUrl,
           thumbnailUrl: r.thumbnailUrl,
           cookTime: r.cookTime,
@@ -2149,6 +2159,9 @@ export const recipesRouter = router({
               return [];
             }
           })() : [],
+          stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
+          stepsFil: r.stepsFil ? (() => { try { return JSON.parse(r.stepsFil!); } catch { return []; } })() : [],
+          stepsId: r.stepsId ? (() => { try { return JSON.parse(r.stepsId!); } catch { return []; } })() : [],
           tags: r.tags ? (() => {
             try {
               return JSON.parse(r.tags);
@@ -2164,22 +2177,12 @@ export const recipesRouter = router({
       const hasMore = offset + input.limit < total;
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
-      // Calculate kolCount separately
+      // Calculate kolCount separately（全局公共 KOL 內容，唔綁 familyId）
       let kolCount = 0;
       if (input.source === "kol" || input.source === "all" || !input.source) {
         const kolResult = await db.select({ count: count() })
           .from(customRecipes)
-          .where(and(
-            ...customConditions,
-            or(
-              eq(customRecipes.sourceType, "kol"),
-              eq(customRecipes.sourceType, "instagram"),
-              eq(customRecipes.sourceType, "youtube"),
-              eq(customRecipes.sourceType, "xiaohongshu"),
-              eq(customRecipes.sourceType, "threads"),
-              eq(customRecipes.sourceType, "tiktok")
-            )
-          ));
+          .where(eq(customRecipes.sourceType, "kol"));
         kolCount = Number(kolResult[0]?.count ?? 0);
       }
 
@@ -2389,10 +2392,18 @@ export const recipesRouter = router({
         }
       }
 
+      const _stepsArrO = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
+      const _trO = await translateRecipeContent(input.name, _stepsArrO, input.description);
       const [inserted] = await db.insert(officialRecipes).values({
         importedByUserId: String(ctx.user.id),
         name: input.name,
+        nameEn: _trO.nameEn,
+        nameFil: _trO.nameFil,
+        nameId: _trO.nameId,
         description: input.description,
+        descriptionEn: _trO.descriptionEn,
+        descriptionFil: _trO.descriptionFil,
+        descriptionId: _trO.descriptionId,
         image: resolvedOfficialThumbnailUrl,
         thumbnailUrl: resolvedOfficialThumbnailUrl,
         cookTime: input.cookTime,
@@ -2401,6 +2412,9 @@ export const recipesRouter = router({
         recipeCategory: input.recipeCategory,
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
+        stepsEn: _trO.stepsEn ? JSON.stringify(_trO.stepsEn) : undefined,
+        stepsFil: _trO.stepsFil ? JSON.stringify(_trO.stepsFil) : undefined,
+        stepsId: _trO.stepsId ? JSON.stringify(_trO.stepsId) : undefined,
         tags: JSON.stringify(input.tags || []),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
@@ -2521,11 +2535,19 @@ export const recipesRouter = router({
         }
       }
 
+      const _stepsArr = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
+      const _tr = await translateRecipeContent(input.name, _stepsArr, input.description);
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
         name: input.name,
+        nameEn: _tr.nameEn,
+        nameFil: _tr.nameFil,
+        nameId: _tr.nameId,
         description: input.description,
+        descriptionEn: _tr.descriptionEn,
+        descriptionFil: _tr.descriptionFil,
+        descriptionId: _tr.descriptionId,
         image: resolvedThumbnailUrl,
         thumbnailUrl: resolvedThumbnailUrl,
         cookTime: input.cookTime,
@@ -2571,6 +2593,9 @@ export const recipesRouter = router({
         ...r,
         ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
         steps: r.steps ? JSON.parse(r.steps) : [],
+        stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
+        stepsFil: r.stepsFil ? (() => { try { return JSON.parse(r.stepsFil!); } catch { return []; } })() : [],
+        stepsId: r.stepsId ? (() => { try { return JSON.parse(r.stepsId!); } catch { return []; } })() : [],
         tags: r.tags ? JSON.parse(r.tags) : [],
         source: "user" as const,
       }));
@@ -2715,11 +2740,19 @@ export const recipesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+      const _stepsArr2 = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
+      const _tr2 = await translateRecipeContent((input.name && input.name.trim()) || "", _stepsArr2, input.description);
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
         name: (input.name && input.name.trim()) || (input.isDraft ? "未命名草稿" : input.name),
+        nameEn: _tr2.nameEn,
+        nameFil: _tr2.nameFil,
+        nameId: _tr2.nameId,
         description: input.description ?? "",
+        descriptionEn: _tr2.descriptionEn,
+        descriptionFil: _tr2.descriptionFil,
+        descriptionId: _tr2.descriptionId,
         image: input.image ?? "",
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
         cookTime: input.cookTime ?? 0,
@@ -2735,6 +2768,9 @@ export const recipesRouter = router({
         })),
         ingredients: JSON.stringify(input.ingredients),
         steps: JSON.stringify(input.steps),
+        stepsEn: _tr2.stepsEn ? JSON.stringify(_tr2.stepsEn) : undefined,
+        stepsFil: _tr2.stepsFil ? JSON.stringify(_tr2.stepsFil) : undefined,
+        stepsId: _tr2.stepsId ? JSON.stringify(_tr2.stepsId) : undefined,
         tags: JSON.stringify(input.tags ?? ["自訂", "我的食譜"]),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
@@ -2937,7 +2973,229 @@ export const recipesRouter = router({
       return { success: true };
     }),
 
-  // ── Get single recipe by id (supports official_ and user_ prefix) ─────────────
+  // ── Admin: add a KOL recipe (global, familyId=0, public) ───────────────────
+  adminCreateKol: protectedProcedure
+    .input(z.object({ url: z.string().url(), sourceAuthor: z.string().max(128).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: '只有管理員可以新增網紅食譜' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const parsed = await parseRecipeFromUrl(input.url, "zh-TW", undefined);
+      if (!parsed?.name) throw new TRPCError({ code: 'BAD_REQUEST', message: '無法解析此連結' });
+      const stepsArr = (parsed.steps || []).map((s: any) => typeof s === "string" ? s : (s.instruction ?? ""));
+      const tr = await translateRecipeContent(parsed.name, stepsArr, parsed.description ?? "");
+      const img = parsed.thumbnailUrl || "";
+      const [inserted] = await db.insert(customRecipes).values({
+        familyId: 0,
+        createdByUserId: String(ctx.user.id),
+        name: parsed.name,
+        nameEn: tr.nameEn,
+        nameFil: tr.nameFil,
+        nameId: tr.nameId,
+        description: parsed.description ?? "",
+        descriptionEn: tr.descriptionEn,
+        descriptionFil: tr.descriptionFil,
+        descriptionId: tr.descriptionId,
+        image: img,
+        thumbnailUrl: img,
+        cookTime: parsed.cookTime ?? 30,
+        servings: parsed.servings ?? 4,
+        difficulty: parsed.difficulty ?? "中等",
+        recipeCategory: parsed.recipeCategory ?? "其他",
+        ingredients: JSON.stringify(parsed.ingredients ?? []),
+        steps: JSON.stringify(parsed.steps ?? []),
+        stepsEn: tr.stepsEn ? JSON.stringify(tr.stepsEn) : undefined,
+        stepsFil: tr.stepsFil ? JSON.stringify(tr.stepsFil) : undefined,
+        stepsId: tr.stepsId ? JSON.stringify(tr.stepsId) : undefined,
+        tags: JSON.stringify(parsed.tags ?? []),
+        sourceType: "kol",
+        sourceUrl: input.url,
+        sourceAuthor: input.sourceAuthor ?? parsed.sourceAuthor ?? "",
+        visibility: "public",
+      }).returning();
+      return { success: true, id: inserted.id, name: parsed.name };
+    }),
+
+  // ── Admin: batch add KOL recipes from links ────────────────────────────────
+  adminCreateKolBatch: protectedProcedure
+    .input(z.object({ urls: z.array(z.string().url()).min(1).max(20), sourceAuthor: z.string().max(128).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: '只有管理員可以新增網紅食譜' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const results: { url: string; ok: boolean; name?: string; error?: string }[] = [];
+      for (const url of input.urls) {
+        try {
+          const parsed = await parseRecipeFromUrl(url, "zh-TW", undefined);
+          if (!parsed?.name) throw new Error("無法解析");
+          const stepsArr = (parsed.steps || []).map((s: any) => typeof s === "string" ? s : (s.instruction ?? ""));
+          const tr = await translateRecipeContent(parsed.name, stepsArr, parsed.description ?? "");
+          const img = parsed.thumbnailUrl || "";
+          await db.insert(customRecipes).values({
+            familyId: 0,
+            createdByUserId: String(ctx.user.id),
+            name: parsed.name,
+            nameEn: tr.nameEn, nameFil: tr.nameFil, nameId: tr.nameId,
+            description: parsed.description ?? "",
+            descriptionEn: tr.descriptionEn, descriptionFil: tr.descriptionFil, descriptionId: tr.descriptionId,
+            image: img, thumbnailUrl: img,
+            cookTime: parsed.cookTime ?? 30, servings: parsed.servings ?? 4,
+            difficulty: parsed.difficulty ?? "中等", recipeCategory: parsed.recipeCategory ?? "其他",
+            ingredients: JSON.stringify(parsed.ingredients ?? []),
+            steps: JSON.stringify(parsed.steps ?? []),
+            stepsEn: tr.stepsEn ? JSON.stringify(tr.stepsEn) : undefined,
+            stepsFil: tr.stepsFil ? JSON.stringify(tr.stepsFil) : undefined,
+            stepsId: tr.stepsId ? JSON.stringify(tr.stepsId) : undefined,
+            tags: JSON.stringify(parsed.tags ?? []),
+            sourceType: "kol", sourceUrl: url,
+            sourceAuthor: input.sourceAuthor ?? parsed.sourceAuthor ?? "",
+            visibility: "public",
+          });
+          results.push({ url, ok: true, name: parsed.name });
+        } catch (e) {
+          results.push({ url, ok: false, error: (e as Error)?.message });
+        }
+      }
+      return { results };
+    }),
+
+  // ── Admin: list KOL recipes ────────────────────────────────────────────────
+  adminListKol: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) return [];
+      const rows = await db.select().from(customRecipes).where(eq(customRecipes.sourceType, "kol")).orderBy(desc(customRecipes.createdAt));
+      return rows.map((r) => ({
+        id: r.id, name: r.name, nameEn: r.nameEn, sourceAuthor: r.sourceAuthor, sourceUrl: r.sourceUrl,
+        image: r.image, thumbnailUrl: r.thumbnailUrl, createdAt: r.createdAt,
+      }));
+    }),
+
+  // ── Admin: delete a KOL recipe ─────────────────────────────────────────────
+  adminDeleteKol: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      await db.delete(customRecipes).where(and(eq(customRecipes.id, input.id), eq(customRecipes.sourceType, "kol")));
+      return { success: true };
+    }),
+
+  // ── Save a KOL recipe into the user's own kitchen ──────────────────────────
+  saveKolRecipe: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: 'BAD_REQUEST', message: '請先加入家庭廚房' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const [kol] = await db.select().from(customRecipes)
+        .where(and(eq(customRecipes.id, input.id), eq(customRecipes.sourceType, "kol"))).limit(1);
+      if (!kol) throw new TRPCError({ code: 'NOT_FOUND', message: '找不到此網紅食譜' });
+      if (kol.sourceUrl) {
+        const dup = await db.select({ id: customRecipes.id }).from(customRecipes)
+          .where(and(eq(customRecipes.familyId, ctx.activeFamilyId), eq(customRecipes.sourceUrl, kol.sourceUrl))).limit(1);
+        if (dup.length > 0) return { success: true, id: dup[0].id, already: true };
+      }
+      const [inserted] = await db.insert(customRecipes).values({
+        familyId: ctx.activeFamilyId,
+        createdByUserId: String(ctx.user.id),
+        name: kol.name, nameEn: kol.nameEn, nameFil: kol.nameFil, nameId: kol.nameId,
+        description: kol.description, image: kol.image, thumbnailUrl: kol.thumbnailUrl,
+        cookTime: kol.cookTime, servings: kol.servings, difficulty: kol.difficulty,
+        recipeCategory: kol.recipeCategory, dishType: kol.dishType,
+        ingredients: kol.ingredients, steps: kol.steps,
+        stepsEn: kol.stepsEn, stepsFil: kol.stepsFil, stepsId: kol.stepsId,
+        tags: kol.tags, sourceType: "manual",
+        sourceUrl: kol.sourceUrl, sourceAuthor: kol.sourceAuthor,
+        visibility: "private",
+      }).returning();
+      return { success: true, id: inserted.id };
+    }),
+
+  // ── KOL whitelist (partnered creators auto-publish) ────────────────────────
+  isKolCreator: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return { isCreator: false };
+      const rows = await db.select({ userId: kolCreators.userId }).from(kolCreators).where(eq(kolCreators.userId, String(ctx.user.id))).limit(1);
+      return { isCreator: rows.length > 0 };
+    }),
+
+  adminListKolCreators: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(kolCreators).orderBy(desc(kolCreators.addedAt));
+    }),
+
+  adminAddKolCreator: protectedProcedure
+    .input(z.object({ email: z.string().email(), displayName: z.string().max(128).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const [u] = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.email, input.email)).limit(1);
+      if (!u) throw new TRPCError({ code: 'NOT_FOUND', message: '此電郵未註冊' });
+      await db.insert(kolCreators).values({ userId: String(u.id), email: input.email, displayName: input.displayName ?? u.name ?? null, addedByUserId: String(ctx.user.id) })
+        .onConflictDoNothing({ target: kolCreators.userId });
+      return { success: true };
+    }),
+
+  adminRemoveKolCreator: protectedProcedure
+    .input(z.object({ userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      await db.delete(kolCreators).where(eq(kolCreators.userId, input.userId));
+      return { success: true };
+    }),
+
+  // Whitelisted creator submits one of their recipes → auto-publish to KOL
+  submitToKol: protectedProcedure
+    .input(z.object({ recipeId: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const wl = await db.select({ userId: kolCreators.userId }).from(kolCreators).where(eq(kolCreators.userId, String(ctx.user.id))).limit(1);
+      if (wl.length === 0) throw new TRPCError({ code: 'FORBIDDEN', message: '你唔喺網紅白名單，請先聯絡管理員' });
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: 'BAD_REQUEST', message: '請先加入家庭廚房' });
+      const [src] = await db.select().from(customRecipes)
+        .where(and(eq(customRecipes.id, input.recipeId), eq(customRecipes.familyId, ctx.activeFamilyId))).limit(1);
+      if (!src) throw new TRPCError({ code: 'NOT_FOUND', message: '找不到此食譜' });
+      // Translate if missing (bilingual content)
+      let nameEn = src.nameEn, nameFil = src.nameFil, nameId = src.nameId, stepsEn = src.stepsEn, stepsFil = src.stepsFil, stepsId = src.stepsId;
+      let descriptionEn = src.descriptionEn, descriptionFil = src.descriptionFil, descriptionId = src.descriptionId;
+      if (!src.nameEn || !src.stepsEn || !src.descriptionEn) {
+        const stepsArr = (() => { try { const p = JSON.parse(src.steps || "[]"); return Array.isArray(p) ? p.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : []; } catch { return []; } })();
+        const tr = await translateRecipeContent(src.name, stepsArr, src.description ?? "");
+        nameEn = nameEn ?? tr.nameEn ?? null; nameFil = nameFil ?? tr.nameFil ?? null; nameId = nameId ?? tr.nameId ?? null;
+        descriptionEn = descriptionEn ?? tr.descriptionEn ?? null; descriptionFil = descriptionFil ?? tr.descriptionFil ?? null; descriptionId = descriptionId ?? tr.descriptionId ?? null;
+        stepsEn = stepsEn ?? (tr.stepsEn ? JSON.stringify(tr.stepsEn) : null);
+        stepsFil = stepsFil ?? (tr.stepsFil ? JSON.stringify(tr.stepsFil) : null);
+        stepsId = stepsId ?? (tr.stepsId ? JSON.stringify(tr.stepsId) : null);
+      }
+      const [inserted] = await db.insert(customRecipes).values({
+        familyId: 0,
+        createdByUserId: String(ctx.user.id),
+        name: src.name, nameEn, nameFil, nameId,
+        description: src.description, image: src.image, thumbnailUrl: src.thumbnailUrl,
+        descriptionEn, descriptionFil, descriptionId,
+        cookTime: src.cookTime, servings: src.servings, difficulty: src.difficulty,
+        recipeCategory: src.recipeCategory, dishType: src.dishType,
+        ingredients: src.ingredients, steps: src.steps,
+        stepsEn, stepsFil, stepsId,
+        tags: src.tags, sourceType: "kol",
+        sourceUrl: src.sourceUrl, sourceAuthor: src.sourceAuthor ?? ctx.user.name ?? "",
+        visibility: "public",
+      }).returning();
+      return { success: true, id: inserted.id };
+    }),
+
+
   getById: publicProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -2966,6 +3224,9 @@ export const recipesRouter = router({
             id: `official_${r.id}`,
             ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
             steps: r.steps ? JSON.parse(r.steps) : [],
+            stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
+            stepsFil: r.stepsFil ? (() => { try { return JSON.parse(r.stepsFil!); } catch { return []; } })() : [],
+            stepsId: r.stepsId ? (() => { try { return JSON.parse(r.stepsId!); } catch { return []; } })() : [],
             tags: r.tags ? JSON.parse(r.tags) : [],
             source: "official" as const,
           };
@@ -2990,6 +3251,9 @@ export const recipesRouter = router({
         id: `user_${r.id}`,
         ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
         steps: r.steps ? JSON.parse(r.steps) : [],
+        stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
+        stepsFil: r.stepsFil ? (() => { try { return JSON.parse(r.stepsFil!); } catch { return []; } })() : [],
+        stepsId: r.stepsId ? (() => { try { return JSON.parse(r.stepsId!); } catch { return []; } })() : [],
         tags: r.tags ? JSON.parse(r.tags) : [],
         source: "user" as const,
       };
@@ -3135,7 +3399,7 @@ export const recipesRouter = router({
       return recipes;
     }),
 
-  // ── Public: list KOL recipes (source_type = 'kol' or external platforms) ───
+  // ── Public: list KOL recipes (source_type = 'kol' only) ───────────────────
   listKol: publicProcedure
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
@@ -3147,16 +3411,7 @@ export const recipesRouter = router({
 
       const recipes = await db.select()
         .from(customRecipes)
-        .where(
-          or(
-            eq(customRecipes.sourceType, "kol"),
-            eq(customRecipes.sourceType, "instagram"),
-            eq(customRecipes.sourceType, "youtube"),
-            eq(customRecipes.sourceType, "xiaohongshu"),
-            eq(customRecipes.sourceType, "threads"),
-            eq(customRecipes.sourceType, "tiktok")
-          )
-        )
+        .where(eq(customRecipes.sourceType, "kol"))
         .orderBy(desc(customRecipes.popularity))
         .limit(input?.limit ?? 20)
         .offset(input?.offset ?? 0);

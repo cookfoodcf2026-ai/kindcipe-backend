@@ -1,0 +1,3328 @@
+[
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "唐芹",
+  "nameZh": "唐芹",
+  "nameEn": "Chinese celery",
+  "nameFil": "Kintsay",
+  "nameId": "Seledri cina",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "芥菜",
+  "nameZh": "芥菜",
+  "nameEn": "Mustard leaf",
+  "nameFil": "Dahon ng mustasa",
+  "nameId": "Sawi hijau",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "西洋菜",
+  "nameZh": "西洋菜",
+  "nameEn": "Watercress",
+  "nameFil": "Watercress",
+  "nameId": "Selada",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "津菜",
+  "nameZh": "津菜",
+  "nameEn": "Tientsin cabbage",
+  "nameFil": "Tientsin na repolyo",
+  "nameId": "Kol Tientsin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "羽衣甘藍",
+  "nameZh": "羽衣甘藍",
+  "nameEn": "Curly kale",
+  "nameFil": "Kina",
+  "nameId": "Kale",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "珍珠菜",
+  "nameZh": "珍珠菜",
+  "nameEn": "White mugwort",
+  "nameFil": "White mugwort",
+  "nameId": "Daun ketumbar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "小棠菜",
+  "nameZh": "小棠菜",
+  "nameEn": "Green Chinese cabbage",
+  "nameFil": "Berdeng Chinese Cabbage",
+  "nameId": "Kol",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "油麥菜",
+  "nameZh": "油麥菜",
+  "nameEn": "Indian lettuce",
+  "nameFil": "Letsugas",
+  "nameId": "Kol India",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "皇帝菜",
+  "nameZh": "皇帝菜",
+  "nameEn": "Emperor vegetable",
+  "nameFil": "Emperor vegetable",
+  "nameId": "Sayuran kaisar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "茼蒿",
+  "nameZh": "茼蒿",
+  "nameEn": "Garland chrysanthemum",
+  "nameFil": "Garland chrysanthemum",
+  "nameId": "Garland chrysanthemum",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "潺菜",
+  "nameZh": "潺菜",
+  "nameEn": "Indian spinach",
+  "nameFil": "Alugbati",
+  "nameId": "Bayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "馬齒莧",
+  "nameZh": "馬齒莧",
+  "nameEn": "Wild amaranth",
+  "nameFil": "Kulitis",
+  "nameId": "Bayam Bali",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "塔菜",
+  "nameZh": "塔菜",
+  "nameEn": "Chinese flat cabbage",
+  "nameFil": "Pechay",
+  "nameId": "Sawi pagoda",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "唐生菜",
+  "nameZh": "唐生菜",
+  "nameEn": "Chinese lettuce",
+  "nameFil": "Letsugas",
+  "nameId": "Selada cina/Causim",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "西生菜",
+  "nameZh": "西生菜",
+  "nameEn": "Iceberg lettuce",
+  "nameFil": "Letsugas/Iceberg lettuce",
+  "nameId": "Selada air",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "韭菜花",
+  "nameZh": "韭菜花",
+  "nameEn": "Bud chive",
+  "nameFil": "Bud chive",
+  "nameId": "Kembang bawang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "青毛豆",
+  "nameZh": "青毛豆",
+  "nameEn": "Green soybean",
+  "nameFil": "Gisantes",
+  "nameId": "Kacang kedelai hijau",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "豌豆",
+  "nameZh": "豌豆",
+  "nameEn": "Garden pea",
+  "nameFil": "Sitsaro",
+  "nameId": "Kapri",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "豆角",
+  "nameZh": "豆角",
+  "nameEn": "Yard-long bean",
+  "nameFil": "Sitaw",
+  "nameId": "Kacang panjang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "老黃瓜",
+  "nameZh": "老黃瓜",
+  "nameEn": "Yellow cucumber",
+  "nameFil": "Dilaw na pipino",
+  "nameId": "Timun kuning",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "節瓜",
+  "nameZh": "節瓜",
+  "nameEn": "Hairy gourd",
+  "nameFil": "Hairy gourd",
+  "nameId": "Labu berambut",
+  "aliases": [
+   "毛瓜"
+  ]
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "甜豆",
+  "nameZh": "甜豆",
+  "nameEn": "Sweet pea",
+  "nameFil": "Gisantes",
+  "nameId": "Kapri manis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "鮮冬菇",
+  "nameZh": "鮮冬菇",
+  "nameEn": "Fresh Shiitake mushroom",
+  "nameFil": "Preskong kabuteng shiitake",
+  "nameId": "Jamur shiitake segar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "青蘿蔔",
+  "nameZh": "青蘿蔔",
+  "nameEn": "Green radish",
+  "nameFil": "Berdeng labanos",
+  "nameId": "Lobak hijau",
+  "aliases": [
+   "青卜"
+  ]
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "秀珍菇",
+  "nameZh": "秀珍菇",
+  "nameEn": "Small oyster mushroom",
+  "nameFil": "Maliit na kabuteng oyster",
+  "nameId": "Jamur tiram",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "鮑魚菇",
+  "nameZh": "鮑魚菇",
+  "nameEn": "Abalone mushroom",
+  "nameFil": "Kabuteng abalone",
+  "nameId": "Jamur abalone",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "竹筍",
+  "nameZh": "竹筍",
+  "nameEn": "Bamboo shoot",
+  "nameFil": "Labong",
+  "nameId": "Rebung",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "金菇",
+  "nameZh": "金菇",
+  "nameEn": "Needle mushroom",
+  "nameFil": "Enoki",
+  "nameId": "Enoki",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "雞腿菇",
+  "nameZh": "雞腿菇",
+  "nameEn": "Shaggy mane",
+  "nameFil": "Shaggy mane",
+  "nameId": "Jamur rambut kusut",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "草菇",
+  "nameZh": "草菇",
+  "nameEn": "Straw mushroom",
+  "nameFil": "Kabute",
+  "nameId": "Jamur merang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "珍珠筍",
+  "nameZh": "珍珠筍",
+  "nameEn": "Baby corn",
+  "nameFil": "Mais",
+  "nameId": "Jagung muda/Putren",
+  "aliases": [
+   "玉米筍"
+  ]
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "茶樹菇",
+  "nameZh": "茶樹菇",
+  "nameEn": "Tea tree mushroom",
+  "nameFil": "Tea tree mushroom",
+  "nameId": "Shimejo",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "甘筍",
+  "nameZh": "甘筍",
+  "nameEn": "Carrot",
+  "nameFil": "Carrot",
+  "nameId": "Wortel",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "粉葛",
+  "nameZh": "粉葛",
+  "nameEn": "Kudzu",
+  "nameFil": "Kudzu",
+  "nameId": "Kudzu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "馬鈴薯",
+  "nameZh": "馬鈴薯",
+  "nameEn": "Potato",
+  "nameFil": "Patatas",
+  "nameId": "Kentang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "紅菜頭",
+  "nameZh": "紅菜頭",
+  "nameEn": "Beetroot",
+  "nameFil": "Beetroot",
+  "nameId": "Gula bit",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "京蔥",
+  "nameZh": "京蔥",
+  "nameEn": "Green scallion",
+  "nameFil": "Bawang na mura",
+  "nameId": "Bawang hijau",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "番薯",
+  "nameZh": "番薯",
+  "nameEn": "Sweet potato",
+  "nameFil": "Kamote",
+  "nameId": "Ubi manis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "蔥頭",
+  "nameZh": "蔥頭",
+  "nameEn": "Shallot bulb",
+  "nameFil": "Sibuyas Tagalog",
+  "nameId": "Bawang merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "紅尖椒",
+  "nameZh": "紅尖椒",
+  "nameEn": "Red hot pepper",
+  "nameFil": "Siling labuyo",
+  "nameId": "Cabe merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "粟米鬚",
+  "nameZh": "粟米鬚",
+  "nameEn": "Corn silk",
+  "nameFil": "Buhok ng mais",
+  "nameId": "Rambut jagung",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "馬蹄",
+  "nameZh": "馬蹄",
+  "nameEn": "Water chestnuts",
+  "nameFil": "Apulid",
+  "nameId": "Berangan air",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "青尖椒",
+  "nameZh": "青尖椒",
+  "nameEn": "Green hot pepper",
+  "nameFil": "Siling berde na maanghang",
+  "nameId": "Cabe hijau",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "韭王",
+  "nameZh": "韭王",
+  "nameEn": "Blanching chive",
+  "nameFil": "Kuchay",
+  "nameId": "Kucai",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "茅根",
+  "nameZh": "茅根",
+  "nameEn": "India Perotis",
+  "nameFil": "Perotis",
+  "nameId": "Perotis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "燈籠椒",
+  "nameZh": "燈籠椒",
+  "nameEn": "Sweet pepper",
+  "nameFil": "Siling pukingan",
+  "nameId": "Merica manis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "香茅",
+  "nameZh": "香茅",
+  "nameEn": "Lemon grass",
+  "nameFil": "Tanglad",
+  "nameId": "Sereh",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "臭草",
+  "nameZh": "臭草",
+  "nameEn": "Common rue",
+  "nameFil": "Common rue (Halamang biyaya)",
+  "nameId": "Ikan ingu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "竹蔗",
+  "nameZh": "竹蔗",
+  "nameEn": "Sugar cane",
+  "nameFil": "Tubo",
+  "nameId": "Tebu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "羅勒",
+  "nameZh": "羅勒",
+  "nameEn": "Basil",
+  "nameFil": "Balanoy",
+  "nameId": "Kemangi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "荷葉",
+  "nameZh": "荷葉",
+  "nameEn": "Lotus leaf",
+  "nameFil": "Dahon ng lotus",
+  "nameId": "Daun lotus",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "木薯",
+  "nameZh": "木薯",
+  "nameEn": "Cassava",
+  "nameFil": "Kamoteng kahoy",
+  "nameId": "Singkong",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "月桂葉",
+  "nameZh": "月桂葉",
+  "nameEn": "Bay leaf",
+  "nameFil": "Dahon ng laurel",
+  "nameId": "Daun salam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "薄荷葉",
+  "nameZh": "薄荷葉",
+  "nameEn": "Mint leaf",
+  "nameFil": "Dahon ng menta",
+  "nameId": "Daun mint",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "番荽",
+  "nameZh": "番荽",
+  "nameEn": "Parsley",
+  "nameFil": "Kintchay/Parsely",
+  "nameId": "Peterseli",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "肉桂",
+  "nameZh": "肉桂",
+  "nameEn": "Cinnamon",
+  "nameFil": "Kanela",
+  "nameId": "Kayu manis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "西蒜",
+  "nameZh": "西蒜",
+  "nameEn": "European leek",
+  "nameFil": "Sibuyas na mura",
+  "nameId": "Bawang perai",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "菱角",
+  "nameZh": "菱角",
+  "nameEn": "Water caltrop",
+  "nameFil": "Apulid",
+  "nameId": "Purun tikus",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "枇杷葉",
+  "nameZh": "枇杷葉",
+  "nameEn": "Loquat leaf",
+  "nameFil": "Dahon ng loquat",
+  "nameId": "Daun biwa",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "檸葉",
+  "nameZh": "檸葉",
+  "nameEn": "Lemon leaf",
+  "nameFil": "Dahon ng dayap",
+  "nameId": "Daun jeruk",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "芋絲",
+  "nameZh": "芋絲",
+  "nameEn": "Konjac noodles",
+  "nameFil": "Konjac noodles",
+  "nameId": "Mi konyaku",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "龍脷葉",
+  "nameZh": "龍脷葉",
+  "nameEn": "Dragon's tongue leaf",
+  "nameFil": "Dahon ng dila ng dragon",
+  "nameId": "Daun lire",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "蘆薈",
+  "nameZh": "蘆薈",
+  "nameEn": "Aloe",
+  "nameFil": "Sabila",
+  "nameId": "Lidah buaya",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "香草",
+  "nameZh": "香草",
+  "nameEn": "Vanilla",
+  "nameFil": "Baynilya",
+  "nameId": "Vanila",
+  "aliases": []
+ },
+ {
+  "categoryKey": "vegetables",
+  "nameYue": "紫蘇葉",
+  "nameZh": "紫蘇葉",
+  "nameEn": "Perilla leaf",
+  "nameFil": "Dahon ng perilya",
+  "nameId": "Daun shiso",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬扒",
+  "nameZh": "豬扒",
+  "nameEn": "Pork chop",
+  "nameFil": "Porkchop",
+  "nameId": "Babi potongan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "腩排",
+  "nameZh": "腩排",
+  "nameEn": "Pork loinrib",
+  "nameFil": "Tagiliran",
+  "nameId": "Daging iga",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "免治豬肉",
+  "nameZh": "免治豬肉",
+  "nameEn": "Minced pork",
+  "nameFil": "Giniling na baboy",
+  "nameId": "Daging babi cincang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬柳",
+  "nameZh": "豬柳",
+  "nameEn": "Pork tenderloin",
+  "nameFil": "Lomo",
+  "nameId": "Tenderloin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "排骨",
+  "nameZh": "排骨",
+  "nameEn": "Pork sparerib",
+  "nameFil": "Tadyang",
+  "nameId": "Tulang iga",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬脹",
+  "nameZh": "豬脹",
+  "nameEn": "Pork shin",
+  "nameFil": "Lulod ng baboy",
+  "nameId": "Betis babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬腩肉",
+  "nameZh": "豬腩肉",
+  "nameEn": "Pork belly",
+  "nameFil": "Liempo o Tiyan ng baboy",
+  "nameId": "Perut babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬踭",
+  "nameZh": "豬踭",
+  "nameEn": "Pork shoulder",
+  "nameFil": "Kasim",
+  "nameId": "Punggung babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "梅頭",
+  "nameZh": "梅頭",
+  "nameEn": "Pork collar butt",
+  "nameFil": "Lomo",
+  "nameId": "Belungkang babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬骨",
+  "nameZh": "豬骨",
+  "nameEn": "Pork bone",
+  "nameFil": "Buto ng baboy",
+  "nameId": "Tulang babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "瘦肉",
+  "nameZh": "瘦肉",
+  "nameEn": "Lean pork",
+  "nameFil": "Laman ng baboy",
+  "nameId": "Daging babi tipis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬肋骨",
+  "nameZh": "豬肋骨",
+  "nameEn": "Pork rib",
+  "nameFil": "Tadyang ng baboy",
+  "nameId": "Iga babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬腳",
+  "nameZh": "豬腳",
+  "nameEn": "Pig feet",
+  "nameFil": "Pata",
+  "nameId": "Kaki babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬軟骨",
+  "nameZh": "豬軟骨",
+  "nameEn": "Pork cartilage",
+  "nameFil": "Murang buto ng baboy",
+  "nameId": "Tulang rawan babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬腰",
+  "nameZh": "豬腰",
+  "nameEn": "Pig kidney",
+  "nameFil": "Batong baboy",
+  "nameId": "Pig kidney",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬舌",
+  "nameZh": "豬舌",
+  "nameEn": "Pig tongue",
+  "nameFil": "Dila ng baboy",
+  "nameId": "Lidah babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬腦",
+  "nameZh": "豬腦",
+  "nameEn": "Pig brain",
+  "nameFil": "Utak ng baboy",
+  "nameId": "Pig brain",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬心",
+  "nameZh": "豬心",
+  "nameEn": "Pig heart",
+  "nameFil": "Puso ng baboy",
+  "nameId": "Jantung babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬小腸",
+  "nameZh": "豬小腸",
+  "nameEn": "Pig small intestine",
+  "nameFil": "maliit na bituka ng baboy",
+  "nameId": "usus babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬肺",
+  "nameZh": "豬肺",
+  "nameEn": "Pig lung",
+  "nameFil": "Baga ng baboy",
+  "nameId": "Pig lung",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬大腸",
+  "nameZh": "豬大腸",
+  "nameEn": "Pig large intestine",
+  "nameFil": "Bituka ng baboy (malaki)",
+  "nameId": "Usus besar babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬橫脷",
+  "nameZh": "豬橫脷",
+  "nameEn": "Pig spleen",
+  "nameFil": "Baga ng baboy",
+  "nameId": "Pig spleen",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬肝",
+  "nameZh": "豬肝",
+  "nameEn": "Pig liver",
+  "nameFil": "Atay ng baboy",
+  "nameId": "Pig liver",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豬血",
+  "nameZh": "豬血",
+  "nameEn": "Pig blood",
+  "nameFil": "Dugo ng baboy",
+  "nameId": "Darah babi",
+  "aliases": [
+   "豬紅"
+  ]
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "牛尾",
+  "nameZh": "牛尾",
+  "nameEn": "Ox tail",
+  "nameFil": "Buntot ng baka",
+  "nameId": "Buntut sapi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "肥牛肉",
+  "nameZh": "肥牛肉",
+  "nameEn": "Marble beef",
+  "nameFil": "Baka na marmol",
+  "nameId": "Daging sapi marmer",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "牛骨",
+  "nameZh": "牛骨",
+  "nameEn": "Beef bone",
+  "nameFil": "Bulalo ng baka",
+  "nameId": "Tulang sapi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "牛臄",
+  "nameZh": "牛臄",
+  "nameEn": "Beef shin",
+  "nameFil": "Binti ng baka",
+  "nameId": "Sengkel sapi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "牛骨髓",
+  "nameZh": "牛骨髓",
+  "nameEn": "Beef bone marrow",
+  "nameFil": "Biyas ng baka",
+  "nameId": "Tulang sumsum sapi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "牛筋",
+  "nameZh": "牛筋",
+  "nameEn": "Beef tendon",
+  "nameFil": "Litid ng baka",
+  "nameId": "Daging paha atas",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "羊扒",
+  "nameZh": "羊扒",
+  "nameEn": "Mutton rack",
+  "nameFil": "Tadyang ng karne ng tupa",
+  "nameId": "Iga domba",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "牛仔骨",
+  "nameZh": "牛仔骨",
+  "nameEn": "Veal rib",
+  "nameFil": "Tadyang ng karne ng bisiro",
+  "nameId": "Tulang iga muda",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "山羊肉",
+  "nameZh": "山羊肉",
+  "nameEn": "Goat meat",
+  "nameFil": "Karne ng kambing",
+  "nameId": "Daging kambing",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "九肚魚",
+  "nameZh": "九肚魚",
+  "nameEn": "Bombay duck",
+  "nameFil": "Isdang bumbay",
+  "nameId": "Bebek bombai",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "牛鰍",
+  "nameZh": "牛鰍",
+  "nameEn": "Flathead",
+  "nameFil": "Aligasin",
+  "nameId": "Ikan kepala datar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "白飯魚",
+  "nameZh": "白飯魚",
+  "nameEn": "Noodlefish",
+  "nameFil": "Lumi",
+  "nameId": "Ikan mie teri",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "狗棍",
+  "nameZh": "狗棍",
+  "nameEn": "Lizard fish",
+  "nameFil": "Isdang tuko",
+  "nameId": "Ikan kadal",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "鱸魚",
+  "nameZh": "鱸魚",
+  "nameEn": "Seabass",
+  "nameFil": "Apahap",
+  "nameId": "Kakap Putih",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "白鱔",
+  "nameZh": "白鱔",
+  "nameEn": "Japanese eel",
+  "nameFil": "Igat",
+  "nameId": "Belut Jepang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "大頭魚",
+  "nameZh": "大頭魚",
+  "nameEn": "Bighead carp",
+  "nameFil": "Karpa",
+  "nameId": "Ikan mola",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "左口",
+  "nameZh": "左口",
+  "nameEn": "Flounder",
+  "nameFil": "Dapa",
+  "nameId": "Ikan gelepar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "白鯧",
+  "nameZh": "白鯧",
+  "nameEn": "White seabream",
+  "nameFil": "Agoot",
+  "nameId": "Bream laut",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "木棉",
+  "nameZh": "木棉",
+  "nameEn": "Bigeye",
+  "nameFil": "Matang baka",
+  "nameId": "Ikan mata besar",
+  "aliases": [
+   "大眼雞"
+  ]
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "瓜衫",
+  "nameZh": "瓜衫",
+  "nameEn": "Japanese golden thread",
+  "nameFil": "Japanese golden thread",
+  "nameId": "Japanese golden thread",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "石九公",
+  "nameZh": "石九公",
+  "nameEn": "Rockfish",
+  "nameFil": "Isdang bato",
+  "nameId": "Kerapu merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "牙帶",
+  "nameZh": "牙帶",
+  "nameEn": "Hairtail",
+  "nameFil": "Espada",
+  "nameId": "Ikan ekor rambut",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "生魚",
+  "nameZh": "生魚",
+  "nameEn": "Snakehead",
+  "nameFil": "Bulig",
+  "nameId": "Snakehead",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "石蚌",
+  "nameZh": "石蚌",
+  "nameEn": "Star snapper",
+  "nameFil": "Maya maya",
+  "nameId": "Snapper bintang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "老虎斑",
+  "nameZh": "老虎斑",
+  "nameEn": "Brown-marbled grouper",
+  "nameFil": "Lapu lapu",
+  "nameId": "Ikan grouper coklat",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "泥鯭",
+  "nameZh": "泥鯭",
+  "nameEn": "Rabbit fish",
+  "nameFil": "Danggit/Tambol",
+  "nameId": "Rabbitfish",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "紅衫",
+  "nameZh": "紅衫",
+  "nameEn": "Golden thread",
+  "nameFil": "Golden thread",
+  "nameId": "Golden thread",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "杉斑",
+  "nameZh": "杉斑",
+  "nameEn": "Camouflage grouper",
+  "nameFil": "Lapu lapu",
+  "nameId": "Grouper kamuflase",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "盲鰽",
+  "nameZh": "盲鰽",
+  "nameEn": "Barramundi",
+  "nameFil": "Matang-pusa/Apahap",
+  "nameId": "Barramundi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "紅鮪",
+  "nameZh": "紅鮪",
+  "nameEn": "Mangrove red snapper",
+  "nameFil": "Maya maya",
+  "nameId": "Ikan kakap",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "沙鯭",
+  "nameZh": "沙鯭",
+  "nameEn": "Filefish",
+  "nameFil": "Pakol",
+  "nameId": "Ikan kikir",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "芝麻斑",
+  "nameZh": "芝麻斑",
+  "nameEn": "Brown-spotted grouper",
+  "nameFil": "Lapu lapu",
+  "nameId": "Brown-spotted grouper",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "紅鱣",
+  "nameZh": "紅鱣",
+  "nameEn": "Two-spot red snapper",
+  "nameFil": "Maya maya",
+  "nameId": "Two-spot red snapper",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "東星斑",
+  "nameZh": "東星斑",
+  "nameEn": "Leopard coralgrouper",
+  "nameFil": "Lapu lapu",
+  "nameId": "Ikan kerapu merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "青衣",
+  "nameZh": "青衣",
+  "nameEn": "Blackspot tuskfish",
+  "nameFil": "Maming",
+  "nameId": "Ikan napoleon",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "桂花魚",
+  "nameZh": "桂花魚",
+  "nameEn": "Mandarin fish",
+  "nameFil": "Mandarin fish",
+  "nameId": "Ikan Mandarin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "沙巴躉",
+  "nameZh": "沙巴躉",
+  "nameEn": "Hybrid grouper",
+  "nameFil": "Lapu lapu",
+  "nameId": "Kerapu hibrid",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "青斑",
+  "nameZh": "青斑",
+  "nameEn": "Orange-spotted grouper",
+  "nameFil": "Lapu lapu",
+  "nameId": "Ikan kerapu tutul",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "烏頭",
+  "nameZh": "烏頭",
+  "nameEn": "Grey mullet",
+  "nameFil": "Banak",
+  "nameId": "Grey mullet",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "馬頭",
+  "nameZh": "馬頭",
+  "nameEn": "Horsehead",
+  "nameFil": "Banak",
+  "nameId": "Ikan bandeng",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "黃花魚",
+  "nameZh": "黃花魚",
+  "nameEn": "Yellow croaker",
+  "nameFil": "Kulbinas",
+  "nameId": "Yellow croaker",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "鯖魚",
+  "nameZh": "鯖魚",
+  "nameEn": "Mackerel",
+  "nameFil": "Alumahan",
+  "nameId": "Ikan Makarel",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "釆鮓",
+  "nameZh": "釆鮓",
+  "nameEn": "Rudder fish",
+  "nameFil": "Isdang Ilac",
+  "nameId": "Rudderfish",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "黃腳鱲",
+  "nameZh": "黃腳鱲",
+  "nameEn": "Yellowfin seabream",
+  "nameFil": "Yellowfin seabream",
+  "nameId": "Sparidae sirip kuning",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "鯉魚",
+  "nameZh": "鯉魚",
+  "nameEn": "Common carp",
+  "nameFil": "Karpa",
+  "nameId": "Ikan karp biasa",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "細鱗",
+  "nameZh": "細鱗",
+  "nameEn": "Sweetlip",
+  "nameFil": "Bakokol",
+  "nameId": "Sweetlip",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "黃鱲鯧",
+  "nameZh": "黃鱲鯧",
+  "nameEn": "Pompano",
+  "nameFil": "Pampano",
+  "nameId": "Pompano",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "鯧魚",
+  "nameZh": "鯧魚",
+  "nameEn": "Pomfret",
+  "nameFil": "Pampano",
+  "nameId": "Pomfret",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "塘虱",
+  "nameZh": "塘虱",
+  "nameEn": "Catfish",
+  "nameFil": "Hito",
+  "nameId": "Ikan lele",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "鯪魚",
+  "nameZh": "鯪魚",
+  "nameEn": "Mud carp",
+  "nameFil": "Karpang putik",
+  "nameId": "Ikan karp lumpur",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "頭鱸",
+  "nameZh": "頭鱸",
+  "nameEn": "Head grunt",
+  "nameFil": "Gung-gong",
+  "nameId": "Head grunt",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "撻沙",
+  "nameZh": "撻沙",
+  "nameEn": "Tonguesole",
+  "nameFil": "Dapa",
+  "nameId": "Ikan sebelah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "絞鯪魚肉",
+  "nameZh": "絞鯪魚肉",
+  "nameEn": "Minced mud carp",
+  "nameFil": "Giniling na karpa",
+  "nameId": "Minced mud carp",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "紅蟹",
+  "nameZh": "紅蟹",
+  "nameEn": "Red crab",
+  "nameFil": "Alimasag",
+  "nameId": "Kepiting merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "琵琶蝦",
+  "nameZh": "琵琶蝦",
+  "nameEn": "Bay lobster",
+  "nameFil": "Ulang/Lobster",
+  "nameId": "Lobster",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "三點蟹",
+  "nameZh": "三點蟹",
+  "nameEn": "Three-spotted crab",
+  "nameFil": "Alimasag / Tatlong Maria",
+  "nameId": "Kepiting tiga jempol",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "花蝦",
+  "nameZh": "花蝦",
+  "nameEn": "Striped prawn",
+  "nameFil": "Hipon",
+  "nameId": "Udang windu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "草蝦",
+  "nameZh": "草蝦",
+  "nameEn": "Tiger prawn",
+  "nameFil": "sugpo",
+  "nameId": "udang galah",
+  "aliases": [
+   "鬼蝦"
+  ]
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "基圍蝦",
+  "nameZh": "基圍蝦",
+  "nameEn": "Greasyback shrimp",
+  "nameFil": "Suahe",
+  "nameId": "Udang peci",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "水魚",
+  "nameZh": "水魚",
+  "nameEn": "Soft-shell turtle",
+  "nameFil": "Lunong pagong",
+  "nameId": "Kura-kura kerang lunak",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "青蟹",
+  "nameZh": "青蟹",
+  "nameEn": "Mud crab",
+  "nameFil": "Alimango",
+  "nameId": "Kepiting lumpur",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "大蝦",
+  "nameZh": "大蝦",
+  "nameEn": "King prawn",
+  "nameFil": "Sugpo",
+  "nameId": "Udang susu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "沙蜆",
+  "nameZh": "沙蜆",
+  "nameEn": "Sand clam",
+  "nameFil": "Tulya",
+  "nameId": "Kerang pasir",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "花蛤",
+  "nameZh": "花蛤",
+  "nameEn": "Common basket lucina",
+  "nameFil": "Halaan",
+  "nameId": "Lucina keranjang biasa",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "扇貝",
+  "nameZh": "扇貝",
+  "nameEn": "Fan scallop",
+  "nameFil": "Scallop",
+  "nameId": "Kerang kipas",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "東風螺",
+  "nameZh": "東風螺",
+  "nameEn": "Spiral babylon",
+  "nameFil": "Kuhol na pula",
+  "nameId": "Babylon spiral",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "貴妃蚌",
+  "nameZh": "貴妃蚌",
+  "nameEn": "Queen clam",
+  "nameFil": "Halaan",
+  "nameId": "Kerang ratu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "花螺",
+  "nameZh": "花螺",
+  "nameEn": "Areola babylon",
+  "nameFil": "Kuhol na bulik",
+  "nameId": "Babylon areola",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "八爪魚",
+  "nameZh": "八爪魚",
+  "nameEn": "Octopus",
+  "nameFil": "Pugita",
+  "nameId": "Gurita",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "響螺",
+  "nameZh": "響螺",
+  "nameEn": "Conch",
+  "nameFil": "Batotoy",
+  "nameId": "Siput",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞殼",
+  "nameZh": "雞殼",
+  "nameEn": "Chicken breast carcass",
+  "nameFil": "Pitso",
+  "nameId": "Tulang dada ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞腸",
+  "nameZh": "雞腸",
+  "nameEn": "Chicken intestine",
+  "nameFil": "Bituka ng manok/ Isaw",
+  "nameId": "Usus ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞扒",
+  "nameZh": "雞扒",
+  "nameEn": "Chicken steak",
+  "nameFil": "Kame ng manok/ laman ng manok",
+  "nameId": "Steak ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞腳",
+  "nameZh": "雞腳",
+  "nameEn": "Chicken claw",
+  "nameFil": "Paa ng manok",
+  "nameId": "Ceker ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞血",
+  "nameZh": "雞血",
+  "nameEn": "Chicken blood",
+  "nameFil": "Dugo ng manok",
+  "nameId": "Darah ayam",
+  "aliases": [
+   "雞紅"
+  ]
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞心",
+  "nameZh": "雞心",
+  "nameEn": "Chicken heart",
+  "nameFil": "Puso ng manok",
+  "nameId": "Jantung ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "竹絲雞",
+  "nameZh": "竹絲雞",
+  "nameEn": "Silky fowl",
+  "nameFil": "Manok na labuyo",
+  "nameId": "Unggas sutra",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞鎚",
+  "nameZh": "雞鎚",
+  "nameEn": "Drumstick",
+  "nameFil": "Binti ng manok",
+  "nameId": "Paha bawah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "雞軟骨",
+  "nameZh": "雞軟骨",
+  "nameEn": "Chicken cartilage",
+  "nameFil": "Kartilago ng manok",
+  "nameId": "Tulang Rawan Ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鴿",
+  "nameZh": "鴿",
+  "nameEn": "Whole pigeon",
+  "nameFil": "Buong kalapati",
+  "nameId": "Burung dara utuh",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鵝腸",
+  "nameZh": "鵝腸",
+  "nameEn": "Goose intestine",
+  "nameFil": "Bituka ng gansa",
+  "nameId": "Usus soang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鴨掌",
+  "nameZh": "鴨掌",
+  "nameEn": "Duck web",
+  "nameFil": "Paa ng pato",
+  "nameId": "Web bebek",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鴨腎",
+  "nameZh": "鴨腎",
+  "nameEn": "Duck gizzard",
+  "nameFil": "Balunbalunan ng pato",
+  "nameId": "Empedal bebek",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鴨翼",
+  "nameZh": "鴨翼",
+  "nameEn": "Duck wing",
+  "nameFil": "Pakpak ng pato",
+  "nameId": "Sayap bebek",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鵝掌",
+  "nameZh": "鵝掌",
+  "nameEn": "Goose web",
+  "nameFil": "Paa ng gansa",
+  "nameId": "Web soang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鵝腎",
+  "nameZh": "鵝腎",
+  "nameEn": "Goose gizzard",
+  "nameFil": "Balunbalunan ng gansa",
+  "nameId": "Empedal angsa",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鴨肝",
+  "nameZh": "鴨肝",
+  "nameEn": "Duck liver",
+  "nameFil": "Atay ng pato",
+  "nameId": "Hati bebek",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鵝翼",
+  "nameZh": "鵝翼",
+  "nameEn": "Goose wing",
+  "nameFil": "Pakpak ng gansa",
+  "nameId": "Sayap soang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鷓鴣",
+  "nameZh": "鷓鴣",
+  "nameEn": "Partridge",
+  "nameFil": "Pugo/Partrids",
+  "nameId": "Ayam hutan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鴨腸",
+  "nameZh": "鴨腸",
+  "nameEn": "Duck intestine",
+  "nameFil": "Bituka ng Pato",
+  "nameId": "Usus bebek",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鵝肝",
+  "nameZh": "鵝肝",
+  "nameEn": "Goose liver",
+  "nameFil": "Atay ng gansa",
+  "nameId": "Hati soang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鵪鶉",
+  "nameZh": "鵪鶉",
+  "nameEn": "Quail",
+  "nameFil": "Pugo",
+  "nameId": "Burung puyuh",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "大樹菠蘿",
+  "nameZh": "大樹菠蘿",
+  "nameEn": "Jackfruit",
+  "nameFil": "Langka",
+  "nameId": "Nangka",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "西柚",
+  "nameZh": "西柚",
+  "nameEn": "Grapefruit",
+  "nameFil": "Suha",
+  "nameId": "Grapefruit",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "西梅",
+  "nameZh": "西梅",
+  "nameEn": "Prune",
+  "nameFil": "Pruno",
+  "nameId": "Plum",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "青蘋菓",
+  "nameZh": "青蘋菓",
+  "nameEn": "Green apple",
+  "nameFil": "Berdeng Mansanas",
+  "nameId": "Apel hijau",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "柿",
+  "nameZh": "柿",
+  "nameEn": "Chinese persimmon",
+  "nameFil": "Chinese persimmon",
+  "nameId": "Kesemek cina",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "紅桑子",
+  "nameZh": "紅桑子",
+  "nameEn": "Raspberry",
+  "nameFil": "Prambuwesas",
+  "nameId": "Rasberi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "桃",
+  "nameZh": "桃",
+  "nameEn": "Peach",
+  "nameFil": "Melokoton/Milokoton",
+  "nameId": "Peach",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "番石榴",
+  "nameZh": "番石榴",
+  "nameEn": "Guava",
+  "nameFil": "Bayabas",
+  "nameId": "Jambu biji",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "柚子",
+  "nameZh": "柚子",
+  "nameEn": "Pummelo",
+  "nameFil": "Suha",
+  "nameId": "Delima",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "桃駁梨",
+  "nameZh": "桃駁梨",
+  "nameEn": "Nectarine",
+  "nameFil": "Nektarin",
+  "nameId": "Nektarin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "番荔枝",
+  "nameZh": "番荔枝",
+  "nameEn": "Sugar-apple",
+  "nameFil": "Atis",
+  "nameId": "Srikaya",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "梨",
+  "nameZh": "梨",
+  "nameEn": "Pear",
+  "nameFil": "Peras",
+  "nameId": "Pir",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "黑莓",
+  "nameZh": "黑莓",
+  "nameEn": "Blackberry",
+  "nameFil": "Black berry",
+  "nameId": "Blackberry",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "櫻桃",
+  "nameZh": "櫻桃",
+  "nameEn": "Cherry",
+  "nameFil": "Cherry/Seresa",
+  "nameId": "Ceri",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "黃皮",
+  "nameZh": "黃皮",
+  "nameEn": "Wampi",
+  "nameFil": "Wampi",
+  "nameId": "Wampi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "熱情果",
+  "nameZh": "熱情果",
+  "nameEn": "Passion-fruit",
+  "nameFil": "Passion fruit",
+  "nameId": "Markisa",
+  "aliases": []
+ },
+ {
+  "categoryKey": "fruits",
+  "nameYue": "椰青",
+  "nameZh": "椰青",
+  "nameEn": "Young coconut",
+  "nameFil": "Buko",
+  "nameId": "Kelapa muda",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "燒鵝",
+  "nameZh": "燒鵝",
+  "nameEn": "Roasted goose",
+  "nameFil": "Lechong gansa",
+  "nameId": "Angsa Panggang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "燒乳豬",
+  "nameZh": "燒乳豬",
+  "nameEn": "Roasted suckling pig",
+  "nameFil": "Lechon de leche",
+  "nameId": "Anak babi bakar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鵝",
+  "nameZh": "鹵水鵝",
+  "nameEn": "Marinated goose",
+  "nameFil": "Tinimplahang gansa",
+  "nameId": "Angsa Bumbu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "豉油雞",
+  "nameZh": "豉油雞",
+  "nameEn": "Soy sauce chicken",
+  "nameFil": "Asadong manok",
+  "nameId": "Ayam kecap",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "燒乳鴿",
+  "nameZh": "燒乳鴿",
+  "nameEn": "Roasted pigeon",
+  "nameFil": "Lechong kalapati",
+  "nameId": "Burung dara bakar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鴨",
+  "nameZh": "鹵水鴨",
+  "nameEn": "Marinated duck",
+  "nameFil": "Tinimplahang pato",
+  "nameId": "Bebek bumbu mentega",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "燒骨",
+  "nameZh": "燒骨",
+  "nameEn": "Roasted rib",
+  "nameFil": "Lechong tadyang",
+  "nameId": "Iga panggang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鵝片",
+  "nameZh": "鹵水鵝片",
+  "nameEn": "Marinated sliced goose meat",
+  "nameFil": "Tinimplahang karne ng gansa",
+  "nameId": "Marinated sliced goose meat",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "貴妃雞",
+  "nameZh": "貴妃雞",
+  "nameEn": "Poached marinated chicken",
+  "nameFil": "Tinimplahang chicken",
+  "nameId": "Ayam bumbu pop",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鴨掌",
+  "nameZh": "鹵水鴨掌",
+  "nameEn": "Marinated duck web",
+  "nameFil": "Tinimplahang pata ng pato",
+  "nameId": "Marinated duck web",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鴨翼",
+  "nameZh": "鹵水鴨翼",
+  "nameEn": "Marinated duck wing",
+  "nameFil": "Tinimplahang pakpak ng pato",
+  "nameId": "Marinated duck wing",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鵝腸",
+  "nameZh": "鹵水鵝腸",
+  "nameEn": "Marinated goose intestine",
+  "nameFil": "Tinimplahang bituka ng gansa",
+  "nameId": "Marinated goose intestine",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水雞翼",
+  "nameZh": "鹵水雞翼",
+  "nameEn": "Marinated chicken wing",
+  "nameFil": "Tinimplahang pak pak ng manok",
+  "nameId": "Sayap ayam mentega",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鴨舌",
+  "nameZh": "鹵水鴨舌",
+  "nameEn": "Marinated duck tongue",
+  "nameFil": "Tinimplahang dila ng pato",
+  "nameId": "Marinated duck tongue",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "熟墨魚",
+  "nameZh": "熟墨魚",
+  "nameEn": "Marinated cuttlefish",
+  "nameFil": "Tinimplahang pusit",
+  "nameId": "Cumi asin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "燒雞翼",
+  "nameZh": "燒雞翼",
+  "nameEn": "Roasted chicken wing",
+  "nameFil": "Lechong pakpak ng manok",
+  "nameId": "Sayap ayam panggang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水牛𦟌",
+  "nameZh": "鹵水牛𦟌",
+  "nameEn": "Marinated beef shin",
+  "nameFil": "Tinimplahang karne ng baka",
+  "nameId": "Betis sapi bumbu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "紅腸",
+  "nameZh": "紅腸",
+  "nameEn": "Pork sausage",
+  "nameFil": "Longganisang baboy",
+  "nameId": "Sosis babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水豆腐",
+  "nameZh": "鹵水豆腐",
+  "nameEn": "Marinated bean curd",
+  "nameFil": "Inatsarang tokwa",
+  "nameId": "Tahu bumbu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水鴨腎",
+  "nameZh": "鹵水鴨腎",
+  "nameEn": "Marinated duck gizzard",
+  "nameFil": "Tinimplahang balunan ng pato",
+  "nameId": "Empedu bumbu mentega",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "海蜇",
+  "nameZh": "海蜇",
+  "nameEn": "Jelly fish",
+  "nameFil": "Halayang Isda",
+  "nameId": "Ubur-ubur",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水蛋",
+  "nameZh": "鹵水蛋",
+  "nameEn": "Marinated egg",
+  "nameFil": "Inatsarang itlog",
+  "nameId": "Telur bumbu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水大腸",
+  "nameZh": "鹵水大腸",
+  "nameEn": "Marinated pig intestine",
+  "nameFil": "Tinimplahang bituka ng baboy",
+  "nameId": "Marinated pig intestine",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "燻蹄",
+  "nameZh": "燻蹄",
+  "nameEn": "Marinated pig knuckle",
+  "nameFil": "Tinimplahang pata ng baboy",
+  "nameId": "Buku jari babi bumbu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "鹵水豬腩肉",
+  "nameZh": "鹵水豬腩肉",
+  "nameEn": "Marinated pork belly",
+  "nameFil": "Inatsarang liempo",
+  "nameId": "Sam can bumbu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "蟹柳",
+  "nameZh": "蟹柳",
+  "nameEn": "Imitation crab meat",
+  "nameFil": "Imitation kame ng alimasag",
+  "nameId": "Daging kepiting imitasi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "墨魚丸",
+  "nameZh": "墨魚丸",
+  "nameEn": "Cuttlefish ball",
+  "nameFil": "Bola-bolang pusit",
+  "nameId": "Baso cumi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "多春魚",
+  "nameZh": "多春魚",
+  "nameEn": "Capelin",
+  "nameFil": "Capelin",
+  "nameId": "Ikan telur",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "蝦丸",
+  "nameZh": "蝦丸",
+  "nameEn": "Shrimp ball",
+  "nameFil": "Bola bolang hipon",
+  "nameId": "Baso udang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "秋刀魚",
+  "nameZh": "秋刀魚",
+  "nameEn": "Pacific saury",
+  "nameFil": "Tanigue",
+  "nameId": "Ikan layang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "豬肉丸",
+  "nameZh": "豬肉丸",
+  "nameEn": "Pork ball",
+  "nameFil": "Bola bolang baboy",
+  "nameId": "Baso babi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "龍蝦丸",
+  "nameZh": "龍蝦丸",
+  "nameEn": "Lobster ball",
+  "nameFil": "Bola bolang ulang",
+  "nameId": "Baso kepiting",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seafood",
+  "nameYue": "銀鱈魚",
+  "nameZh": "銀鱈魚",
+  "nameEn": "Black cod",
+  "nameFil": "Bakalaw",
+  "nameId": "Ikan kod hitam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "牛丸",
+  "nameZh": "牛丸",
+  "nameEn": "Beef ball",
+  "nameFil": "Bola-bolang karne ng baka",
+  "nameId": "Bakso sapi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "魚皮餃",
+  "nameZh": "魚皮餃",
+  "nameEn": "Fish skin dumpling",
+  "nameFil": "Bola bolang balat ng isda",
+  "nameId": "Pangsit kulit ikan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "魚丸",
+  "nameZh": "魚丸",
+  "nameEn": "Fish ball",
+  "nameFil": "Bola-bolang isda",
+  "nameId": "Bakso ikan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "雞肉腸",
+  "nameZh": "雞肉腸",
+  "nameEn": "Chicken sausage",
+  "nameFil": "Longganisang manok",
+  "nameId": "Sosi ayam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "snacks",
+  "nameYue": "脆皮腸",
+  "nameZh": "脆皮腸",
+  "nameEn": "Crispy sausage",
+  "nameFil": "Malutong na longganisa",
+  "nameId": "Sosis krispi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "紅米",
+  "nameZh": "紅米",
+  "nameEn": "Red rice",
+  "nameFil": "Biigas na pula",
+  "nameId": "Beras merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "紅腰豆",
+  "nameZh": "紅腰豆",
+  "nameEn": "Red kidney bean",
+  "nameFil": "Abitswelas",
+  "nameId": "Kacang merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "白米",
+  "nameZh": "白米",
+  "nameEn": "White rice",
+  "nameFil": "Bigas na puti",
+  "nameId": "Beras putih",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "燕麥米",
+  "nameZh": "燕麥米",
+  "nameEn": "Oat",
+  "nameFil": "obena/owt",
+  "nameId": "Gandum",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "紫米",
+  "nameZh": "紫米",
+  "nameEn": "Purple rice",
+  "nameFil": "Lilang bigas",
+  "nameId": "Beras ungu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "三角豆",
+  "nameZh": "三角豆",
+  "nameEn": "Chickpea",
+  "nameFil": "Garbansos",
+  "nameId": "Garbanzo/Kacang arab",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "糯米",
+  "nameZh": "糯米",
+  "nameEn": "Glutinous rice",
+  "nameFil": "Bigas na malagkit",
+  "nameId": "Beras ketan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "糙米",
+  "nameZh": "糙米",
+  "nameEn": "Brown rice",
+  "nameFil": "Kayumangging bigas/brown rice",
+  "nameId": "Beras coklat",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "核桃",
+  "nameZh": "核桃",
+  "nameEn": "Walnut",
+  "nameFil": "Nogales",
+  "nameId": "Kenari",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "葵花子",
+  "nameZh": "葵花子",
+  "nameEn": "Sunflower seed",
+  "nameFil": "Binhi ng mirasol",
+  "nameId": "Kuaci",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "松子仁",
+  "nameZh": "松子仁",
+  "nameEn": "Pine nut",
+  "nameFil": "Pine nut",
+  "nameId": "Kacang pinus",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "蠶豆",
+  "nameZh": "蠶豆",
+  "nameEn": "Horse bean",
+  "nameFil": "Horse bean",
+  "nameId": "Kacang koro",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "扁桃仁",
+  "nameZh": "扁桃仁",
+  "nameEn": "Almond",
+  "nameFil": "Almendro",
+  "nameId": "Almon/Badam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "西米",
+  "nameZh": "西米",
+  "nameEn": "Sago",
+  "nameFil": "Sago",
+  "nameId": "Sagu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "上海麵",
+  "nameZh": "上海麵",
+  "nameEn": "Shanghai noodles",
+  "nameFil": "Pansit shanghai",
+  "nameId": "Mi shanghai",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "油麵",
+  "nameZh": "油麵",
+  "nameEn": "\"Yau Mian\"",
+  "nameFil": "Pansit",
+  "nameId": "Mie minyak",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "蝦子麵",
+  "nameZh": "蝦子麵",
+  "nameEn": "Shrimp noodles",
+  "nameFil": "Shrimp noodles",
+  "nameId": "Mi udang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "濛粉",
+  "nameZh": "濛粉",
+  "nameEn": "Vietnamese rice noodles",
+  "nameFil": "Pansit vietkong",
+  "nameId": "Mi beras vietnam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "全蛋麵",
+  "nameZh": "全蛋麵",
+  "nameEn": "Egg noodles",
+  "nameFil": "Pansit itlog",
+  "nameId": "Mi telur",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "通心粉",
+  "nameZh": "通心粉",
+  "nameEn": "Macaroni",
+  "nameFil": "Makaroni",
+  "nameId": "Makaroni",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "瀨粉",
+  "nameZh": "瀨粉",
+  "nameEn": "\"Lai Fan\"",
+  "nameFil": "Pansit malabon",
+  "nameId": "Spageti beras",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "意大利粉",
+  "nameZh": "意大利粉",
+  "nameEn": "Spaghetti",
+  "nameFil": "Spaghetti",
+  "nameId": "Spageti",
+  "aliases": []
+ },
+ {
+  "categoryKey": "staple",
+  "nameYue": "銀針粉",
+  "nameZh": "銀針粉",
+  "nameEn": "Silver pin noodles",
+  "nameFil": "Silver pin noodles",
+  "nameId": "Mie pin perak",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "白糖",
+  "nameZh": "白糖",
+  "nameEn": "Granulated sugar",
+  "nameFil": "Asukal na pino",
+  "nameId": "Gula putih",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "花生油",
+  "nameZh": "花生油",
+  "nameEn": "Peanut oil",
+  "nameFil": "Mantikang mani",
+  "nameId": "Minyak kacang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "黃糖",
+  "nameZh": "黃糖",
+  "nameEn": "Brown sugar",
+  "nameFil": "Asukal na pula",
+  "nameId": "Gula merah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "粟米油",
+  "nameZh": "粟米油",
+  "nameEn": "Corn oil",
+  "nameFil": "Mantikang mais",
+  "nameId": "Minyak jagung",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "橄欖油",
+  "nameZh": "橄欖油",
+  "nameEn": "Olive oil",
+  "nameFil": "Mantikang olibo",
+  "nameId": "Minyak zaitun",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "片糖",
+  "nameZh": "片糖",
+  "nameEn": "Slab sugar",
+  "nameFil": "Panutsa",
+  "nameId": "Gula iris",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "白胡椒粉",
+  "nameZh": "白胡椒粉",
+  "nameEn": "White pepper powder",
+  "nameFil": "Puting paminta",
+  "nameId": "Bubuk lada putih",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "黃芥末",
+  "nameZh": "黃芥末",
+  "nameEn": "Mustard",
+  "nameFil": "Mustasa",
+  "nameId": "Mustard",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "粟粉",
+  "nameZh": "粟粉",
+  "nameEn": "Cornstarch",
+  "nameFil": "Harinang mais",
+  "nameId": "Tepung jagung",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "沙爹醬",
+  "nameZh": "沙爹醬",
+  "nameEn": "Satay sauce",
+  "nameFil": "Satay sauce",
+  "nameId": "Saus sate",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "豆豉",
+  "nameZh": "豆豉",
+  "nameEn": "Fermented black soybean",
+  "nameFil": "Binurong tausi",
+  "nameId": "Kecap hitam fermentasi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "酸梅醬",
+  "nameZh": "酸梅醬",
+  "nameEn": "Plum sauce",
+  "nameFil": "sarsa na sirwelas",
+  "nameId": "saus plum",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "南乳",
+  "nameZh": "南乳",
+  "nameEn": "Fermented red bean curd",
+  "nameFil": "Binurong pulang tahuri",
+  "nameId": "Tahu merah difermentasi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "腐乳",
+  "nameZh": "腐乳",
+  "nameEn": "Fermented bean curd",
+  "nameFil": "Tahuri",
+  "nameId": "Tahu difermentasi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "咖哩醬",
+  "nameZh": "咖哩醬",
+  "nameEn": "Curry sauce",
+  "nameFil": "Curry sauce",
+  "nameId": "Saus kari",
+  "aliases": []
+ },
+ {
+  "categoryKey": "seasoning",
+  "nameYue": "麵豉醬",
+  "nameZh": "麵豉醬",
+  "nameEn": "Salted yellow bean paste",
+  "nameFil": "dilaw na maalat na pasta ng munggo",
+  "nameId": "tauco",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "布包豆腐",
+  "nameZh": "布包豆腐",
+  "nameEn": "Wrapped bean curd",
+  "nameFil": "Binalot na tokwa",
+  "nameId": "Tahu terbungkus",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "梅菜",
+  "nameZh": "梅菜",
+  "nameEn": "Preserved mustard",
+  "nameFil": "Burong mustasa",
+  "nameId": "Bumbu bubuk diawetkan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dairy",
+  "nameYue": "鹹鴨蛋",
+  "nameZh": "鹹鴨蛋",
+  "nameEn": "Salted duck egg",
+  "nameFil": "Itlog na maalat",
+  "nameId": "Telur bebek asin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "雪菜",
+  "nameZh": "雪菜",
+  "nameEn": "Preserved mustard greens",
+  "nameFil": "Burong mustasa",
+  "nameId": "Sawi diawetkan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dairy",
+  "nameYue": "鹹鴨蛋黃",
+  "nameZh": "鹹鴨蛋黃",
+  "nameEn": "Salted duck egg yolk",
+  "nameFil": "Maalat na pulang itlog ng pato",
+  "nameId": "Kuning telur bebek asin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "菜脯",
+  "nameZh": "菜脯",
+  "nameEn": "Dried radish",
+  "nameFil": "Pinatuyong labanos",
+  "nameId": "lobak kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "玉子豆腐",
+  "nameZh": "玉子豆腐",
+  "nameEn": "Egg bean curd",
+  "nameFil": "Tokwang may itlog",
+  "nameId": "Tofu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "腐皮",
+  "nameZh": "腐皮",
+  "nameEn": "Soybean sheet",
+  "nameFil": "Tokwang papel",
+  "nameId": "Kembang tahu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "龍眼肉乾",
+  "nameZh": "龍眼肉乾",
+  "nameEn": "Dried longan pulp",
+  "nameFil": "Pinatuyong longan",
+  "nameId": "Bubur lengkeng kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "金銀花",
+  "nameZh": "金銀花",
+  "nameEn": "Honeysuckle",
+  "nameFil": "Honey suckle",
+  "nameId": "Honeysuckle",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "無花果乾",
+  "nameZh": "無花果乾",
+  "nameEn": "Dried fig",
+  "nameFil": "Pinatuyong igos",
+  "nameId": "Buah ara kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "夏枯草",
+  "nameZh": "夏枯草",
+  "nameEn": "Spica prunellae",
+  "nameFil": "Spica prunellac",
+  "nameId": "Prunela spica",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "杞子",
+  "nameZh": "杞子",
+  "nameEn": "Chinese wolfberry",
+  "nameFil": "Chinese wolfberry",
+  "nameId": "Wolfberry cina",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "雞骨草",
+  "nameZh": "雞骨草",
+  "nameEn": "Herba abri",
+  "nameFil": "Herba abri",
+  "nameId": "Herba abri",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "南北杏",
+  "nameZh": "南北杏",
+  "nameEn": "Apricot kernel",
+  "nameFil": "Buto ng apricot",
+  "nameId": "Biji aprikot",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "蜜棗",
+  "nameZh": "蜜棗",
+  "nameEn": "Candied date",
+  "nameFil": "Mansanitas",
+  "nameId": "Manisan kurma",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "鹹魚",
+  "nameZh": "鹹魚",
+  "nameEn": "Salted fish",
+  "nameFil": "Daining na isda",
+  "nameId": "Ikan asin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "柴魚",
+  "nameZh": "柴魚",
+  "nameEn": "Dried bonito",
+  "nameFil": "Daing na bonito",
+  "nameId": "Bonito kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "廣東臘腸",
+  "nameZh": "廣東臘腸",
+  "nameEn": "Cantonese style pork sausage",
+  "nameFil": "Langgonisang baboy",
+  "nameId": "Sosis babi ala Canton",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "乾冬菇",
+  "nameZh": "乾冬菇",
+  "nameEn": "Dried Shiitake mushroom",
+  "nameFil": "Pinatuyong kabuteng shiitake",
+  "nameId": "Jamur shiitake kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "膶腸",
+  "nameZh": "膶腸",
+  "nameEn": "Liver sausage",
+  "nameFil": "Langgonisang atay",
+  "nameId": "Sosis hati",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "臘鴨",
+  "nameZh": "臘鴨",
+  "nameEn": "Preserved duck",
+  "nameFil": "Hamonadong pato",
+  "nameId": "Bebek olahan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "蠔豉",
+  "nameZh": "蠔豉",
+  "nameEn": "Dried oyster",
+  "nameFil": "Tuyong talaba",
+  "nameId": "Tiram kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "菜乾",
+  "nameZh": "菜乾",
+  "nameEn": "Dried Chinese white cabbage",
+  "nameFil": "Pinatuyong repolyo",
+  "nameId": "Sawi putih kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "meat",
+  "nameYue": "金華火腿",
+  "nameZh": "金華火腿",
+  "nameEn": "Chinese ham",
+  "nameFil": "Hamong Intsik",
+  "nameId": "Ham cina",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "淡菜",
+  "nameZh": "淡菜",
+  "nameEn": "Dried mussel",
+  "nameFil": "Tuyong tahong",
+  "nameId": "Remis kering",
+  "aliases": []
+ },
+ {
+  "categoryKey": "dryGoods",
+  "nameYue": "茶葉",
+  "nameZh": "茶葉",
+  "nameEn": "Tea leaf",
+  "nameFil": "Dahon ng tsa",
+  "nameId": "Daun teh",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "湯罟",
+  "nameZh": "湯罟",
+  "nameEn": "Ladle",
+  "nameFil": "Sandok",
+  "nameId": "Sendok besar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "鑊鏟",
+  "nameZh": "鑊鏟",
+  "nameEn": "Turning shovel",
+  "nameFil": "Siyense",
+  "nameId": "Sekop putar",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "餐刀",
+  "nameZh": "餐刀",
+  "nameEn": "Table knife",
+  "nameFil": "Kutsilyo",
+  "nameId": "Pisau meja",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "生鐵鑊",
+  "nameZh": "生鐵鑊",
+  "nameEn": "Iron cast wok",
+  "nameFil": "Kawali",
+  "nameId": "Wajan besi/wok",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "叉",
+  "nameZh": "叉",
+  "nameEn": "Fork",
+  "nameFil": "Tinidor",
+  "nameId": "Garpu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "手巾",
+  "nameZh": "手巾",
+  "nameEn": "Hand towel",
+  "nameFil": "Tuwalya para sa kamay",
+  "nameId": "Handuk tangan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "筲箕",
+  "nameZh": "筲箕",
+  "nameEn": "Sieve",
+  "nameFil": "Salaan /Bistay",
+  "nameId": "Ayakan/Saringan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "浴巾",
+  "nameZh": "浴巾",
+  "nameEn": "Bath towel",
+  "nameFil": "Tuwalya",
+  "nameId": "Handuk mandi",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "水壺",
+  "nameZh": "水壺",
+  "nameEn": "Water bottle",
+  "nameFil": "Bote na lalagyan ng tubig",
+  "nameId": "Botol air",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "手套",
+  "nameZh": "手套",
+  "nameEn": "Gloves",
+  "nameFil": "Guwantes",
+  "nameId": "Sarung tangan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "襪",
+  "nameZh": "襪",
+  "nameEn": "Socks",
+  "nameFil": "Medyas",
+  "nameId": "Kaos kaki",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "棉被",
+  "nameZh": "棉被",
+  "nameEn": "Quilt",
+  "nameFil": "Kobre kama",
+  "nameId": "Selimut tebal",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "雨傘",
+  "nameZh": "雨傘",
+  "nameEn": "Umbrella",
+  "nameFil": "Payong",
+  "nameId": "Payung",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "拖鞋",
+  "nameZh": "拖鞋",
+  "nameEn": "Slippers",
+  "nameFil": "Tsinelas",
+  "nameId": "Selop",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "被袋",
+  "nameZh": "被袋",
+  "nameEn": "Quilt cover",
+  "nameFil": "Kobre kama",
+  "nameId": "Tutup selimut tebal",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "香",
+  "nameZh": "香",
+  "nameEn": "Incense",
+  "nameFil": "Insenso",
+  "nameId": "Kemenyan/dupa",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "帆布鞋",
+  "nameZh": "帆布鞋",
+  "nameEn": "Canvas shoes",
+  "nameFil": "Sapatos",
+  "nameId": "Sepatu kanvas",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "睡衣",
+  "nameZh": "睡衣",
+  "nameEn": "Pyjamas",
+  "nameFil": "Padyama",
+  "nameId": "Piyama",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "蠟燭",
+  "nameZh": "蠟燭",
+  "nameEn": "Candle",
+  "nameFil": "Kandila",
+  "nameId": "Lilin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "毛毯",
+  "nameZh": "毛毯",
+  "nameEn": "Blanket",
+  "nameFil": "Kumot",
+  "nameId": "Selimut",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "窗簾",
+  "nameZh": "窗簾",
+  "nameEn": "Curtain",
+  "nameFil": "Kurtina",
+  "nameId": "Tirai",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "冥鏹",
+  "nameZh": "冥鏹",
+  "nameEn": "Joss paper",
+  "nameFil": "Joss paper",
+  "nameId": "Kertas tepekong",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "薄被",
+  "nameZh": "薄被",
+  "nameEn": "Comforter/thin quilt",
+  "nameFil": "Kutson",
+  "nameId": "Selimut kapas / selimut tipis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "雨衣",
+  "nameZh": "雨衣",
+  "nameEn": "Raincoat",
+  "nameFil": "Kapote",
+  "nameId": "Jas hujan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "通勝",
+  "nameZh": "通勝",
+  "nameEn": "Chinese almanac",
+  "nameFil": "Direktoryong Tsino",
+  "nameId": "Almanak Cina",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "釘書機",
+  "nameZh": "釘書機",
+  "nameEn": "Stapler",
+  "nameFil": "Stapler",
+  "nameId": "Pengokot/stepler",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "鉛芯筆",
+  "nameZh": "鉛芯筆",
+  "nameEn": "Mechanical pencil",
+  "nameFil": "Mechanical na lapis",
+  "nameId": "Pencil mekanis",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "頭箍",
+  "nameZh": "頭箍",
+  "nameEn": "Headband",
+  "nameFil": "Headband",
+  "nameId": "Ikat kepala/bando",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "文件夾",
+  "nameZh": "文件夾",
+  "nameEn": "File",
+  "nameFil": "File",
+  "nameId": "Kikir",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "塗改帶",
+  "nameZh": "塗改帶",
+  "nameEn": "Correction tape",
+  "nameFil": "Plaster ng pagwawasto",
+  "nameId": "Correction tape",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "釘",
+  "nameZh": "釘",
+  "nameEn": "Nail",
+  "nameFil": "Pako",
+  "nameId": "Paku",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "間尺",
+  "nameZh": "間尺",
+  "nameEn": "Ruler",
+  "nameFil": "Panukat",
+  "nameId": "Penggaris",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "打火機",
+  "nameZh": "打火機",
+  "nameEn": "Lighter",
+  "nameFil": "Pansindi",
+  "nameId": "Korek api",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "鎚",
+  "nameZh": "鎚",
+  "nameEn": "Hammer",
+  "nameFil": "Martilyo",
+  "nameId": "Palu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "原子筆",
+  "nameZh": "原子筆",
+  "nameEn": "Ball-point pen",
+  "nameFil": "Ballpen",
+  "nameId": "Bolpoin",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "梳",
+  "nameZh": "梳",
+  "nameEn": "Comb",
+  "nameFil": "Suklay",
+  "nameId": "Sisir",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "鉗",
+  "nameZh": "鉗",
+  "nameEn": "Clamp",
+  "nameFil": "Pangsipit",
+  "nameId": "Apitan/Tang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "鉛筆",
+  "nameZh": "鉛筆",
+  "nameEn": "Pencil",
+  "nameFil": "Lapis",
+  "nameId": "Pencil",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "髮夾",
+  "nameZh": "髮夾",
+  "nameEn": "Hairpin",
+  "nameFil": "Pang-ipit ng buhok",
+  "nameId": "Jepitan rambut",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "螺絲",
+  "nameZh": "螺絲",
+  "nameEn": "Bolt",
+  "nameFil": "Turnilyo",
+  "nameId": "Baut",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "螺絲批",
+  "nameZh": "螺絲批",
+  "nameEn": "Screwdriver",
+  "nameFil": "Birador",
+  "nameId": "Obeng",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "電燈泡",
+  "nameZh": "電燈泡",
+  "nameEn": "Light bulb",
+  "nameFil": "Bombilya",
+  "nameId": "Bohlam",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "雜誌",
+  "nameZh": "雜誌",
+  "nameEn": "Magazine",
+  "nameFil": "Magasin",
+  "nameId": "Majalah",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "油漆",
+  "nameZh": "油漆",
+  "nameEn": "Paint",
+  "nameFil": "Pintura",
+  "nameId": "Cat",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "電池",
+  "nameZh": "電池",
+  "nameEn": "Battery",
+  "nameFil": "Baterya",
+  "nameId": "Baterai",
+  "aliases": []
+ },
+ {
+  "categoryKey": "cleaning",
+  "nameYue": "地拖",
+  "nameZh": "地拖",
+  "nameEn": "Floor mop",
+  "nameFil": "Basahan sa sahig/Pang lampaso",
+  "nameId": "Pengepel floor",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "萬能插蘇",
+  "nameZh": "萬能插蘇",
+  "nameEn": "Universal adaptor",
+  "nameFil": "Adoptor",
+  "nameId": "Universal adaptor",
+  "aliases": []
+ },
+ {
+  "categoryKey": "cleaning",
+  "nameYue": "掃帚",
+  "nameZh": "掃帚",
+  "nameEn": "Sweeping broom",
+  "nameFil": "Walis",
+  "nameId": "Sapu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "門鎖",
+  "nameZh": "門鎖",
+  "nameEn": "Door lock",
+  "nameFil": "Siradura",
+  "nameId": "Kunci pintu",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "杯墊",
+  "nameZh": "杯墊",
+  "nameEn": "Cup mat",
+  "nameFil": "Patungan ng Tasa",
+  "nameId": "Tatakan cangkir",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "光管",
+  "nameZh": "光管",
+  "nameEn": "Fluorescent lamp",
+  "nameFil": "Ilaw na fluorescent",
+  "nameId": "Lampu neon",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "報紙",
+  "nameZh": "報紙",
+  "nameEn": "Newspaper",
+  "nameFil": "Diyaryo/Dyaryo",
+  "nameId": "Koran",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "蒸架",
+  "nameZh": "蒸架",
+  "nameEn": "Steaming rack",
+  "nameFil": "Parilya",
+  "nameId": "Rak penanak",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "花灑頭",
+  "nameZh": "花灑頭",
+  "nameEn": "Shower head",
+  "nameFil": "Dutsa",
+  "nameId": "Kepala pancuran",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "衣架",
+  "nameZh": "衣架",
+  "nameEn": "Hanger",
+  "nameFil": "Hanger",
+  "nameId": "Gantungan pakaian",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "鏡",
+  "nameZh": "鏡",
+  "nameEn": "Mirror",
+  "nameFil": "Salamin",
+  "nameId": "Kaca",
+  "aliases": []
+ },
+ {
+  "categoryKey": "personal",
+  "nameYue": "衣夾",
+  "nameZh": "衣夾",
+  "nameEn": "Clothes peg",
+  "nameFil": "Ipit sa damit/sipit sa damit",
+  "nameId": "Penjepit jemuran",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "打蛋器",
+  "nameZh": "打蛋器",
+  "nameEn": "Eggbeater",
+  "nameFil": "Pambati ng itlog",
+  "nameId": "Pemecah telur/kocokan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "橡皮筋",
+  "nameZh": "橡皮筋",
+  "nameEn": "Rubber band",
+  "nameFil": "Goma",
+  "nameId": "Karet gelang",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "萬字夾",
+  "nameZh": "萬字夾",
+  "nameEn": "Paper clip",
+  "nameFil": "Pang-ipit ng papel/Paper clip",
+  "nameId": "Penjepit kertas",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "刨磨器",
+  "nameZh": "刨磨器",
+  "nameEn": "Grater",
+  "nameFil": "Gadgaran",
+  "nameId": "Parutan",
+  "aliases": []
+ },
+ {
+  "categoryKey": "cleaning",
+  "nameYue": "地拖桶",
+  "nameZh": "地拖桶",
+  "nameEn": "Mop bucket",
+  "nameFil": "Timba ng panglampaso",
+  "nameId": "Ember pel",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "鉛筆刨",
+  "nameZh": "鉛筆刨",
+  "nameEn": "Pencil sharpener",
+  "nameFil": "Pantasa ng lapis",
+  "nameId": "Serutan pensil",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "慳電膽",
+  "nameZh": "慳電膽",
+  "nameEn": "Compact fluorescent lamp",
+  "nameFil": "Malit na bombilya/Flourescent",
+  "nameId": "Lampu neon kecil",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "膠盆",
+  "nameZh": "膠盆",
+  "nameEn": "Plastic tub",
+  "nameFil": "Palanggana",
+  "nameId": "Bak plastic/baskom",
+  "aliases": []
+ },
+ {
+  "categoryKey": "household",
+  "nameYue": "簿冊",
+  "nameZh": "簿冊",
+  "nameEn": "Blank book",
+  "nameFil": "Blankong libro",
+  "nameId": "Buku kosong",
+  "aliases": []
+ }
+]

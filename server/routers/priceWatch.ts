@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { normalizeQuery } from "./recipes";
 
 // 超市代碼對照表
 const SUPERMARKET_NAMES: Record<string, string> = {
@@ -68,45 +69,65 @@ async function fetchPriceWatchData(): Promise<PriceWatchItem[]> {
 }
 
 /**
- * 搜尋食材關鍵字，返回最相關的格價結果
- * 策略：精確匹配 > 包含匹配 > 部分匹配
+ * 同義詞歸一（canonical）：
+ * 只收「真正同義」，避免假陽性 —— 例如「茄汁」多數係「茄汁沙甸魚」（茄汁=煮食醬汁），
+ * 唔應該當成 ketchup，所以刻意唔收「茄汁」。
  */
-function searchIngredient(data: PriceWatchItem[], keyword: string): PriceWatchItem[] {
-  const kw = keyword.trim().toLowerCase();
-  if (!kw) return [];
+const SYNONYM_CANON: Array<[RegExp, string]> = [
+  [/蕃茄醬|番茄醬|茄醬|tomato\s*ketchup|ketchup/gi, "番茄醬"],
+];
 
-  // 移除常見量詞（避免干擾搜尋）
-  const cleanKw = kw
-    .replace(/\d+/g, "")
-    .replace(/(克|毫升|ml|g|kg|個|隻|條|包|罐|瓶|袋|盒)/gi, "")
-    .trim();
+/** 繁簡 + 異體字 + 同義詞歸一（query 同 item 名都要做，兩邊先會 converge） */
+function canonicalize(s: string): string {
+  let q = normalizeQuery(String(s || ""));
+  for (const [re, canon] of SYNONYM_CANON) q = q.replace(re, canon);
+  return q.trim();
+}
 
-  const exact: PriceWatchItem[] = [];
-  const contains: PriceWatchItem[] = [];
+/**
+ * 搜尋食材關鍵字，返回最相關的格價結果
+ * 策略：繁簡/異體/同義詞歸一（雙邊）> 精確匹配 > 包含匹配
+ * 中文搵唔到時，用英文名（keywordEn）再試一次。
+ */
+function searchIngredient(data: PriceWatchItem[], keyword: string, keywordEn?: string): PriceWatchItem[] {
+  const run = (raw: string): PriceWatchItem[] => {
+    // 移除常見量詞（避免干擾搜尋）
+    const cleaned = String(raw || "")
+      .replace(/\d+/g, "")
+      .replace(/(克|毫升|ml|g|kg|個|隻|條|包|罐|瓶|袋|盒|湯匙|茶匙|碗|杯)/gi, "");
+    const cq = canonicalize(cleaned);
+    if (!cq) return [];
 
-  // 短關鍵字（≤2個字）禁用反向包含匹配，避免「鹽」匹配到「含鹽牛油」
-  const isShortKeyword = cleanKw.length <= 2;
+    // 短關鍵字（≤2個字）禁用反向包含匹配，避免「鹽」匹配到「含鹽牛油」
+    const isShortKeyword = cq.length <= 2;
+    const exact: PriceWatchItem[] = [];
+    const contains: PriceWatchItem[] = [];
 
-  for (const item of data) {
-    const nameTc = (item.name["zh-Hant"] || "").toLowerCase();
-    const nameEn = (item.name.en || "").toLowerCase();
-    const brandTc = (item.brand["zh-Hant"] || "").toLowerCase();
+    for (const item of data) {
+      const nameTc = canonicalize(item.name["zh-Hant"] || "");
+      const nameEn = canonicalize(item.name.en || "");
+      const brandTc = canonicalize(item.brand["zh-Hant"] || "");
 
-    if (nameTc === cleanKw || nameEn === cleanKw) {
-      exact.push(item);
-    } else if (
-      nameTc.includes(cleanKw) ||
-      nameEn.includes(cleanKw) ||
-      // 短關鍵字不做反向包含：避免「鹽」→「含鹽牛油」
-      (!isShortKeyword && cleanKw.includes(nameTc)) ||
-      brandTc.includes(cleanKw)
-    ) {
-      contains.push(item);
+      if (nameTc === cq || nameEn === cq) {
+        exact.push(item);
+      } else if (
+        nameTc.includes(cq) ||
+        nameEn.includes(cq) ||
+        // 短關鍵字不做反向包含：避免「鹽」→「含鹽牛油」
+        (!isShortKeyword && cq.includes(nameTc) && nameTc.length >= 2) ||
+        brandTc.includes(cq)
+      ) {
+        contains.push(item);
+      }
     }
-  }
 
-  // 返回最多 5 個結果（精確優先）
-  return [...exact, ...contains].slice(0, 5);
+    return [...exact, ...contains].slice(0, 5);
+  };
+
+  const primary = run(keyword);
+  if (primary.length > 0) return primary;
+  if (keywordEn && keywordEn.trim()) return run(keywordEn);
+  return [];
 }
 
 export const priceWatchRouter = router({
@@ -117,11 +138,12 @@ export const priceWatchRouter = router({
     .input(
       z.object({
         keyword: z.string().min(1).max(50),
+        keywordEn: z.string().max(50).optional(),
       })
     )
     .query(async ({ input }) => {
       const data = await fetchPriceWatchData();
-      const results = searchIngredient(data, input.keyword);
+      const results = searchIngredient(data, input.keyword, input.keywordEn);
 
       return results.map((item) => ({
         code: item.code,

@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe } from "../db";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
@@ -24,6 +25,9 @@ const modeSchema = z.enum(["library", "ai", "chat", "question"]).optional();
 
 const aiRecipeIngredientSchema = z.object({
   name: z.string(),
+  nameEn: z.string().optional(),
+  nameFil: z.string().optional(),
+  nameId: z.string().optional(),
   quantity: z.string().optional(),
   unit: z.string().optional(),
   category: z.string().optional(),
@@ -57,13 +61,22 @@ const aiEditSaveInputSchema = z.object({
 
 const aiEditOutputSchema = z.object({
   name: z.string().min(1),
+  nameEn: z.string().optional(),
+  nameFil: z.string().optional(),
+  nameId: z.string().optional(),
   description: z.string(),
+  descriptionEn: z.string().optional(),
+  descriptionFil: z.string().optional(),
+  descriptionId: z.string().optional(),
   cookTime: z.number().int(),
   servings: z.number().int(),
   difficulty: z.string(),
   recipeCategory: z.string(),
   ingredients: z.array(aiRecipeIngredientSchema),
   steps: z.array(aiRecipeStepSchema),
+  stepsEn: z.array(aiRecipeStepSchema).optional(),
+  stepsFil: z.array(aiRecipeStepSchema).optional(),
+  stepsId: z.array(aiRecipeStepSchema).optional(),
   tags: z.array(z.string()),
 });
 
@@ -74,13 +87,22 @@ const aiEditOutputSchema = z.object({
 const aiRecipeCardSchema = z.object({
   title: z.string().default("未命名食譜"),
   name: z.string().default("未命名食譜"),
+  nameEn: z.string().optional(),
+  nameFil: z.string().optional(),
+  nameId: z.string().optional(),
   ingredients: z.array(z.object({
     name: z.string().default("未知食材"),
+    nameEn: z.string().optional(),
+    nameFil: z.string().optional(),
+    nameId: z.string().optional(),
     quantity: z.string().default("適量"),
     unit: z.string().default(""),
   })).default([]),
   instructions: z.array(z.string()).default([]),
   steps: z.array(z.string()).default([]),
+  stepsEn: z.array(z.string()).optional(),
+  stepsFil: z.array(z.string()).optional(),
+  stepsId: z.array(z.string()).optional(),
   cookTime: z.number().int().default(30),
   servings: z.number().int().default(4),
   difficulty: z.string().default("中等"),
@@ -205,10 +227,13 @@ function computeLevenshteinDistance(s1: string, s2: string): number {
   return matrix[s1Len][s2Len];
 }
 
-const AI_RECIPE_MAX_TOKENS = 1800;
+const AI_RECIPE_MAX_TOKENS = 2600;
 const AI_RECIPE_CONTEXT_TIMEOUT_MS = 4000;
-const AI_RECIPE_LLM_TIMEOUT_MS = 30000;
+const AI_RECIPE_LLM_TIMEOUT_MS = 45000;
 const AI_RECIPE_CHAT_TIMEOUT_MS = 30000;
+// AI Edit returns the recipe in 4 languages (zh + en/fil/id) → needs a bigger budget.
+const AI_EDIT_MAX_TOKENS = 7000;
+const AI_EDIT_LLM_TIMEOUT_MS = 60000;
 const AI_RECIPE_FALLBACK_CONTENT = "AI 暫時未能回應，請再試。";
 
 // Fix2: 後端自己記住最近推薦過嘅菜式（per-family，last 30，7 日內有效）—— DB 持久化 + memory fallback
@@ -526,6 +551,9 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string): SuggestedRe
       const ingredients = Array.isArray(r.ingredients) 
         ? r.ingredients.map((i: any) => ({
             name: String(i.name ?? "未知食材"),
+            nameEn: i.nameEn ? String(i.nameEn) : undefined,
+            nameFil: i.nameFil ? String(i.nameFil) : undefined,
+            nameId: i.nameId ? String(i.nameId) : undefined,
             quantity: String(i.quantity ?? "適量"),
             unit: String(i.unit ?? ""),
           }))
@@ -536,17 +564,28 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string): SuggestedRe
         : Array.isArray(r.instructions)
         ? r.instructions.map((s: any) => String(s))
         : [];
+
+      const mapSteps = (arr: any) => (Array.isArray(arr) ? arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s)) : undefined);
+      const stepsEn = mapSteps(r.stepsEn);
+      const stepsFil = mapSteps(r.stepsFil);
+      const stepsId = mapSteps(r.stepsId);
       
       if (steps.length === 0) return null;
       
       return {
         name,
+        nameEn: r.nameEn ? String(r.nameEn) : undefined,
+        nameFil: r.nameFil ? String(r.nameFil) : undefined,
+        nameId: r.nameId ? String(r.nameId) : undefined,
         description: String(r.description ?? ""),
         cookTime: Number(r.cookTime ?? 30),
         servings: Number(r.servings ?? 4),
         difficulty: (String(r.difficulty ?? "中等") as "easy" | "medium" | "hard"),
         ingredients,
         steps,
+        stepsEn,
+        stepsFil,
+        stepsId,
         tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
         source: "ai" as const,
         soupType: r.soupType ? String(r.soupType) : undefined,
@@ -568,9 +607,15 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
   const toRecipe = (item: {
     title?: string;
     name?: string;
-    ingredients: Array<{ name: string; quantity?: string; unit?: string }>;
+    nameEn?: string;
+    nameFil?: string;
+    nameId?: string;
+    ingredients: Array<{ name: string; nameEn?: string; nameFil?: string; nameId?: string; quantity?: string; unit?: string }>;
     instructions: string[];
     steps: string[];
+    stepsEn?: string[];
+    stepsFil?: string[];
+    stepsId?: string[];
     cookTime: number;
     servings: number;
     difficulty: string;
@@ -582,16 +627,25 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
   }): SuggestedRecipe | null => {
     const recipe: SuggestedRecipe = {
       name: item.title && item.title !== "未命名食譜" ? item.title : (item.name || "未命名食譜"),
+      nameEn: item.nameEn,
+      nameFil: item.nameFil,
+      nameId: item.nameId,
       cookTime: item.cookTime,
       servings: item.servings,
       difficulty: item.difficulty,
       description: item.description,
       ingredients: item.ingredients.map((ing) => ({
         name: ing.name,
+        nameEn: ing.nameEn,
+        nameFil: ing.nameFil,
+        nameId: ing.nameId,
         quantity: ing.quantity ?? "適量",
         unit: ing.unit ?? "",
       })),
       steps: item.steps.length > 0 ? item.steps : item.instructions,
+      stepsEn: item.stepsEn,
+      stepsFil: item.stepsFil,
+      stepsId: item.stepsId,
       tags: item.tags,
       soupType: item.soupType,
       benefits: item.benefits,
@@ -658,12 +712,18 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 
 export type SuggestedRecipe = {
   name: string;
+  nameEn?: string;
+  nameFil?: string;
+  nameId?: string;
   cookTime: number;
   servings: number;
   difficulty: string;
   description: string;
-  ingredients: { name: string; quantity: string; unit: string }[];
+  ingredients: { name: string; nameEn?: string; nameFil?: string; nameId?: string; quantity: string; unit: string }[];
   steps: string[];
+  stepsEn?: string[];
+  stepsFil?: string[];
+  stepsId?: string[];
   tags: string[];
   soupType?: string;
   benefits?: string;
@@ -779,7 +839,7 @@ async function execSearchRecipes(
 
   const official = await db
     .select({
-      id: officialRecipes.id, name: officialRecipes.name, description: officialRecipes.description,
+      id: officialRecipes.id, name: officialRecipes.name, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId, description: officialRecipes.description,
       cookTime: officialRecipes.cookTime, servings: officialRecipes.servings, difficulty: officialRecipes.difficulty,
       recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
       steps: officialRecipes.steps, tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
@@ -795,7 +855,7 @@ async function execSearchRecipes(
     .orderBy(desc(officialRecipes.createdAt)).limit(limit);
 
   for (const r of official) results.push({
-    source: "official", id: r.id, name: r.name, description: r.description, cookTime: r.cookTime,
+    source: "official", id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
     servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
     ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
     steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
@@ -805,7 +865,7 @@ async function execSearchRecipes(
   if (familyId) {
     const custom = await db
       .select({
-        id: customRecipes.id, name: customRecipes.name, description: customRecipes.description,
+        id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description,
         cookTime: customRecipes.cookTime, servings: customRecipes.servings, difficulty: customRecipes.difficulty,
         recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
         steps: customRecipes.steps, tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
@@ -821,7 +881,7 @@ async function execSearchRecipes(
       .orderBy(desc(customRecipes.createdAt)).limit(limit);
 
     for (const r of custom) results.push({
-      source: "custom", id: r.id, name: r.name, description: r.description, cookTime: r.cookTime,
+      source: "custom", id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
       servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
       ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
       steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
@@ -1025,6 +1085,9 @@ async function getMixedRecipes(
         const isOfficial = (r as any)._tableName === "recipes" || (r as any).officialId;
         recipes.push({
           name: String(r.name ?? ""),
+          nameEn: (r as any).nameEn || undefined,
+          nameFil: (r as any).nameFil || undefined,
+          nameId: (r as any).nameId || undefined,
           description: String(r.description ?? ""),
           cookTime: Number(r.cookTime ?? 30),
           servings: Number(r.servings ?? 4),
@@ -1051,6 +1114,9 @@ async function getMixedRecipes(
         const isOfficial = (r as any)._tableName === "recipes" || (r as any).officialId;
         recipes.push({
           name: String(r.name ?? ""),
+          nameEn: (r as any).nameEn || undefined,
+          nameFil: (r as any).nameFil || undefined,
+          nameId: (r as any).nameId || undefined,
           description: String(r.description ?? ""),
           cookTime: Number(r.cookTime ?? 30),
           servings: Number(r.servings ?? 4),
@@ -1075,6 +1141,9 @@ async function getMixedRecipes(
         const isOfficial = (r as any)._tableName === "recipes" || (r as any).officialId;
         recipes.push({
           name: String(r.name ?? ""),
+          nameEn: (r as any).nameEn || undefined,
+          nameFil: (r as any).nameFil || undefined,
+          nameId: (r as any).nameId || undefined,
           description: String(r.description ?? ""),
           cookTime: Number(r.cookTime ?? 30),
           servings: Number(r.servings ?? 4),
@@ -1369,12 +1438,12 @@ async function generateMissingRecipes(
   }
   try {
     const soupHint = needSoup ? "必須包含 1 個湯水食譜。" : "";
-    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。用繁體中文。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
+    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-5 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供英文名（nameEn）；steps 係中文步驟，同時提供 stepsEn（英文步驟，每一步對應）。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 1800 * count,
+      maxTokens: 2600 * count,
       temperature: 0.7,
-      timeoutMs: 15000,
+      timeoutMs: 30000,
       maxRetries: 1,
       enableSearch: false,
       responseFormat: { type: "json_object" },
@@ -1417,15 +1486,15 @@ async function generateOneType(
     : isVeg
       ? "呢道必須係一道蔬菜（清淡為主，唔好配肉/海鮮做主角，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬）；唔可以係湯、唔可以係麵/飯。"
       : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
-  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
+  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。每個 ingredient 請提供英文名（nameEn）；呢道餸本身提供 nameEn（英文名）。steps 係中文步驟（請精簡，4-5 步）；請同時提供 stepsEn（英文步驟），每一步對應中文步驟嘅同一步，份量/時間一致。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}`;
 
   const attempt = async (extra: string): Promise<SuggestedRecipe | null> => {
     try {
       const resp = await invokeLLM({
         messages: [{ role: "user", content: basePrompt + extra }],
-        maxTokens: 1800,
+        maxTokens: 2600,
         temperature: 0.7,
-        timeoutMs: 15000,
+        timeoutMs: 30000,
         maxRetries: 1,
         enableSearch: false,
         responseFormat: { type: "json_object" },
@@ -1639,12 +1708,13 @@ async function applyLibraryMatch(
 }
 
 // Build dynamic system prompt based on mode and library context
-function buildSystemPrompt(libSummary: string, soupIntent = false): string {
+function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW"): string {
   let modeSection = `\n\n你係 AI 助手，一個親切嘅烹飪對話夥伴。判斷用戶意圖：
 
 **如果用戶想食譜**（例如「今晚食咩」、「我想整番茄炒蛋」、「有咩好煮」、「beef」）：
-你必須用以下 JSON 格式回覆，唔可以用純文字，因為系統要顯示食譜卡：
-{"replyText":"...","recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}
+你必須用以下 JSON 格式回覆，唔可以用純文字，因為系統要顯示食譜卡。
+每個食譜請同時提供：name（中文名）、nameEn（英文名）；每個 ingredient 同樣提供 nameEn；steps 係中文步驟，同時提供 stepsEn（英文步驟，每一步對應）。
+{"replyText":"...","recipes":[{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}]}
 
 **如果用戶純粹傾偈**（例如「hi」、「多謝」、「你好」）：
 用正常文字回覆，唔好加 JSON。
@@ -1658,6 +1728,12 @@ function buildSystemPrompt(libSummary: string, soupIntent = false): string {
   
   if (soupIntent) {
     modeSection += `\n\n🍲 湯水請在 JSON 中標示湯類型、功效、水量。`;
+  }
+
+  // 回覆語言：非中文裝置 → 對話文字用該語言（食譜內容仍 name 中文 + nameEn 英文）
+  if (lang && lang !== "zh-TW") {
+    const langName = lang === "en" ? "English" : lang === "fil" ? "Filipino (Tagalog)" : lang === "id" ? "Indonesian" : "English";
+    modeSection += `\n\n【回覆語言】請用 ${langName} 撰寫所有對話文字（replyText 及一般回覆）。食譜內容：name 欄用繁體中文、nameEn 用英文、steps 用中文、stepsEn 用英文。`;
   }
   
   return SYSTEM_PROMPT + modeSection;
@@ -1743,7 +1819,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 ⚠️ 新鮮感但唔好太難：所謂「新鮮感」係指未煮過嘅家常菜，或者用返平日常見食材但換個新煮法。**嚴禁**推出需要特殊工具、罕見/難買食材、或者步驟極度複雜嘅菜式。保持喺「香港家庭日常可煮」嘅難度範圍內（避免慢火濃縮、低溫慢煮、分子料理、異國稀有食材等）。
 
 ⚠️【JSON 格式要求】食譜必須完整，唔好截斷：
-{"replyText":"...","recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}
+{"replyText":"...","recipes":[{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}]}
 
 ⚠️【3 餸 1 湯】強制規則：當用戶請求「3 餸 1 湯」「三餸一湯」「3 菜 1 湯」「今晚食咩」時，你**必須生成剛好 4 個食譜**（唔可以係 3 個或 5 個）：
 - 食譜一：肉類主菜（如豬/牛/雞）
@@ -2229,7 +2305,8 @@ export async function processAIChefChat(
   userId?: number,
   mode: "chat" | "ai" | "library" = "chat",
   excludeNames: string[] = [],
-  search?: { query?: string; tags?: string[]; cookTimeMax?: number; category?: string; count?: number; rank?: "shortestTime" | "default"; excludeCategories?: string[] }
+  search?: { query?: string; tags?: string[]; cookTimeMax?: number; category?: string; count?: number; rank?: "shortestTime" | "default"; excludeCategories?: string[] },
+  lang: string = "zh-TW"
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -2495,7 +2572,7 @@ export async function processAIChefChat(
     }
   }
 
-  let systemPrompt = buildSystemPrompt(libSummary, soupIntent);
+  let systemPrompt = buildSystemPrompt(libSummary, soupIntent, lang);
   // 純對話（greeting/technique/圖片）-> 強調唔好出食譜 JSON
   if (isPlain) {
     systemPrompt += "\n\n（本輪為純對話/技巧查詢：請用正常文字親切回覆，不要輸出 JSON，也不要附食譜。）";
@@ -2808,7 +2885,7 @@ async function runAiEdit(
 
 要求：
 1. 必須保留原食譜的核心風格，但要按修改要求調整
-2. 所有文字使用繁體中文
+2. 主要文字使用繁體中文；同時為菜式名、簡介、每個步驟、每項食材提供英文（En）、菲律賓文（Fil）、印尼文（Id）譯文，翻譯要互相一致（同一食材喺名/步驟/食材清單用同一譯法）
 3. 步驟要清晰、可操作
 4. 食材、份量、做法要合理一致
 5. 只回傳 JSON，不要加任何解釋文字
@@ -2837,8 +2914,8 @@ async function runAiEdit(
         content: `原始食譜：${JSON.stringify(input.recipe)}\n\n修改要求：${input.editPrompt}`,
       },
     ],
-    maxTokens: AI_RECIPE_MAX_TOKENS,
-    timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+    maxTokens: AI_EDIT_MAX_TOKENS,
+    timeoutMs: AI_EDIT_LLM_TIMEOUT_MS,
     responseFormat: {
       type: "json_schema",
       json_schema: {
@@ -2848,7 +2925,13 @@ async function runAiEdit(
           type: "object",
           properties: {
             name: { type: "string" },
+            nameEn: { type: "string" },
+            nameFil: { type: "string" },
+            nameId: { type: "string" },
             description: { type: "string" },
+            descriptionEn: { type: "string" },
+            descriptionFil: { type: "string" },
+            descriptionId: { type: "string" },
             cookTime: { type: "integer" },
             servings: { type: "integer" },
             difficulty: { type: "string" },
@@ -2859,11 +2942,14 @@ async function runAiEdit(
                 type: "object",
                 properties: {
                   name: { type: "string" },
+                  nameEn: { type: "string" },
+                  nameFil: { type: "string" },
+                  nameId: { type: "string" },
                   quantity: { type: "string" },
                   unit: { type: "string" },
                   category: { type: "string" },
                 },
-                required: ["name"],
+                required: ["name", "nameEn", "nameFil", "nameId"],
               },
             },
             steps: {
@@ -2878,9 +2964,33 @@ async function runAiEdit(
                 required: ["instruction"],
               },
             },
+            stepsEn: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { instruction: { type: "string" }, tip: { type: "string" } },
+                required: ["instruction"],
+              },
+            },
+            stepsFil: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { instruction: { type: "string" }, tip: { type: "string" } },
+                required: ["instruction"],
+              },
+            },
+            stepsId: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { instruction: { type: "string" }, tip: { type: "string" } },
+                required: ["instruction"],
+              },
+            },
             tags: { type: "array", items: { type: "string" } },
           },
-          required: ["name", "description", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "tags"],
+          required: ["name", "nameEn", "nameFil", "nameId", "description", "descriptionEn", "descriptionFil", "descriptionId", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "stepsEn", "stepsFil", "stepsId", "tags"],
         },
       },
     },
@@ -2910,7 +3020,31 @@ async function runAiEdit(
       console.log("[AI Edit] Auto-fixed: restored original recipe name");
     }
   }
-  
+
+  // Fallback: if the edit call did not return translations (or returned a
+  // misaligned step count), backfill name + steps via the shared translator.
+  const stepTexts = (parsed.steps ?? []).map((s: any) => String(s?.instruction ?? "")).filter(Boolean);
+  const enOk = (parsed.stepsEn?.length ?? 0) === stepTexts.length;
+  const filOk = (parsed.stepsFil?.length ?? 0) === stepTexts.length;
+  const idOk = (parsed.stepsId?.length ?? 0) === stepTexts.length;
+  if (!parsed.nameEn || !parsed.nameFil || !parsed.nameId || !parsed.descriptionEn || !enOk || !filOk || !idOk) {
+    try {
+      const tr = await translateRecipeContent(parsed.name, stepTexts, parsed.description ?? "");
+      if (!parsed.nameEn && tr.nameEn) parsed.nameEn = tr.nameEn;
+      if (!parsed.nameFil && tr.nameFil) parsed.nameFil = tr.nameFil;
+      if (!parsed.nameId && tr.nameId) parsed.nameId = tr.nameId;
+      if (!parsed.descriptionEn && tr.descriptionEn) parsed.descriptionEn = tr.descriptionEn;
+      if (!parsed.descriptionFil && tr.descriptionFil) parsed.descriptionFil = tr.descriptionFil;
+      if (!parsed.descriptionId && tr.descriptionId) parsed.descriptionId = tr.descriptionId;
+      if (!enOk && tr.stepsEn) parsed.stepsEn = tr.stepsEn.map((instruction) => ({ instruction }));
+      if (!filOk && tr.stepsFil) parsed.stepsFil = tr.stepsFil.map((instruction) => ({ instruction }));
+      if (!idOk && tr.stepsId) parsed.stepsId = tr.stepsId.map((instruction) => ({ instruction }));
+      console.log("[AI Edit] Translation fallback applied");
+    } catch (e) {
+      console.warn("[AI Edit] Translation fallback failed:", (e as Error)?.message);
+    }
+  }
+
   return parsed;
 }
 
@@ -2937,13 +3071,22 @@ export const aiRecipeRouter = router({
 
       return {
         name: parsed.name || input.recipe.name,
+        nameEn: parsed.nameEn,
+        nameFil: parsed.nameFil,
+        nameId: parsed.nameId,
         description: parsed.description || input.recipe.description,
+        descriptionEn: parsed.descriptionEn,
+        descriptionFil: parsed.descriptionFil,
+        descriptionId: parsed.descriptionId,
         cookTime: parsed.cookTime ?? input.recipe.cookTime,
         servings: parsed.servings ?? input.recipe.servings,
         difficulty: parsed.difficulty || input.recipe.difficulty,
         recipeCategory: parsed.recipeCategory || input.recipe.recipeCategory,
         ingredients: parsed.ingredients.length > 0 ? parsed.ingredients : input.recipe.ingredients,
         steps: parsed.steps.length > 0 ? parsed.steps : input.recipe.steps,
+        stepsEn: parsed.stepsEn,
+        stepsFil: parsed.stepsFil,
+        stepsId: parsed.stepsId,
         tags: Array.from(new Set([...(input.recipe.tags ?? []), ...(parsed.tags ?? []), "AI 生成"])),
       };
     }),
@@ -2977,7 +3120,13 @@ export const aiRecipeRouter = router({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
         name: parsed.name || input.recipe.name,
+        nameEn: parsed.nameEn,
+        nameFil: parsed.nameFil,
+        nameId: parsed.nameId,
         description: parsed.description || input.recipe.description,
+        descriptionEn: parsed.descriptionEn,
+        descriptionFil: parsed.descriptionFil,
+        descriptionId: parsed.descriptionId,
         image: input.recipe.thumbnailUrl ?? input.recipe.image,
         thumbnailUrl: input.recipe.thumbnailUrl ?? input.recipe.image,
         cookTime: parsed.cookTime ?? input.recipe.cookTime,
@@ -2986,6 +3135,9 @@ export const aiRecipeRouter = router({
         recipeCategory: parsed.recipeCategory ?? input.recipe.recipeCategory,
         ingredients: JSON.stringify(parsed.ingredients.length > 0 ? parsed.ingredients : input.recipe.ingredients),
         steps: JSON.stringify(parsed.steps.length > 0 ? parsed.steps : input.recipe.steps),
+        stepsEn: parsed.stepsEn ? JSON.stringify(parsed.stepsEn) : undefined,
+        stepsFil: parsed.stepsFil ? JSON.stringify(parsed.stepsFil) : undefined,
+        stepsId: parsed.stepsId ? JSON.stringify(parsed.stepsId) : undefined,
         tags: JSON.stringify(mergedTags),
         sourceType: "manual",
         sourceAuthor: input.recipe.sourceAuthor,
@@ -2999,6 +3151,7 @@ export const aiRecipeRouter = router({
       messages: z.array(messageSchema).min(1),
       mode: z.enum(["chat", "ai", "library"]).optional(),
       excludeNames: z.array(z.string()).optional(),
+      lang: z.string().optional(),
       search: z.object({
         query: z.string().optional(),
         tags: z.array(z.string()).optional(),
@@ -3035,6 +3188,7 @@ export const aiRecipeRouter = router({
         mode,
         excludeNames,
         input.search,
+        input.lang,
       );
 
       // 真用咗 LLM 先扣 quota（library mode / library-first 命中 / 換卡 = 免費）

@@ -4,3780 +4,4860 @@
     "defaultUnitKey": "piece",
     "nameYue": "番茄",
     "nameZh": "番茄",
-    "nameEn": "Tomato"
+    "nameEn": "Tomato",
+    "nameFil": "Kamatis",
+    "nameId": "Tomat"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "洋蔥",
     "nameZh": "洋蔥",
-    "nameEn": "Onion"
+    "nameEn": "Onion",
+    "nameFil": "Sibuyas",
+    "nameId": "Bawang Merah"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "clove",
     "nameYue": "蒜頭",
     "nameZh": "蒜頭",
-    "nameEn": "Garlic"
+    "nameEn": "Garlic",
+    "nameFil": "Bawang Puti",
+    "nameId": "Bawang Putih"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "slice",
     "nameYue": "薑",
     "nameZh": "薑",
-    "nameEn": "Ginger"
+    "nameEn": "Ginger",
+    "nameFil": "Luya",
+    "nameId": "Jahe"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "stalk",
     "nameYue": "蔥",
     "nameZh": "蔥",
-    "nameEn": "Spring Onion"
+    "nameEn": "Spring Onion",
+    "nameFil": "Punong Sibuyas",
+    "nameId": "Daun Bawang"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "白菜",
     "nameZh": "白菜",
-    "nameEn": "Chinese Cabbage"
+    "nameEn": "Chinese Cabbage",
+    "nameFil": "Pechay",
+    "nameId": "Sawi Putih"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "菠菜",
     "nameZh": "菠菜",
-    "nameEn": "Spinach"
+    "nameEn": "Spinach",
+    "nameFil": "Espinaka",
+    "nameId": "Bayam"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "西蘭花",
     "nameZh": "西蘭花",
-    "nameEn": "Broccoli"
+    "nameEn": "Broccoli",
+    "nameFil": "Brokoli",
+    "nameId": "Brokoli"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "蘿蔔",
     "nameZh": "蘿蔔",
-    "nameEn": "Radish"
+    "nameEn": "Radish",
+    "nameFil": "Labanos",
+    "nameId": "Lobak"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "薯仔",
     "nameZh": "薯仔",
-    "nameEn": "Potato"
+    "nameEn": "Potato",
+    "nameFil": "Patatas",
+    "nameId": "Kentang"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "紅蘿蔔",
     "nameZh": "紅蘿蔔",
-    "nameEn": "Carrot"
+    "nameEn": "Carrot",
+    "nameFil": "Karot",
+    "nameId": "Wortel"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "青瓜",
     "nameZh": "青瓜",
-    "nameEn": "Cucumber"
+    "nameEn": "Cucumber",
+    "nameFil": "Pipino",
+    "nameId": "Mentimun"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "茄子",
     "nameZh": "茄子",
-    "nameEn": "Eggplant"
+    "nameEn": "Eggplant",
+    "nameFil": "Talong",
+    "nameId": "Terong"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "苦瓜",
     "nameZh": "苦瓜",
-    "nameEn": "Bitter Gourd"
+    "nameEn": "Bitter Gourd",
+    "nameFil": "Ampalaya",
+    "nameId": "Pare"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "slice",
     "nameYue": "冬瓜",
     "nameZh": "冬瓜",
-    "nameEn": "Winter Melon"
+    "nameEn": "Winter Melon",
+    "nameFil": "Kalabaw",
+    "nameId": "Labu Putih"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "slice",
     "nameYue": "南瓜",
     "nameZh": "南瓜",
-    "nameEn": "Pumpkin"
+    "nameEn": "Pumpkin",
+    "nameFil": "Kalabasa",
+    "nameId": "Labu Kuning"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "椰菜",
     "nameZh": "椰菜",
-    "nameEn": "Cauliflower"
+    "nameEn": "Cauliflower",
+    "nameFil": "Kalipulayan",
+    "nameId": "Kembang kol"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "生菜",
     "nameZh": "生菜",
-    "nameEn": "Lettuce"
+    "nameEn": "Lettuce",
+    "nameFil": "Sisigmas",
+    "nameId": "Selada"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "stalk",
     "nameYue": "韭菜",
     "nameZh": "韭菜",
-    "nameEn": "Chives"
+    "nameEn": "Chives",
+    "nameFil": "Chives",
+    "nameId": "Daun Bawang"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "豆苗",
     "nameZh": "豆苗",
-    "nameEn": "Pea Shoots"
+    "nameEn": "Pea Shoots",
+    "nameFil": "Munggo Sprouts",
+    "nameId": "Tunas Kacang Hijau"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "pack",
     "nameYue": "芽菜",
     "nameZh": "芽菜",
-    "nameEn": "Bean Sprouts"
+    "nameEn": "Bean Sprouts",
+    "nameFil": "Mung bean sprouts",
+    "nameId": "Tauge"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "木耳",
     "nameZh": "木耳",
-    "nameEn": "Black Fungus"
+    "nameEn": "Black Fungus",
+    "nameFil": "Black fungus",
+    "nameId": "Jamur hitam"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "雲耳",
     "nameZh": "雲耳",
-    "nameEn": "Cloud Ear Fungus"
+    "nameEn": "Cloud Ear Fungus",
+    "nameFil": "Cloud ear fungus",
+    "nameId": "Jamur kuping"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "bunch",
     "nameYue": "金針",
     "nameZh": "金針",
-    "nameEn": "Day Lily"
+    "nameEn": "Day Lily",
+    "nameFil": "Day lily",
+    "nameId": "Bunga kembang"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "冬菇",
     "nameZh": "冬菇",
-    "nameEn": "Shiitake Mushroom"
+    "nameEn": "Shiitake Mushroom",
+    "nameFil": "Shiitake",
+    "nameId": "Jamur shiitake"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "box",
     "nameYue": "鮮菇",
     "nameZh": "鮮菇",
-    "nameEn": "Fresh Mushroom"
+    "nameEn": "Fresh Mushroom",
+    "nameFil": "Fresh mushroom",
+    "nameId": "Jamur segar"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "box",
     "nameYue": "蘑菇",
     "nameZh": "蘑菇",
-    "nameEn": "Button Mushroom"
+    "nameEn": "Button Mushroom",
+    "nameFil": "Button mushroom",
+    "nameId": "Jamur kancing"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "菜心",
     "nameZh": "菜心",
-    "nameEn": "Choy Sum"
+    "nameEn": "Choy Sum",
+    "nameFil": "Choy sum",
+    "nameId": "Choy sum"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "芥蘭",
     "nameZh": "芥蘭",
-    "nameEn": "Chinese Broccoli"
+    "nameEn": "Chinese Broccoli",
+    "nameFil": "Gai lan",
+    "nameId": "Brokoli cina"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "莧菜",
     "nameZh": "莧菜",
-    "nameEn": "Amaranth"
+    "nameEn": "Amaranth",
+    "nameFil": "Amaranth",
+    "nameId": "Bayam"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "通菜",
     "nameZh": "通菜",
-    "nameEn": "Water Spinach"
+    "nameEn": "Water Spinach",
+    "nameFil": "Kangkong",
+    "nameId": "Kangkung"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "荽",
     "nameZh": "芫荽",
-    "nameEn": "Coriander"
+    "nameEn": "Coriander",
+    "nameFil": "Sela",
+    "nameId": "Daun ketumbar"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "芹菜",
     "nameZh": "芹菜",
-    "nameEn": "Celery"
+    "nameEn": "Celery",
+    "nameFil": "Seryeli",
+    "nameId": "Seledri"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "西芹",
     "nameZh": "西芹",
-    "nameEn": "Western Celery"
+    "nameEn": "Western Celery",
+    "nameFil": "Seryeli",
+    "nameId": "Seledri barat"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "椰菜花",
     "nameZh": "椰菜花",
-    "nameEn": "Cauliflower"
+    "nameEn": "Cauliflower",
+    "nameFil": "Kalipulayan",
+    "nameId": "Kembang kol"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "紹菜",
     "nameZh": "紹菜",
-    "nameEn": "Napa Cabbage"
+    "nameEn": "Napa Cabbage",
+    "nameFil": "Pekay",
+    "nameId": "Sawi napa"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "娃娃菜",
     "nameZh": "娃娃菜",
-    "nameEn": "Baby Cabbage"
+    "nameEn": "Baby Cabbage",
+    "nameFil": "Baby cabbage",
+    "nameId": "Sawi baby"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "秋葵",
     "nameZh": "秋葵",
-    "nameEn": "Okra"
+    "nameEn": "Okra",
+    "nameFil": "Okra",
+    "nameId": "Jawara"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "蘆筍",
     "nameZh": "蘆筍",
-    "nameEn": "Asparagus"
+    "nameEn": "Asparagus",
+    "nameFil": "Asparagos",
+    "nameId": "Asparagus"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "荷蘭豆",
     "nameZh": "荷蘭豆",
-    "nameEn": "Snow Peas"
+    "nameEn": "Snow Peas",
+    "nameFil": "Snow peas",
+    "nameId": "Kacang polong datar"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "四季豆",
     "nameZh": "四季豆",
-    "nameEn": "Green Beans"
+    "nameEn": "Green Beans",
+    "nameFil": "Sitaw",
+    "nameId": "Buncis"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "毛豆",
     "nameZh": "毛豆",
-    "nameEn": "Edamame"
+    "nameEn": "Edamame",
+    "nameFil": "Edamame",
+    "nameId": "Edamame"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "粟米",
     "nameZh": "粟米",
-    "nameEn": "Corn"
+    "nameEn": "Corn",
+    "nameFil": "Mais",
+    "nameId": "Jagung"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "蓮藕",
     "nameZh": "蓮藕",
-    "nameEn": "Lotus Root"
+    "nameEn": "Lotus Root",
+    "nameFil": "Ugat ng lotus",
+    "nameId": "Akar teratai"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "芋頭",
     "nameZh": "芋頭",
-    "nameEn": "Taro"
+    "nameEn": "Taro",
+    "nameFil": "Gabi",
+    "nameId": "Talas"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "淮山",
     "nameZh": "淮山",
-    "nameEn": "Chinese Yam"
+    "nameEn": "Chinese Yam",
+    "nameFil": "Kamoteng kahoy",
+    "nameId": "Ubi cina"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "牛蒡",
     "nameZh": "牛",
-    "nameEn": "Burdock Root"
+    "nameEn": "Burdock Root",
+    "nameFil": "Ugat ng burdock",
+    "nameId": "Akar burdock"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "沙葛",
     "nameZh": "沙葛",
-    "nameEn": "Jicama"
+    "nameEn": "Jicama",
+    "nameFil": "Singkamas",
+    "nameId": "Jicama"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "涼瓜",
     "nameZh": "涼瓜",
-    "nameEn": "Bitter Melon"
+    "nameEn": "Bitter Melon",
+    "nameFil": "Ampalaya",
+    "nameId": "Pare"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "絲瓜",
     "nameZh": "絲瓜",
-    "nameEn": "Luffa"
+    "nameEn": "Luffa",
+    "nameFil": "Patola",
+    "nameId": "Oyong"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "佛手瓜",
     "nameZh": "佛手瓜",
-    "nameEn": "Chayote"
+    "nameEn": "Chayote",
+    "nameFil": "Sayote",
+    "nameId": "Sayur nenas"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "翠玉瓜",
     "nameZh": "翠玉瓜",
-    "nameEn": "Zucchini"
+    "nameEn": "Zucchini",
+    "nameFil": "Zucchini",
+    "nameId": "Zucchini"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "意大利瓜",
     "nameZh": "意大利瓜",
-    "nameEn": "Courgette"
+    "nameEn": "Courgette",
+    "nameFil": "Zucchini",
+    "nameId": "Zucchini"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "甜椒",
     "nameZh": "甜椒",
-    "nameEn": "Bell Pepper"
+    "nameEn": "Bell Pepper",
+    "nameFil": "Paprika",
+    "nameId": "Paprika"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "紅椒",
     "nameZh": "紅椒",
-    "nameEn": "Red Pepper"
+    "nameEn": "Red Pepper",
+    "nameFil": "Siling pula",
+    "nameId": "Cabai merah"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "青椒",
     "nameZh": "青椒",
-    "nameEn": "Green Pepper"
+    "nameEn": "Green Pepper",
+    "nameFil": "Siling berde",
+    "nameId": "Cabai hijau"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "辣椒",
     "nameZh": "辣椒",
-    "nameEn": "Chili Pepper"
+    "nameEn": "Chili Pepper",
+    "nameFil": "Sili",
+    "nameId": "Cabai"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "指天椒",
     "nameZh": "指天椒",
-    "nameEn": "Bird's Eye Chili"
+    "nameEn": "Bird's Eye Chili",
+    "nameFil": "Siling labuyo",
+    "nameId": "Cabai rawit"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "番茄仔",
     "nameZh": "小番茄",
-    "nameEn": "Cherry Tomato"
+    "nameEn": "Cherry Tomato",
+    "nameFil": "Cherry tomato",
+    "nameId": "Tomat ceri"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "車厘茄",
     "nameZh": "車厘茄",
-    "nameEn": "Cherry Tomato"
+    "nameEn": "Cherry Tomato",
+    "nameFil": "Cherry tomato",
+    "nameId": "Tomat ceri"
   },
   {
     "categoryKey": "vegetables",
     "defaultUnitKey": "piece",
     "nameYue": "紫蘇",
     "nameZh": "紫蘇",
-    "nameEn": "Perilla"
+    "nameEn": "Perilla",
+    "nameFil": "Shiso",
+    "nameId": "Shiso"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "蘋果",
     "nameZh": "蘋果",
-    "nameEn": "Apple"
+    "nameEn": "Apple",
+    "nameFil": "Apel",
+    "nameId": "Apel"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "橙",
     "nameZh": "橙",
-    "nameEn": "Orange"
+    "nameEn": "Orange",
+    "nameFil": "Dalandan",
+    "nameId": "Jeruk"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "柑",
     "nameZh": "柑",
-    "nameEn": "Mandarin"
+    "nameEn": "Mandarin",
+    "nameFil": "Mandarina",
+    "nameId": "Jeruk mandarin"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "柚",
     "nameZh": "柚",
-    "nameEn": "Pomelo"
+    "nameEn": "Pomelo",
+    "nameFil": "Pomelo",
+    "nameId": "Jeruk bali"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "檸檬",
     "nameZh": "檸檬",
-    "nameEn": "Lemon"
+    "nameEn": "Lemon",
+    "nameFil": "Limón",
+    "nameId": "Lemon"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "青檸",
     "nameZh": "青檸",
-    "nameEn": "Lime"
+    "nameEn": "Lime",
+    "nameFil": "Kalamansi",
+    "nameId": "Jeruk nipis"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "香蕉",
     "nameZh": "香蕉",
-    "nameEn": "Banana"
+    "nameEn": "Banana",
+    "nameFil": "Saging",
+    "nameId": "Pisang"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "車厘子",
     "nameZh": "車厘子",
-    "nameEn": "Cherry"
+    "nameEn": "Cherry",
+    "nameFil": "Cherry",
+    "nameId": "Ceri"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "士多啤梨",
     "nameZh": "士多啤梨",
-    "nameEn": "Strawberry"
+    "nameEn": "Strawberry",
+    "nameFil": "Fresas",
+    "nameId": "Stroberi"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "藍莓",
     "nameZh": "藍莓",
-    "nameEn": "Blueberry"
+    "nameEn": "Blueberry",
+    "nameFil": "Blueberry",
+    "nameId": "Blueberry"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "提子",
     "nameZh": "提子",
-    "nameEn": "Grape"
+    "nameEn": "Grape",
+    "nameFil": "Anggur",
+    "nameId": "Anggur"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "奇異果",
     "nameZh": "奇異果",
-    "nameEn": "Kiwi"
+    "nameEn": "Kiwi",
+    "nameFil": "Kiwi",
+    "nameId": "Kiwi"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "芒果",
     "nameZh": "芒果",
-    "nameEn": "Mango"
+    "nameEn": "Mango",
+    "nameFil": "Mangga",
+    "nameId": "Mangga"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "木瓜",
     "nameZh": "木瓜",
-    "nameEn": "Papaya"
+    "nameEn": "Papaya",
+    "nameFil": "Papaya",
+    "nameId": "Pepaya"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "火龍果",
     "nameZh": "火龍果",
-    "nameEn": "Dragon Fruit"
+    "nameEn": "Dragon Fruit",
+    "nameFil": "Pitaya",
+    "nameId": "Buah naga"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "西瓜",
     "nameZh": "西瓜",
-    "nameEn": "Watermelon"
+    "nameEn": "Watermelon",
+    "nameFil": "Melon",
+    "nameId": "Semangka"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "哈密瓜",
     "nameZh": "哈密瓜",
-    "nameEn": "Honeydew Melon"
+    "nameEn": "Honeydew Melon",
+    "nameFil": "Honeydew",
+    "nameId": "Melon"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "蜜瓜",
     "nameZh": "蜜瓜",
-    "nameEn": "Rock Melon"
+    "nameEn": "Rock Melon",
+    "nameFil": "Rock melon",
+    "nameId": "Melon batu"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "菠蘿",
     "nameZh": "菠蘿",
-    "nameEn": "Pineapple"
+    "nameEn": "Pineapple",
+    "nameFil": "Pinya",
+    "nameId": "Nanas"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "榴槤",
     "nameZh": "榴槤",
-    "nameEn": "Durian"
+    "nameEn": "Durian",
+    "nameFil": "Durian",
+    "nameId": "Durian"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "山竹",
     "nameZh": "山竹",
-    "nameEn": "Mangosteen"
+    "nameEn": "Mangosteen",
+    "nameFil": "Manggis",
+    "nameId": "Manggis"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "荔枝",
     "nameZh": "荔枝",
-    "nameEn": "Lychee"
+    "nameEn": "Lychee",
+    "nameFil": "Litsi",
+    "nameId": "Lekciu"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "龍眼",
     "nameZh": "龍眼",
-    "nameEn": "Longan"
+    "nameEn": "Longan",
+    "nameFil": "Longan",
+    "nameId": "Longan"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "楊桃",
     "nameZh": "楊桃",
-    "nameEn": "Starfruit"
+    "nameEn": "Starfruit",
+    "nameFil": "Bayabas",
+    "nameId": "Belimbing"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "百香果",
     "nameZh": "百香果",
-    "nameEn": "Passion Fruit"
+    "nameEn": "Passion Fruit",
+    "nameFil": "Maracuya",
+    "nameId": "Markisa"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "石榴",
     "nameZh": "石榴",
-    "nameEn": "Pomegranate"
+    "nameEn": "Pomegranate",
+    "nameFil": "Granada",
+    "nameId": "Delima"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "無花果",
     "nameZh": "無花果",
-    "nameEn": "Fig"
+    "nameEn": "Fig",
+    "nameFil": "Bining",
+    "nameId": "Tin"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "棗",
     "nameZh": "棗",
-    "nameEn": "Jujube"
+    "nameEn": "Jujube",
+    "nameFil": "Jujube",
+    "nameId": "Kurma Jawa"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "雪梨",
     "nameZh": "雪梨",
-    "nameEn": "Asian Pear"
+    "nameEn": "Asian Pear",
+    "nameFil": "Asian Pear",
+    "nameId": "Pir Asiatik"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "水蜜桃",
     "nameZh": "水蜜桃",
-    "nameEn": "Peach"
+    "nameEn": "Peach",
+    "nameFil": "Persa",
+    "nameId": "Persik"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "油桃",
     "nameZh": "油桃",
-    "nameEn": "Nectarine"
+    "nameEn": "Nectarine",
+    "nameFil": "Nektarina",
+    "nameId": "Nektarin"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "李",
     "nameZh": "李",
-    "nameEn": "Plum"
+    "nameEn": "Plum",
+    "nameFil": "Pruna",
+    "nameId": "Prem"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "牛油果",
     "nameZh": "牛油果",
-    "nameEn": "Avocado"
+    "nameEn": "Avocado",
+    "nameFil": "Abokado",
+    "nameId": "Alpukat"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "椰子",
     "nameZh": "椰子",
-    "nameEn": "Coconut"
+    "nameEn": "Coconut",
+    "nameFil": "Niyog",
+    "nameId": "Kelapa"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "菠蘿蜜",
     "nameZh": "菠蘿蜜",
-    "nameEn": "Jackfruit"
+    "nameEn": "Jackfruit",
+    "nameFil": "Langka",
+    "nameId": "Nangka"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "紅毛丹",
     "nameZh": "紅毛丹",
-    "nameEn": "Rambutan"
+    "nameEn": "Rambutan",
+    "nameFil": "Rambotan",
+    "nameId": "Rambutan"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "龍宮果",
     "nameZh": "龍宮果",
-    "nameEn": "Langsat"
+    "nameEn": "Langsat",
+    "nameFil": "Langsat",
+    "nameId": "Langsat"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "蓮霧",
     "nameZh": "蓮霧",
-    "nameEn": "Wax Apple"
+    "nameEn": "Wax Apple",
+    "nameFil": "Balango",
+    "nameId": "Jambu Air"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "枇杷",
     "nameZh": "枇杷",
-    "nameEn": "Loquat"
+    "nameEn": "Loquat",
+    "nameFil": "Kasuy",
+    "nameId": "Kuey Kawa"
   },
   {
     "categoryKey": "fruits",
     "defaultUnitKey": "piece",
     "nameYue": "桑椹",
     "nameZh": "桑椹",
-    "nameEn": "Mulberry"
+    "nameEn": "Mulberry",
+    "nameFil": "Moras",
+    "nameId": "Murbei"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬肉",
     "nameZh": "豬肉",
-    "nameEn": "Pork"
+    "nameEn": "Pork",
+    "nameFil": "Baboy",
+    "nameId": "Daging Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛肉",
     "nameZh": "牛肉",
-    "nameEn": "Beef"
+    "nameEn": "Beef",
+    "nameFil": "Baka",
+    "nameId": "Daging Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "羊肉",
     "nameZh": "羊肉",
-    "nameEn": "Lamb"
+    "nameEn": "Lamb",
+    "nameFil": "Tupa",
+    "nameId": "Daging Domba"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "雞",
     "nameZh": "雞",
-    "nameEn": "Chicken"
+    "nameEn": "Chicken",
+    "nameFil": "Manok",
+    "nameId": "Daging Ayam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "雞翼",
     "nameZh": "雞翼",
-    "nameEn": "Chicken Wing"
+    "nameEn": "Chicken Wing",
+    "nameFil": "Pakpak ng Manok",
+    "nameId": "Sayap Ayam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "雞胸",
     "nameZh": "雞胸",
-    "nameEn": "Chicken Breast"
+    "nameEn": "Chicken Breast",
+    "nameFil": "Dibdib ng Manok",
+    "nameId": "Dada Ayam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "雞腿",
     "nameZh": "雞腿",
-    "nameEn": "Chicken Leg"
+    "nameEn": "Chicken Leg",
+    "nameFil": "Paa ng Manok",
+    "nameId": "Kaki Ayam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "雞腎",
     "nameZh": "雞腎",
-    "nameEn": "Chicken Gizzard"
+    "nameEn": "Chicken Gizzard",
+    "nameFil": "Tiyan ng Manok",
+    "nameId": "Ampela Ayam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "雞肝",
     "nameZh": "雞肝",
-    "nameEn": "Chicken Liver"
+    "nameEn": "Chicken Liver",
+    "nameFil": "Atay ng Manok",
+    "nameId": "Hati Ayam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "豬排",
     "nameZh": "豬排",
-    "nameEn": "Pork Chop"
+    "nameEn": "Pork Chop",
+    "nameFil": "Chops ng Baboy",
+    "nameId": "Potongan Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "牛扒",
     "nameZh": "牛扒",
-    "nameEn": "Beef Steak"
+    "nameEn": "Beef Steak",
+    "nameFil": "Steak na Baka",
+    "nameId": "Steak Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬絞肉",
     "nameZh": "豬絞肉",
-    "nameEn": "Ground Pork"
+    "nameEn": "Ground Pork",
+    "nameFil": "Giniling na Baboy",
+    "nameId": "Daging Giling Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛絞肉",
     "nameZh": "牛絞肉",
-    "nameEn": "Ground Beef"
+    "nameEn": "Ground Beef",
+    "nameFil": "Giniling na Baka",
+    "nameId": "Daging Giling Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "煙肉",
     "nameZh": "煙肉",
-    "nameEn": "Bacon"
+    "nameEn": "Bacon",
+    "nameFil": "Bacon",
+    "nameId": "Bacon"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "腸仔",
     "nameZh": "腸仔",
-    "nameEn": "Sausage"
+    "nameEn": "Sausage",
+    "nameFil": "Sosis",
+    "nameId": "Sosis"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "slice",
     "nameYue": "火腿",
     "nameZh": "火腿",
-    "nameEn": "Ham"
+    "nameEn": "Ham",
+    "nameFil": "Jamon",
+    "nameId": "Ham"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "臘腸",
     "nameZh": "臘腸",
-    "nameEn": "Chinese Sausage"
+    "nameEn": "Chinese Sausage",
+    "nameFil": "Sosis Tsino",
+    "nameId": "Sosis Tiongkok"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "潤腸",
     "nameZh": "潤腸",
-    "nameEn": "Pork Liver Sausage"
+    "nameEn": "Pork Liver Sausage",
+    "nameFil": "Sosis Atay ng Baboy",
+    "nameId": "Sosis Hati Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬腩",
     "nameZh": "豬腩",
-    "nameEn": "Pork Belly"
+    "nameEn": "Pork Belly",
+    "nameFil": "Liempo",
+    "nameId": "Perut Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬頸肉",
     "nameZh": "豬頸肉",
-    "nameEn": "Pork Collar"
+    "nameEn": "Pork Collar",
+    "nameFil": "Lechon Kawali",
+    "nameId": "Daging Leher Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "梅頭肉",
     "nameZh": "梅頭肉",
-    "nameEn": "Pork Shoulder"
+    "nameEn": "Pork Shoulder",
+    "nameFil": "Baboy na Balikat",
+    "nameId": "Daging Bahu Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬手",
     "nameZh": "豬手",
-    "nameEn": "Pork Trotter"
+    "nameEn": "Pork Trotter",
+    "nameFil": "Lechon Pata",
+    "nameId": "Ceker Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬尾",
     "nameZh": "豬尾",
-    "nameEn": "Pork Tail"
+    "nameEn": "Pork Tail",
+    "nameFil": "Buntot ng Baboy",
+    "nameId": "Ekor Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬肚",
     "nameZh": "豬肚",
-    "nameEn": "Pork Stomach"
+    "nameEn": "Pork Stomach",
+    "nameFil": "Bituka ng Baboy",
+    "nameId": "Perut Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "豬耳",
     "nameZh": "豬耳",
-    "nameEn": "Pork Ear"
+    "nameEn": "Pork Ear",
+    "nameFil": "Tenga ng Baboy",
+    "nameId": "Telinga Babi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛",
     "nameZh": "牛腩",
-    "nameEn": "Beef Brisket"
+    "nameEn": "Beef Brisket",
+    "nameFil": "Baka na Baril",
+    "nameId": "Daging Dada Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛腱",
     "nameZh": "牛腱",
-    "nameEn": "Beef Shank"
+    "nameEn": "Beef Shank",
+    "nameFil": "Baka na Pakpak",
+    "nameId": "Daging Betis Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛舌",
     "nameZh": "牛舌",
-    "nameEn": "Beef Tongue"
+    "nameEn": "Beef Tongue",
+    "nameFil": "Lila ng Baka",
+    "nameId": "Lidah Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛百葉",
     "nameZh": "牛百葉",
-    "nameEn": "Beef Tripe"
+    "nameEn": "Beef Tripe",
+    "nameFil": "Bulaklak ng Baka",
+    "nameId": "Rumput Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "牛肚",
     "nameZh": "牛肚",
-    "nameEn": "Beef Stomach"
+    "nameEn": "Beef Stomach",
+    "nameFil": "Bituka ng Baka",
+    "nameId": "Perut Sapi"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "羊架",
     "nameZh": "羊架",
-    "nameEn": "Lamb Rack"
+    "nameEn": "Lamb Rack",
+    "nameFil": "Tulugtung ng Tupa",
+    "nameId": "Tulang Domba"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "羊",
     "nameZh": "羊腩",
-    "nameEn": "Lamb Brisket"
+    "nameEn": "Lamb Brisket",
+    "nameFil": "Dibdib ng Tupa",
+    "nameId": "Dada Domba"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "鴨",
     "nameZh": "鴨",
-    "nameEn": "Duck"
+    "nameEn": "Duck",
+    "nameFil": "Itik",
+    "nameId": "Bebek"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "鴨胸",
     "nameZh": "鴨胸",
-    "nameEn": "Duck Breast"
+    "nameEn": "Duck Breast",
+    "nameFil": "Dibdib ng Itik",
+    "nameId": "Dada Bebek"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "鵝",
     "nameZh": "鵝",
-    "nameEn": "Goose"
+    "nameEn": "Goose",
+    "nameFil": "Anoa",
+    "nameId": "Angsa"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "乳鴿",
     "nameZh": "乳鴿",
-    "nameEn": "Squab"
+    "nameEn": "Squab",
+    "nameFil": "Pito",
+    "nameId": "Merpati Muda"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "piece",
     "nameYue": "鶉",
     "nameZh": "鶉",
-    "nameEn": "Quail"
+    "nameEn": "Quail",
+    "nameFil": "Pugo",
+    "nameId": "Puyuh"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "火雞",
     "nameZh": "火雞",
-    "nameEn": "Turkey"
+    "nameEn": "Turkey",
+    "nameFil": "Pavo",
+    "nameId": "Kalkun"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "catty",
     "nameYue": "兔肉",
     "nameZh": "兔肉",
-    "nameEn": "Rabbit"
+    "nameEn": "Rabbit",
+    "nameFil": "Kuneho",
+    "nameId": "Kelinci"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "午餐肉",
     "nameZh": "午餐肉",
-    "nameEn": "Luncheon Meat"
+    "nameEn": "Luncheon Meat",
+    "nameFil": "Luncheon meat",
+    "nameId": "Daging kaleng"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "肉鬆",
     "nameZh": "肉鬆",
-    "nameEn": "Pork Floss"
+    "nameEn": "Pork Floss",
+    "nameFil": "Pork floss",
+    "nameId": "Daging kering remuk"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "肉乾",
     "nameZh": "肉乾",
-    "nameEn": "Jerky"
+    "nameEn": "Jerky",
+    "nameFil": "Tapa",
+    "nameId": "Daging kering"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "叉燒",
     "nameZh": "叉燒",
-    "nameEn": "Char Siu"
+    "nameEn": "Char Siu",
+    "nameFil": "Charsiu",
+    "nameId": "Char siu"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "燒肉",
     "nameZh": "燒肉",
-    "nameEn": "Roast Pork"
+    "nameEn": "Roast Pork",
+    "nameFil": "Lechon",
+    "nameId": "Babi panggang"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "燒鴨",
     "nameZh": "燒鴨",
-    "nameEn": "Roast Duck"
+    "nameEn": "Roast Duck",
+    "nameFil": "Itik na pinirito",
+    "nameId": "Bebek panggang"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "油雞",
     "nameZh": "油雞",
-    "nameEn": "Soy Sauce Chicken"
+    "nameEn": "Soy Sauce Chicken",
+    "nameFil": "Manok sa toyo",
+    "nameId": "Ayam kecapam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "白切雞",
     "nameZh": "白切雞",
-    "nameEn": "White Cut Chicken"
+    "nameEn": "White Cut Chicken",
+    "nameFil": "Pinirong manok",
+    "nameId": "Ayam rebus putih"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "鹽焗雞",
     "nameZh": "鹽焗雞",
-    "nameEn": "Salt Baked Chicken"
+    "nameEn": "Salt Baked Chicken",
+    "nameFil": "Manok na lutuin sa asin",
+    "nameId": "Ayam bakar garam"
   },
   {
     "categoryKey": "meat",
     "defaultUnitKey": "pack",
     "nameYue": "水鵝",
     "nameZh": "水鵝",
-    "nameEn": "Braised Goose"
+    "nameEn": "Braised Goose",
+    "nameFil": "Anoa na nilaga",
+    "nameId": "Angsa dimasak"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "魚",
     "nameZh": "魚",
-    "nameEn": "Fish"
+    "nameEn": "Fish",
+    "nameFil": "Isda",
+    "nameId": "Ikan"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "catty",
     "nameYue": "蝦",
     "nameZh": "蝦",
-    "nameEn": "Shrimp"
+    "nameEn": "Shrimp",
+    "nameFil": "Hipon",
+    "nameId": "Udang"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "蟹",
     "nameZh": "蟹",
-    "nameEn": "Crab"
+    "nameEn": "Crab",
+    "nameFil": "Alimango",
+    "nameId": "Kepiting"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "帶子",
     "nameZh": "帶子",
-    "nameEn": "Scallop"
+    "nameEn": "Scallop",
+    "nameFil": "Scallop",
+    "nameId": "Kima"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "魷魚",
     "nameZh": "魷魚",
-    "nameEn": "Squid"
+    "nameEn": "Squid",
+    "nameFil": "Pusit",
+    "nameId": "Cumi-cumi"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "墨魚",
     "nameZh": "墨魚",
-    "nameEn": "Cuttlefish"
+    "nameEn": "Cuttlefish",
+    "nameFil": "Pusit",
+    "nameId": "Cumi-cumi"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "catty",
     "nameYue": "蠔",
     "nameZh": "",
-    "nameEn": "Oyster"
+    "nameEn": "Oyster",
+    "nameFil": "Tahong",
+    "nameId": "Kerang tiram"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "三文魚",
     "nameZh": "三文魚",
-    "nameEn": "Salmon"
+    "nameEn": "Salmon",
+    "nameFil": "Salmon",
+    "nameId": "Salmon"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "吞拿魚",
     "nameZh": "吞拿魚",
-    "nameEn": "Tuna"
+    "nameEn": "Tuna",
+    "nameFil": "Tulingan",
+    "nameId": "Tuna"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "鱈魚",
     "nameZh": "鱈魚",
-    "nameEn": "Cod"
+    "nameEn": "Cod",
+    "nameFil": "Cod",
+    "nameId": "Kod"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "鮑魚",
     "nameZh": "魚",
-    "nameEn": "Abalone"
+    "nameEn": "Abalone",
+    "nameFil": "Abalone",
+    "nameId": "Abalon"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "海參",
     "nameZh": "海參",
-    "nameEn": "Sea Cucumber"
+    "nameEn": "Sea Cucumber",
+    "nameFil": "Bayabas-dagat",
+    "nameId": "Timun laut"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "花枝",
     "nameZh": "花枝",
-    "nameEn": "Squid"
+    "nameEn": "Squid",
+    "nameFil": "Pusit",
+    "nameId": "Cumi-cumi"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "蜆",
     "nameZh": "蜆",
-    "nameEn": "Clam"
+    "nameEn": "Clam",
+    "nameFil": "Tahong",
+    "nameId": "Kerang"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "青口",
     "nameZh": "青口",
-    "nameEn": "Mussel"
+    "nameEn": "Mussel",
+    "nameFil": "Tahong",
+    "nameId": "Kerang hijau"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "蟶子",
     "nameZh": "蟶子",
-    "nameEn": "Razor Clam"
+    "nameEn": "Razor Clam",
+    "nameFil": "Tahong razor",
+    "nameId": "Kerang pisau"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "花甲",
     "nameZh": "花甲",
-    "nameEn": "Clam"
+    "nameEn": "Clam",
+    "nameFil": "Tahong",
+    "nameId": "Kerang"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "龍蝦",
     "nameZh": "龍蝦",
-    "nameEn": "Lobster"
+    "nameEn": "Lobster",
+    "nameFil": "Lobster",
+    "nameId": "Lobster"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "皮皮蝦",
     "nameZh": "皮皮蝦",
-    "nameEn": "Mantis Shrimp"
+    "nameEn": "Mantis Shrimp",
+    "nameFil": "Udong mantis",
+    "nameId": "Udang belalang"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "瀨尿蝦",
     "nameZh": "瀨尿蝦",
-    "nameEn": "Mantis Shrimp"
+    "nameEn": "Mantis Shrimp",
+    "nameFil": "Udong mantis",
+    "nameId": "Udang belalang"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "花蟹",
     "nameZh": "花蟹",
-    "nameEn": "Flower Crab"
+    "nameEn": "Flower Crab",
+    "nameFil": "Alimango bulaklak",
+    "nameId": "Kepiting bunga"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "大閘蟹",
     "nameZh": "大閘蟹",
-    "nameEn": "Hairy Crab"
+    "nameEn": "Hairy Crab",
+    "nameFil": "Alimango hairy",
+    "nameId": "Kepiting berambut"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "松葉蟹",
     "nameZh": "松葉蟹",
-    "nameEn": "Snow Crab"
+    "nameEn": "Snow Crab",
+    "nameFil": "Alimango snow",
+    "nameId": "Kepiting salju"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "皇帝蟹",
     "nameZh": "皇帝蟹",
-    "nameEn": "King Crab"
+    "nameEn": "King Crab",
+    "nameFil": "Alimango king",
+    "nameId": "Kepiting raja"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "象拔蚌",
     "nameZh": "象拔蚌",
-    "nameEn": "Geoduck"
+    "nameEn": "Geoduck",
+    "nameFil": "Geoduck",
+    "nameId": "Geoduck"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "北極貝",
     "nameZh": "北極貝",
-    "nameEn": "Arctic Surf Clam"
+    "nameEn": "Arctic Surf Clam",
+    "nameFil": "Tahong arktiko",
+    "nameId": "Kerang surf kutub"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "赤貝",
     "nameZh": "赤貝",
-    "nameEn": "Blood Clam"
+    "nameEn": "Blood Clam",
+    "nameFil": "Tahong dugo",
+    "nameId": "Kerang darah"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "元貝",
     "nameZh": "元貝",
-    "nameEn": "Scallop"
+    "nameEn": "Scallop",
+    "nameFil": "Scallop",
+    "nameId": "Kima"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "柱",
     "nameZh": "瑤柱",
-    "nameEn": "Dried Scallop"
+    "nameEn": "Dried Scallop",
+    "nameFil": "Pinatuyong scallop",
+    "nameId": "Kima kering"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "蝦米",
     "nameZh": "蝦米",
-    "nameEn": "Dried Shrimp"
+    "nameEn": "Dried Shrimp",
+    "nameFil": "Hipong pinatuyo",
+    "nameId": "Udang kering"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "蝦皮",
     "nameZh": "蝦皮",
-    "nameEn": "Dried Baby Shrimp"
+    "nameEn": "Dried Baby Shrimp",
+    "nameFil": "Tinapang Hipon",
+    "nameId": "Udang Kering"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "魚乾",
     "nameZh": "魚乾",
-    "nameEn": "Dried Fish"
+    "nameEn": "Dried Fish",
+    "nameFil": "Isdang Tuyo",
+    "nameId": "Ikan Kering"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
     "nameYue": "魷魚乾",
     "nameZh": "魷魚乾",
-    "nameEn": "Dried Squid"
+    "nameEn": "Dried Squid",
+    "nameFil": "Pusit na Tuyo",
+    "nameId": "Cumi Kering"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "鯛魚",
     "nameZh": "鯛魚",
-    "nameEn": "Sea Bream"
+    "nameEn": "Sea Bream",
+    "nameFil": "Salambaw",
+    "nameId": "Kakap"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "石斑",
     "nameZh": "石斑",
-    "nameEn": "Grouper"
+    "nameEn": "Grouper",
+    "nameFil": "Lapu-lapu",
+    "nameId": "Kerapu"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "多寶魚",
     "nameZh": "多寶魚",
-    "nameEn": "Turbot"
+    "nameEn": "Turbot",
+    "nameFil": "Turbot",
+    "nameId": "Turbot"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "龍脷",
     "nameZh": "龍脷",
-    "nameEn": "Sole"
+    "nameEn": "Sole",
+    "nameFil": "Laya-laya",
+    "nameId": "Laya-laya"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "馬友",
     "nameZh": "馬友",
-    "nameEn": "Fourfinger Threadfin"
+    "nameEn": "Fourfinger Threadfin",
+    "nameFil": "Sunglo",
+    "nameId": "Ikan Serindit"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "鯇魚",
     "nameZh": "鯇魚",
-    "nameEn": "Grass Carp"
+    "nameEn": "Grass Carp",
+    "nameFil": "Ulan",
+    "nameId": "Ikan Wader"
   },
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "slice",
     "nameYue": "鯽魚",
     "nameZh": "鯽魚",
-    "nameEn": "Crucian Carp"
+    "nameEn": "Crucian Carp",
+    "nameFil": "Ulan",
+    "nameId": "Ikan Mas"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "雞蛋",
     "nameZh": "雞蛋",
-    "nameEn": "Egg"
+    "nameEn": "Egg",
+    "nameFil": "Itlog",
+    "nameId": "Telur"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "box",
     "nameYue": "牛奶",
     "nameZh": "牛奶",
-    "nameEn": "Milk"
+    "nameEn": "Milk",
+    "nameFil": "Gatas",
+    "nameId": "Susu"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "box",
     "nameYue": "鮮奶",
     "nameZh": "鮮奶",
-    "nameEn": "Fresh Milk"
+    "nameEn": "Fresh Milk",
+    "nameFil": "Gatas Sariwa",
+    "nameId": "Susu Segar"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "can",
     "nameYue": "奶粉",
     "nameZh": "奶粉",
-    "nameEn": "Milk Powder"
+    "nameEn": "Milk Powder",
+    "nameFil": "Pulbos ng Gatas",
+    "nameId": "Bubuk Susu"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "slice",
     "nameYue": "芝士",
     "nameZh": "芝士",
-    "nameEn": "Cheese"
+    "nameEn": "Cheese",
+    "nameFil": "Keats",
+    "nameId": "Keju"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "牛油",
     "nameZh": "牛油",
-    "nameEn": "Butter"
+    "nameEn": "Butter",
+    "nameFil": "Buter",
+    "nameId": "Mentega"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "box",
     "nameYue": "奶油",
     "nameZh": "奶油",
-    "nameEn": "Cream"
+    "nameEn": "Cream",
+    "nameFil": "Krem",
+    "nameId": "Krim"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "cup",
     "nameYue": "乳酪",
     "nameZh": "乳酪",
-    "nameEn": "Yogurt"
+    "nameEn": "Yogurt",
+    "nameFil": "Yogurt",
+    "nameId": "Yogurt"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "cup",
     "nameYue": "酸乳",
     "nameZh": "酸乳",
-    "nameEn": "Yogurt"
+    "nameEn": "Yogurt",
+    "nameFil": "Yogurt",
+    "nameId": "Yogurt"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "鵪鶉蛋",
     "nameZh": "鵪鶉蛋",
-    "nameEn": "Quail Egg"
+    "nameEn": "Quail Egg",
+    "nameFil": "Itlog ng Pugo",
+    "nameId": "Telur Puyuh"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "鴨蛋",
     "nameZh": "鴨蛋",
-    "nameEn": "Duck Egg"
+    "nameEn": "Duck Egg",
+    "nameFil": "Itlog na Bibe",
+    "nameId": "Telur Bebek"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "鹹蛋",
     "nameZh": "鹹蛋",
-    "nameEn": "Salted Egg"
+    "nameEn": "Salted Egg",
+    "nameFil": "Itlog na Maalat",
+    "nameId": "Telur Asin"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "皮蛋",
     "nameZh": "皮蛋",
-    "nameEn": "Century Egg"
+    "nameEn": "Century Egg",
+    "nameFil": "Itlog na Preservado",
+    "nameId": "Telur Puluhan"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆腐",
     "nameZh": "豆腐",
-    "nameEn": "Tofu"
+    "nameEn": "Tofu",
+    "nameFil": "Tokwa",
+    "nameId": "Tahu"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆卜",
     "nameZh": "豆卜",
-    "nameEn": "Fried Tofu Puff"
+    "nameEn": "Fried Tofu Puff",
+    "nameFil": "Tokwa Puff",
+    "nameId": "Tahu Puff"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆腐卜",
     "nameZh": "豆腐卜",
-    "nameEn": "Fried Tofu Puff"
+    "nameEn": "Fried Tofu Puff",
+    "nameFil": "Tokwa Puff",
+    "nameId": "Tahu Puff"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "腐竹",
     "nameZh": "腐竹",
-    "nameEn": "Dried Bean Curd Sheet"
+    "nameEn": "Dried Bean Curd Sheet",
+    "nameFil": "Lataw Tokwa",
+    "nameId": "Kulit Tahu Kering"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "枝竹",
     "nameZh": "枝竹",
-    "nameEn": "Dried Bean Curd Stick"
+    "nameEn": "Dried Bean Curd Stick",
+    "nameFil": "Tokwang Batang",
+    "nameId": "Batang Tahu Kering"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "油豆腐",
     "nameZh": "油豆腐",
-    "nameEn": "Fried Tofu"
+    "nameEn": "Fried Tofu",
+    "nameFil": "Tokwang Pinirito",
+    "nameId": "Tahu Goreng"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆乾",
     "nameZh": "豆乾",
-    "nameEn": "Dried Tofu"
+    "nameEn": "Dried Tofu",
+    "nameFil": "Tokwang Matigas",
+    "nameId": "Tahu Kering"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆皮",
     "nameZh": "豆皮",
-    "nameEn": "Bean Curd Skin"
+    "nameEn": "Bean Curd Skin",
+    "nameFil": "Lataw Tokwa",
+    "nameId": "Kulit Tahu"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆腐花",
     "nameZh": "豆腐花",
-    "nameEn": "Tofu Pudding"
+    "nameEn": "Tofu Pudding",
+    "nameFil": "Tokwa't Baboy",
+    "nameId": "Puding Tahu"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆漿",
     "nameZh": "豆漿",
-    "nameEn": "Soy Milk"
+    "nameEn": "Soy Milk",
+    "nameFil": "Gatas na Soya",
+    "nameId": "Susu Kedelai"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "豆奶",
     "nameZh": "豆奶",
-    "nameEn": "Soy Milk"
+    "nameEn": "Soy Milk",
+    "nameFil": "Gatas na Soya",
+    "nameId": "Susu Kedelai"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "芝士片",
     "nameZh": "芝士片",
-    "nameEn": "Cheese Slice"
+    "nameEn": "Cheese Slice",
+    "nameFil": "Hiwais ng Keso",
+    "nameId": "Keju Iris"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "馬蘇里拉芝士",
     "nameZh": "馬蘇里拉芝士",
-    "nameEn": "Mozzarella"
+    "nameEn": "Mozzarella",
+    "nameFil": "Mozarela",
+    "nameId": "Mozarella"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "帕瑪森芝士",
     "nameZh": "帕瑪森芝士",
-    "nameEn": "Parmesan"
+    "nameEn": "Parmesan",
+    "nameFil": "Parmesano",
+    "nameId": "Parmesan"
   },
   {
     "categoryKey": "dairy",
     "defaultUnitKey": "piece",
     "nameYue": "奶油芝士",
     "nameZh": "奶油芝士",
-    "nameEn": "Cream Cheese"
+    "nameEn": "Cream Cheese",
+    "nameFil": "Cream Cheese",
+    "nameId": "Cream Cheese"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "鹽",
     "nameZh": "鹽",
-    "nameEn": "Salt"
+    "nameEn": "Salt",
+    "nameFil": "Asin",
+    "nameId": "Garam"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "糖",
     "nameZh": "糖",
-    "nameEn": "Sugar"
+    "nameEn": "Sugar",
+    "nameFil": "Asukal",
+    "nameId": "Gula"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "醬油",
     "nameZh": "醬油",
-    "nameEn": "Soy Sauce"
+    "nameEn": "Soy Sauce",
+    "nameFil": "Toyo",
+    "nameId": "Kecap Asin"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "生抽",
     "nameZh": "生抽",
-    "nameEn": "Light Soy Sauce"
+    "nameEn": "Light Soy Sauce",
+    "nameFil": "Malabig na Toyo",
+    "nameId": "Kecap Asin Ringan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "老抽",
     "nameZh": "老抽",
-    "nameEn": "Dark Soy Sauce"
+    "nameEn": "Dark Soy Sauce",
+    "nameFil": "Madilim na Toyo",
+    "nameId": "Kecap Asin Pekat"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "蠔油",
     "nameZh": "油",
-    "nameEn": "Oyster Sauce"
+    "nameEn": "Oyster Sauce",
+    "nameFil": "Sos na Tahong",
+    "nameId": "Saus Tiram"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "醋",
     "nameZh": "醋",
-    "nameEn": "Vinegar"
+    "nameEn": "Vinegar",
+    "nameFil": "Suka",
+    "nameId": "Cuka"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "米酒",
     "nameZh": "米酒",
-    "nameEn": "Rice Wine"
+    "nameEn": "Rice Wine",
+    "nameFil": "Inuman",
+    "nameId": "Arak Beras"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "麻油",
     "nameZh": "麻油",
-    "nameEn": "Sesame Oil"
+    "nameEn": "Sesame Oil",
+    "nameFil": "Langis ng Miso",
+    "nameId": "Minyak Wijen"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "胡椒粉",
     "nameZh": "胡椒粉",
-    "nameEn": "Pepper Powder"
+    "nameEn": "Pepper Powder",
+    "nameFil": "Pulbos ng Paminta",
+    "nameId": "Bubuk Lada"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "雞粉",
     "nameZh": "雞粉",
-    "nameEn": "Chicken Powder"
+    "nameEn": "Chicken Powder",
+    "nameFil": "Pulbos ng Manok",
+    "nameId": "Bubuk Kaldu Ayam"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "味精",
     "nameZh": "味精",
-    "nameEn": "MSG"
+    "nameEn": "MSG",
+    "nameFil": "Monosodium Glutamate",
+    "nameId": "Monosodium Glutamat"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "柱候醬",
     "nameZh": "柱候醬",
-    "nameEn": "Chu Hou Paste"
+    "nameEn": "Chu Hou Paste",
+    "nameFil": "Pasta Chu Hou",
+    "nameId": "Saus Chu Hou"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "海鮮醬",
     "nameZh": "海鮮醬",
-    "nameEn": "Hoisin Sauce"
+    "nameEn": "Hoisin Sauce",
+    "nameFil": "Sos Hoisin",
+    "nameId": "Saus Hoisin"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "甜麵醬",
     "nameZh": "甜麵醬",
-    "nameEn": "Sweet Bean Sauce"
+    "nameEn": "Sweet Bean Sauce",
+    "nameFil": "Matamis na Sos Beans",
+    "nameId": "Saus Kacang Manis"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "豆瓣醬",
     "nameZh": "豆瓣醬",
-    "nameEn": "Doubanjiang"
+    "nameEn": "Doubanjiang",
+    "nameFil": "Doubanjiang",
+    "nameId": "Pasta Kedelai Fermentasi"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "辣椒醬",
     "nameZh": "辣椒醬",
-    "nameEn": "Chili Sauce"
+    "nameEn": "Chili Sauce",
+    "nameFil": "Sos Sili",
+    "nameId": "Saus Cabai"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "番茄醬",
     "nameZh": "番茄醬",
-    "nameEn": "Ketchup"
+    "nameEn": "Ketchup",
+    "nameFil": "Ketchup",
+    "nameId": "Saus Tomat"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "沙律醬",
     "nameZh": "沙律醬",
-    "nameEn": "Salad Dressing"
+    "nameEn": "Salad Dressing",
+    "nameFil": "Dressing ng Salad",
+    "nameId": "Dressing Salad"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "芥末",
     "nameZh": "芥末",
-    "nameEn": "Mustard"
+    "nameEn": "Mustard",
+    "nameFil": "Mustasa",
+    "nameId": "Mustard"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "魚露",
     "nameZh": "魚露",
-    "nameEn": "Fish Sauce"
+    "nameEn": "Fish Sauce",
+    "nameFil": "Patis",
+    "nameId": "Kecap Ikan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "蝦醬",
     "nameZh": "蝦醬",
-    "nameEn": "Shrimp Paste"
+    "nameEn": "Shrimp Paste",
+    "nameFil": "Bagoong",
+    "nameId": "Terasi"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "沙茶醬",
     "nameZh": "沙茶醬",
-    "nameEn": "Satay Sauce"
+    "nameEn": "Satay Sauce",
+    "nameFil": "Sarsa ng Satay",
+    "nameId": "Saus Satay"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "XO醬",
     "nameZh": "XO醬",
-    "nameEn": "XO Sauce"
+    "nameEn": "XO Sauce",
+    "nameFil": "Sarsa XO",
+    "nameId": "Saus XO"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "辣醬油",
     "nameZh": "辣醬油",
-    "nameEn": "Worcestershire Sauce"
+    "nameEn": "Worcestershire Sauce",
+    "nameFil": "Sarsa Worchester",
+    "nameId": "Saus Worcestershire"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "五香粉",
     "nameZh": "五香粉",
-    "nameEn": "Five Spice Powder"
+    "nameEn": "Five Spice Powder",
+    "nameFil": "Pulbos ng Limang Pampalas",
+    "nameId": "Bubuk Lima Rempah"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "十三香",
     "nameZh": "十三香",
-    "nameEn": "Thirteen Spice"
+    "nameEn": "Thirteen Spice",
+    "nameFil": "Pulbos ng Talumpung Pampalas",
+    "nameId": "Bubuk 13 Rempah"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "咖喱粉",
     "nameZh": "咖喱粉",
-    "nameEn": "Curry Powder"
+    "nameEn": "Curry Powder",
+    "nameFil": "Pulbos ng Kare",
+    "nameId": "Bubuk Kari"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "咖哩膏",
     "nameZh": "咖哩膏",
-    "nameEn": "Curry Paste"
+    "nameEn": "Curry Paste",
+    "nameFil": "Pasta ng Kare",
+    "nameId": "Pasta Kari"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "孜然粉",
     "nameZh": "孜然粉",
-    "nameEn": "Cumin Powder"
+    "nameEn": "Cumin Powder",
+    "nameFil": "Pulbos ng Cumín",
+    "nameId": "Bubuk Jintan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "花椒粉",
     "nameZh": "花椒粉",
-    "nameEn": "Sichuan Pepper Powder"
+    "nameEn": "Sichuan Pepper Powder",
+    "nameFil": "Pulbos ng Sichuan Pepper",
+    "nameId": "Bubuk Merica Sichuan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "八角",
     "nameZh": "八角",
-    "nameEn": "Star Anise"
+    "nameEn": "Star Anise",
+    "nameFil": "Anis na Bituin",
+    "nameId": "Pala Bintang"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "桂皮",
     "nameZh": "桂皮",
-    "nameEn": "Cinnamon Bark"
+    "nameEn": "Cinnamon Bark",
+    "nameFil": "Balat ng Kanela",
+    "nameId": "Kulit Kayu Manis"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "香葉",
     "nameZh": "香葉",
-    "nameEn": "Bay Leaf"
+    "nameEn": "Bay Leaf",
+    "nameFil": "Dahon ng Laurel",
+    "nameId": "Daun Salam"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "草果",
     "nameZh": "草果",
-    "nameEn": "Tsaoko"
+    "nameEn": "Tsaoko",
+    "nameFil": "Tsaoko",
+    "nameId": "Tsaoko"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "丁香",
     "nameZh": "丁香",
-    "nameEn": "Clove"
+    "nameEn": "Clove",
+    "nameFil": "Yakol",
+    "nameId": "Cengkeh"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "茴香",
     "nameZh": "茴香",
-    "nameEn": "Fennel"
+    "nameEn": "Fennel",
+    "nameFil": "Bunga ng Fenolo",
+    "nameId": "Adas"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "陳皮",
     "nameZh": "陳皮",
-    "nameEn": "Dried Tangerine Peel"
+    "nameEn": "Dried Tangerine Peel",
+    "nameFil": "Pinuyong Balat ng Dalandan",
+    "nameId": "Kulit Jeruk Kering"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "冰糖",
     "nameZh": "冰糖",
-    "nameEn": "Rock Sugar"
+    "nameEn": "Rock Sugar",
+    "nameFil": "Asukal na Bato",
+    "nameId": "Gula Batu"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "紅糖",
     "nameZh": "紅糖",
-    "nameEn": "Brown Sugar"
+    "nameEn": "Brown Sugar",
+    "nameFil": "Asukal na Kayumanggi",
+    "nameId": "Gula Coklat"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "黑糖",
     "nameZh": "黑糖",
-    "nameEn": "Black Sugar"
+    "nameEn": "Black Sugar",
+    "nameFil": "Asukal na Itim",
+    "nameId": "Gula Jawa"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "蜜糖",
     "nameZh": "蜜糖",
-    "nameEn": "Honey"
+    "nameEn": "Honey",
+    "nameFil": "Madu",
+    "nameId": "Madu"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "白醋",
     "nameZh": "白醋",
-    "nameEn": "White Vinegar"
+    "nameEn": "White Vinegar",
+    "nameFil": "Puting suka",
+    "nameId": "Cuka putih"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "黑醋",
     "nameZh": "黑醋",
-    "nameEn": "Black Vinegar"
+    "nameEn": "Black Vinegar",
+    "nameFil": "Itim na suka",
+    "nameId": "Cuka hitam"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "浙醋",
     "nameZh": "浙醋",
-    "nameEn": "Zhenjiang Vinegar"
+    "nameEn": "Zhenjiang Vinegar",
+    "nameFil": "Suka ng Zhenjiang",
+    "nameId": "Cuka Zhenjiang"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "紹興酒",
     "nameZh": "紹興酒",
-    "nameEn": "Shaoxing Wine"
+    "nameEn": "Shaoxing Wine",
+    "nameFil": "Inoske ng Shaoxing",
+    "nameId": "Wine Shaoxing"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "花雕酒",
     "nameZh": "花雕酒",
-    "nameEn": "Huadiao Wine"
+    "nameEn": "Huadiao Wine",
+    "nameFil": "Inoske ng Huadiao",
+    "nameId": "Wine Huadiao"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "太白粉",
     "nameZh": "太白粉",
-    "nameEn": "Cornstarch"
+    "nameEn": "Cornstarch",
+    "nameFil": "Maizena",
+    "nameId": "Tepung jagung"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "生粉",
     "nameZh": "生粉",
-    "nameEn": "Cornstarch"
+    "nameEn": "Cornstarch",
+    "nameFil": "Maizena",
+    "nameId": "Tepung jagung"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "麵粉",
     "nameZh": "麵粉",
-    "nameEn": "Flour"
+    "nameEn": "Flour",
+    "nameFil": "Harina",
+    "nameId": "Tepung terigu"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "糯米粉",
     "nameZh": "糯米粉",
-    "nameEn": "Glutinous Rice Flour"
+    "nameEn": "Glutinous Rice Flour",
+    "nameFil": "Giniling na glutinous rice",
+    "nameId": "Tepung ketan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "澄麵",
     "nameZh": "澄麵",
-    "nameEn": "Wheat Starch"
+    "nameEn": "Wheat Starch",
+    "nameFil": "Almidon ng trigo",
+    "nameId": "Tepung pati gandum"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "泡打粉",
     "nameZh": "泡打粉",
-    "nameEn": "Baking Powder"
+    "nameEn": "Baking Powder",
+    "nameFil": "Baking powder",
+    "nameId": "Baking powder"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "梳打粉",
     "nameZh": "梳打粉",
-    "nameEn": "Baking Soda"
+    "nameEn": "Baking Soda",
+    "nameFil": "Baking soda",
+    "nameId": "Baking soda"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "酵母",
     "nameZh": "酵母",
-    "nameEn": "Yeast"
+    "nameEn": "Yeast",
+    "nameFil": "Yeast",
+    "nameId": "Ragi"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "吉士粉",
     "nameZh": "吉士粉",
-    "nameEn": "Custard Powder"
+    "nameEn": "Custard Powder",
+    "nameFil": "Custard powder",
+    "nameId": "Bubuk custard"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "椰漿",
     "nameZh": "椰漿",
-    "nameEn": "Coconut Milk"
+    "nameEn": "Coconut Milk",
+    "nameFil": "Gata ng niyog",
+    "nameId": "Santan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "淡奶",
     "nameZh": "淡奶",
-    "nameEn": "Evaporated Milk"
+    "nameEn": "Evaporated Milk",
+    "nameFil": "Evaporated milk",
+    "nameId": "Susu evaporasi"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "pack",
     "nameYue": "煉奶",
     "nameZh": "煉奶",
-    "nameEn": "Condensed Milk"
+    "nameEn": "Condensed Milk",
+    "nameFil": "Condensed milk",
+    "nameId": "Susu kental manis"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "辣油",
     "nameZh": "辣油",
-    "nameEn": "Chili Oil"
+    "nameEn": "Chili Oil",
+    "nameFil": "Langis ng sili",
+    "nameId": "Minyak cabai"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "花椒油",
     "nameZh": "花椒油",
-    "nameEn": "Sichuan Pepper Oil"
+    "nameEn": "Sichuan Pepper Oil",
+    "nameFil": "Langis ng paminta ng Sichuan",
+    "nameId": "Minyak merica Sichuan"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "蔥油",
     "nameZh": "蔥油",
-    "nameEn": "Scallion Oil"
+    "nameEn": "Scallion Oil",
+    "nameFil": "Langis ng scallion",
+    "nameId": "Minyak daun bawang"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "蒜蓉醬",
     "nameZh": "蒜蓉醬",
-    "nameEn": "Garlic Sauce"
+    "nameEn": "Garlic Sauce",
+    "nameFil": "Sarsa ng bawang",
+    "nameId": "Saus bawang"
   },
   {
     "categoryKey": "seasoning",
     "defaultUnitKey": "bottle",
     "nameYue": "薑蓉",
     "nameZh": "薑蓉",
-    "nameEn": "Ginger Paste"
+    "nameEn": "Ginger Paste",
+    "nameFil": "Pesto ng luya",
+    "nameId": "Pasta jahe"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "米",
     "nameZh": "米",
-    "nameEn": "Rice"
+    "nameEn": "Rice",
+    "nameFil": "Bigas",
+    "nameId": "Beras"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "麵條",
     "nameZh": "麵條",
-    "nameEn": "Noodles"
+    "nameEn": "Noodles",
+    "nameFil": "Pancit",
+    "nameId": "Mie"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "意粉",
     "nameZh": "意粉",
-    "nameEn": "Spaghetti"
+    "nameEn": "Spaghetti",
+    "nameFil": "Spageti",
+    "nameId": "Spaghetti"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "通粉",
     "nameZh": "通粉",
-    "nameEn": "Macaroni"
+    "nameEn": "Macaroni",
+    "nameFil": "Makaroni",
+    "nameId": "Makaroni"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "麥片",
     "nameZh": "麥片",
-    "nameEn": "Oatmeal"
+    "nameEn": "Oatmeal",
+    "nameFil": "Oatmeal",
+    "nameId": "Oatmeal"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "麵包",
     "nameZh": "麵包",
-    "nameEn": "Bread"
+    "nameEn": "Bread",
+    "nameFil": "Tinapay",
+    "nameId": "Roti"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "方包",
     "nameZh": "方包",
-    "nameEn": "Sliced Bread"
+    "nameEn": "Sliced Bread",
+    "nameFil": "Sliced Bread",
+    "nameId": "Roti Tawar"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "piece",
     "nameYue": "頭",
     "nameZh": "饅頭",
-    "nameEn": "Steamed Bun"
+    "nameEn": "Steamed Bun",
+    "nameFil": "Steamed bun",
+    "nameId": "Roti kukus"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "piece",
     "nameYue": "包子",
     "nameZh": "包子",
-    "nameEn": "Steamed Bun"
+    "nameEn": "Steamed Bun",
+    "nameFil": "Steamed bun",
+    "nameId": "Roti kukus"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "餃子皮",
     "nameZh": "餃子皮",
-    "nameEn": "Dumpling Wrapper"
+    "nameEn": "Dumpling Wrapper",
+    "nameFil": "Balat ng Siomai",
+    "nameId": "Kulit Pangsit"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "雲吞皮",
     "nameZh": "雲吞皮",
-    "nameEn": "Wonton Wrapper"
+    "nameEn": "Wonton Wrapper",
+    "nameFil": "Balat ng Wonton",
+    "nameId": "Kulit Pangsit"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "粉絲",
     "nameZh": "粉絲",
-    "nameEn": "Glass Noodles"
+    "nameEn": "Glass Noodles",
+    "nameFil": "Sotanghon",
+    "nameId": "Mie Kaca"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "冬粉",
     "nameZh": "冬粉",
-    "nameEn": "Glass Noodles"
+    "nameEn": "Glass Noodles",
+    "nameFil": "Sotanghon",
+    "nameId": "Mie Kaca"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "紅豆",
     "nameZh": "紅豆",
-    "nameEn": "Red Bean"
+    "nameEn": "Red Bean",
+    "nameFil": "Adzuki",
+    "nameId": "Kacang Merah"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "綠豆",
     "nameZh": "綠豆",
-    "nameEn": "Mung Bean"
+    "nameEn": "Mung Bean",
+    "nameFil": "Munggo",
+    "nameId": "Kacang Hijau"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "花生",
     "nameZh": "花生",
-    "nameEn": "Peanut"
+    "nameEn": "Peanut",
+    "nameFil": "Mani",
+    "nameId": "Kacang Tanah"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "合桃",
     "nameZh": "合桃",
-    "nameEn": "Walnut"
+    "nameEn": "Walnut",
+    "nameFil": "Walnuts",
+    "nameId": "Kenari"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "腰果",
     "nameZh": "腰果",
-    "nameEn": "Cashew"
+    "nameEn": "Cashew",
+    "nameFil": "Kaju",
+    "nameId": "Kacang Mete"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "杏仁",
     "nameZh": "杏仁",
-    "nameEn": "Almond"
+    "nameEn": "Almond",
+    "nameFil": "Almendra",
+    "nameId": "Almond"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "芝麻",
     "nameZh": "芝麻",
-    "nameEn": "Sesame"
+    "nameEn": "Sesame",
+    "nameFil": "Simsim",
+    "nameId": "Wijen"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "枸杞",
     "nameZh": "枸杞",
-    "nameEn": "Goji Berry"
+    "nameEn": "Goji Berry",
+    "nameFil": "Goji berry",
+    "nameId": "Beri goji"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "紅棗",
     "nameZh": "紅棗",
-    "nameEn": "Red Date"
+    "nameEn": "Red Date",
+    "nameFil": "Red date",
+    "nameId": "Kurma merah"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "桂圓",
     "nameZh": "桂圓",
-    "nameEn": "Longan"
+    "nameEn": "Longan",
+    "nameFil": "Longan",
+    "nameId": "Longan"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "蓮子",
     "nameZh": "蓮子",
-    "nameEn": "Lotus Seed"
+    "nameEn": "Lotus Seed",
+    "nameFil": "Butong lotus",
+    "nameId": "Biji teratai"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "百合",
     "nameZh": "百合",
-    "nameEn": "Lily Bulb"
+    "nameEn": "Lily Bulb",
+    "nameFil": "Lily bulb",
+    "nameId": "Umbi bunga lili"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "薏米",
     "nameZh": "薏米",
-    "nameEn": "Job's Tears"
+    "nameEn": "Job's Tears",
+    "nameFil": "Job's tears",
+    "nameId": "Coix"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "赤小豆",
     "nameZh": "赤小豆",
-    "nameEn": "Adzuki Bean"
+    "nameEn": "Adzuki Bean",
+    "nameFil": "Adzuki bean",
+    "nameId": "Kacang adzuki"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "黑豆",
     "nameZh": "黑豆",
-    "nameEn": "Black Bean"
+    "nameEn": "Black Bean",
+    "nameFil": "Black bean",
+    "nameId": "Kacang hitam"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "黃豆",
     "nameZh": "黃豆",
-    "nameEn": "Soybean"
+    "nameEn": "Soybean",
+    "nameFil": "Soybean",
+    "nameId": "Kacang kedelai"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "眉豆",
     "nameZh": "眉豆",
-    "nameEn": "Black-eyed Pea"
+    "nameEn": "Black-eyed Pea",
+    "nameFil": "Black-eyed pea",
+    "nameId": "Kacang mata hitam"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "扁豆",
     "nameZh": "扁豆",
-    "nameEn": "Lentil"
+    "nameEn": "Lentil",
+    "nameFil": "Lentil",
+    "nameId": "Kacang lentil"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "鷹嘴豆",
     "nameZh": "鷹嘴豆",
-    "nameEn": "Chickpea"
+    "nameEn": "Chickpea",
+    "nameFil": "Garbanzo",
+    "nameId": "Kacang chickpea"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "奇亞籽",
     "nameZh": "奇亞籽",
-    "nameEn": "Chia Seed"
+    "nameEn": "Chia Seed",
+    "nameFil": "Chia seed",
+    "nameId": "Biji chia"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "亞麻籽",
     "nameZh": "亞麻籽",
-    "nameEn": "Flaxseed"
+    "nameEn": "Flaxseed",
+    "nameFil": "Flaxseed",
+    "nameId": "Biji rami"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "南瓜籽",
     "nameZh": "南瓜籽",
-    "nameEn": "Pumpkin Seed"
+    "nameEn": "Pumpkin Seed",
+    "nameFil": "Buto ng kalabasa",
+    "nameId": "Biji labu"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "葵瓜子",
     "nameZh": "葵瓜子",
-    "nameEn": "Sunflower Seed"
+    "nameEn": "Sunflower Seed",
+    "nameFil": "Buto ng sunflower",
+    "nameId": "Biji bunga matahari"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "開心果",
     "nameZh": "開心果",
-    "nameEn": "Pistachio"
+    "nameEn": "Pistachio",
+    "nameFil": "Pistasyo",
+    "nameId": "Kacang pistachio"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "夏威夷果",
     "nameZh": "夏威夷果",
-    "nameEn": "Macadamia"
+    "nameEn": "Macadamia",
+    "nameFil": "Macadamia",
+    "nameId": "Kacang macadamia"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "巴西堅果",
     "nameZh": "巴西堅果",
-    "nameEn": "Brazil Nut"
+    "nameEn": "Brazil Nut",
+    "nameFil": "Buta ng Brasil",
+    "nameId": "Kacang Brasil"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "松子",
     "nameZh": "松子",
-    "nameEn": "Pine Nut"
+    "nameEn": "Pine Nut",
+    "nameFil": "Pinon",
+    "nameId": "Kacang pinus"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "榛子",
     "nameZh": "榛子",
-    "nameEn": "Hazelnut"
+    "nameEn": "Hazelnut",
+    "nameFil": "Avelana",
+    "nameId": "Kacang hazel"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "栗子",
     "nameZh": "栗子",
-    "nameEn": "Chestnut"
+    "nameEn": "Chestnut",
+    "nameFil": "Kastanya",
+    "nameId": "Kastanye"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "白果",
     "nameZh": "白果",
-    "nameEn": "Ginkgo Nut"
+    "nameEn": "Ginkgo Nut",
+    "nameFil": "Ginkgo",
+    "nameId": "Kacang ginkgo"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "南杏",
     "nameZh": "南杏",
-    "nameEn": "Sweet Almond"
+    "nameEn": "Sweet Almond",
+    "nameFil": "Almendra matamis",
+    "nameId": "Almond manis"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "北杏",
     "nameZh": "北杏",
-    "nameEn": "Bitter Almond"
+    "nameEn": "Bitter Almond",
+    "nameFil": "Almendra pahit",
+    "nameId": "Almond pahit"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "雪耳",
     "nameZh": "雪耳",
-    "nameEn": "White Fungus"
+    "nameEn": "White Fungus",
+    "nameFil": "Putik na amag",
+    "nameId": "Jamur putih"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "銀耳",
     "nameZh": "銀耳",
-    "nameEn": "White Fungus"
+    "nameEn": "White Fungus",
+    "nameFil": "Putik na amag",
+    "nameId": "Jamur putih"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "花膠",
     "nameZh": "花膠",
-    "nameEn": "Fish Maw"
+    "nameEn": "Fish Maw",
+    "nameFil": "Balanghata ng isda",
+    "nameId": "Gelembung ikan"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "燕窩",
     "nameZh": "燕窩",
-    "nameEn": "Bird's Nest"
+    "nameEn": "Bird's Nest",
+    "nameFil": "Salapi ng ibon",
+    "nameId": "Sarang burung"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "海帶",
     "nameZh": "海帶",
-    "nameEn": "Kelp"
+    "nameEn": "Kelp",
+    "nameFil": "Rumpai dagum",
+    "nameId": "Rumpai laut"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "紫菜",
     "nameZh": "紫菜",
-    "nameEn": "Seaweed"
+    "nameEn": "Seaweed",
+    "nameFil": "Lumot sa dagat",
+    "nameId": "Rumput laut"
   },
   {
     "categoryKey": "dryGoods",
     "defaultUnitKey": "pack",
     "nameYue": "昆布",
     "nameZh": "昆布",
-    "nameEn": "Kombu"
+    "nameEn": "Kombu",
+    "nameFil": "Kombu",
+    "nameId": "Kombu"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "pack",
     "nameYue": "飯",
     "nameZh": "飯",
-    "nameEn": "Rice"
+    "nameEn": "Rice",
+    "nameFil": "Bigas",
+    "nameId": "Beras"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "pack",
     "nameYue": "粥",
     "nameZh": "粥",
-    "nameEn": "Congee"
+    "nameEn": "Congee",
+    "nameFil": "Lugaw",
+    "nameId": "Bubur nasi"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "pack",
     "nameYue": "麵",
     "nameZh": "麵",
-    "nameEn": "Noodles"
+    "nameEn": "Noodles",
+    "nameFil": "Pancit",
+    "nameId": "Mie"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "pack",
     "nameYue": "粉",
     "nameZh": "粉",
-    "nameEn": "Rice Noodles"
+    "nameEn": "Rice Noodles",
+    "nameFil": "Bihon",
+    "nameId": "Bihun"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "餃子",
     "nameZh": "餃子",
-    "nameEn": "Dumpling"
+    "nameEn": "Dumpling",
+    "nameFil": "Dumpling",
+    "nameId": "Pangsit"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "雲吞",
     "nameZh": "雲吞",
-    "nameEn": "Wonton"
+    "nameEn": "Wonton",
+    "nameFil": "Wonton",
+    "nameId": "Wonton"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "燒賣",
     "nameZh": "燒賣",
-    "nameEn": "Siu Mai"
+    "nameEn": "Siu Mai",
+    "nameFil": "Siomai",
+    "nameId": "Siomai"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "包點",
     "nameZh": "包點",
-    "nameEn": "Steamed Bun"
+    "nameEn": "Steamed Bun",
+    "nameFil": "Steamed bun",
+    "nameId": "Roti kukus"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "月餅",
     "nameZh": "月餅",
-    "nameEn": "Mooncake"
+    "nameEn": "Mooncake",
+    "nameFil": "Mooncake",
+    "nameId": "Kue bulan"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "糉子",
     "nameZh": "糉子",
-    "nameEn": "Zongzi"
+    "nameEn": "Zongzi",
+    "nameFil": "Zongzi",
+    "nameId": "Zongzi"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "腸粉",
     "nameZh": "腸粉",
-    "nameEn": "Cheung Fun"
+    "nameEn": "Cheung Fun",
+    "nameFil": "Cheung fun",
+    "nameId": "Cheung fun"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "河粉",
     "nameZh": "河粉",
-    "nameEn": "Ho Fun"
+    "nameEn": "Ho Fun",
+    "nameFil": "Ho fun",
+    "nameId": "Bihun pipih"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "米粉",
     "nameZh": "米粉",
-    "nameEn": "Rice Vermicelli"
+    "nameEn": "Rice Vermicelli",
+    "nameFil": "Bihun",
+    "nameId": "Bihun"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "烏冬",
     "nameZh": "烏冬",
-    "nameEn": "Udon"
+    "nameEn": "Udon",
+    "nameFil": "Udon",
+    "nameId": "Udon"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "蕎麥麵",
     "nameZh": "蕎麥麵",
-    "nameEn": "Soba"
+    "nameEn": "Soba",
+    "nameFil": "Soba",
+    "nameId": "Soba"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "拉麵",
     "nameZh": "拉麵",
-    "nameEn": "Ramen"
+    "nameEn": "Ramen",
+    "nameFil": "Ramen",
+    "nameId": "Ramen"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "公仔麵",
     "nameZh": "公仔麵",
-    "nameEn": "Instant Noodles"
+    "nameEn": "Instant Noodles",
+    "nameFil": "Instant noodles",
+    "nameId": "Mie instan"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "出前一丁",
     "nameZh": "出前一丁",
-    "nameEn": "Instant Noodles"
+    "nameEn": "Instant Noodles",
+    "nameFil": "Instant noodles",
+    "nameId": "Mie instan"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "撈麵",
     "nameZh": "撈麵",
-    "nameEn": "Lo Mein"
+    "nameEn": "Lo Mein",
+    "nameFil": "Lo mein",
+    "nameId": "Lo mein"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "炒麵",
     "nameZh": "炒麵",
-    "nameEn": "Chow Mein"
+    "nameEn": "Chow Mein",
+    "nameFil": "Chow mein",
+    "nameId": "Chow mein"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "伊麵",
     "nameZh": "伊麵",
-    "nameEn": "Yi Mein"
+    "nameEn": "Yi Mein",
+    "nameFil": "Yi mein",
+    "nameId": "Yi mein"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "竹昇麵",
     "nameZh": "竹昇麵",
-    "nameEn": "Bamboo Noodles"
+    "nameEn": "Bamboo Noodles",
+    "nameFil": "Bamboo noodles",
+    "nameId": "Mi bambu"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "蛋麵",
     "nameZh": "蛋麵",
-    "nameEn": "Egg Noodles"
+    "nameEn": "Egg Noodles",
+    "nameFil": "Miki",
+    "nameId": "Mie telur"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "全麥麵包",
     "nameZh": "全麥麵包",
-    "nameEn": "Whole Wheat Bread"
+    "nameEn": "Whole Wheat Bread",
+    "nameFil": "Whole wheat bread",
+    "nameId": "Roti gandum utuh"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "牛角包",
     "nameZh": "牛角包",
-    "nameEn": "Croissant"
+    "nameEn": "Croissant",
+    "nameFil": "Croissant",
+    "nameId": "Croissant"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "菠蘿包",
     "nameZh": "菠蘿包",
-    "nameEn": "Pineapple Bun"
+    "nameEn": "Pineapple Bun",
+    "nameFil": "Pineapple bun",
+    "nameId": "Pineapple bun"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "雞尾包",
     "nameZh": "雞尾包",
-    "nameEn": "Cocktail Bun"
+    "nameEn": "Cocktail Bun",
+    "nameFil": "Mini Bun",
+    "nameId": "Roti Cocktail"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "蛋撻",
     "nameZh": "蛋撻",
-    "nameEn": "Egg Tart"
+    "nameEn": "Egg Tart",
+    "nameFil": "Tart ng Itlog",
+    "nameId": "Tart Telur"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "老婆餅",
     "nameZh": "老婆餅",
-    "nameEn": "Sweetheart Cake"
+    "nameEn": "Sweetheart Cake",
+    "nameFil": "Cake na Puso",
+    "nameId": "Kue Hati"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "糯米雞",
     "nameZh": "糯米雞",
-    "nameEn": "Sticky Rice Chicken"
+    "nameEn": "Sticky Rice Chicken",
+    "nameFil": "Manok na Kanin Malagkit",
+    "nameId": "Ayam Beras Ketan"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "蘿蔔糕",
     "nameZh": "蘿蔔糕",
-    "nameEn": "Turnip Cake"
+    "nameEn": "Turnip Cake",
+    "nameFil": "Kakanin na Labanos",
+    "nameId": "Kue Lobak"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "芋頭糕",
     "nameZh": "芋頭糕",
-    "nameEn": "Taro Cake"
+    "nameEn": "Taro Cake",
+    "nameFil": "Kakanin na Ube",
+    "nameId": "Kue Talas"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "馬蹄糕",
     "nameZh": "馬蹄糕",
-    "nameEn": "Water Chestnut Cake"
+    "nameEn": "Water Chestnut Cake",
+    "nameFil": "Kakanin na Ligway",
+    "nameId": "Kue Water Chestnut"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "年糕",
     "nameZh": "年糕",
-    "nameEn": "Nian Gao"
+    "nameEn": "Nian Gao",
+    "nameFil": "Nian Gao",
+    "nameId": "Nian Gao"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "湯圓",
     "nameZh": "湯圓",
-    "nameEn": "Tang Yuan"
+    "nameEn": "Tang Yuan",
+    "nameFil": "Tang Yuan",
+    "nameId": "Tang Yuan"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "艾糍",
     "nameZh": "艾糍",
-    "nameEn": "Mugwort Mochi"
+    "nameEn": "Mugwort Mochi",
+    "nameFil": "Mochi ng Mugwort",
+    "nameId": "Mochi Mugwort"
   },
   {
     "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "麻糬",
     "nameZh": "麻糬",
-    "nameEn": "Mochi"
+    "nameEn": "Mochi",
+    "nameFil": "Mochi",
+    "nameId": "Mochi"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "水",
     "nameZh": "水",
-    "nameEn": "Water"
+    "nameEn": "Water",
+    "nameFil": "Tubig",
+    "nameId": "Air"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "pack",
     "nameYue": "茶",
     "nameZh": "茶",
-    "nameEn": "Tea"
+    "nameEn": "Tea",
+    "nameFil": "Tsaa",
+    "nameId": "Teh"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "pack",
     "nameYue": "咖啡",
     "nameZh": "咖啡",
-    "nameEn": "Coffee"
+    "nameEn": "Coffee",
+    "nameFil": "Kape",
+    "nameId": "Kopi"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "可樂",
     "nameZh": "可樂",
-    "nameEn": "Cola"
+    "nameEn": "Cola",
+    "nameFil": "Cola",
+    "nameId": "Cola"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "雪碧",
     "nameZh": "雪碧",
-    "nameEn": "Sprite"
+    "nameEn": "Sprite",
+    "nameFil": "Sprite",
+    "nameId": "Sprite"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "果汁",
     "nameZh": "果汁",
-    "nameEn": "Juice"
+    "nameEn": "Juice",
+    "nameFil": "Katas",
+    "nameId": "Jus"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "啤酒",
     "nameZh": "啤酒",
-    "nameEn": "Beer"
+    "nameEn": "Beer",
+    "nameFil": "Birch",
+    "nameId": "Bir"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "紅酒",
     "nameZh": "紅酒",
-    "nameEn": "Red Wine"
+    "nameEn": "Red Wine",
+    "nameFil": "Red Wine",
+    "nameId": "Wine Merah"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "白酒",
     "nameZh": "白酒",
-    "nameEn": "White Wine"
+    "nameEn": "White Wine",
+    "nameFil": "White Wine",
+    "nameId": "Wine Putih"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "清酒",
     "nameZh": "清酒",
-    "nameEn": "Sake"
+    "nameEn": "Sake",
+    "nameFil": "Sake",
+    "nameId": "Sake"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "七喜",
     "nameZh": "七喜",
-    "nameEn": "7-Up"
+    "nameEn": "7-Up",
+    "nameFil": "7-Up",
+    "nameId": "7-Up"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "芬達",
     "nameZh": "芬達",
-    "nameEn": "Fanta"
+    "nameEn": "Fanta",
+    "nameFil": "Fanta",
+    "nameId": "Fanta"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "紅牛",
     "nameZh": "紅牛",
-    "nameEn": "Red Bull"
+    "nameEn": "Red Bull",
+    "nameFil": "Red Bull",
+    "nameId": "Red Bull"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "維他奶",
     "nameZh": "維他奶",
-    "nameEn": "Vitasoy"
+    "nameEn": "Vitasoy",
+    "nameFil": "Vitasoy",
+    "nameId": "Vitasoy"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "檸檬茶",
     "nameZh": "檸檬茶",
-    "nameEn": "Lemon Tea"
+    "nameEn": "Lemon Tea",
+    "nameFil": "Tsaa ng Limon",
+    "nameId": "Teh Lemon"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "奶茶",
     "nameZh": "奶茶",
-    "nameEn": "Milk Tea"
+    "nameEn": "Milk Tea",
+    "nameFil": "Tsaa na Gatas",
+    "nameId": "Teh Susu"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "菊花茶",
     "nameZh": "菊花茶",
-    "nameEn": "Chrysanthemum Tea"
+    "nameEn": "Chrysanthemum Tea",
+    "nameFil": "Tsaa ng Kampanula",
+    "nameId": "Teh Krisantemum"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "涼茶",
     "nameZh": "涼茶",
-    "nameEn": "Herbal Tea"
+    "nameEn": "Herbal Tea",
+    "nameFil": "Tsaa na Halimi",
+    "nameId": "Teh Herbal"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "王老吉",
     "nameZh": "王老吉",
-    "nameEn": "Wong Lo Kat"
+    "nameEn": "Wong Lo Kat",
+    "nameFil": "Wong Lo Kat",
+    "nameId": "Wong Lo Kat"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "加多寶",
     "nameZh": "加多寶",
-    "nameEn": "Jiaduobao"
+    "nameEn": "Jiaduobao",
+    "nameFil": "Jiaduobao",
+    "nameId": "Jiaduobao"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "楊枝甘露",
     "nameZh": "楊枝甘露",
-    "nameEn": "Mango Pomelo Sago"
+    "nameEn": "Mango Pomelo Sago",
+    "nameFil": "Mangga, Pampelmusa at Sago",
+    "nameId": "Mangga, Pompelmu dan Sagu"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "椰汁",
     "nameZh": "椰汁",
-    "nameEn": "Coconut Water"
+    "nameEn": "Coconut Water",
+    "nameFil": "Tubig niyog",
+    "nameId": "Air Kelapa"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "椰奶",
     "nameZh": "椰奶",
-    "nameEn": "Coconut Milk"
+    "nameEn": "Coconut Milk",
+    "nameFil": "Gata ng niyog",
+    "nameId": "Santan"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "梳打水",
     "nameZh": "梳打水",
-    "nameEn": "Soda Water"
+    "nameEn": "Soda Water",
+    "nameFil": "Tubig-gas",
+    "nameId": "Air Soda"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "湯力水",
     "nameZh": "湯力水",
-    "nameEn": "Tonic Water"
+    "nameEn": "Tonic Water",
+    "nameFil": "Tonic water",
+    "nameId": "Air Tonic"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "蘋果汁",
     "nameZh": "蘋果汁",
-    "nameEn": "Apple Juice"
+    "nameEn": "Apple Juice",
+    "nameFil": "Katas ng mansanas",
+    "nameId": "Jus apel"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "橙汁",
     "nameZh": "橙汁",
-    "nameEn": "Orange Juice"
+    "nameEn": "Orange Juice",
+    "nameFil": "Katas ng kahel",
+    "nameId": "Jus jeruk"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "can",
     "nameYue": "葡萄汁",
     "nameZh": "葡萄汁",
-    "nameEn": "Grape Juice"
+    "nameEn": "Grape Juice",
+    "nameFil": "Katas ng ubas",
+    "nameId": "Jus anggur"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "朱古力奶",
     "nameZh": "朱古力奶",
-    "nameEn": "Chocolate Milk"
+    "nameEn": "Chocolate Milk",
+    "nameFil": "Gatas na tsokolate",
+    "nameId": "Susu cokelat"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "士多啤梨奶",
     "nameZh": "士多啤梨奶",
-    "nameEn": "Strawberry Milk"
+    "nameEn": "Strawberry Milk",
+    "nameFil": "Gatas na Strawberries",
+    "nameId": "Susu Stroberi"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "燕麥奶",
     "nameZh": "燕麥奶",
-    "nameEn": "Oat Milk"
+    "nameEn": "Oat Milk",
+    "nameFil": "Gatas na Oats",
+    "nameId": "Susu Oat"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "box",
     "nameYue": "杏仁奶",
     "nameZh": "杏仁奶",
-    "nameEn": "Almond Milk"
+    "nameEn": "Almond Milk",
+    "nameFil": "Gatas na Almond",
+    "nameId": "Susu Almond"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "運動飲料",
     "nameZh": "運動飲料",
-    "nameEn": "Sports Drink"
+    "nameEn": "Sports Drink",
+    "nameFil": "Inuming Pang-sports",
+    "nameId": "Minuman Olahraga"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "電解質水",
     "nameZh": "電解質水",
-    "nameEn": "Electrolyte Water"
+    "nameEn": "Electrolyte Water",
+    "nameFil": "Tubig na May Electrolytes",
+    "nameId": "Air Elektrolit"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "bottle",
     "nameYue": "椰子水",
     "nameZh": "椰子水",
-    "nameEn": "Coconut Water"
+    "nameEn": "Coconut Water",
+    "nameFil": "Tubig niyog",
+    "nameId": "Air Kelapa"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "pack",
     "nameYue": "綠茶",
     "nameZh": "綠茶",
-    "nameEn": "Green Tea"
+    "nameEn": "Green Tea",
+    "nameFil": "Tsaa na Berde",
+    "nameId": "Teh Hijau"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "pack",
     "nameYue": "烏龍茶",
     "nameZh": "烏龍茶",
-    "nameEn": "Oolong Tea"
+    "nameEn": "Oolong Tea",
+    "nameFil": "Tsaa na Oolong",
+    "nameId": "Teh Oolong"
   },
   {
     "categoryKey": "beverage",
     "defaultUnitKey": "pack",
     "nameYue": "普洱茶",
     "nameZh": "普洱茶",
-    "nameEn": "Pu-erh Tea"
+    "nameEn": "Pu-erh Tea",
+    "nameFil": "Tsaa na Pu-erh",
+    "nameId": "Teh Pu'er"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "餅乾",
     "nameZh": "餅乾",
-    "nameEn": "Biscuit"
+    "nameEn": "Biscuit",
+    "nameFil": "Biskwit",
+    "nameId": "Biskuit"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "曲奇",
     "nameZh": "曲奇",
-    "nameEn": "Cookie"
+    "nameEn": "Cookie",
+    "nameFil": "Kuki",
+    "nameId": "Kue"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "朱古力",
     "nameZh": "朱古力",
-    "nameEn": "Chocolate"
+    "nameEn": "Chocolate",
+    "nameFil": "Tsokolate",
+    "nameId": "Cokelat"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "糖果",
     "nameZh": "糖果",
-    "nameEn": "Candy"
+    "nameEn": "Candy",
+    "nameFil": "Bonbon",
+    "nameId": "Permen"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "薯片",
     "nameZh": "薯片",
-    "nameEn": "Potato Chips"
+    "nameEn": "Potato Chips",
+    "nameFil": "Chips na Patatas",
+    "nameId": "Keripik Kentang"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "蝦條",
     "nameZh": "蝦條",
-    "nameEn": "Prawn Crackers"
+    "nameEn": "Prawn Crackers",
+    "nameFil": "Crackers na Ulan",
+    "nameId": "Kerupuk Udang"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "海苔",
     "nameZh": "海苔",
-    "nameEn": "Seaweed Snack"
+    "nameEn": "Seaweed Snack",
+    "nameFil": "Panunuwang na Lumot",
+    "nameId": "Camilan Rumput Laut"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "果凍",
     "nameZh": "果凍",
-    "nameEn": "Jelly"
+    "nameEn": "Jelly",
+    "nameFil": "Hila",
+    "nameId": "Jeli"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "布丁",
     "nameZh": "布丁",
-    "nameEn": "Pudding"
+    "nameEn": "Pudding",
+    "nameFil": "Puding",
+    "nameId": "Puding"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "雪條",
     "nameZh": "雪條",
-    "nameEn": "Popsicle"
+    "nameEn": "Popsicle",
+    "nameFil": "Popsicle",
+    "nameId": "Es Loli"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "雪糕",
     "nameZh": "雪糕",
-    "nameEn": "Ice Cream"
+    "nameEn": "Ice Cream",
+    "nameFil": "Helado",
+    "nameId": "Es Krim"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "冰淇林",
     "nameZh": "冰淇林",
-    "nameEn": "Ice Cream"
+    "nameEn": "Ice Cream",
+    "nameFil": "Helado",
+    "nameId": "Es Krim"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "蛋卷",
     "nameZh": "蛋卷",
-    "nameEn": "Egg Roll"
+    "nameEn": "Egg Roll",
+    "nameFil": "Lumpia",
+    "nameId": "Lumpia"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "威化餅",
     "nameZh": "威化餅",
-    "nameEn": "Wafer"
+    "nameEn": "Wafer",
+    "nameFil": "Wafers",
+    "nameId": "Wafel"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "梳打餅",
     "nameZh": "梳打餅",
-    "nameEn": "Cracker"
+    "nameEn": "Cracker",
+    "nameFil": "Crackers",
+    "nameId": "Crackers"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "蘇打餅",
     "nameZh": "蘇打餅",
-    "nameEn": "Soda Cracker"
+    "nameEn": "Soda Cracker",
+    "nameFil": "Soda crackers",
+    "nameId": "Soda crackers"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "花生糖",
     "nameZh": "花生糖",
-    "nameEn": "Peanut Candy"
+    "nameEn": "Peanut Candy",
+    "nameFil": "Candy maní",
+    "nameId": "Permen kacang tanah"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "牛軋糖",
     "nameZh": "牛軋糖",
-    "nameEn": "Nougat"
+    "nameEn": "Nougat",
+    "nameFil": "Nougat",
+    "nameId": "Nougat"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "棉花糖",
     "nameZh": "棉花糖",
-    "nameEn": "Marshmallow"
+    "nameEn": "Marshmallow",
+    "nameFil": "Marshmallow",
+    "nameId": "Marshmallow"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "口香糖",
     "nameZh": "口香糖",
-    "nameEn": "Chewing Gum"
+    "nameEn": "Chewing Gum",
+    "nameFil": "Goma de chew",
+    "nameId": "Permen karet"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "薄荷糖",
     "nameZh": "薄荷糖",
-    "nameEn": "Mint Candy"
+    "nameEn": "Mint Candy",
+    "nameFil": "Minthong",
+    "nameId": "Permen mint"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "喉糖",
     "nameZh": "喉糖",
-    "nameEn": "Throat Lozenge"
+    "nameEn": "Throat Lozenge",
+    "nameFil": "Lozenge",
+    "nameId": "Tablet hisap tenggorokan"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "果仁",
     "nameZh": "果仁",
-    "nameEn": "Mixed Nuts"
+    "nameEn": "Mixed Nuts",
+    "nameFil": "Halong mani",
+    "nameId": "Kacang campuran"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "粟米條",
     "nameZh": "粟米條",
-    "nameEn": "Corn Stick"
+    "nameEn": "Corn Stick",
+    "nameFil": "Corn stick",
+    "nameId": "Corn stick"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "魚蛋",
     "nameZh": "魚蛋",
-    "nameEn": "Fish Ball"
+    "nameEn": "Fish Ball",
+    "nameFil": "Ballsa",
+    "nameId": "Bola ikan"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "芝麻球",
     "nameZh": "芝麻球",
-    "nameEn": "Sesame Ball"
+    "nameEn": "Sesame Ball",
+    "nameFil": "Sesame ball",
+    "nameId": "Bola wijen"
   },
   {
     "categoryKey": "snacks",
     "defaultUnitKey": "pack",
     "nameYue": "煎堆",
     "nameZh": "煎堆",
-    "nameEn": "Sesame Ball"
+    "nameEn": "Sesame Ball",
+    "nameFil": "Sesame ball",
+    "nameId": "Bola wijen"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "bottle",
     "nameYue": "洗潔精",
     "nameZh": "洗潔精",
-    "nameEn": "Dish Soap"
+    "nameEn": "Dish Soap",
+    "nameFil": "Sabon pang-plato",
+    "nameId": "Sabun cuci piring"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "bottle",
     "nameYue": "洗衣液",
     "nameZh": "洗衣液",
-    "nameEn": "Laundry Detergent"
+    "nameEn": "Laundry Detergent",
+    "nameFil": "Detergente",
+    "nameId": "Deterjen"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "pack",
     "nameYue": "廁紙",
     "nameZh": "廁紙",
-    "nameEn": "Toilet Paper"
+    "nameEn": "Toilet Paper",
+    "nameFil": "Papel de banyo",
+    "nameId": "Tisu toilet"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "pack",
     "nameYue": "紙巾",
     "nameZh": "紙巾",
-    "nameEn": "Tissue"
+    "nameEn": "Tissue",
+    "nameFil": "Tisu",
+    "nameId": "Tisu"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "roll",
     "nameYue": "保鮮膜",
     "nameZh": "保鮮膜",
-    "nameEn": "Cling Film"
+    "nameEn": "Cling Film",
+    "nameFil": "Plastic Wrap",
+    "nameId": "Plastik Pembungkus"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "pack",
     "nameYue": "保鮮袋",
     "nameZh": "保鮮袋",
-    "nameEn": "Food Bag"
+    "nameEn": "Food Bag",
+    "nameFil": "Bag ng Pagkain",
+    "nameId": "Kantong Makanan"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "pack",
     "nameYue": "垃圾袋",
     "nameZh": "垃圾袋",
-    "nameEn": "Garbage Bag"
+    "nameEn": "Garbage Bag",
+    "nameFil": "Basura Bag",
+    "nameId": "Kantong Sampah"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "洗碗布",
     "nameZh": "洗碗布",
-    "nameEn": "Dish Cloth"
+    "nameEn": "Dish Cloth",
+    "nameFil": "Lapatang Pinggan",
+    "nameId": "Kain Lap Piring"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "海綿",
     "nameZh": "海綿",
-    "nameEn": "Sponge"
+    "nameEn": "Sponge",
+    "nameFil": "Espongha",
+    "nameId": "Spons"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "pair",
     "nameYue": "筷子",
     "nameZh": "筷子",
-    "nameEn": "Chopsticks"
+    "nameEn": "Chopsticks",
+    "nameFil": "Palikpik",
+    "nameId": "Sumpit"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "碗",
     "nameZh": "碗",
-    "nameEn": "Bowl"
+    "nameEn": "Bowl",
+    "nameFil": "Mangkok",
+    "nameId": "Mangkok"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "碟",
     "nameZh": "碟",
-    "nameEn": "Plate"
+    "nameEn": "Plate",
+    "nameFil": "Pinggan",
+    "nameId": "Piring"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "杯",
     "nameZh": "杯",
-    "nameEn": "Cup"
+    "nameEn": "Cup",
+    "nameFil": "Tasa",
+    "nameId": "Gelas"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "鑊",
     "nameZh": "鑊",
-    "nameEn": "Wok"
+    "nameEn": "Wok",
+    "nameFil": "Wok",
+    "nameId": "Wajan"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "鏟",
     "nameZh": "鑊",
-    "nameEn": "Spatula"
+    "nameEn": "Spatula",
+    "nameFil": "Spatula",
+    "nameId": "Spatula"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "湯匙",
     "nameZh": "湯匙",
-    "nameEn": "Soup Spoon"
+    "nameEn": "Soup Spoon",
+    "nameFil": "Kutsara ng Sabaw",
+    "nameId": "Sendok Sup"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "茶匙",
     "nameZh": "茶匙",
-    "nameEn": "Teaspoon"
+    "nameEn": "Teaspoon",
+    "nameFil": "Kutsaritasa",
+    "nameId": "Sendok Teh"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "量杯",
     "nameZh": "量杯",
-    "nameEn": "Measuring Cup"
+    "nameEn": "Measuring Cup",
+    "nameFil": "Tasa Sukat",
+    "nameId": "Gelas Ukur"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "砧板",
     "nameZh": "砧板",
-    "nameEn": "Cutting Board"
+    "nameEn": "Cutting Board",
+    "nameFil": "Punasan",
+    "nameId": "Talenan"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "菜刀",
     "nameZh": "菜刀",
-    "nameEn": "Kitchen Knife"
+    "nameEn": "Kitchen Knife",
+    "nameFil": "Kutsilyo sa Kusina",
+    "nameId": "Pisau Dapur"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "剪刀",
     "nameZh": "剪刀",
-    "nameEn": "Scissors"
+    "nameEn": "Scissors",
+    "nameFil": "Gunting",
+    "nameId": "Gunting"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "開罐器",
     "nameZh": "開罐器",
-    "nameEn": "Can Opener"
+    "nameEn": "Can Opener",
+    "nameFil": "Pambukas ng Lata",
+    "nameId": "Pembuka Kaleng"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "刨",
     "nameZh": "刨",
-    "nameEn": "Peeler"
+    "nameEn": "Peeler",
+    "nameFil": "Panghihilod",
+    "nameId": "Peleleh"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "隔熱手套",
     "nameZh": "隔熱手套",
-    "nameEn": "Oven Mitt"
+    "nameEn": "Oven Mitt",
+    "nameFil": "Mitang Pang-Oven",
+    "nameId": "Sarung Tangan Oven"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "圍裙",
     "nameZh": "圍裙",
-    "nameEn": "Apron"
+    "nameEn": "Apron",
+    "nameFil": "Apron",
+    "nameId": "Celemek"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "廚房紙巾",
     "nameZh": "廚房紙巾",
-    "nameEn": "Kitchen Paper Towel"
+    "nameEn": "Kitchen Paper Towel",
+    "nameFil": "Papel de Kusina",
+    "nameId": "Tisu Dapur"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "紙",
     "nameZh": "錫紙",
-    "nameEn": "Aluminum Foil"
+    "nameEn": "Aluminum Foil",
+    "nameFil": "Aluminum Foil",
+    "nameId": "Kertas Aluminium"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "烘焙紙",
     "nameZh": "烘焙紙",
-    "nameEn": "Baking Paper"
+    "nameEn": "Baking Paper",
+    "nameFil": "Baking Paper",
+    "nameId": "Kertas Baking"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "密實袋",
     "nameZh": "密實袋",
-    "nameEn": "Ziplock Bag"
+    "nameEn": "Ziplock Bag",
+    "nameFil": "Ziplock Bag",
+    "nameId": "Kantong Resleting"
   },
   {
     "categoryKey": "household",
     "defaultUnitKey": "piece",
     "nameYue": "食物盒",
     "nameZh": "食物盒",
-    "nameEn": "Food Container"
+    "nameEn": "Food Container",
+    "nameFil": "Lalagyan ng Pagkain",
+    "nameId": "Wadah Makanan"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "漂白水",
     "nameZh": "漂白水",
-    "nameEn": "Bleach"
+    "nameEn": "Bleach",
+    "nameFil": "Bleach",
+    "nameId": "Pemutih"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "消毒水",
     "nameZh": "消毒水",
-    "nameEn": "Disinfectant"
+    "nameEn": "Disinfectant",
+    "nameFil": "Disinfectant",
+    "nameId": "Desinfektan"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "地板清潔劑",
     "nameZh": "地板清潔劑",
-    "nameEn": "Floor Cleaner"
+    "nameEn": "Floor Cleaner",
+    "nameFil": "Pampahugas ng Sahig",
+    "nameId": "Pembersih Lantai"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "玻璃清潔劑",
     "nameZh": "玻璃清潔劑",
-    "nameEn": "Glass Cleaner"
+    "nameEn": "Glass Cleaner",
+    "nameFil": "Pampalinis ng Salamin",
+    "nameId": "Pembersih Kaca"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "廁所能清潔劑",
     "nameZh": "廁所能清潔劑",
-    "nameEn": "Toilet Cleaner"
+    "nameEn": "Toilet Cleaner",
+    "nameFil": "Pampalinis ng Inidoro",
+    "nameId": "Pembersih Toilet"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "廚房清潔劑",
     "nameZh": "廚房清潔劑",
-    "nameEn": "Kitchen Cleaner"
+    "nameEn": "Kitchen Cleaner",
+    "nameFil": "Pampalinis ng Kusina",
+    "nameId": "Pembersih Dapur"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "洗衣粉",
     "nameZh": "洗衣粉",
-    "nameEn": "Laundry Powder"
+    "nameEn": "Laundry Powder",
+    "nameFil": "Pampagulo",
+    "nameId": "Deterjen Bubuk"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "柔順劑",
     "nameZh": "柔順劑",
-    "nameEn": "Fabric Softener"
+    "nameEn": "Fabric Softener",
+    "nameFil": "Pampalambot ng Tela",
+    "nameId": "Pelesut"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "拖把",
     "nameZh": "拖把",
-    "nameEn": "Mop"
+    "nameEn": "Mop",
+    "nameFil": "Sipol",
+    "nameId": "Pel"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "掃把",
     "nameZh": "掃把",
-    "nameEn": "Broom"
+    "nameEn": "Broom",
+    "nameFil": "Walis",
+    "nameId": "Sapu"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "箕",
     "nameZh": "畚箕",
-    "nameEn": "Dustpan"
+    "nameEn": "Dustpan",
+    "nameFil": "Palanggana ng Alikabok",
+    "nameId": "Pengki"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "抹布",
     "nameZh": "抹布",
-    "nameEn": "Cleaning Cloth"
+    "nameEn": "Cleaning Cloth",
+    "nameFil": "Lapat",
+    "nameId": "Kain Lap"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "膠手套",
     "nameZh": "膠手套",
-    "nameEn": "Rubber Gloves"
+    "nameEn": "Rubber Gloves",
+    "nameFil": "Gomitas",
+    "nameId": "Sarung Tangan Karet"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "廁紙刷",
     "nameZh": "廁紙刷",
-    "nameEn": "Toilet Brush"
+    "nameEn": "Toilet Brush",
+    "nameFil": "Brush ng Inidoro",
+    "nameId": "Sikat Toilet"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "去污粉",
     "nameZh": "去污粉",
-    "nameEn": "Scouring Powder"
+    "nameEn": "Scouring Powder",
+    "nameFil": "Pampakinis",
+    "nameId": "Bedak Gosok"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "萬能清潔劑",
     "nameZh": "萬能清潔劑",
-    "nameEn": "All-Purpose Cleaner"
+    "nameEn": "All-Purpose Cleaner",
+    "nameFil": "Pampalinis Multi-Guna",
+    "nameId": "Pembersih Serbaguna"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "微纖維布",
     "nameZh": "微纖維布",
-    "nameEn": "Microfiber Cloth"
+    "nameEn": "Microfiber Cloth",
+    "nameFil": "Lapat na Mikrofibra",
+    "nameId": "Kain Microfiber"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "鋼絲球",
     "nameZh": "鋼絲球",
-    "nameEn": "Steel Wool"
+    "nameEn": "Steel Wool",
+    "nameFil": "Bulong Bakal",
+    "nameId": "Spons Baja"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "百潔布",
     "nameZh": "百潔布",
-    "nameEn": "Scouring Pad"
+    "nameEn": "Scouring Pad",
+    "nameFil": "Pad na Panggosok",
+    "nameId": "Spons Gosok"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "管道疏通劑",
     "nameZh": "管道疏通劑",
-    "nameEn": "Drain Cleaner"
+    "nameEn": "Drain Cleaner",
+    "nameFil": "Pampalinis ng Saluran",
+    "nameId": "Pembersih Saluran"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "空氣清新劑",
     "nameZh": "空氣清新劑",
-    "nameEn": "Air Freshener"
+    "nameEn": "Air Freshener",
+    "nameFil": "Pampabango",
+    "nameId": "Pengharum ruangan"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "樟腦丸",
     "nameZh": "樟腦丸",
-    "nameEn": "Mothball"
+    "nameEn": "Mothball",
+    "nameFil": "Bolas na kamayan",
+    "nameId": "Bola kamper"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "乾燥劑",
     "nameZh": "乾燥劑",
-    "nameEn": "Desiccant"
+    "nameEn": "Desiccant",
+    "nameFil": "Pakete ng desiccant",
+    "nameId": "Paket pengering"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "piece",
     "nameYue": "防霉片",
     "nameZh": "防霉片",
-    "nameEn": "Anti-Mold Sheet"
+    "nameEn": "Anti-Mold Sheet",
+    "nameFil": "Patong na panglaban sa amag",
+    "nameId": "Lembar anti jamur"
   },
   {
     "categoryKey": "cleaning",
     "defaultUnitKey": "bottle",
     "nameYue": "除霉劑",
     "nameZh": "除霉劑",
-    "nameEn": "Mold Remover"
+    "nameEn": "Mold Remover",
+    "nameFil": "Pangtanggal ng amag",
+    "nameId": "Pembersih jamur"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "洗頭水",
     "nameZh": "洗頭水",
-    "nameEn": "Shampoo"
+    "nameEn": "Shampoo",
+    "nameFil": "Shampo",
+    "nameId": "Sampo"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "護髮素",
     "nameZh": "護髮素",
-    "nameEn": "Conditioner"
+    "nameEn": "Conditioner",
+    "nameFil": "Kondisyuner",
+    "nameId": "Kondisioner"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "沐浴露",
     "nameZh": "沐浴露",
-    "nameEn": "Body Wash"
+    "nameEn": "Body Wash",
+    "nameFil": "Sabon pang-lawa",
+    "nameId": "Sabun mandi"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "肥皂",
     "nameZh": "肥皂",
-    "nameEn": "Soap"
+    "nameEn": "Soap",
+    "nameFil": "Sabon",
+    "nameId": "Sabun"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "洗手液",
     "nameZh": "洗手液",
-    "nameEn": "Hand Soap"
+    "nameEn": "Hand Soap",
+    "nameFil": "Sabon pangkama",
+    "nameId": "Sabun tangan"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "tube",
     "nameYue": "牙膏",
     "nameZh": "牙膏",
-    "nameEn": "Toothpaste"
+    "nameEn": "Toothpaste",
+    "nameFil": "Pasta ng ngipin",
+    "nameId": "Pasta gigi"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "牙刷",
     "nameZh": "牙刷",
-    "nameEn": "Toothbrush"
+    "nameEn": "Toothbrush",
+    "nameFil": "Brush ng ngipin",
+    "nameId": "Sikat gigi"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "漱口水",
     "nameZh": "漱口水",
-    "nameEn": "Mouthwash"
+    "nameEn": "Mouthwash",
+    "nameFil": "Tubig-buhaghag ng bibig",
+    "nameId": "Obat kumur"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "牙線",
     "nameZh": "牙線",
-    "nameEn": "Dental Floss"
+    "nameEn": "Dental Floss",
+    "nameFil": "Sinulid ng ngipin",
+    "nameId": "Benang gigi"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "護膚霜",
     "nameZh": "護膚霜",
-    "nameEn": "Moisturizer"
+    "nameEn": "Moisturizer",
+    "nameFil": "Lotion",
+    "nameId": "Pelembap"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "防曬霜",
     "nameZh": "防曬霜",
-    "nameEn": "Sunscreen"
+    "nameEn": "Sunscreen",
+    "nameFil": "Sunblock",
+    "nameId": "Tabir surya"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "化妝水",
     "nameZh": "化妝水",
-    "nameEn": "Toner"
+    "nameEn": "Toner",
+    "nameFil": "Toner",
+    "nameId": "Toner"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "化妝棉",
     "nameZh": "化妝棉",
-    "nameEn": "Cotton Pad"
+    "nameEn": "Cotton Pad",
+    "nameFil": "Pad ng bulak",
+    "nameId": "Bed kapas"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "棉簽",
     "nameZh": "棉簽",
-    "nameEn": "Cotton Swab"
+    "nameEn": "Cotton Swab",
+    "nameFil": "Bulut-bulutan",
+    "nameId": "Batang kapas"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "衛生巾",
     "nameZh": "衛生巾",
-    "nameEn": "Sanitary Pad"
+    "nameEn": "Sanitary Pad",
+    "nameFil": "Pampalunas",
+    "nameId": "Pembalut wanita"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "護墊",
     "nameZh": "護墊",
-    "nameEn": "Panty Liner"
+    "nameEn": "Panty Liner",
+    "nameFil": "Panty liner",
+    "nameId": "Pantyliner"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "紙尿褲",
     "nameZh": "紙尿褲",
-    "nameEn": "Diaper"
+    "nameEn": "Diaper",
+    "nameFil": "Diaper",
+    "nameId": "Popok"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "piece",
     "nameYue": "濕紙巾",
     "nameZh": "濕紙巾",
-    "nameEn": "Wet Wipe"
+    "nameEn": "Wet Wipe",
+    "nameFil": "Wet wipe",
+    "nameId": "Tisu basah"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "潤唇膏",
     "nameZh": "潤唇膏",
-    "nameEn": "Lip Balm"
+    "nameEn": "Lip Balm",
+    "nameFil": "Lip balm",
+    "nameId": "Lip balm"
   },
   {
     "categoryKey": "personal",
     "defaultUnitKey": "bottle",
     "nameYue": "護手霜",
     "nameZh": "護手霜",
-    "nameEn": "Hand Cream"
+    "nameEn": "Hand Cream",
+    "nameFil": "Hand cream",
+    "nameId": "Hand cream"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "pack",
     "nameYue": "米糊",
     "nameZh": "米糊",
-    "nameEn": "Baby Cereal"
+    "nameEn": "Baby Cereal",
+    "nameFil": "Baby cereal",
+    "nameId": "Sereal bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "pack",
     "nameYue": "果泥",
     "nameZh": "果泥",
-    "nameEn": "Baby Fruit Puree"
+    "nameEn": "Baby Fruit Puree",
+    "nameFil": "Baby fruit puree",
+    "nameId": "Pure buah bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "pack",
     "nameYue": "蔬菜泥",
     "nameZh": "蔬菜泥",
-    "nameEn": "Baby Vegetable Puree"
+    "nameEn": "Baby Vegetable Puree",
+    "nameFil": "Baby vegetable puree",
+    "nameId": "Pure sayuran bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "pack",
     "nameYue": "嬰兒餅乾",
     "nameZh": "嬰兒餅乾",
-    "nameEn": "Baby Biscuit"
+    "nameEn": "Baby Biscuit",
+    "nameFil": "Baby biscuit",
+    "nameId": "Biskuit bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "奶瓶",
     "nameZh": "奶瓶",
-    "nameEn": "Baby Bottle"
+    "nameEn": "Baby Bottle",
+    "nameFil": "Baby bottle",
+    "nameId": "Botol susu bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "奶嘴",
     "nameZh": "奶嘴",
-    "nameEn": "Baby Nipple"
+    "nameEn": "Baby Nipple",
+    "nameFil": "Baby nipple",
+    "nameId": "Puting botol"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "圍兜",
     "nameZh": "圍兜",
-    "nameEn": "Baby Bib"
+    "nameEn": "Baby Bib",
+    "nameFil": "Baby bib",
+    "nameId": "Celemek bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "嬰兒濕紙巾",
     "nameZh": "嬰兒濕紙巾",
-    "nameEn": "Baby Wipe"
+    "nameEn": "Baby Wipe",
+    "nameFil": "Baby wipe",
+    "nameId": "Tisu basah bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "嬰兒沐浴露",
     "nameZh": "嬰兒沐浴露",
-    "nameEn": "Baby Body Wash"
+    "nameEn": "Baby Body Wash",
+    "nameFil": "Baby body wash",
+    "nameId": "Sabun mandi bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "嬰兒洗頭水",
     "nameZh": "嬰兒洗頭水",
-    "nameEn": "Baby Shampoo"
+    "nameEn": "Baby Shampoo",
+    "nameFil": "Baby shampoo",
+    "nameId": "Sampo bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "嬰兒護膚霜",
     "nameZh": "嬰兒護膚霜",
-    "nameEn": "Baby Lotion"
+    "nameEn": "Baby Lotion",
+    "nameFil": "Baby lotion",
+    "nameId": "Losion bayi"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "尿布疹膏",
     "nameZh": "尿布疹膏",
-    "nameEn": "Diaper Rash Cream"
+    "nameEn": "Diaper Rash Cream",
+    "nameFil": "Diaper rash cream",
+    "nameId": "Krim ruam popok"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "退熱貼",
     "nameZh": "退熱貼",
-    "nameEn": "Cooling Gel Patch"
+    "nameEn": "Cooling Gel Patch",
+    "nameFil": "Cooling gel patch",
+    "nameId": "Plester gel dingin"
   },
   {
     "categoryKey": "baby",
     "defaultUnitKey": "piece",
     "nameYue": "嬰兒棉簽",
     "nameZh": "嬰兒棉簽",
-    "nameEn": "Baby Cotton Swab"
+    "nameEn": "Baby Cotton Swab",
+    "nameFil": "Baby cotton swab",
+    "nameId": "Batang kapas bayi"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "貓糧",
     "nameZh": "貓糧",
-    "nameEn": "Cat Food"
+    "nameEn": "Cat Food",
+    "nameFil": "Cat food",
+    "nameId": "Makanan kucing"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "狗糧",
     "nameZh": "狗糧",
-    "nameEn": "Dog Food"
+    "nameEn": "Dog Food",
+    "nameFil": "Pagkain ng Aso",
+    "nameId": "Makanan Anjing"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "貓罐頭",
     "nameZh": "貓罐頭",
-    "nameEn": "Cat Wet Food"
+    "nameEn": "Cat Wet Food",
+    "nameFil": "Basang Pakan Pusa",
+    "nameId": "Makanan Kucing Basah"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "狗罐頭",
     "nameZh": "狗罐頭",
-    "nameEn": "Dog Wet Food"
+    "nameEn": "Dog Wet Food",
+    "nameFil": "Basang Pakan Aso",
+    "nameId": "Makanan Anjing Basah"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "貓零食",
     "nameZh": "貓零食",
-    "nameEn": "Cat Treat"
+    "nameEn": "Cat Treat",
+    "nameFil": "Pangngipon ng Pusa",
+    "nameId": "Camilan Kucing"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "狗零食",
     "nameZh": "狗零食",
-    "nameEn": "Dog Treat"
+    "nameEn": "Dog Treat",
+    "nameFil": "Pangngipon ng Aso",
+    "nameId": "Camilan Anjing"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "pack",
     "nameYue": "貓砂",
     "nameZh": "貓砂",
-    "nameEn": "Cat Litter"
+    "nameEn": "Cat Litter",
+    "nameFil": "Palikuran ng Pusa",
+    "nameId": "Pasir Kucing"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物尿墊",
     "nameZh": "寵物尿墊",
-    "nameEn": "Pet Pad"
+    "nameEn": "Pet Pad",
+    "nameFil": "Pad ng Alagang Hayop",
+    "nameId": "Bantalan Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物玩具",
     "nameZh": "寵物玩具",
-    "nameEn": "Pet Toy"
+    "nameEn": "Pet Toy",
+    "nameFil": "Laruan ng Alagang Hayop",
+    "nameId": "Mainan Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物洗毛液",
     "nameZh": "寵物洗毛液",
-    "nameEn": "Pet Shampoo"
+    "nameEn": "Pet Shampoo",
+    "nameFil": "Shampo ng Alagang Hayop",
+    "nameId": "Sampo Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物梳",
     "nameZh": "寵物梳",
-    "nameEn": "Pet Brush"
+    "nameEn": "Pet Brush",
+    "nameFil": "Sikat ng Alagang Hayop",
+    "nameId": "Sikat Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物牽引繩",
     "nameZh": "寵物牽引繩",
-    "nameEn": "Pet Leash"
+    "nameEn": "Pet Leash",
+    "nameFil": "Tali ng Alagang Hayop",
+    "nameId": "Tali Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物碗",
     "nameZh": "寵物碗",
-    "nameEn": "Pet Bowl"
+    "nameEn": "Pet Bowl",
+    "nameFil": "Mangkok ng Alagang Hayop",
+    "nameId": "Mangkuk Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物墊",
     "nameZh": "寵物墊",
-    "nameEn": "Pet Mat"
+    "nameEn": "Pet Mat",
+    "nameFil": "Banig ng Alagang Hayop",
+    "nameId": "Tikar Hewan Peliharaan"
   },
   {
     "categoryKey": "pet",
     "defaultUnitKey": "piece",
     "nameYue": "寵物除臭劑",
     "nameZh": "寵物除臭劑",
-    "nameEn": "Pet Deodorizer"
+    "nameEn": "Pet Deodorizer",
+    "nameFil": "Pampabango ng Alagang Hayop",
+    "nameId": "Deodorizer Hewan Peliharaan"
   },
   {
     "categoryKey": "vegetables",
@@ -3785,8 +4865,8 @@
     "nameYue": "蕃茄",
     "nameZh": "番茄",
     "nameEn": "Tomato",
-    "nameFil": null,
-    "nameId": null,
+    "nameFil": "Kamatis",
+    "nameId": "Tomat",
     "isActive": true,
     "sortOrder": 0
   },
@@ -3796,8 +4876,8 @@
     "nameYue": "蕃薯",
     "nameZh": "薯仔",
     "nameEn": "Sweet Potato",
-    "nameFil": null,
-    "nameId": null,
+    "nameFil": "Kamote",
+    "nameId": "Ubi Jalar",
     "isActive": true,
     "sortOrder": 0
   }

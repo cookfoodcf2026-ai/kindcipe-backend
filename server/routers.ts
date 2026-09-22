@@ -102,9 +102,12 @@ import {
   getRemovedFamilyMember,
   addRemovedFamilyMember,
   addRedirectLog,
+  deleteUserAccount,
+  getCommonIngredientById,
+  resolveCommonIngredientByName,
 } from "./db";
 import { sendPasswordResetEmail } from "./_core/email";
-import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families } from "../drizzle/schema";
+import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families, type InsertShoppingItem } from "../drizzle/schema";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 
 const joinAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -504,12 +507,19 @@ const shoppingRouter = router({
       
       // Sanitize name: trim and truncate to 128 chars
       const sanitizedName = input.name.trim().slice(0, 128);
+
+      // Auto-fill nameEn (and matching bilingual hint) from common ingredient when not provided
+      let autoNameEn: string | undefined;
+      if (!input.nameEn && input.commonIngredientId != null) {
+        const ci = await getCommonIngredientById(input.commonIngredientId);
+        autoNameEn = ci?.nameEn ?? undefined;
+      }
       
       try {
         await addShoppingItem({
           familyId: ctx.activeFamilyId!,
           name: sanitizedName,
-          nameEn: input.nameEn?.slice(0, 128),
+          nameEn: (input.nameEn || autoNameEn)?.slice(0, 128),
           category: input.category?.slice(0, 64),
           quantity: input.quantity?.slice(0, 64),
           unit: input.unit?.slice(0, 32),
@@ -885,6 +895,9 @@ const mealPlanRouter = router({
       mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).default("dinner"),
       recipeId: z.string().min(1).max(64),
       recipeName: z.string().min(1).max(128),
+      recipeNameEn: z.string().max(128).optional(),
+      recipeNameFil: z.string().max(128).optional(),
+      recipeNameId: z.string().max(128).optional(),
       recipeImage: z.string().nullable().optional(),
       note: z.string().max(256).optional(),
       autoAddIngredients: z.boolean().default(true),
@@ -969,6 +982,9 @@ const mealPlanRouter = router({
         mealType: input.mealType,
         recipeId: input.recipeId,
         recipeName: input.recipeName,
+        recipeNameEn: input.recipeNameEn,
+        recipeNameFil: input.recipeNameFil,
+        recipeNameId: input.recipeNameId,
         recipeImage: input.recipeImage,
         status,
         proposedByUserId: ctx.user.id,
@@ -980,7 +996,7 @@ const mealPlanRouter = router({
       if (input.autoAddIngredients && input.ingredients && input.ingredients.length > 0 && newPlanId) {
         const ingredientStatus = needsApproval ? "pending" as const : "active" as const;
         const shoppingDate = input.shoppingDate || input.date;
-        const rows = input.ingredients.map((ing) => ({
+        const rows: InsertShoppingItem[] = input.ingredients.map((ing) => ({
           familyId: ctx.activeFamilyId!,
           name: ing.name,
           quantity: ing.quantity,
@@ -993,6 +1009,15 @@ const mealPlanRouter = router({
           fromMealPlanId: newPlanId,
           plannedDate: shoppingDate,
         }));
+        // Resolve each ingredient to a common ingredient to fill nameEn (English name)
+        for (const row of rows) {
+          if (!row.nameEn && row.name) {
+            try {
+              const ci = await resolveCommonIngredientByName(String(row.name));
+              if (ci?.nameEn) row.nameEn = ci.nameEn;
+            } catch { /* skip resolve errors, nameEn stays null */ }
+          }
+        }
         await addShoppingItems(rows);
       }
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
@@ -1037,6 +1062,9 @@ const mealPlanRouter = router({
         mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).default("dinner"),
         recipeId: z.string().min(1).max(64),
         recipeName: z.string().min(1).max(128),
+        recipeNameEn: z.string().max(128).optional(),
+        recipeNameFil: z.string().max(128).optional(),
+        recipeNameId: z.string().max(128).optional(),
         recipeImage: z.string().nullable().optional(),
         ingredients: z.array(z.object({
           name: z.string(),
@@ -1116,6 +1144,9 @@ const mealPlanRouter = router({
           mealType: item.mealType,
           recipeId: item.recipeId,
           recipeName: item.recipeName,
+          recipeNameEn: item.recipeNameEn,
+          recipeNameFil: item.recipeNameFil,
+          recipeNameId: item.recipeNameId,
           recipeImage: item.recipeImage,
           status,
           proposedByUserId: ctx.user.id,
@@ -1789,6 +1820,18 @@ export const appRouter = router({
         await consumePasswordResetToken(tokenRow.tokenHash);
         return { success: true } as const;
       }),
+
+    deleteAccount: publicProcedure.mutation(async ({ ctx }) => {
+      const user = ctx.user;
+      if (!user) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "請先登入" });
+      }
+      // 刪除帳戶：處理所屬家庭（擁有人轉移／刪家庭）＋刪除用戶資料
+      await deleteUserAccount(user.id);
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
   }),
   family: familyRouter,
   shopping: shoppingRouter,

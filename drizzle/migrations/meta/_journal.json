@@ -134,6 +134,48 @@
       "when": 1789021567400,
       "tag": "0018_add_dish_type",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789294368519,
+      "tag": "0019_superb_marauders",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789303127035,
+      "tag": "0020_bitter_maestro",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789305162479,
+      "tag": "0021_fresh_the_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789894661328,
+      "tag": "0022_ambitious_madrox",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790073925925,
+      "tag": "0023_pale_black_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790084773932,
+      "tag": "0024_special_psylocke",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, lte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -245,21 +245,59 @@ export async function deleteFamily(familyId: number) {
   const db = await getDb();
   if (!db) return;
   await db.transaction(async (tx) => {
-    await tx.delete(shoppingItems).where(eq(shoppingItems.familyId, familyId));
-    await tx.delete(pantryItems).where(eq(pantryItems.familyId, familyId));
-    await tx.delete(mealPlans).where(eq(mealPlans.familyId, familyId));
-    await tx.delete(purchaseHistory).where(eq(purchaseHistory.familyId, familyId));
-    await tx.delete(pushTokens).where(eq(pushTokens.familyId, familyId));
-    await tx.delete(customRecipes).where(eq(customRecipes.familyId, familyId));
-    await tx.delete(recipeNotes).where(eq(recipeNotes.familyId, familyId));
-    await tx.delete(familyEatOut).where(eq(familyEatOut.familyId, familyId));
-    await tx.delete(removedFamilyMembers).where(eq(removedFamilyMembers.familyId, familyId));
-    await tx.delete(recipeEvents).where(eq(recipeEvents.familyId, familyId));
-    await tx.delete(favoriteItems).where(eq(favoriteItems.familyId, familyId));
-    await tx.delete(importUsage).where(eq(importUsage.familyId, familyId));
-    await tx.delete(aiChatUsage).where(eq(aiChatUsage.familyId, familyId));
-    await tx.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
-    await tx.delete(families).where(eq(families.id, familyId));
+    await deleteFamilyData(tx, familyId);
+  });
+}
+
+// 喺 transaction 內刪除一個家庭及其所有資料（供 deleteFamily / deleteUserAccount 共用）
+async function deleteFamilyData(tx: any, familyId: number) {
+  await tx.delete(shoppingItems).where(eq(shoppingItems.familyId, familyId));
+  await tx.delete(pantryItems).where(eq(pantryItems.familyId, familyId));
+  await tx.delete(mealPlans).where(eq(mealPlans.familyId, familyId));
+  await tx.delete(purchaseHistory).where(eq(purchaseHistory.familyId, familyId));
+  await tx.delete(pushTokens).where(eq(pushTokens.familyId, familyId));
+  await tx.delete(customRecipes).where(eq(customRecipes.familyId, familyId));
+  await tx.delete(recipeNotes).where(eq(recipeNotes.familyId, familyId));
+  await tx.delete(familyEatOut).where(eq(familyEatOut.familyId, familyId));
+  await tx.delete(removedFamilyMembers).where(eq(removedFamilyMembers.familyId, familyId));
+  await tx.delete(recipeEvents).where(eq(recipeEvents.familyId, familyId));
+  await tx.delete(favoriteItems).where(eq(favoriteItems.familyId, familyId));
+  await tx.delete(importUsage).where(eq(importUsage.familyId, familyId));
+  await tx.delete(aiChatUsage).where(eq(aiChatUsage.familyId, familyId));
+  await tx.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
+  await tx.delete(families).where(eq(families.id, familyId));
+}
+
+// 刪除用戶帳戶：處理佢所屬家庭（擁有人轉移／無其他人就刪家庭）＋刪除用戶資料
+export async function deleteUserAccount(userId: string | number) {
+  const db = await getDb();
+  if (!db) return;
+  const userIdStr = String(userId);
+  await db.transaction(async (tx) => {
+    const memberships = await tx.select().from(familyMembers).where(eq(familyMembers.userId, userIdStr));
+    for (const m of memberships) {
+      const familyId = m.familyId;
+      const others = await tx.select().from(familyMembers)
+        .where(and(eq(familyMembers.familyId, familyId), ne(familyMembers.userId, userIdStr)));
+      if (m.familyRole === "owner") {
+        if (others.length === 0) {
+          // 唯一擁有人，冇其他成員 -> 成個家庭連資料一齊刪
+          await deleteFamilyData(tx, familyId);
+        } else {
+          // 有其他成員 -> 轉移擁有人俾下一個 owner/admin（冇就第一個成員），再移除離場用戶
+          const next = others.find(x => x.familyRole === "owner" || x.familyRole === "admin") ?? others[0];
+          await tx.update(familyMembers).set({ familyRole: "owner" }).where(eq(familyMembers.id, next.id));
+          await tx.delete(familyMembers).where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, userIdStr)));
+        }
+      } else {
+        // 成員（非擁有人）-> 只移除成員身份
+        await tx.delete(familyMembers).where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, userIdStr)));
+      }
+    }
+    // 刪除用戶個人資料
+    await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userIdStr));
+    await tx.delete(pushTokens).where(eq(pushTokens.userId, userIdStr));
+    await tx.delete(users).where(eq((users.id as any), userIdStr));
   });
 }
 
@@ -359,7 +397,40 @@ export async function getFamilyMemberByUserId(familyId: number, userId: string |
 export async function getShoppingItems(familyId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(shoppingItems).where(eq(shoppingItems.familyId, familyId));
+  const items = await db.select().from(shoppingItems).where(eq(shoppingItems.familyId, familyId));
+  return enrichShoppingRecipeNames(db, items);
+}
+
+/** Enrich shopping items with bilingual recipe names (by fromRecipeId). No schema change. */
+async function enrichShoppingRecipeNames(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, items: any[]) {
+  const ids = [...new Set(items.map((i) => i.fromRecipeId).filter(Boolean))] as string[];
+  if (ids.length === 0) return items;
+  const officialIds: number[] = [];
+  const customIds: number[] = [];
+  for (const id of ids) {
+    const o = /^official_(\d+)$/.exec(id);
+    if (o) officialIds.push(Number(o[1]));
+    const u = /^user_(\d+)$/.exec(id);
+    if (u) customIds.push(Number(u[1]));
+  }
+  const map = new Map<string, { en?: string; fil?: string; id?: string }>();
+  try {
+    if (officialIds.length) {
+      const rows = await db.select({ id: officialRecipes.id, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId }).from(officialRecipes).where(inArray(officialRecipes.id, officialIds));
+      for (const r of rows) map.set(`official_${r.id}`, { en: r.nameEn ?? undefined, fil: r.nameFil ?? undefined, id: r.nameId ?? undefined });
+    }
+    if (customIds.length) {
+      const rows = await db.select({ id: customRecipes.id, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId }).from(customRecipes).where(inArray(customRecipes.id, customIds));
+      for (const r of rows) map.set(`user_${r.id}`, { en: r.nameEn ?? undefined, fil: r.nameFil ?? undefined, id: r.nameId ?? undefined });
+    }
+  } catch (e) {
+    console.warn("[getShoppingItems] enrich recipe names failed:", (e as Error)?.message);
+    return items;
+  }
+  return items.map((it) => {
+    const rec = it.fromRecipeId ? map.get(it.fromRecipeId) : undefined;
+    return { ...it, fromRecipeNameEn: rec?.en ?? null, fromRecipeNameFil: rec?.fil ?? null, fromRecipeNameId: rec?.id ?? null };
+  });
 }
 
 export async function addShoppingItem(data: InsertShoppingItem) {
@@ -519,6 +590,9 @@ export async function getMealPlansByDateRange(familyId: number, startDate: strin
     mealType: mealPlans.mealType,
     recipeId: mealPlans.recipeId,
     recipeName: mealPlans.recipeName,
+    recipeNameEn: mealPlans.recipeNameEn,
+    recipeNameFil: mealPlans.recipeNameFil,
+    recipeNameId: mealPlans.recipeNameId,
     recipeImage: mealPlans.recipeImage,
     status: mealPlans.status,
     proposedByUserId: mealPlans.proposedByUserId,
@@ -1095,7 +1169,13 @@ export async function insertCustomRecipe(data: {
   familyId: number;
   createdByUserId: string;
   name: string;
+  nameEn?: string;
+  nameFil?: string;
+  nameId?: string;
   description?: string;
+  descriptionEn?: string;
+  descriptionFil?: string;
+  descriptionId?: string;
   image?: string;
   thumbnailUrl?: string;
   cookTime?: number;
@@ -1104,6 +1184,9 @@ export async function insertCustomRecipe(data: {
   recipeCategory?: string;
   ingredients?: string;
   steps?: string;
+  stepsEn?: string;
+  stepsFil?: string;
+  stepsId?: string;
   tags?: string;
   sourceType?: "instagram" | "youtube" | "xiaohongshu" | "threads" | "manual";
   sourceUrl?: string;
@@ -1677,6 +1760,38 @@ export async function searchCommonIngredients(query: string, limit = 10) {
     .limit(limit);
 }
 
+/** Get a single common ingredient by id */
+export async function getCommonIngredientById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  return db.select().from(commonIngredients).where(eq(commonIngredients.id, id)).limit(1).then((r) => r[0] ?? null);
+}
+
+/** Resolve a (Chinese) ingredient name to a common ingredient, exact then contains. */
+export async function resolveCommonIngredientByName(name: string) {
+  if (!name || !name.trim()) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const n = name.trim();
+  const all = await db
+    .select({ id: commonIngredients.id, nameZh: commonIngredients.nameZh, nameYue: commonIngredients.nameYue, nameEn: commonIngredients.nameEn })
+    .from(commonIngredients)
+    .where(eq(commonIngredients.isActive, true));
+  const norm = (s: string) => s.replace(/\s+/g, "").replace(/[，,。．.、()（）【】\[\]《》]/g, "").trim();
+  const nq = norm(n);
+  const exact = all.find((c) => norm(c.nameZh) === nq || norm(c.nameYue) === nq);
+  if (exact) return exact;
+  let best: { nameEn: string | null; nameZh: string } | null = null;
+  for (const c of all) {
+    const cz = norm(c.nameZh);
+    if (cz.length < 2) continue;
+    if (nq.includes(cz) || cz.includes(nq)) {
+      if (!best || cz.length < norm(best.nameZh).length) best = c as any;
+    }
+  }
+  return best;
+}
+
 /** Insert common ingredients (idempotent: skip if nameYue already exists) */
 export async function insertCommonIngredients(items: InsertCommonIngredient[]): Promise<number> {
   if (items.length === 0) return 0;
@@ -1695,6 +1810,29 @@ export async function insertCommonIngredients(items: InsertCommonIngredient[]): 
     }
   }
   return inserted;
+}
+
+/** Update nameFil / nameId on existing common ingredients (UPSERT on nameYue). */
+export async function updateCommonIngredientTranslations(
+  items: InsertCommonIngredient[]
+): Promise<number> {
+  if (items.length === 0) return 0;
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  let updated = 0;
+  for (const item of items) {
+    if (!item.nameYue || !item.nameFil || !item.nameId) continue;
+    try {
+      await db
+        .update(commonIngredients)
+        .set({ nameFil: item.nameFil, nameId: item.nameId })
+        .where(eq(commonIngredients.nameYue, item.nameYue));
+      updated++;
+    } catch {
+      // Skip unmatched rows
+    }
+  }
+  return updated;
 }
 
 // ─── Recipe Popularity ───────────────────────────────────────────────────────
