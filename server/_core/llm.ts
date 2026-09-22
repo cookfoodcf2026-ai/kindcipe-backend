@@ -340,6 +340,61 @@ export function extractJSON<T = Record<string, unknown>>(raw: string): T {
 }
 
 /**
+ * Extract the FIRST complete JSON value (object or array) from LLM output using
+ * balanced-bracket scanning that respects string literals + escapes.
+ *
+ * Unlike extractJSON (first "{" .. last "}"), this survives:
+ *  - two concatenated JSON objects  ({"a":1}{"b":2})
+ *  - trailing prose after the JSON
+ *  - braces inside string values
+ * Returns null when no complete value is found.
+ */
+export function extractFirstJson<T = Record<string, unknown>>(raw: string): T | null {
+  if (!raw) return null;
+  let content = raw.trim();
+  if (content.startsWith("```")) {
+    content = content.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+  }
+  const start = (() => {
+    const o = content.indexOf("{");
+    const a = content.indexOf("[");
+    if (o === -1) return a;
+    if (a === -1) return o;
+    return Math.min(o, a);
+  })();
+  if (start === -1) return null;
+
+  const open = content[start];
+  const close = open === "{" ? "}" : "]";
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < content.length; i++) {
+    const c = content[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(content.slice(start, i + 1)) as T;
+        } catch (e) {
+          console.warn("[LLM] extractFirstJson parse failed:", String((e as Error)?.message || e));
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Repair common JSON issues from LLM output
  * Handles: unquoted keys, truncated strings, unclosed braces
  */

@@ -5,6 +5,18 @@ import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  // Mask unexpected failures so raw technical messages never reach users.
+  errorFormatter({ shape, error }) {
+    const safeCodes = new Set([
+      "BAD_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND",
+      "CONFLICT", "PRECONDITION_FAILED", "TOO_MANY_REQUESTS", "PARSE_ERROR",
+    ]);
+    const isSafe = safeCodes.has(error.code);
+    return {
+      ...shape,
+      message: isSafe ? shape.message : "發生錯誤，請稍後再試。",
+    };
+  },
 });
 
 export const router = t.router;

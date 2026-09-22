@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
-import { invokeLLM, extractJSON, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe } from "../db";
 import { storageGetSignedUrl } from "../storage";
@@ -2875,6 +2875,29 @@ export async function* streamAIChefChat(
 
 // ─── Router ──────────────────────────────────────────────
 
+// AI Edit only produces the app's four content languages (zh / en / fil / id).
+// Detect requests to switch to another language and fail fast with a friendly message.
+const UNSUPPORTED_LANG_PATTERNS = [
+  "泰文", "泰語", "thai", "日文", "日語", "japanese", "韓文", "韓語", "korean",
+  "法文", "法語", "french", "德文", "德語", "german", "西班牙", "spanish",
+  "越南", "vietnamese", "阿拉伯", "arabic", "俄文", "俄語", "russian",
+  "意大利文", "義大利文", "italian", "葡萄牙", "portuguese", "印地", "hindi",
+  "馬來", "malay", "緬甸", "泰國語言", "thailand language",
+];
+
+function assertSupportedEditLanguage(prompt: string) {
+  const p = (prompt ?? "").toLowerCase();
+  const wantsTranslate = /翻譯|translate|轉做|轉成|改成|變成|語言|language/.test(p);
+  if (!wantsTranslate) return;
+  const hit = UNSUPPORTED_LANG_PATTERNS.find((k) => p.includes(k.toLowerCase()));
+  if (hit) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "AI 編輯暫時只支援中文、英文、菲律賓文及印尼文。",
+    });
+  }
+}
+
 // 共用 AI 編輯：用 editor prompt 產生完整新食譜 JSON（唔係 AI Chef 對話）
 async function runAiEdit(
   input: { recipe: any; editPrompt: string },
@@ -3000,10 +3023,19 @@ async function runAiEdit(
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
 
-  // Apply repairJSON for robustness (same as AI Chef four-layer protection)
-  const extracted = extractJSON(parsedContent);
-  const repaired = repairJSON(JSON.stringify(extracted));
-  const parsed = aiEditOutputSchema.parse(JSON.parse(repaired));
+  // Robust parse: prefer the first complete JSON value (balanced-bracket scan),
+  // then fall back to the legacy extract+repair path.
+  let rawParsed: any = extractFirstJson<any>(parsedContent);
+  if (!rawParsed) {
+    const extracted = extractJSON(parsedContent);
+    const repaired = repairJSON(JSON.stringify(extracted));
+    try {
+      rawParsed = JSON.parse(repaired);
+    } catch {
+      rawParsed = extracted;
+    }
+  }
+  const parsed = aiEditOutputSchema.parse(rawParsed);
   
   // Apply differential check to prevent over-editing
   const validation = validateEditDifferential(input.recipe, parsed);
@@ -3067,6 +3099,7 @@ export const aiRecipeRouter = router({
         }
       }
 
+      assertSupportedEditLanguage(input.editPrompt);
       const parsed = await runAiEdit(input, ctx.activeFamilyId, ctx.user.id);
 
       return {
@@ -3109,6 +3142,7 @@ export const aiRecipeRouter = router({
         }
       }
 
+      assertSupportedEditLanguage(input.editPrompt);
       const parsed = await runAiEdit(input, ctx.activeFamilyId, ctx.user.id);
       const mergedTags = Array.from(new Set([
         ...(input.recipe.tags ?? []),

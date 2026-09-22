@@ -52,19 +52,10 @@ async function startServer() {
   const trpcMiddleware = createExpressMiddleware({
     router: appRouter,
     createContext,
-    onError: ({ error, path, input, type, ctx }) => {
+    onError: ({ error, path, type, ctx }) => {
       const userId = ctx?.user?.id ?? "anon";
       const familyId = ctx?.activeFamilyId ?? "-";
-      const safeInput = (() => {
-        try {
-          if (typeof input !== "object" || input === null) return input;
-          const s = JSON.stringify(input);
-          return s && s.length > 2000 ? `${s.slice(0, 2000)}…(truncated)` : s;
-        } catch {
-          return "[unserializable]";
-        }
-      })();
-      console.error(`[tRPC] ${type} ${path} user=${userId} family=${familyId} code=${error.code}\n  message: ${error.message}\n  input: ${safeInput}`);
+      console.error(`[tRPC] ${type} ${path} user=${userId} family=${familyId} code=${error.code}\n  message: ${error.message}`);
     },
   });
   app.use("/api/v1/trpc", trpcMiddleware);

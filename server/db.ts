@@ -39,6 +39,7 @@ import {
   recipeNotes,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { normalizeIngredientCandidates } from "./utils/ingredientResolve";
 
 let _pgClient: ReturnType<typeof postgres> | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1772,15 +1773,27 @@ export async function resolveCommonIngredientByName(name: string) {
   if (!name || !name.trim()) return null;
   const db = await getDb();
   if (!db) return null;
-  const n = name.trim();
   const all = await db
     .select({ id: commonIngredients.id, nameZh: commonIngredients.nameZh, nameYue: commonIngredients.nameYue, nameEn: commonIngredients.nameEn })
     .from(commonIngredients)
     .where(eq(commonIngredients.isActive, true));
   const norm = (s: string) => s.replace(/\s+/g, "").replace(/[，,。．.、()（）【】\[\]《》]/g, "").trim();
-  const nq = norm(n);
-  const exact = all.find((c) => norm(c.nameZh) === nq || norm(c.nameYue) === nq);
-  if (exact) return exact;
+  const byNorm = new Map<string, (typeof all)[number]>();
+  for (const c of all) {
+    for (const v of [c.nameZh, c.nameYue]) {
+      const k = norm(v);
+      if (k && !byNorm.has(k)) byNorm.set(k, c);
+    }
+  }
+
+  // 1) try normalised candidates (prefix/paren/split/qualifier/quantity aware)
+  for (const cand of normalizeIngredientCandidates(name)) {
+    const hit = byNorm.get(norm(cand));
+    if (hit) return hit;
+  }
+
+  // 2) substring fallback
+  const nq = norm(name);
   let best: { nameEn: string | null; nameZh: string } | null = null;
   for (const c of all) {
     const cz = norm(c.nameZh);
