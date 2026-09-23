@@ -28,6 +28,10 @@ export const ENV = {
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "Kindcipe <onboarding@resend.dev>",
 
+  // Beta: treat every household as a paid (Pro) subscriber, with generous limits.
+  // Unset before the public launch to restore normal free/trial gating.
+  betaAllPaid: process.env.BETA_ALL_PAID === "true",
+
   // Expo Push Notifications
   expoPushToken: process.env.EXPO_PUSH_TOKEN ?? "",
 

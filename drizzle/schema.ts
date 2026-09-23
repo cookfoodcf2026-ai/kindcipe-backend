@@ -58,6 +58,21 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = typeof passwordResetTokens.$inferInsert;
 
+// ─── Email Verification Codes ────────────────────────────────────────────────
+export const emailVerificationCodes = pgTable("email_verification_codes", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  codeHash: varchar("code_hash", { length: 64 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type EmailVerificationCode = typeof emailVerificationCodes.$inferSelect;
+export type InsertEmailVerificationCode = typeof emailVerificationCodes.$inferInsert;
+
 // ─── Families ─────────────────────────────────────────────────────────────────
 export const families = pgTable("families", {
   id: serial("id").primaryKey(),

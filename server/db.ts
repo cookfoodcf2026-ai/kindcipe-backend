@@ -24,6 +24,7 @@ import {
   iapTransactions,
   aiChatUsage,
   passwordResetTokens,
+  emailVerificationCodes,
   type InsertCommonIngredient,
   type InsertFamily,
   type InsertFamilyMember,
@@ -83,6 +84,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     textFields.forEach(assignNullable);
     if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
+    // Social sign-in (Apple/Google) implies a provider-verified email.
+    if (user.openId.startsWith("google_") || user.openId.startsWith("apple_")) {
+      values.emailVerified = true;
+      updateSet.emailVerified = true;
+    }
     if (user.passwordVersion !== undefined) { values.passwordVersion = user.passwordVersion; updateSet.passwordVersion = user.passwordVersion; }
     if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
     else if (user.openId === ENV.ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
@@ -134,6 +140,99 @@ export async function consumePasswordResetToken(tokenHash: string): Promise<void
   const db = await getDb();
   if (!db) return;
   await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.tokenHash, tokenHash));
+}
+
+// ─── Email Verification Codes ────────────────────────────────────────────────
+function hashCode(code: string): string {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+const VERIFICATION_TTL_MS = 10 * 60 * 1000;
+export const VERIFICATION_MAX_ATTEMPTS = 5;
+
+/** Create a fresh 6-digit code for a user (replaces any previous one). */
+export async function createEmailVerificationCode(params: {
+  userId: string;
+  email: string;
+}): Promise<{ code: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const email = params.email.toLowerCase();
+
+  await db.delete(emailVerificationCodes).where(eq(emailVerificationCodes.email, email));
+  await db.insert(emailVerificationCodes).values({
+    userId: params.userId,
+    email,
+    codeHash: hashCode(code),
+    expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
+  });
+  return { code };
+}
+
+export type VerifyCodeResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: "not_found" | "expired" | "too_many_attempts" | "wrong_code" };
+
+/** Validate a code and mark it used on success. */
+export async function verifyEmailCode(email: string, code: string): Promise<VerifyCodeResult> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const normalized = email.toLowerCase();
+  const [row] = await db
+    .select()
+    .from(emailVerificationCodes)
+    .where(eq(emailVerificationCodes.email, normalized))
+    .limit(1);
+
+  if (!row || row.usedAt) return { ok: false, reason: "not_found" };
+  if (row.expiresAt < new Date()) return { ok: false, reason: "expired" };
+  if (row.attempts >= VERIFICATION_MAX_ATTEMPTS) return { ok: false, reason: "too_many_attempts" };
+
+  if (row.codeHash !== hashCode(code.trim())) {
+    await db
+      .update(emailVerificationCodes)
+      .set({ attempts: row.attempts + 1 })
+      .where(eq(emailVerificationCodes.id, row.id));
+    return { ok: false, reason: "wrong_code" };
+  }
+
+  await db.update(emailVerificationCodes).set({ usedAt: new Date() }).where(eq(emailVerificationCodes.id, row.id));
+  return { ok: true, userId: row.userId };
+}
+
+/** Mark a user's email as verified. */
+export async function setUserEmailVerified(userId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ emailVerified: true }).where(eq((users.id as any), String(userId)));
+}
+
+/** Any verification code issued within the last `withinMs` for this email? (resend cooldown) */
+export async function getRecentEmailVerificationCode(email: string, withinMs: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(emailVerificationCodes)
+    .where(eq(emailVerificationCodes.email, email.toLowerCase()))
+    .limit(1);
+  if (!row) return null;
+  return Date.now() - new Date(row.createdAt).getTime() < withinMs ? row : null;
+}
+
+/** One-time grandfathering: mark all existing users verified. */
+export async function markAllUsersEmailVerified(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .update(users)
+    .set({ emailVerified: true })
+    .where(eq(users.emailVerified, false))
+    .returning({ id: users.id });
+  return rows.length;
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -1286,6 +1385,22 @@ export async function deleteRecipeNote(id: number, userId: string, familyId: num
 export async function getFamilySubscription(familyId: number) {
   const family = await getFamilyById(familyId);
   if (!family) return null;
+
+  // Beta: everyone is Pro (full features, no trial expiry). Reversible via env.
+  if (ENV.betaAllPaid) {
+    return {
+      status: "active" as const,
+      isPaid: true,
+      maxMembers: 6,
+      maxImportsPerMonth: 9999,
+      maxCustomRecipesPerMonth: null,
+      aiChatLimit: 9999,
+      sharedLocked: false,
+      trialEndsAt: family.trialEndsAt,
+      subscriptionExpiresAt: family.subscriptionExpiresAt,
+      subscriptionPlan: family.subscriptionPlan ?? "beta",
+    };
+  }
 
   let status = family.subscriptionStatus;
   const now = new Date();

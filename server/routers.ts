@@ -92,6 +92,10 @@ import {
   deleteRecipeNote,
   getUserByEmail,
   createEmailUser,
+  createEmailVerificationCode,
+  verifyEmailCode,
+  setUserEmailVerified,
+  getRecentEmailVerificationCode,
   verifyPassword,
   touchUserSignIn,
   updateUserPassword,
@@ -106,7 +110,7 @@ import {
   getCommonIngredientById,
   resolveCommonIngredientByName,
 } from "./db";
-import { sendPasswordResetEmail } from "./_core/email";
+import { sendPasswordResetEmail, sendVerificationEmail } from "./_core/email";
 import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families, type InsertShoppingItem } from "../drizzle/schema";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 
@@ -1707,11 +1711,67 @@ export const appRouter = router({
         });
         if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "建立帳號失敗，請稍後再試" });
 
-        // Create session token (for React Native / Bearer auth)
-        const sessionToken = await sdk.createSessionToken(created.openId, { name: input.name, expiresInMs: ONE_YEAR_MS, passwordVersion: 0 });
+        // Send a 6-digit verification code — the account is only usable once verified.
+        try {
+          const { code } = await createEmailVerificationCode({ userId: String(created.id), email: input.email });
+          await sendVerificationEmail({ email: input.email, name: input.name, code });
+        } catch (e) {
+          console.error("[emailRegister] verification email failed:", (e as Error)?.message);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "驗證碼發送失敗，請稍後再試" });
+        }
+
+        // No session yet — the client must verify the code first.
+        return { success: true, requiresVerification: true, email: input.email.toLowerCase() };
+      }),
+
+    // ── Verify email with the 6-digit code ──────────────────────────────────
+    verifyEmail: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        code: z.string().min(4).max(8),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByEmail(input.email);
+        if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "找不到此帳號" });
+
+        const result = await verifyEmailCode(input.email, input.code);
+        if (!result.ok) {
+          const messages: Record<string, string> = {
+            not_found: "驗證碼不存在或已使用，請重新發送",
+            expired: "驗證碼已過期，請重新發送",
+            too_many_attempts: "嘗試次數過多，請重新發送驗證碼",
+            wrong_code: "驗證碼不正確",
+          };
+          throw new TRPCError({ code: "BAD_REQUEST", message: messages[result.reason] ?? "驗證失敗" });
+        }
+
+        await setUserEmailVerified(result.userId);
+
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name ?? "",
+          expiresInMs: ONE_YEAR_MS,
+          passwordVersion: user.passwordVersion ?? 0,
+        });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };
+      }),
+
+    // ── Resend the verification code ────────────────────────────────────────
+    resendVerificationCode: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ input }) => {
+        const user = await getUserByEmail(input.email);
+        // Always report success (avoid email enumeration).
+        if (!user || user.emailVerified) return { success: true };
+
+        // Cooldown: ignore if a code was issued within the last 60s.
+        const recent = await getRecentEmailVerificationCode(input.email, 60_000);
+        if (recent) return { success: true, cooldownSeconds: 60 };
+
+        const { code } = await createEmailVerificationCode({ userId: String(user.id), email: input.email });
+        await sendVerificationEmail({ email: input.email, name: user.name, code });
+        return { success: true };
       }),
 
     // ── Email Login ───────────────────────────────────────────────────────────
@@ -1729,6 +1789,16 @@ export const appRouter = router({
         if (!valid) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "電郵或密碼錯誤" });
         }
+
+        // Unverified accounts must confirm the emailed code first.
+        if (!user.emailVerified) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "請先驗證你的電郵",
+            cause: { code: "EMAIL_NOT_VERIFIED", email: input.email.toLowerCase() },
+          });
+        }
+
         await touchUserSignIn(user.id);
         const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
