@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerSocialAuthRoutes } from "./auth";
 import { appRouter } from "./routers";
@@ -10,13 +11,16 @@ import { createContext } from "./_core/context";
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  // Railway (and most hosts) sit behind a proxy — needed for correct client IPs.
+  app.set("trust proxy", 1);
 
-  // CORS — allow requests from the mobile app and web
+  // CORS — the app is a native client (no Origin header). Browsers are blocked
+  // unless explicitly listed in ALLOWED_ORIGINS (localhost dev is always allowed).
   const allowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((origin) => origin.trim())
-      .filter(Boolean)
+      .filter((o) => Boolean(o) && o !== "*")
   );
   const localOriginPatterns = [
     /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/,
@@ -31,7 +35,7 @@ async function startServer() {
       origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, curl, etc.)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.size === 0 || allowedOrigins.has(origin) || localOriginPatterns.some((pattern) => pattern.test(origin))) {
+        if (allowedOrigins.has(origin) || localOriginPatterns.some((pattern) => pattern.test(origin))) {
           return callback(null, true);
         }
         return callback(new Error(`CORS: origin ${origin} not allowed`));
@@ -40,9 +44,32 @@ async function startServer() {
     })
   );
 
-  // Body parser with larger size limit for image uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  // Global safety net for the whole API.
+  const globalLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 300,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: { json: { message: "請求太頻繁，請稍後再試。" } } },
+  });
+  // AI endpoints are long-running + costly → much stricter.
+  const aiLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 20,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: { json: { message: "AI 請求太頻繁，請稍後再試。" } } },
+  });
+  app.use("/api", globalLimiter);
+  app.use("/api/v1/trpc/aiRecipe", aiLimiter);
+  app.use("/api/trpc/aiRecipe", aiLimiter);
+  app.use("/api/v1/trpc/recipes.parse", aiLimiter);
+  app.use("/api/trpc/recipes.parse", aiLimiter);
+
+  // Body parser (10MB is plenty; images are uploaded via R2, not inline)
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
   // Social auth routes (Google, Apple)
   registerSocialAuthRoutes(app);

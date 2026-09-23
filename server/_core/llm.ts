@@ -97,7 +97,40 @@ function hasImageContent(messages: Message[]): boolean {
   });
 }
 
+/**
+ * Concurrency guard for LLM calls — protects the DashScope QPS budget and keeps
+ * the process from being overwhelmed by a burst of AI requests. Excess calls
+ * wait in a FIFO queue instead of failing.
+ */
+const MAX_CONCURRENT_LLM = Number(process.env.MAX_CONCURRENT_LLM ?? 8);
+let _llmActive = 0;
+const _llmQueue: Array<() => void> = [];
+
+async function acquireLlmSlot(): Promise<void> {
+  if (_llmActive < MAX_CONCURRENT_LLM) {
+    _llmActive++;
+    return;
+  }
+  await new Promise<void>((resolve) => _llmQueue.push(resolve));
+  _llmActive++;
+}
+
+function releaseLlmSlot(): void {
+  _llmActive = Math.max(0, _llmActive - 1);
+  const next = _llmQueue.shift();
+  if (next) next();
+}
+
 export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
+  await acquireLlmSlot();
+  try {
+    return await invokeLLMInner(params);
+  } finally {
+    releaseLlmSlot();
+  }
+}
+
+async function invokeLLMInner(params: LLMParams): Promise<LLMResult> {
   const apiKey = ENV.dashScopeApiKey;
   if (!apiKey) {
     throw new Error(

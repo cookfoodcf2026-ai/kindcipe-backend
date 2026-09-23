@@ -162,7 +162,10 @@ export const shoppingItems = pgTable("shopping_items", {
   boughtAt: timestamp("bought_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  familyStatusIdx: index("shopping_items_family_status_idx").on(table.familyId, table.status),
+  familyDateIdx: index("shopping_items_family_date_idx").on(table.familyId, table.plannedDate),
+}));
 
 export type ShoppingItem = typeof shoppingItems.$inferSelect;
 export type InsertShoppingItem = typeof shoppingItems.$inferInsert;
@@ -187,7 +190,9 @@ export const mealPlans = pgTable("meal_plans", {
   note: text("note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  familyDateIdx: index("meal_plans_family_date_idx").on(table.familyId, table.date),
+}));
 
 export type MealPlan = typeof mealPlans.$inferSelect;
 export type InsertMealPlan = typeof mealPlans.$inferInsert;
@@ -293,7 +298,10 @@ export const recipeEvents = pgTable("recipe_events", {
   userId: text("user_id"),
   familyId: integer("family_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  recipeIdx: index("recipe_events_recipe_id_idx").on(table.recipeId),
+  familyCreatedIdx: index("recipe_events_family_created_idx").on(table.familyId, table.createdAt),
+}));
 
 export type RecipeEvent = typeof recipeEvents.$inferSelect;
 export type InsertRecipeEvent = typeof recipeEvents.$inferInsert;

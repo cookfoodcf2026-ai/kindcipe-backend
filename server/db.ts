@@ -50,7 +50,7 @@ export async function getDb() {
       if (!_pgClient) {
         // 使用連接池優化（max: 10 個連接，減少連接建立延遲）
         _pgClient = postgres(process.env.DATABASE_URL, {
-          max: 10,
+          max: 20,
           idle_timeout: 20,
           connect_timeout: 5,
         });
@@ -1733,7 +1733,40 @@ export async function touchUserSignIn(userId: string): Promise<void> {
 // ─── Common Ingredients ──────────────────────────────────────────────────────
 
 /** Return all active common ingredients */
+// ── TTL cache for rarely-changing, read-only data ────────────────────────────
+// Cuts DB load for hot reads (dictionary, etc.). Keep TTLs short + invalidate on writes.
+const _ttlCache = new Map<string, { at: number; data: unknown }>();
+
+function ttlGet<T>(key: string, ttlMs: number): T | undefined {
+  const hit = _ttlCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > ttlMs) {
+    _ttlCache.delete(key);
+    return undefined;
+  }
+  return hit.data as T;
+}
+
+function ttlSet(key: string, data: unknown): void {
+  _ttlCache.set(key, { at: Date.now(), data });
+}
+
+export function ttlInvalidate(prefix: string): void {
+  for (const k of _ttlCache.keys()) if (k.startsWith(prefix)) _ttlCache.delete(k);
+}
+
+const COMMON_INGREDIENTS_CACHE_KEY = "common_ingredients:active";
+const COMMON_INGREDIENTS_TTL_MS = 10 * 60 * 1000;
+
 export async function getCommonIngredients() {
+  const cached = ttlGet<Awaited<ReturnType<typeof _queryCommonIngredients>>>(COMMON_INGREDIENTS_CACHE_KEY, COMMON_INGREDIENTS_TTL_MS);
+  if (cached) return cached;
+  const rows = await _queryCommonIngredients();
+  ttlSet(COMMON_INGREDIENTS_CACHE_KEY, rows);
+  return rows;
+}
+
+async function _queryCommonIngredients() {
   const db = await getDb();
   if (!db) return [];
   return db
@@ -1771,12 +1804,7 @@ export async function getCommonIngredientById(id: number) {
 /** Resolve a (Chinese) ingredient name to a common ingredient, exact then contains. */
 export async function resolveCommonIngredientByName(name: string) {
   if (!name || !name.trim()) return null;
-  const db = await getDb();
-  if (!db) return null;
-  const all = await db
-    .select({ id: commonIngredients.id, nameZh: commonIngredients.nameZh, nameYue: commonIngredients.nameYue, nameEn: commonIngredients.nameEn })
-    .from(commonIngredients)
-    .where(eq(commonIngredients.isActive, true));
+  const all = (await getCommonIngredients()).map((c) => ({ id: c.id, nameZh: c.nameZh, nameYue: c.nameYue, nameEn: c.nameEn }));
   const norm = (s: string) => s.replace(/\s+/g, "").replace(/[，,。．.、()（）【】\[\]《》]/g, "").trim();
   const byNorm = new Map<string, (typeof all)[number]>();
   for (const c of all) {
@@ -1822,6 +1850,7 @@ export async function insertCommonIngredients(items: InsertCommonIngredient[]): 
       // Skip duplicates
     }
   }
+  ttlInvalidate("common_ingredients");
   return inserted;
 }
 
@@ -1845,6 +1874,7 @@ export async function updateCommonIngredientTranslations(
       // Skip unmatched rows
     }
   }
+  ttlInvalidate("common_ingredients");
   return updated;
 }
 

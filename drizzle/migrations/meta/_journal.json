@@ -176,6 +176,13 @@
       "when": 1790084773932,
       "tag": "0024_special_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790125666911,
+      "tag": "0025_public_gressill",
+      "breakpoints": true
     }
   ]
 }
