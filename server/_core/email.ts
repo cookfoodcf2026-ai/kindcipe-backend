@@ -42,14 +42,15 @@ export async function sendPasswordResetEmail(params: { email: string; name?: str
 
 /**
  * Send the 6-digit email verification code (bilingual zh + en).
+ *
+ * If RESEND_API_KEY is not configured the code is written to the server logs
+ * instead of failing — so a Beta household can still be verified manually from
+ * the Railway logs. Configure Resend before the public launch.
  */
 export async function sendVerificationEmail(params: { email: string; name?: string | null; code: string }) {
   if (!ENV.resendApiKey) {
-    if (!ENV.isProduction) {
-      console.log("[VerificationEmail][DEV]", params.email, "code:", params.code);
-      return;
-    }
-    throw new Error("RESEND_API_KEY is not configured");
+    console.warn(`[VerificationEmail] RESEND_API_KEY missing — code for ${params.email}: ${params.code}`);
+    return;
   }
 
   const displayName = params.name?.trim() || "Kindcipe 用戶";
