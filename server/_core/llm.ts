@@ -130,6 +130,65 @@ export async function invokeLLM(params: LLMParams): Promise<LLMResult> {
   }
 }
 
+// ─── Gemini fallback (resilience) ─────────────────────────────────────────────
+// 當 DashScope key 失效/配額/網絡問題令所有 retry 都失敗時，用 Gemini 頂住，
+// 避免成個 AI 生成（3餸1湯、AI 補缺、換菜）跌返「1 卡/random」。
+const GEMINI_KEY = process.env.GEMINI_API_KEY ?? "";
+const GEMINI_BASE = process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
+
+async function invokeGeminiFallback(params: LLMParams): Promise<LLMResult> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set — no LLM fallback available");
+
+  // 將 OpenAI 格式 messages 轉做 Gemini 格式（system → 併入 user 開頭）
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+  let systemText = "";
+  for (const m of params.messages) {
+    const text =
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join(" ")
+          : "";
+    if (m.role === "system") { systemText += text + "\n"; continue; }
+    if (m.role === "user") {
+      if (systemText) { contents.push({ role: "user", parts: [{ text: systemText + text }] }); systemText = ""; }
+      else contents.push({ role: "user", parts: [{ text }] });
+    } else {
+      contents.push({ role: "model", parts: [{ text }] });
+    }
+  }
+  if (systemText && contents.length > 0) contents[0].parts[0].text = systemText + contents[0].parts[0].text;
+
+  const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+  const body: Record<string, unknown> = {
+    contents,
+    generationConfig: {
+      maxOutputTokens: params.maxTokens ?? 2000,
+      temperature: params.temperature ?? 0.7,
+      ...(params.responseFormat?.type === "json_object" ? { responseMimeType: "application/json" } : {}),
+    },
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 30000);
+  try {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Gemini fallback failed: ${res.status} – ${t.slice(0, 150)}`);
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
+    return {
+      choices: [{ message: { role: "assistant", content: text, tool_calls: undefined }, finish_reason: "stop" }],
+      usage: undefined,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function invokeLLMInner(params: LLMParams): Promise<LLMResult> {
   const apiKey = ENV.dashScopeApiKey;
   if (!apiKey) {
@@ -274,8 +333,15 @@ async function invokeLLMInner(params: LLMParams): Promise<LLMResult> {
   // All retries exhausted
   const totalWaitTime = Date.now();
   if (lastError) {
-    console.error(`[LLM] All ${MAX_RETRIES + 1} attempts failed after ${totalWaitTime}ms`);
-    throw lastError;
+    // 用 Gemini 頂住（DashScope 401/過期/配額/網絡問題時，唔好令 AI 生成全壞）
+    try {
+      console.log(`[LLM] DashScope exhausted after ${MAX_RETRIES + 1} attempts; falling back to Gemini...`);
+      return await invokeGeminiFallback(params);
+    } catch (fbErr) {
+      console.error(`[LLM] Gemini fallback also failed: ${(fbErr as Error).message}`);
+      console.error(`[LLM] All ${MAX_RETRIES + 1} attempts failed after ${totalWaitTime}ms`);
+      throw lastError;
+    }
   }
   
   // Should never reach here
