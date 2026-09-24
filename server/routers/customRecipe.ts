@@ -58,7 +58,7 @@ export const customRecipeRouter = router({
         if (usage >= sub.maxImportsPerMonth) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: `免費版每月最多匯入 ${usage}/${sub.maxImportsPerMonth} 條食譜，升級家庭版可匯入 200 條`,
+            message: `免費版每月最多匯入 ${usage}/${sub.maxImportsPerMonth} 條食譜，升級家庭版可匯入 300 條`,
           });
         }
 
