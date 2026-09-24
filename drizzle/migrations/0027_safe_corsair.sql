@@ -1,0 +1,1 @@
+CREATE INDEX "email_verification_codes_email_unique" ON "email_verification_codes" USING btree ("email");

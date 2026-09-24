@@ -68,10 +68,34 @@ export const emailVerificationCodes = pgTable("email_verification_codes", {
   attempts: integer("attempts").default(0).notNull(),
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  emailUniqueIdx: index("email_verification_codes_email_unique").on(table.email),
+}));
 
 export type EmailVerificationCode = typeof emailVerificationCodes.$inferSelect;
 export type InsertEmailVerificationCode = typeof emailVerificationCodes.$inferInsert;
+
+// ─── Promo Codes (IG-follow 7-day trial) ─────────────────────────────────────
+export const promoCodes = pgTable("promo_codes", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 24 }).notNull().unique(),
+  plan: varchar("plan", { length: 16 }).notNull().default("trial7"),
+  maxUses: integer("max_uses").default(1).notNull(),
+  usedCount: integer("used_count").default(0).notNull(),
+  active: boolean("active").default(true).notNull(),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const promoCodeRedemptions = pgTable("promo_code_redemptions", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 24 }).notNull(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  redeemedAt: timestamp("redeemed_at").defaultNow().notNull(),
+}, (table) => ({
+  familyUniqueIdx: uniqueIndex("promo_code_redemptions_family_unique").on(table.familyId),
+}));
 
 // ─── Families ─────────────────────────────────────────────────────────────────
 export const families = pgTable("families", {

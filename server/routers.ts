@@ -99,6 +99,7 @@ import {
   verifyPassword,
   touchUserSignIn,
   updateUserPassword,
+  updateUserName,
   createPasswordResetToken,
   getPasswordResetTokenByToken,
   consumePasswordResetToken,
@@ -190,12 +191,8 @@ const familyRouter = router({
       const family = await createFamily({ name: input.name, inviteCode, ownerId: String(ctx.user.id) });
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // 試用防濫用：每位用戶只送 1 次試用（trialCount 0 → 1）
-      const canStartTrial = (ctx.user.trialCount ?? 0) === 0;
-      if (canStartTrial) {
-        await initFamilyTrial(family.id);
-        await incrementTrialCount(String(ctx.user.id));
-      }
+      // No automatic 7-day trial — Pro is unlocked via an IG-follow promo code
+      // (redeemTrialCode). trialCount stays as abuse protection.
 
       await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: "owner", nickname: input.nickname || ctx.user.name || "Owner", isDefault: false });
       await setDefaultFamily(String(ctx.user.id), family.id);
@@ -1660,6 +1657,16 @@ export const appRouter = router({
         activeFamilyRole: opts.ctx.activeFamilyRole,
       };
     }),
+
+    // ── Update display name (Settings → edit name) ──────────────────────────
+    updateProfile: protectedProcedure
+      .input(z.object({ name: z.string().min(1).max(64) }))
+      .mutation(async ({ ctx, input }) => {
+        const name = input.name.trim();
+        if (!name) throw new TRPCError({ code: "BAD_REQUEST", message: "名稱不能為空" });
+        await updateUserName(String(ctx.user.id), name);
+        return { success: true, name };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

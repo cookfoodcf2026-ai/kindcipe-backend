@@ -3202,17 +3202,13 @@ export const aiRecipeRouter = router({
       const mode = input.mode ?? "chat";
       const excludeNames = input.excludeNames ?? [];
 
-      // AI Chef chat quota（先檢查，後扣 —— 只有真用咗 LLM 先扣，純食譜庫唔扣）
+      // AI Chef chat quota（soft cap：唔硬擋，只提示 —— 升級導向）
+      let quota: { limit: number; used: number; nearLimit: boolean } | undefined;
       if (familyId) {
         const aiSub = await getFamilySubscription(familyId);
         const aiLimit = aiSub?.aiChatLimit ?? 30;
         const aiUsage = await getAiChatUsage(familyId);
-        if (aiUsage >= aiLimit) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `本月 AI 對話額度已用盡（${aiUsage}/${aiLimit}），升級家庭版可獲 300 次／月`,
-          });
-        }
+        quota = { limit: aiLimit, used: aiUsage, nearLimit: aiUsage >= aiLimit };
       }
 
       const result = await processAIChefChat(
@@ -3232,8 +3228,12 @@ export const aiRecipeRouter = router({
           return m.content.some(c => c.type === "image_url");
         });
         await incrementAiChatUsage(familyId, String(ctx.user.id), hasMedia ? 2 : 1);
+        if (quota) {
+          quota.used += hasMedia ? 2 : 1;
+          quota.nearLimit = quota.used >= quota.limit;
+        }
       }
 
-      return result;
+      return { ...result, quota };
     }),
 });

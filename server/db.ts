@@ -25,6 +25,8 @@ import {
   aiChatUsage,
   passwordResetTokens,
   emailVerificationCodes,
+  promoCodes,
+  promoCodeRedemptions,
   type InsertCommonIngredient,
   type InsertFamily,
   type InsertFamilyMember,
@@ -73,7 +75,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   try {
     const values: InsertUser = { openId: user.openId };
     const updateSet: Record<string, unknown> = {};
-    const textFields = ["name", "email", "loginMethod"] as const;
+    // name is special: only fill it when the user has none yet (so a
+    // user-set name is never overwritten by an Apple/Google login).
+    const textFields = ["email", "loginMethod"] as const;
     type TextField = (typeof textFields)[number];
     const assignNullable = (field: TextField) => {
       const value = user[field];
@@ -83,6 +87,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet[field] = normalized;
     };
     textFields.forEach(assignNullable);
+    if (user.name !== undefined && user.name !== null) {
+      values.name = user.name;
+      updateSet.name = sql`COALESCE(${users.name}, ${user.name})`;
+    }
     if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
     // Social sign-in (Apple/Google) implies a provider-verified email.
     if (user.openId.startsWith("google_") || user.openId.startsWith("apple_")) {
@@ -162,15 +170,28 @@ export async function createEmailVerificationCode(params: {
   const email = params.email.toLowerCase();
 
   try {
-    await db.delete(emailVerificationCodes).where(eq(emailVerificationCodes.email, email));
-    await db.insert(emailVerificationCodes).values({
-      userId: params.userId,
-      email,
-      codeHash: hashCode(code),
-      expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
-    });
+    // Single statement upsert — avoids the DELETE that failed on the pooler.
+    await db
+      .insert(emailVerificationCodes)
+      .values({
+        userId: params.userId,
+        email,
+        codeHash: hashCode(code),
+        expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
+      })
+      .onConflictDoUpdate({
+        target: emailVerificationCodes.email,
+        set: {
+          userId: params.userId,
+          codeHash: hashCode(code),
+          expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
+          attempts: 0,
+          usedAt: null,
+        },
+      });
   } catch (e) {
-    console.error("[createEmailVerificationCode] failed for", email, ":", (e as Error)?.message);
+    const cause = (e as any)?.cause?.message ?? (e as Error)?.message ?? String(e);
+    console.error("[createEmailVerificationCode] failed for", email, ":", cause);
     throw e;
   }
   return { code };
@@ -1396,7 +1417,7 @@ export async function getFamilySubscription(familyId: number) {
     return {
       status: "active" as const,
       isPaid: true,
-      maxMembers: 6,
+      maxMembers: 4,
       maxImportsPerMonth: 9999,
       maxCustomRecipesPerMonth: null,
       aiChatLimit: 9999,
@@ -1437,8 +1458,8 @@ export async function getFamilySubscription(familyId: number) {
   return {
     status,
     isPaid,
-    maxMembers: isPaid ? 6 : 1,
-    maxImportsPerMonth: isPaid ? 300 : 5,
+    maxMembers: isPaid ? 4 : 1,
+    maxImportsPerMonth: isPaid ? 300 : 20,
     maxCustomRecipesPerMonth: isPaid ? null : 20,
     aiChatLimit: isPaid ? 300 : 30,
     sharedLocked: !isPaid && memberCount > 1,
@@ -1456,7 +1477,54 @@ export async function initFamilyTrial(familyId: number) {
   if (!db) return;
   const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await db.update(families)
-    .set({ trialEndsAt, subscriptionStatus: "trial", maxMembers: 6 })
+    .set({ trialEndsAt, subscriptionStatus: "trial", maxMembers: 4 })
+    .where(eq(families.id, familyId));
+}
+
+// ─── Promo codes (IG-follow 7-day trial) ─────────────────────────────────────
+export async function createPromoCode(params: {
+  code: string;
+  maxUses?: number;
+  expiresAt?: Date;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const code = params.code.trim().toUpperCase();
+  await db.insert(promoCodes).values({
+    code,
+    plan: "trial7",
+    maxUses: params.maxUses ?? 1,
+    expiresAt: params.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  }).onConflictDoNothing();
+}
+
+export async function getPromoCode(code: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(promoCodes).where(eq(promoCodes.code, code.trim().toUpperCase())).limit(1);
+  return row ?? null;
+}
+
+export async function hasPromoRedeemed(familyId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db.select({ id: promoCodeRedemptions.id }).from(promoCodeRedemptions).where(eq(promoCodeRedemptions.familyId, familyId)).limit(1);
+  return Boolean(row);
+}
+
+export async function recordPromoRedemption(code: string, familyId: number, userId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(promoCodeRedemptions).values({ code: code.trim().toUpperCase(), familyId, userId });
+  await db.update(promoCodes).set({ usedCount: sql`${promoCodes.usedCount} + 1` }).where(eq(promoCodes.code, code.trim().toUpperCase()));
+}
+
+/** Grant a 7-day Pro trial, counted from now. */
+export async function grantFamilyTrial(familyId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(families)
+    .set({ subscriptionStatus: "trial", trialStartedAt: new Date(), trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), maxMembers: 4 })
     .where(eq(families.id, familyId));
 }
 
@@ -1841,6 +1909,13 @@ export async function updateUserPassword(userId: string, newPassword: string): P
     passwordHash,
     passwordVersion: sql`${users.passwordVersion} + 1`,
   }).where(eq(users.id, userId));
+}
+
+/** Update the user's display name (Settings → edit name). */
+export async function updateUserName(userId: string | number, name: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ name: name.trim().slice(0, 64) }).where(eq((users.id as any), String(userId)));
 }
 
 /** Update user's last signed in timestamp */
