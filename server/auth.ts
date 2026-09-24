@@ -14,6 +14,20 @@ import * as db from "./db";
 import { sdk } from "./_core/sdk";
 import { getSessionCookieOptions } from "./_core/cookies";
 
+// ─── Display name fallback ────────────────────────────────────────────────────
+// Apple Sign-In uses a Private Relay email (xxxx@privaterelay.appleid.com) when
+// the user hides their real email. The local-part is a random string, so using
+// it as a display name shows "garbled" text. Prefer a stable, friendly label.
+function fallbackName(email: string, provider: "google" | "apple"): string {
+  const local = (email || "").split("@")[0]?.trim();
+  if (!local) return provider === "apple" ? "Apple 用戶" : "Google 用戶";
+  if (/privaterelay\.appleid\.com/i.test(email)) return "Apple 用戶";
+  if (/^[a-z0-9]{8,12}$/i.test(local) && !/^(test|user|mavis|seed)/i.test(local)) {
+    return provider === "apple" ? "Apple 用戶" : "Google 用戶";
+  }
+  return local;
+}
+
 // ─── Google Token Verification ───────────────────────────────────────────────
 // We verify Google ID tokens by calling Google's tokeninfo endpoint.
 // Validates that the token was issued for our app (aud check).
@@ -154,7 +168,7 @@ export function registerSocialAuthRoutes(app: Express) {
     await handleSocialLogin(req, res, {
       openId: `google_${info.sub}`,
       email: info.email,
-      name: info.name,
+      name: info.name || fallbackName(info.email, "google"),
       loginMethod: "google",
     });
   });
@@ -176,7 +190,7 @@ export function registerSocialAuthRoutes(app: Express) {
     await handleSocialLogin(req, res, {
       openId: `apple_${info.sub}`,
       email: info.email,
-      name: name || info.email.split("@")[0],
+      name: name || fallbackName(info.email, "apple"),
       loginMethod: "apple",
     });
   });
