@@ -231,10 +231,11 @@ const familyRouter = router({
       }
 
       const myFamilies = await getUserFamilies(String(ctx.user.id));
-      if (myFamilies.length > 0) {
+      // 每個帳號最多 2 個廚房：1 個自己 + 1 個加入（join 人哋 paid 廚房用佢個 quota）
+      if (myFamilies.length >= 2) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "每個帳號只可加入 1 個廚房，請先離開目前廚房",
+          message: "每個帳號最多 2 個廚房（1 個自己 + 1 個加入）",
         });
       }
 
