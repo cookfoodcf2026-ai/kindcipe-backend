@@ -2493,15 +2493,29 @@ export async function processAIChefChat(
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       if (swapDishType) {
         const filtered = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
-        if (filtered.length > 0) picked = filtered;
+        picked = filtered;
+      }
+      if (picked.length === 0 && swapDishType) {
+        // 指定類別搜唔到 → AI 生成同類別（唔落 generic 池，避免換錯類）
+        const label = MEAL_TYPE_LABEL[swapDishType as DishType]?.label ?? "家常菜";
+        const aiOne = await generateOneType(label, swapDishType as DishType, mergedExclude);
+        if (aiOne) {
+          llmUsed = true;
+          picked = [aiOne];
+        }
       }
       if (picked.length === 0) {
-        // 指定類別搜唔到 → 落返 generic 池，保證有卡
+        // 指定類別搜唔到 + AI 都出唔到 → 先落 generic 池保證有卡（最後兜底）
         picked = rowsToSuggested(rows, mergedExclude, 1);
       }
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}" dishType="${swapDishType}")`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
+        // 確保返回嘅全部都係同類別（先 filter 後 slice）—— 除咗最後 generic 兜底
+        if (swapDishType) {
+          const sameType = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
+          if (sameType.length > 0) picked = sameType;
+        }
         return { content: `我從食譜庫搵到呢個食譜：`, recipes: picked.slice(0, 3), llmUsed };
       }
     } else {
