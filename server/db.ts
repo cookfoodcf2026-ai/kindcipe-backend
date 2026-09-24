@@ -51,9 +51,9 @@ export async function getDb() {
       if (!_pgClient) {
         // 使用連接池優化（max: 10 個連接，減少連接建立延遲）
         _pgClient = postgres(process.env.DATABASE_URL, {
-          max: 20,
+          max: 10,
           idle_timeout: 20,
-          connect_timeout: 5,
+          connect_timeout: 10,
         });
       }
       _db = drizzle(_pgClient);
@@ -161,13 +161,18 @@ export async function createEmailVerificationCode(params: {
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
   const email = params.email.toLowerCase();
 
-  await db.delete(emailVerificationCodes).where(eq(emailVerificationCodes.email, email));
-  await db.insert(emailVerificationCodes).values({
-    userId: params.userId,
-    email,
-    codeHash: hashCode(code),
-    expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
-  });
+  try {
+    await db.delete(emailVerificationCodes).where(eq(emailVerificationCodes.email, email));
+    await db.insert(emailVerificationCodes).values({
+      userId: params.userId,
+      email,
+      codeHash: hashCode(code),
+      expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
+    });
+  } catch (e) {
+    console.error("[createEmailVerificationCode] failed for", email, ":", (e as Error)?.message);
+    throw e;
+  }
   return { code };
 }
 
