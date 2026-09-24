@@ -2442,7 +2442,8 @@ export async function processAIChefChat(
     }
 
     // 單卡：支援「庫內搜尋：X」marker（前端「換」用，指定類別換同類），亦支援結構化 search（hotkey/pantry 用）
-    const swapQuery = (lastUserText.match(/庫內搜尋：([^\n。]+)/)?.[1] || "").trim();
+    // 注意：要停喺「；」（同類別 marker）之前，否則會連「；同類別：meat」一齊食入 keyword → 搜唔到 → fallback AI
+    const swapQuery = (lastUserText.match(/庫內搜尋：([^\n。；]+)/)?.[1] || "").trim();
     let picked: SuggestedRecipe[] = [];
     if (search) {
       // 結構化搜尋（hotkey / pantry）：execSearchRecipes 支援 tags/cookTimeMax，行 7 日去重 + fresh 優先
