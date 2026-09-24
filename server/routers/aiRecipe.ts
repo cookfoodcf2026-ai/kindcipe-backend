@@ -1492,9 +1492,9 @@ async function generateOneType(
     try {
       const resp = await invokeLLM({
         messages: [{ role: "user", content: basePrompt + extra }],
-        maxTokens: 2600,
+        maxTokens: 1800,
         temperature: 0.7,
-        timeoutMs: 30000,
+        timeoutMs: 15000,
         maxRetries: 1,
         enableSearch: false,
         responseFormat: { type: "json_object" },
@@ -1517,7 +1517,14 @@ async function generateOneType(
   const validateType = (rec: SuggestedRecipe | null): boolean => {
     if (!rec) return false;
     const t = classifyDishType({ name: rec.name, tags: rec.tags, dishType: rec.dishType, soupType: rec.soupType } as unknown as Record<string, unknown>);
-    if (isSoup) return t === "soup";
+    if (isSoup) {
+      // 湯位放寬：classify 判 soup，或者名/tags 有「湯/羹」字都當湯（避免嚴判導致無湯）
+      if (t === "soup") return true;
+      const nm = String(rec.name || "");
+      const tagsStr = (Array.isArray(rec.tags) ? rec.tags : []).join(" ");
+      const soupTypeStr = String((rec as any)?.soupType ?? "");
+      return /湯|羹/.test(nm) || /湯|羹/.test(tagsStr) || !!soupTypeStr;
+    }
     if (isVeg) return t === "vegetable";
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
@@ -2495,23 +2502,11 @@ export async function processAIChefChat(
         const filtered = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
         picked = filtered;
       }
-      if (picked.length === 0 && swapDishType) {
-        // 指定類別搜唔到 → AI 生成同類別（唔落 generic 池，避免換錯類）
-        const label = MEAL_TYPE_LABEL[swapDishType as DishType]?.label ?? "家常菜";
-        const aiOne = await generateOneType(label, swapDishType as DishType, mergedExclude);
-        if (aiOne) {
-          llmUsed = true;
-          picked = [aiOne];
-        }
-      }
-      if (picked.length === 0) {
-        // 指定類別搜唔到 + AI 都出唔到 → 先落 generic 池保證有卡（最後兜底）
-        picked = rowsToSuggested(rows, mergedExclude, 1);
-      }
+      // 食譜庫換 = 純食譜庫：唔用 AI 生成、唔落 generic 池（避免換錯類 / 變 AI 卡）。
+      // 搵唔到同類 → 返回空，由前端決定 repeat 定轉 AI。
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}" dishType="${swapDishType}")`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
-        // 確保返回嘅全部都係同類別（先 filter 後 slice）—— 除咗最後 generic 兜底
         if (swapDishType) {
           const sameType = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
           if (sameType.length > 0) picked = sameType;
@@ -2746,22 +2741,31 @@ export async function processAIChefChat(
     }
 
     // 3餸1湯：hard filter 之後少過 4 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
+    // 用 retry loop：逐類補，邊類缺就補邊類，最多 retry 兩輪，保證「湯/肉/海鮮/菜」齊 4 卡
     if (soupIntent && recipes.length > 0 && recipes.length < 4) {
-      const missing = 4 - recipes.length;
-      const haveTypes = new Set(recipes.map(mealTypeOf));
-      const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t)).slice(0, missing);
-      const aiPicked = await generateMissingRecipes(
-        neededTypes.length,
-        false,
-        [...mergedExclude, ...recipes.map(r => r.name)],
-        familyId,
-        userId,
-        neededTypes
-      );
-      if (aiPicked.length > 0) {
-        llmUsed = true;
-        recipes = [...recipes, ...aiPicked].slice(0, 4);
-        console.log(`[AI Chef] Meal flow topped up: ${aiPicked.length} ai recipes (total ${recipes.length})`);
+      for (let round = 0; round < 2; round++) {
+        if (recipes.length >= 4) break;
+        const haveTypes = new Set(recipes.map(mealTypeOf));
+        const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t));
+        if (neededTypes.length === 0) break;
+        const aiPicked = await generateMissingRecipes(
+          neededTypes.length,
+          false,
+          [...mergedExclude, ...recipes.map(r => r.name)],
+          familyId,
+          userId,
+          neededTypes
+        );
+        if (aiPicked.length > 0) {
+          llmUsed = true;
+          // 只補「缺嘅類別」（唔會重複類別）
+          const haveNow = new Set(recipes.map(mealTypeOf));
+          const fresh = aiPicked.filter(r => !haveNow.has(mealTypeOf(r)));
+          recipes = [...recipes, ...fresh].slice(0, 4);
+          console.log(`[AI Chef] Meal flow topped up round ${round + 1}: +${fresh.length} (total ${recipes.length})`);
+        } else {
+          break;
+        }
       }
     }
 
