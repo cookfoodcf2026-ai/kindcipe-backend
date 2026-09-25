@@ -1494,8 +1494,8 @@ async function generateOneType(
         messages: [{ role: "user", content: basePrompt + extra }],
         maxTokens: 1800,
         temperature: 0.7,
-        timeoutMs: 15000,
-        maxRetries: 1,
+        timeoutMs: 12000,
+        maxRetries: 0,
         enableSearch: false,
         responseFormat: { type: "json_object" },
       });
@@ -1561,13 +1561,10 @@ async function generateMealRecipesParallel(
     { label: "蔬菜/小炒", expectedType: "vegetable" as DishType },
     { label: "湯水", expectedType: "soup" as DishType },
   ];
-  // 每個類型並行生成 2 個候選（共 8 個），令最後可以「揀 4 個多樣化 + 唔重複」，
-  // 減少要行第二輪 backfill（多樣化保留，但一輪搞掂、快返）。
+  // 每個類型並行生成 1 個候選（共 4 個）—— 快（少一半 LLM call，唔會並行 8 個互相排隊拖慢）。
+  // 若某類型失敗，交返 meal backfill（缺失類別）補返，保證 4 卡。
   const results = await Promise.allSettled(
-    types.flatMap(t => [
-      generateOneType(t.label, t.expectedType, exclude),
-      generateOneType(t.label, t.expectedType, exclude),
-    ])
+    types.map(t => generateOneType(t.label, t.expectedType, exclude))
   );
   // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複（只喺「並行結果內部」去重）。
   // 唔再對「已睇過 exclude」做近似去重 —— 令 parallel 唔會 drop 到 0（觸發慢嘅 16s 順序 fallback）；
