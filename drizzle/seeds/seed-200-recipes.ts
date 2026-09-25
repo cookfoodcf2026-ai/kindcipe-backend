@@ -9,6 +9,7 @@ import { HK_COLD_SOUP_RECIPES } from './recipes-hk-cold-soup.js';
 import { INTL_ASIAN_RECIPES } from './recipes-intl-asian.js';
 import { INTL_WESTERN_DESSERT_RECIPES } from './recipes-intl-western-dessert.js';
 import { CUSTOM_QUICK_RECIPES } from './recipes-custom-quick.js';
+import { normalizeRecipeIngredients } from '../../server/utils/ingredientNormalize';
 
 const sql = postgres(process.env.DATABASE_URL!);
 
@@ -84,7 +85,7 @@ async function main() {
       ) VALUES (
         'seed-generator', ${recipe.name}, ${recipe.description}, NULL, NULL,
         ${recipe.cookTime}, ${recipe.servings}, ${recipe.difficulty}, ${recipe.recipeCategory},
-        ${JSON.stringify(recipe.ingredients)}, ${JSON.stringify(recipe.steps)}, ${JSON.stringify(recipe.tags)},
+        ${JSON.stringify(normalizeRecipeIngredients(recipe.ingredients))}, ${JSON.stringify(recipe.steps)}, ${JSON.stringify(recipe.tags)},
         'manual', NULL, NULL, NULL, NULL, true
       )
     `;
