@@ -1075,6 +1075,8 @@ const mealPlanRouter = router({
           unit: z.string().optional(),
         })).optional(),
       })),
+      // 強制加入：用戶喺外出衝突 Alert 撳「確定」→ 無視外出照加（確定必加）
+      force: z.boolean().optional().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -1099,9 +1101,9 @@ const mealPlanRouter = router({
       
       // Process each item individually to handle conflicts and link ingredients
       for (const item of input.items) {
-        // Check for eat-out conflict (dinner only)
+        // Check for eat-out conflict (dinner only) — unless user forced (確定必加)
         let hasConflict = false;
-        if (item.mealType === "dinner") {
+        if (item.mealType === "dinner" && !input.force) {
           const eatOutRows = await db.select()
             .from(familyEatOut)
             .where(

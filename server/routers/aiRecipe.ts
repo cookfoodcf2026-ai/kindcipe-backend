@@ -1742,19 +1742,21 @@ function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW
   return SYSTEM_PROMPT + modeSection;
 }
 
+// 由「最後一條用戶訊息」判斷 3餸N湯/自由要求。只讀最後一條（唔再用成段歷史），
+// 令「自由對答」真正聽用戶最新講嘅嘢，唔會被之前任何一句「湯」字綁住。
 function detectSoupIntent(messages: Message[]): boolean {
-  const text = messages
-    .filter((m) => m.role === "user")
-    .map((m) => {
-      if (typeof m.content === "string") return m.content;
-      return m.content.filter((b) => b.type === "text").map((b) => b.text).join(" ");
-    })
-    .join(" ");
-  return /(湯水|老火湯|滾湯|燉湯|煲湯|湯|湯品|soup|tonic|3\s*餸\s*1\s*湯|3\s*菜\s*1\s*湯|三餸一湯|三菜一湯|3 餸 1 湯|3 菜 1 湯|今晚食咩|晚餐推薦)/i.test(text);
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  if (!last) return false;
+  const text = typeof last.content === "string"
+    ? last.content
+    : last.content.filter((b) => b.type === "text").map((b) => b.text).join(" ");
+  // 用戶明確「唔要湯」→ 唔係湯水意圖
+  if (/(唔要湯|不要湯|冇湯|無湯|唔飲湯|no\s*soup|without\s*soup)/i.test(text)) return false;
+  return /(湯水|老火湯|滾湯|燉湯|煲湯|湯品|soup|tonic|[\d一二兩三四五六七八九十]+\s*[送餸]\s*湯|[送餸]\s*[\d一二兩三四五六七八九十]+\s*湯|3\s*餸\s*1\s*湯|3\s*菜\s*1\s*湯|三餸一湯|三菜一湯|3 餸 1 湯|3 菜 1 湯|今晚食咩|晚餐推薦|設計晚餐)/i.test(text);
 }
 
-// 解析「N送M湯」/「N餸M湯」/「N送一湯」數量。回傳 { dishCount, soupCount }；抽唔到就用 default。
-// 例：一送一湯 -> {1,1}；二送一湯/2送一湯 -> {2,1}；三餸一湯 -> {3,1}；8送2湯 -> {8,2}；冇寫 -> default {3,1}
+// 解析「N送M湯」/「N餸M湯」/自然語言數量（兩個餸/一個菜一個肉/一個菜）→ { dishCount, soupCount }。
+// 抽唔到就用 default。允許 soupCount = 0（用戶明確唔要湯）。
 function parseMealCount(text: string, defDish = 3, defSoup = 1): { dishCount: number; soupCount: number } {
   const cn: Record<string, number> = { 零: 0, 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
   const toNum = (s: string): number => {
@@ -1764,16 +1766,43 @@ function parseMealCount(text: string, defDish = 3, defSoup = 1): { dishCount: nu
     if (cn[t] != null) return cn[t];
     return NaN;
   };
-  // 中文：X送Y湯 / X餸Y湯；英文：X dishes Y soups
+  // 1) 明確「唔要湯」→ soupCount = 0
+  let soup = defSoup;
+  if (/(唔要湯|不要湯|冇湯|無湯|唔飲湯|no\s*soup|without\s*soup)/i.test(text)) soup = 0;
+  // 2) 「N送M湯」/「N餸M湯」/「N送一湯」
+  let dish = defDish;
   const m = text.match(/([\d一二兩三四五六七八九十]+)\s*[送餸]\s*(?:([\d一二兩三四五六七八九十]+)\s*湯|湯)/);
-  let dish = defDish, soup = defSoup;
   if (m) {
     const d = toNum(m[1]);
     if (!isNaN(d)) dish = Math.max(0, Math.min(d, 10));
     const s = m[2] ? toNum(m[2]) : 1;
-    if (!isNaN(s)) soup = Math.max(1, Math.min(s, 5));
+    if (!isNaN(s) && soup !== 0) soup = Math.max(1, Math.min(s, 5));
+  } else {
+    // 3) 自然語言：N個餸 / N道菜 / 一個菜一個肉（→ dish=2）/ 淨係一個菜 / N碟
+    //    複合表述（一個菜一個肉/兩個餸）優先，避免被「一個菜」單數 regex 誤判成 1
+    let d = NaN;
+    const two = /(兩個餸|二個餸|2個餸|兩道菜|二道菜|2道菜|一個菜一個肉|一菜一肉|一餸一肉|兩個菜|二個菜|兩碟)/.test(text);
+    const one = /(淨係一個菜|只要一個菜|一個菜就夠)|(只要一個|淨係一個|一個就夠)/.test(text);
+    if (two) dish = 2;
+    else if (one) dish = 1;
+    else {
+      const mm = text.match(/([\d一二兩三四五六七八九十]+)\s*[個道碟]\s*(?:餸|菜)/);
+      if (mm) { const dd = toNum(mm[1]); if (!isNaN(dd)) dish = Math.max(1, Math.min(dd, 10)); }
+    }
   }
   return { dishCount: dish, soupCount: soup };
+}
+
+// 綜合意圖：回傳 { isMeal, dishCount, soupCount }。isMeal = 用戶想要一餐（湯水/N餸N湯/今晚食咩）。
+function parseMealIntent(messages: Message[]): { isMeal: boolean; dishCount: number; soupCount: number } {
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  const text = last ? (typeof last.content === "string" ? last.content : last.content.filter((b) => b.type === "text").map((b) => b.text).join(" ")) : "";
+  const soupIntent = detectSoupIntent(messages);
+  // 抽到明確數量（即使冇湯字，例如「兩個餸」）都算 meal 要求
+  const count = parseMealCount(text, 3, soupIntent ? 1 : 0);
+  const hasCount = /[送餸]\s*(?:[\d一二兩三四五六七八九十]+\s*)?湯|[\d一二兩三四五六七八九十]+個[餸菜]|兩個餸|二個餸|兩個菜|兩道菜|一個菜|一菜一肉/.test(text);
+  const isMeal = soupIntent || hasCount;
+  return { isMeal, dishCount: count.dishCount, soupCount: count.soupCount };
 }
 
 function extractSoupMeta(block: string): { soupType?: string; benefits?: string; waterVolume?: string } {
@@ -2449,28 +2478,32 @@ export async function processAIChefChat(
 
   // ══════════ mode === "library"：快路徑（3餸1湯 → 1湯3餸 + AI補；一般 → 1 個）══════════
   if (mode === "library") {
-    const isMealLib = /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
+    const libMealIntent = parseMealIntent(inputMessages as Message[]);
+    const isMealLib = libMealIntent.isMeal || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
     const rows = await trySearch("", 1000);
 
     if (isMealLib) {
-      // 1) 先從庫揀 1 湯 + 3 餸（可能少過 4）
-      const libPicked = pickSoupMeal(rows, mergedExclude);
+      const libCount = { dishCount: libMealIntent.dishCount, soupCount: libMealIntent.soupCount };
+      const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
+      // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
+      const libPicked = pickSoupMeal(rows, mergedExclude, libCount.dishCount, libCount.soupCount);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
-      // 2) 唔夠 4 個 → 按「缺失類別」逐類 AI 補缺（保證 1肉+1海鮮+1菜+1湯）
-      if (libPicked.length < 4) {
-        const missing = 4 - libPicked.length;
+      // 2) 唔夠 → 按「缺失類別」逐類 AI 補缺
+      if (libPicked.length < totalWanted) {
+        const missing = totalWanted - libPicked.length;
         const haveTypes = new Set(libPicked.map(mealTypeOf));
-        const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t)).slice(0, missing);
+        const neededTypes = (["soup", "meat", "seafood", "vegetable", "other"] as DishType[]).filter(t => !haveTypes.has(t)).slice(0, missing);
         const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes);
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
-        const all = [...libPicked, ...aiPicked].slice(0, 4);
+        const all = [...libPicked, ...aiPicked].slice(0, totalWanted);
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
         return { content: `我喺食譜庫搵到 ${libPicked.length} 個 + AI 幫你補 ${aiPicked.length} 個：`, recipes: all, llmUsed };
       }
+      const dishLabel = libCount.soupCount > 0 ? `${libCount.dishCount}餸${libCount.soupCount}湯` : `${libCount.dishCount}道菜`;
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
-      return { content: `我喺食譜庫搵到呢套 3 餸 1 湯：`, recipes: libPicked, llmUsed };
+      return { content: `我喺食譜庫搵到呢套 ${dishLabel}：`, recipes: libPicked, llmUsed };
     }
 
     // 單卡：支援「庫內搜尋：X」marker（前端「換」用，指定類別換同類），亦支援結構化 search（hotkey/pantry 用）
@@ -2595,6 +2628,7 @@ export async function processAIChefChat(
 
   const llmMsgs = toLLMMessages(resolvedMsgs);
   const soupIntent = detectSoupIntent(llmMsgs);
+  const mealIntent = parseMealIntent(llmMsgs);
 
   // Auto-search library for context
   const ctxQuery = extractSearchQuery(llmMsgs) || keyword;
@@ -2677,13 +2711,13 @@ export async function processAIChefChat(
   let parallelFromLibrary = false;
   let parallelContent = "";
   let parallelRecipes: SuggestedRecipe[] = [];
-  // 由用戶文字抽「N送M湯」數量：一送一湯 -> {1,1}；2送一湯 -> {2,1}；8送2湯 -> {8,2}；冇寫 -> default {3,1}
-  const mealCount = parseMealCount(lastUserText, 3, 1);
-  const totalWanted = mealCount.dishCount + mealCount.soupCount;
-  const dishLabel = `${mealCount.dishCount}餸${mealCount.soupCount}湯`;
-  // 打字「N送M湯」（mode=chat + soupIntent）：先搵食譜庫，庫唔夠先 AI 補缺
+  // 由「最後一條用戶訊息」抽數量：一送一湯 -> {1,1}；兩個餸 -> {2,0}；唔要湯 -> {N,0}；冇寫 -> default {3,1}
+  const mealCount = { dishCount: mealIntent.dishCount, soupCount: mealIntent.soupCount };
+  const totalWanted = Math.max(mealCount.dishCount + mealCount.soupCount, 1);
+  const dishLabel = mealCount.soupCount > 0 ? `${mealCount.dishCount}餸${mealCount.soupCount}湯` : `${mealCount.dishCount}道菜`;
+  // 打字「N送M湯/兩個餸」（mode=chat + meal intent）：先搵食譜庫，庫唔夠先 AI 補缺
   // （同「食譜庫」button 一致；唔會淨係 AI 生成）
-  if (soupIntent && mode === "chat" && wantCards && db) {
+  if (mealIntent.isMeal && mode === "chat" && wantCards && db) {
     try {
       const libRows = await trySearch("", 1000);
       const libMeal = pickSoupMeal(libRows, mergedExclude, mealCount.dishCount, mealCount.soupCount);
