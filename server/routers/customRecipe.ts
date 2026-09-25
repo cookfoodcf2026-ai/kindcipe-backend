@@ -17,6 +17,7 @@ import {
   getPushTokensByFamily,
 } from "../db";
 import { sendPushNotifications } from "../pushNotification";
+import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 
 export const customRecipeRouter = router({
   /** List all custom recipes for the current user's family */
@@ -78,12 +79,23 @@ export const customRecipeRouter = router({
         await incrementImportUsage(ctx.user.id, ctx.activeFamilyId);
       }
 
+      // 匯入/建立時，將 ingredients 拆開「一欄多樣」+ 重新分類（避免入庫後購物車 3 樣同行 / 類別全部其他）
+      let normalizedIngredients = input.ingredients;
+      if (input.ingredients) {
+        try {
+          const parsed = JSON.parse(input.ingredients);
+          if (Array.isArray(parsed)) {
+            normalizedIngredients = JSON.stringify(normalizeRecipeIngredients(parsed));
+          }
+        } catch { /* keep as-is */ }
+      }
+
       const recipe = await insertCustomRecipe({
         ...input,
+        ingredients: normalizedIngredients,
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
       });
-
       // Push notification to all family members when a recipe is imported
       if (isImport && ctx.activeFamilyId) {
         const tokens = await getPushTokensByFamily(ctx.activeFamilyId);

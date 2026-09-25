@@ -5,6 +5,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
+import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
@@ -581,7 +582,7 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string): SuggestedRe
         cookTime: Number(r.cookTime ?? 30),
         servings: Number(r.servings ?? 4),
         difficulty: (String(r.difficulty ?? "中等") as "easy" | "medium" | "hard"),
-        ingredients,
+        ingredients: normalizeRecipeIngredients(ingredients),
         steps,
         stepsEn,
         stepsFil,

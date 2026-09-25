@@ -160,6 +160,39 @@ async function startServer() {
         console.warn("[Integrity] check failed (non-fatal):", (e as Error).message);
       }
     })();
+
+    // Periodic self-heal: scan for "一欄多樣" ingredients that may have crept in
+    // and split + recategorize them. Runs every 6h. Prevents multi-name recurrence.
+    const SELF_HEAL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const selfHeal = async () => {
+      try {
+        const { getDb } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const { normalizeRecipeIngredients } = await import("./utils/ingredientNormalize");
+        const db = await getDb();
+        if (!db) return;
+        let fixed = 0;
+        for (const table of ["official_recipes", "custom_recipes"] as const) {
+          const rows = await db.execute(sql`select id, name, ingredients from ${sql.raw(table)}`);
+          const list = (rows as any)?.rows ?? (rows as any) ?? [];
+          for (const row of list) {
+            if (!row.ingredients) continue;
+            let parsed: any;
+            try { parsed = JSON.parse(row.ingredients); } catch { continue; }
+            if (!Array.isArray(parsed)) continue;
+            const normalized = normalizeRecipeIngredients(parsed);
+            if (JSON.stringify(normalized) === JSON.stringify(parsed)) continue;
+            await db.execute(sql`update ${sql.raw(table)} set ingredients = ${JSON.stringify(normalized)} where id = ${row.id}`);
+            fixed++;
+          }
+        }
+        if (fixed > 0) console.log(`[SelfHeal] fixed ${fixed} recipes with multi-name ingredients`);
+      } catch (e) {
+        console.warn("[SelfHeal] failed (non-fatal):", (e as Error).message);
+      }
+    };
+    setInterval(selfHeal, SELF_HEAL_INTERVAL_MS);
+    setTimeout(selfHeal, 60_000); // 首次啟動 1 分鐘後跑一次
   });
 }
 
