@@ -1708,7 +1708,7 @@ export const recipesRouter = router({
       cookTimeMax: z.number().optional(),
       popularChips: z.array(z.string()).optional(),
       ingredientCategory: z.string().optional(),  // 食材類別篩選
-      source: z.enum(["all", "official", "user", "kol"]).optional(),  // 搜尋來源：all=全部，official=只官方，user=只自訂，kol=只 KOL 食譜
+      source: z.enum(["all", "official", "user", "kol", "hot"]).optional(),  // 搜尋來源：all=全部，official=只官方，user=只自訂，kol=只 KOL，hot=熱門(官方+公開)按 popularity
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -2027,16 +2027,20 @@ export const recipesRouter = router({
       orderByCustom.push(desc(customRecipes.createdAt));
 
       // 根據 source 參數決定是否查詢官方/自訂食譜
-      const shouldQueryOfficial = !input.source || input.source === "all" || input.source === "official";
-      let shouldQueryCustom = !input.source || input.source === "all" || input.source === "user";
+      const isHotQuery = input.source === "hot";
+      const shouldQueryOfficial = !input.source || input.source === "all" || input.source === "official" || isHotQuery;
+      let shouldQueryCustom = !input.source || input.source === "all" || input.source === "user" || isHotQuery;
 
       // KOL（網紅食譜）：全局公共內容，只查 sourceType = 'kol'，唔綁 activeFamilyId。
       // 用戶自己由 IG/YouTube 匯入嘅食譜屬於「我的食譜」，唔應該出現喺 KOL。
       const isKolQuery = input.source === "kol";
       if (isKolQuery) shouldQueryCustom = true;
+      // 「熱門」：官方 + 公開（public）嘅食譜（跨家庭），按 popularity 排序 —— 之後可放廣告食譜喺頭幾位
       const effectiveCustomConditions: any[] = isKolQuery
         ? [eq(customRecipes.sourceType, "kol")]
-        : customConditions;
+        : isHotQuery
+          ? [eq(customRecipes.visibility, "public")]
+          : customConditions;
 
       // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
       let totalOfficial = 0;

@@ -4,7 +4,7 @@ import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm"
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { translateRecipeContent } from "../utils/translateContent";
-import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe } from "../db";
+import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
@@ -2320,6 +2320,20 @@ export async function processAIChefChat(
   // Fix2: 合併後端自己記住嘅已推薦名單（唔靠前端 state），確保去重一定生效
   const seenFromCache = await getFamilySeenNames(familyId);
   const mergedExclude = [...new Set([...excludeNames, ...seenFromCache])];
+  // 參考「熱門」風格 + 唔重複：攞近期熱門菜名，加入 exclude（AI 唔會出返呢啲），
+  // 並生成一段「流行風格」hint 注入 prompt，令 AI 生成偏向多人食嘅家常菜（似 Gemini AI Overview）。
+  let popularHint = "";
+  try {
+    const trending = await getTrendingRecipes(7, 15);
+    if (trending.length > 0) {
+      const trendingNames = trending.map(t => t.recipeName).filter(Boolean);
+      // 熱門菜名加入 exclude → AI 唔會出返（微調生成新版本，唔重複）
+      mergedExclude.push(...trendingNames);
+      popularHint = `參考以下近期人氣/熱門家常菜嘅風格（但唔好直接出返呢啲名，要微調生成全新、唔重複嘅版本）：${trendingNames.slice(0, 8).join("、")}`;
+    }
+  } catch (e) {
+    console.warn("[AI Chef] trending fetch failed:", (e as Error)?.message);
+  }
   const textOf = (m: any): string =>
     typeof m?.content === "string"
       ? m.content
@@ -2583,6 +2597,7 @@ export async function processAIChefChat(
   }
 
   let systemPrompt = buildSystemPrompt(libSummary, soupIntent, lang);
+  if (popularHint) systemPrompt += `\n\n${popularHint}`;
   // 純對話（greeting/technique/圖片）-> 強調唔好出食譜 JSON
   if (isPlain) {
     systemPrompt += "\n\n（本輪為純對話/技巧查詢：請用正常文字親切回覆，不要輸出 JSON，也不要附食譜。）";
