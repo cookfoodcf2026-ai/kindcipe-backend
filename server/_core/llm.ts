@@ -102,7 +102,7 @@ function hasImageContent(messages: Message[]): boolean {
  * the process from being overwhelmed by a burst of AI requests. Excess calls
  * wait in a FIFO queue instead of failing.
  */
-const MAX_CONCURRENT_LLM = Number(process.env.MAX_CONCURRENT_LLM ?? 8);
+const MAX_CONCURRENT_LLM = Number(process.env.MAX_CONCURRENT_LLM ?? 16);
 let _llmActive = 0;
 const _llmQueue: Array<() => void> = [];
 

@@ -1476,11 +1476,6 @@ async function generateOneType(
   const isVeg = expectedType === "vegetable";
   // 由 exclude 抽「出過嘅湯」：湯位用完整清單（唔 slice-15），確保唔再出返已睇過嘅湯
   const soupExclude = exclude.filter(n => /湯|羹/.test(String(n ?? "")));
-  // 撞到「出過」嘅菜/湯（近似）就唔收 → retry 出新（連餸菜都唔重複）
-  const seenCheck = (name: string) => {
-    const n = normalizeName(name);
-    return exclude.some(e => e && (e === n || nameSimilarity(e, n) >= 0.6));
-  };
   const avoidList = isSoup ? soupExclude : exclude.slice(0, 15);
   const soupHint = isSoup
     ? `必須係湯水。唔好淨係出例湯/老火湯，試下唔同種類嘅湯（清湯/燉湯/羹/西式/素湯等），要同之前唔同。絕對唔可以再出以下出過嘅湯：${soupExclude.join("、")}。`
@@ -1529,23 +1524,11 @@ async function generateOneType(
     if (isVeg) return t === "vegetable";
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
-  // 「新鮮」：唔係已睇過嘅（近似）菜/湯 —— 用嚟優先揀新鮮，但唔會因為撞到近似就 drop（保證出到卡）
-  const isFresh = (rec: SuggestedRecipe | null): boolean => !!rec && !seenCheck(rec.name);
 
-  // 任何 slot 都「重試一次」：第一次驗證唔過就 retry（湯位最易被近似去重刪走 → 要 retry 保底）
-  const retryHint = isSoup
-    ? `（注意：一定要係一個全新、未出過嘅湯，唔可以係：${soupExclude.join("、")}。）`
-    : isVeg
-      ? "（注意：一定要係純蔬菜，唔可以配肉/海鮮做主食材，例如蒜蓉炒菜心、清炒西蘭花。）"
-      : "（注意：一定要係一道主菜/小炒，唔可以係湯、麵、飯。）";
-
-  // 新鮮優先：先試新鮮；揀唔到新鮮就照收「類型啱」嘅卡做保底 —— 保證每個 slot 都出到卡（唔會跌去 1 卡）
-  let first = await attempt("");
-  if (validateType(first) && isFresh(first)) return first; // 新鮮，1 次 call 就搞掂
-  let second = await attempt(retryHint); // 先唔係新鮮/類型錯 → 先 retry 再試新鮮
-  if (validateType(second) && isFresh(second)) return second;
-  if (validateType(second)) return second; // 收近似，保證有卡
-  if (validateType(first)) return first;   // 收近似，保證有卡
+  // 速度優先：只出 1 次 call（唔做二次 retry —— 舊版二次 attempt 係 55s 嘅主要來源）。
+  // 收「類型啱」嘅卡就算唔新鮮做保底，保證每個 slot 都出到卡（唔會跌去 1 卡）。
+  const first = await attempt("");
+  if (validateType(first)) return first;
   console.warn(`[AI Chef] ${expectedType} slot type-invalid, dropped`);
   return null;
 }
@@ -2758,30 +2741,28 @@ export async function processAIChefChat(
     }
 
     // 3餸1湯：hard filter 之後少過 4 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
-    // 用 retry loop：逐類補，邊類缺就補邊類，最多 retry 兩輪，保證「湯/肉/海鮮/菜」齊 4 卡
+    // 速度優先：只補一輪（最多 1 次 LLM），補唔夠就靠下面食譜庫 pool 兜底（快，唔等 LLM）
     if (soupIntent && recipes.length > 0 && recipes.length < 4) {
-      for (let round = 0; round < 2; round++) {
-        if (recipes.length >= 4) break;
+      if (recipes.length < 4) {
         const haveTypes = new Set(recipes.map(mealTypeOf));
         const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t));
-        if (neededTypes.length === 0) break;
-        const aiPicked = await generateMissingRecipes(
-          neededTypes.length,
-          false,
-          [...mergedExclude, ...recipes.map(r => r.name)],
-          familyId,
-          userId,
-          neededTypes
-        );
-        if (aiPicked.length > 0) {
-          llmUsed = true;
-          // 只補「缺嘅類別」（唔會重複類別）
-          const haveNow = new Set(recipes.map(mealTypeOf));
-          const fresh = aiPicked.filter(r => !haveNow.has(mealTypeOf(r)));
-          recipes = [...recipes, ...fresh].slice(0, 4);
-          console.log(`[AI Chef] Meal flow topped up round ${round + 1}: +${fresh.length} (total ${recipes.length})`);
-        } else {
-          break;
+        if (neededTypes.length > 0) {
+          const aiPicked = await generateMissingRecipes(
+            neededTypes.length,
+            false,
+            [...mergedExclude, ...recipes.map(r => r.name)],
+            familyId,
+            userId,
+            neededTypes
+          );
+          if (aiPicked.length > 0) {
+            llmUsed = true;
+            // 只補「缺嘅類別」（唔會重複類別）
+            const haveNow = new Set(recipes.map(mealTypeOf));
+            const fresh = aiPicked.filter(r => !haveNow.has(mealTypeOf(r)));
+            recipes = [...recipes, ...fresh].slice(0, 4);
+            console.log(`[AI Chef] Meal flow topped up: +${fresh.length} (total ${recipes.length})`);
+          }
         }
       }
     }
