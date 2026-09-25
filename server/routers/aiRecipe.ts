@@ -2767,23 +2767,7 @@ export async function processAIChefChat(
       }
     }
 
-    // 最後保證 4 卡：如果 AI 補缺都唔夠（某類 LLM 一直失敗），由食譜庫 pool 補返（快，唔等 LLM）——
-    // 確保「湯/肉/海鮮/菜」齊 4 卡，唔會出「3 卡」。
-    if (soupIntent && recipes.length > 0 && recipes.length < 4) {
-      const haveTypes = new Set(recipes.map(mealTypeOf));
-      const poolRows = await trySearch("", 1000);
-      const poolCandidates = poolRows
-        .map((r: any) => rowsToSuggested([r], mergedExclude, 1)[0])
-        .filter((r: SuggestedRecipe | undefined): r is SuggestedRecipe => !!r)
-        .filter((r) => !haveTypes.has(mealTypeOf(r)) && !["dessert", "drink"].includes(mealTypeOf(r)));
-      for (const r of poolCandidates) {
-        if (recipes.length >= 4) break;
-        if (haveTypes.has(mealTypeOf(r))) continue;
-        haveTypes.add(mealTypeOf(r));
-        recipes = [...recipes, r];
-        console.log(`[AI Chef] Meal library-pool filled: ${r.name} (${mealTypeOf(r)})`);
-      }
-    }
+    // AI 生成必須全部係 AI 卡：唔會用食譜庫 pool 填缺。AI 補缺（上面 1 輪）唔夠就回傳 <4 全 AI 卡。
     // 具體指定菜式（例如番茄炒蛋）就唔好 random 呃人，出文字算
     const wantsFallbackCards = db && recipes.length === 0 && (mode === "ai" || isVague);
     if (wantsFallbackCards) {
@@ -2799,6 +2783,11 @@ export async function processAIChefChat(
         }
       }
       if (recipes.length === 0) {
+        // 純 AI 生成（mode="ai"）：即使 AI 失敗都唔會用食譜庫卡頂替 —— 一定全部係 AI。
+        // 只係「模糊對話想睇卡」（isVague）先容許食譜庫兜底。
+        if (mode === "ai" && !isVague) {
+          return { content: "暫時未能推薦，請再試", recipes: [], llmUsed };
+        }
         let fbRows = await trySearch(isVague ? "" : keyword || "", 30);
         let fb = rowsToSuggested(fbRows, mergedExclude, 1);
         if (fb.length === 0 && keyword) {

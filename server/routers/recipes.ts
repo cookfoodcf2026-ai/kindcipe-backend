@@ -674,6 +674,16 @@ const recipeInputSchema = z.object({
   tags: z.array(z.string()).optional(),
   sourceUrl: z.string().optional(),
   sourceAuthor: z.string().optional(),
+  // Optional pre-provided translations — skip LLM translate when present (huge speed win for AI-saved recipes)
+  nameEn: z.string().optional(),
+  nameFil: z.string().optional(),
+  nameId: z.string().optional(),
+  descriptionEn: z.string().optional(),
+  descriptionFil: z.string().optional(),
+  descriptionId: z.string().optional(),
+  stepsEn: z.array(z.string()).optional(),
+  stepsFil: z.array(z.string()).optional(),
+  stepsId: z.array(z.string()).optional(),
 });
 
 // ─── Fetch webpage content helper ────────────────────────────────────────────
@@ -2540,7 +2550,15 @@ export const recipesRouter = router({
       }
 
       const _stepsArr = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
-      const _tr = await translateRecipeContent(input.name, _stepsArr, input.description);
+      // 速度：如果已帶翻譯（AI 生成嘅食譜有 nameEn/stepsEn），跳過 LLM translate；缺先補
+      const hasTr = !!input.nameEn || (!!input.stepsEn && input.stepsEn.length > 0);
+      const _tr = hasTr
+        ? {
+            nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
+            descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
+            stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
+          }
+        : await translateRecipeContent(input.name, _stepsArr, input.description);
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
