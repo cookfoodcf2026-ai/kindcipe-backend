@@ -2411,8 +2411,8 @@ export async function processAIChefChat(
   const cleanFoodQuery = (raw: string): string => {
     const q = raw
       .replace(/[。，、！？!?.,;；：:…\s]+/g, " ")
-.replace(/[0-9]+/g, " ")
-      .replace(/(我|我想|想要|要|嚟|幫我|請|希望|可以|可否|推薦|推介|介紹|提供|搵|選|選擇|整個|煮個|煮|整|食譜庫|唔同|唔該|今晚|今日|早餐|午餐|晚餐|宵夜|有咩|有乜|咩|乜|乜嘢|咩嘢|嗎|呢|呀|啊|喔|哦|啦|喎|please|give|me|some|for|tonight|dinner|lunch|breakfast|today|recommend|suggest|suggestion|recipes|food|what|to|eat|cook|make|want|i|和|同|同埋|又|仲有|還有|或者|定係|邊個|邊種|好唔好|想|要|嚟)/gi, " ")
+      .replace(/[0-9]+/g, " ")
+      .replace(/(我|我想|想要|要|嚟|幫我|請|希望|可以|可否|推薦|推介|介紹|提供|搵|選|選擇|整個|煮個|煮|整|食譜庫|唔同|唔該|今晚|今日|早餐|午餐|晚餐|宵夜|有咩|有乜|咩|乜|乜嘢|咩嘢|嗎|呢|呀|啊|喔|哦|啦|喎|please|give|me|some|for|tonight|dinner|lunch|breakfast|today|recommend|suggest|suggestion|recipes|food|what|to|eat|cook|make|want|i|和|同|同埋|又|仲有|還有|或者|定係|邊個|邊種|好唔好|想|要|諗|好|食|吃|下|哋)/gi, " ")
       .trim();
     return q.length >= 2 ? q : "";
   };
@@ -2646,6 +2646,40 @@ export async function processAIChefChat(
   let usedParallel = false;
   let parallelContent = "";
   let parallelRecipes: SuggestedRecipe[] = [];
+  // 打字「3餸1湯/2送一湯」（mode=chat + soupIntent）：先搵食譜庫，庫唔夠先 AI 補缺
+  // （同「食譜庫」button 一致；唔會淨係 AI 生成）
+  if (soupIntent && mode === "chat" && wantCards && db) {
+    try {
+      const libRows = await trySearch("", 1000);
+      const libMeal = pickSoupMeal(libRows, mergedExclude);
+      if (libMeal.length > 0) {
+        const libNames = libMeal.map(r => r.name);
+        await recordFamilySeenNames(familyId, libNames);
+        if (libMeal.length >= 4) {
+          usedParallel = true;
+          parallelContent = "我喺食譜庫搵到呢套 3 餸 1 湯：";
+          parallelRecipes = libMeal;
+          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib`);
+        } else {
+          // 庫唔夠 → AI 補缺（缺失類別），保證 4 卡
+          const haveTypes = new Set(libMeal.map(mealTypeOf));
+          const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t));
+          const aiPicked = neededTypes.length > 0
+            ? await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes)
+            : [];
+          if (aiPicked.length > 0) llmUsed = true;
+          await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
+          const all = [...libMeal, ...aiPicked].slice(0, 4);
+          usedParallel = true;
+          parallelContent = `我喺食譜庫搵到 ${libMeal.length} 個 + AI 幫你補 ${aiPicked.length} 個：`;
+          parallelRecipes = all;
+          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib + ${aiPicked.length} ai`);
+        }
+      }
+    } catch (e) {
+      console.warn("[AI Chef] chat meal library-first failed:", e);
+    }
+  }
   if (soupIntent && mode === "ai" && wantCards) {
     const mealRecipes = await generateMealRecipesParallel(mergedExclude, familyId, userId);
     if (mealRecipes.length > 0) {
