@@ -1806,8 +1806,20 @@ function parseMealIntent(messages: Message[]): { isMeal: boolean; dishCount: num
   // 抽到明確數量（即使冇湯字，例如「兩個餸」/「2個送」）都算 meal 要求
   const count = parseMealCount(text, 3, soupIntent ? 1 : 0);
   const hasCount = /[送餸]\s*(?:[\d一二兩三四五六七八九十]+\s*)?湯|[\d一二兩三四五六七八九十]+\s*[個道碟]\s*[送餸菜]|兩個餸|二個餸|兩個菜|兩道菜|一個菜\s*一個肉|一個菜|一菜一肉|2\s*個送/.test(text);
-  const isMeal = soupIntent || hasCount;
+  // 淨係講「唔要湯」都算一餐（冇湯），預設 3 餸
+  const wantsNoSoupMeal = /(唔要湯|不要湯|冇湯|無湯|唔飲湯)/.test(text);
+  const isMeal = soupIntent || hasCount || wantsNoSoupMeal;
   return { isMeal, dishCount: count.dishCount, soupCount: count.soupCount };
+}
+
+// 由 prompt/文字抽「幾多人食」（適合 N 人食用 / N 人份）→ 用作卡片 servings 覆蓋
+function extractPeopleCount(text: string): number | null {
+  const cn: Record<string, number> = { 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  const m = text.match(/([\d一二兩三四五六七八九十]+)\s*(?:人份|人食用|人食|人)/);
+  if (!m) return null;
+  const t = m[1];
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  return cn[t] ?? null;
 }
 
 function extractSoupMeta(block: string): { soupType?: string; benefits?: string; waterVolume?: string } {
@@ -2494,6 +2506,11 @@ export async function processAIChefChat(
       const libPicked = pickSoupMeal(rows, mergedExclude, libCount.dishCount, libCount.soupCount);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
+      // 問卷「N人」→ 覆蓋卡片 servings（library 卡 DB 預設 4 人，要跟用戶答嘅人數）
+      const people = extractPeopleCount(lastUserText);
+      const applyServings = (arr: SuggestedRecipe[]) => people && people > 0
+        ? arr.map(r => ({ ...r, servings: people }))
+        : arr;
       // 2) 唔夠 → 按「缺失類別」逐類 AI 補缺
       if (libPicked.length < totalWanted) {
         const missing = totalWanted - libPicked.length;
@@ -2503,13 +2520,13 @@ export async function processAIChefChat(
         const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes);
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
-        const all = [...libPicked, ...aiPicked].slice(0, totalWanted);
+        const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
         return { content: `我喺食譜庫搵到 ${libPicked.length} 個 + AI 幫你補 ${aiPicked.length} 個：`, recipes: all, llmUsed };
       }
       const dishLabel = libCount.soupCount > 0 ? `${libCount.dishCount}餸${libCount.soupCount}湯` : `${libCount.dishCount}道菜`;
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
-      return { content: `我喺食譜庫搵到呢套 ${dishLabel}：`, recipes: libPicked, llmUsed };
+      return { content: `我喺食譜庫搵到呢套 ${dishLabel}：`, recipes: applyServings(libPicked), llmUsed };
     }
 
     // 單卡：支援「庫內搜尋：X」marker（前端「換」用，指定類別換同類），亦支援結構化 search（hotkey/pantry 用）
