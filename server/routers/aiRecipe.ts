@@ -1247,7 +1247,7 @@ function dishFamily(name: string): string {
 }
 
 // 由 library rows 揀「1 湯 + 3 餸」；排除已睇過（優先 fresh，池盡翻兜）
-function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): SuggestedRecipe[] {
+function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCount = 3, soupCount = 1): SuggestedRecipe[] {
   const excluded = new Set(exclude.map(normalizeName).filter(Boolean));
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
@@ -1281,7 +1281,7 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
     return pool.slice(0, n);
   };
 
-  const soup = pickN(soupPool, 1);
+  const soup = pickN(soupPool, Math.min(soupCount, 3));
   const usedFams = new Set<string>();
   // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），fresh 優先次序保留
   const pickNByFamily = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
@@ -1321,35 +1321,36 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[]): Sugge
   };
   dishes = dishes.concat(seafoodSlot());
   dishes = dishes.concat(addDish(vegPool, 1));
-  // 3餸1湯：主食（麵/飯）唔做餸（上面 pool 已排除），永遠 1肉 + 1海鮮 + 1菜(+補其他) = 真3餸
-  let want = 3 - dishes.length;
+  // 主食（麵/飯）唔做餸（上面 pool 已排除）。先 1肉+1海鮮+1菜，缺就先由 otherPool 補，再到全 dishPool 補齊 dishCount 餸
+  let want = dishCount - dishes.length;
   if (want > 0) {
     const already = new Set(dishes.map(r => r));
     dishes = dishes.concat(addDish(otherPool.filter(r => !already.has(r)), want));
   }
-  if (dishes.length < 3) {
+  if (dishes.length < dishCount) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), 3 - dishes.length));
+    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length));
   }
-  // 極兜底：連非主食餸都唔夠先准用主食（保證唔少過 3 餸）
-  if (dishes.length < 3) {
+  // 極兜底：連非主食餸都唔夠先准用主食（保證唔少過 dishCount 餸）
+  if (dishes.length < dishCount) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), 3 - dishes.length));
+    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length));
   }
 
   let picked = [...soup, ...dishes];
-  // 兜底：唔夠 4 張 → 由全庫非甜品/飲品/主食補（保證有卡，之後 AI 補尾數）
-  if (picked.length < 4) {
+  // 兜底：唔夠 total 張 → 由全庫非甜品/飲品/主食補（保證有卡，之後 AI 補尾數）
+  const totalWanted = dishCount + soupCount;
+  if (picked.length < totalWanted) {
     const already = new Set(picked.map(r => r));
     const rest = pool.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink")
       .sort(() => Math.random() - 0.5);
-    picked = picked.concat(rest.slice(0, 4 - picked.length));
+    picked = picked.concat(rest.slice(0, totalWanted - picked.length));
   }
   // 極兜底：全庫都係甜品/飲品/主食先准用
-  if (picked.length < 4) {
+  if (picked.length < totalWanted) {
     const already = new Set(picked.map(r => r));
     const rest = pool.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
-    picked = picked.concat(rest.slice(0, 4 - picked.length));
+    picked = picked.concat(rest.slice(0, totalWanted - picked.length));
   }
 
   return picked.map((r: any): SuggestedRecipe | null => {
@@ -1544,18 +1545,25 @@ async function generateOneType(
 async function generateMealRecipesParallel(
   exclude: string[],
   familyId: number | undefined,
-  userId: number | undefined
+  userId: number | undefined,
+  dishCount = 3,
+  soupCount = 1
 ): Promise<SuggestedRecipe[]> {
+  // 先 1 湯 + 每個「食物類型」各 1（meat/seafood/veg），其餘 dishCount-3 由 other 補
   const types = [
     { label: "肉類主菜（如豬/牛/雞）", expectedType: "meat" as DishType },
     { label: "海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）", expectedType: "seafood" as DishType },
     { label: "蔬菜/小炒", expectedType: "vegetable" as DishType },
-    { label: "湯水", expectedType: "soup" as DishType },
   ];
-  // 每個類型並行生成 1 個候選（共 4 個）—— 快（少一半 LLM call，唔會並行 8 個互相排隊拖慢）。
-  // 若某類型失敗，交返 meal backfill（缺失類別）補返，保證 4 卡。
+  const soupTypes = Array.from({ length: Math.min(Math.max(soupCount, 1), 3) }, () =>
+    ({ label: "湯水", expectedType: "soup" as DishType }));
+  const otherCount = Math.max(0, dishCount - types.length);
+  const otherTypes = Array.from({ length: Math.min(otherCount, 5) }, () =>
+    ({ label: "家常菜（主食以外，例如豆腐/蛋/豆類/涼菜）", expectedType: "other" as DishType }));
+  const allTypes = [...types, ...otherTypes, ...soupTypes];
+  // 每個類型並行生成 1 個候選 —— 快（唔會並行太多互相排隊拖慢）。
   const results = await Promise.allSettled(
-    types.map(t => generateOneType(t.label, t.expectedType, exclude))
+    allTypes.map(t => generateOneType(t.label, t.expectedType, exclude))
   );
   // 去重：同一個名 / 近似名出現兩次就刪，確保每道唔重複（只喺「並行結果內部」去重）。
   // 唔再對「已睇過 exclude」做近似去重 —— 令 parallel 唔會 drop 到 0（觸發慢嘅 16s 順序 fallback）；
@@ -1745,6 +1753,29 @@ function detectSoupIntent(messages: Message[]): boolean {
   return /(湯水|老火湯|滾湯|燉湯|煲湯|湯|湯品|soup|tonic|3\s*餸\s*1\s*湯|3\s*菜\s*1\s*湯|三餸一湯|三菜一湯|3 餸 1 湯|3 菜 1 湯|今晚食咩|晚餐推薦)/i.test(text);
 }
 
+// 解析「N送M湯」/「N餸M湯」/「N送一湯」數量。回傳 { dishCount, soupCount }；抽唔到就用 default。
+// 例：一送一湯 -> {1,1}；二送一湯/2送一湯 -> {2,1}；三餸一湯 -> {3,1}；8送2湯 -> {8,2}；冇寫 -> default {3,1}
+function parseMealCount(text: string, defDish = 3, defSoup = 1): { dishCount: number; soupCount: number } {
+  const cn: Record<string, number> = { 零: 0, 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  const toNum = (s: string): number => {
+    const t = s.trim();
+    if (!t) return NaN;
+    if (/^\d+$/.test(t)) return parseInt(t, 10);
+    if (cn[t] != null) return cn[t];
+    return NaN;
+  };
+  // 中文：X送Y湯 / X餸Y湯；英文：X dishes Y soups
+  const m = text.match(/([\d一二兩三四五六七八九十]+)\s*[送餸]\s*(?:([\d一二兩三四五六七八九十]+)\s*湯|湯)/);
+  let dish = defDish, soup = defSoup;
+  if (m) {
+    const d = toNum(m[1]);
+    if (!isNaN(d)) dish = Math.max(0, Math.min(d, 10));
+    const s = m[2] ? toNum(m[2]) : 1;
+    if (!isNaN(s)) soup = Math.max(1, Math.min(s, 5));
+  }
+  return { dishCount: dish, soupCount: soup };
+}
+
 function extractSoupMeta(block: string): { soupType?: string; benefits?: string; waterVolume?: string } {
   const readField = (patterns: RegExp[]) => {
     for (const pattern of patterns) {
@@ -1754,8 +1785,7 @@ function extractSoupMeta(block: string): { soupType?: string; benefits?: string;
     return "";
   };
   return {
-    soupType: readField([/(?:湯類型|湯種|類型|Soup\s*Type)[：:]\s*([^\n]+)/i]),
-    benefits: readField([/(?:功效|Benefits?)[：:]\s*([^\n]+)/i]),
+    soupType: readField([/(?:湯類型|湯種|類型|Soup\s*Type)[：:]\s*([^\n]+)/i]),    benefits: readField([/(?:功效|Benefits?)[：:]\s*([^\n]+)/i]),
     waterVolume: readField([/(?:水量|用水|湯水用水|Water\s*Volume)[：:]\s*([^\n]+)/i]),
   };
 }
@@ -2412,7 +2442,7 @@ export async function processAIChefChat(
     const q = raw
       .replace(/[。，、！？!?.,;；：:…\s]+/g, " ")
       .replace(/[0-9]+/g, " ")
-      .replace(/(我|我想|想要|要|嚟|幫我|請|希望|可以|可否|推薦|推介|介紹|提供|搵|選|選擇|整個|煮個|煮|整|食譜庫|唔同|唔該|今晚|今日|早餐|午餐|晚餐|宵夜|有咩|有乜|咩|乜|乜嘢|咩嘢|嗎|呢|呀|啊|喔|哦|啦|喎|please|give|me|some|for|tonight|dinner|lunch|breakfast|today|recommend|suggest|suggestion|recipes|food|what|to|eat|cook|make|want|i|和|同|同埋|又|仲有|還有|或者|定係|邊個|邊種|好唔好|想|要|諗|好|食|吃|下|哋)/gi, " ")
+      .replace(/(我|我想|想要|要|嚟|幫我|請|希望|可以|可否|推薦|推介|介紹|提供|搵|選|選擇|整個|煮個|煮|整|食譜庫|唔同|唔該|今晚|今日|早餐|午餐|晚餐|宵夜|有咩|有乜|咩|乜|乜嘢|咩嘢|嗎|呢|呀|啊|喔|哦|啦|喎|please|give|me|some|for|tonight|dinner|lunch|breakfast|today|recommend|suggest|suggestion|recipes|food|what|to|eat|cook|make|want|\bi\b|和|同|同埋|又|仲有|還有|或者|定係|邊個|邊種|好唔好|想|要|諗|好|食|吃|下|哋)/gi, " ")
       .trim();
     return q.length >= 2 ? q : "";
   };
@@ -2644,36 +2674,43 @@ export async function processAIChefChat(
 
   // 3餸1湯 AI 生成：並行 4 個獨立 call（1 湯 + 3 餸），每個 ~8-10s，總時間 ~10s
   let usedParallel = false;
+  let parallelFromLibrary = false;
   let parallelContent = "";
   let parallelRecipes: SuggestedRecipe[] = [];
-  // 打字「3餸1湯/2送一湯」（mode=chat + soupIntent）：先搵食譜庫，庫唔夠先 AI 補缺
+  // 由用戶文字抽「N送M湯」數量：一送一湯 -> {1,1}；2送一湯 -> {2,1}；8送2湯 -> {8,2}；冇寫 -> default {3,1}
+  const mealCount = parseMealCount(lastUserText, 3, 1);
+  const totalWanted = mealCount.dishCount + mealCount.soupCount;
+  const dishLabel = `${mealCount.dishCount}餸${mealCount.soupCount}湯`;
+  // 打字「N送M湯」（mode=chat + soupIntent）：先搵食譜庫，庫唔夠先 AI 補缺
   // （同「食譜庫」button 一致；唔會淨係 AI 生成）
   if (soupIntent && mode === "chat" && wantCards && db) {
     try {
       const libRows = await trySearch("", 1000);
-      const libMeal = pickSoupMeal(libRows, mergedExclude);
+      const libMeal = pickSoupMeal(libRows, mergedExclude, mealCount.dishCount, mealCount.soupCount);
       if (libMeal.length > 0) {
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);
-        if (libMeal.length >= 4) {
+        if (libMeal.length >= totalWanted) {
           usedParallel = true;
-          parallelContent = "我喺食譜庫搵到呢套 3 餸 1 湯：";
+          parallelFromLibrary = true;
+          parallelContent = `我喺食譜庫搵到呢套 ${dishLabel}：`;
           parallelRecipes = libMeal;
-          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib`);
+          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib (${dishLabel})`);
         } else {
-          // 庫唔夠 → AI 補缺（缺失類別），保證 4 卡
+          // 庫唔夠 → AI 補缺（缺失類別），補到 totalWanted
           const haveTypes = new Set(libMeal.map(mealTypeOf));
-          const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t));
+          const neededTypes = (["soup", "meat", "seafood", "vegetable", "other"] as DishType[]).filter(t => !haveTypes.has(t));
           const aiPicked = neededTypes.length > 0
-            ? await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes)
+            ? await generateMissingRecipes(totalWanted - libMeal.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes.slice(0, totalWanted - libMeal.length))
             : [];
           if (aiPicked.length > 0) llmUsed = true;
           await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
-          const all = [...libMeal, ...aiPicked].slice(0, 4);
+          const all = [...libMeal, ...aiPicked].slice(0, totalWanted);
           usedParallel = true;
+          parallelFromLibrary = true;
           parallelContent = `我喺食譜庫搵到 ${libMeal.length} 個 + AI 幫你補 ${aiPicked.length} 個：`;
           parallelRecipes = all;
-          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib + ${aiPicked.length} ai`);
+          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib + ${aiPicked.length} ai (${dishLabel})`);
         }
       }
     } catch (e) {
@@ -2681,11 +2718,11 @@ export async function processAIChefChat(
     }
   }
   if (soupIntent && mode === "ai" && wantCards) {
-    const mealRecipes = await generateMealRecipesParallel(mergedExclude, familyId, userId);
+    const mealRecipes = await generateMealRecipesParallel(mergedExclude, familyId, userId, mealCount.dishCount, mealCount.soupCount);
     if (mealRecipes.length > 0) {
       usedParallel = true;
       llmUsed = true; // 並行 meal 每個 item 都係 LLM call
-      parallelContent = "我幫你諗好咗今晚 3 餸 1 湯：";
+      parallelContent = `我幫你諗好咗今晚 ${dishLabel}：`;
       parallelRecipes = mealRecipes;
       console.log(`[AI Chef] Parallel meal generated: ${mealRecipes.length} recipes`);
     } else {
@@ -2729,16 +2766,18 @@ export async function processAIChefChat(
   if (forceNoCards) {
     recipes = [];
   } else {
-    // 撳 AI（mode="ai"/chat）→ 一律保持 source="ai"（AI 生成），唔會因為個名 match 到食譜庫就 relabel 做食譜庫
-    // （mode="library" 已經喺上面快路徑 return 咗；淨係 AI/chat 會到呢度）
+    // 撳 AI（mode="ai"/chat）→ 真正 AI 生成嘅先標 source="ai"；食譜庫卡（official/custom）保留原 source，
+    // 唔會因為行咗 meal library-first 就被誤標做 AI（badge 應顯示「食譜庫」）
     for (const r of recipes) {
+      if (r.source === "official" || r.source === "custom") continue;
       r.source = "ai";
       delete r.officialId;
       delete r.customId;
     }
     // 3餸1湯 AI：由並行候選池揀「每類型各一」（跳過 hard mergedExclude filter，改由「新鮮優先」處理，
-    // 保證唔會成個類型被刪走；缺類型由下面 meal backfill 針對缺失類別補返）
-    if (soupIntent && usedParallel) {
+    // 保證唔會成個類型被刪走；缺類型由下面 meal backfill 針對缺失類別補返）。
+    // 食譜庫 library-first 已係完整 N餸M湯，唔再揀（避免 truncate 成 1 湯 3 餸）。
+    if (soupIntent && usedParallel && !parallelFromLibrary) {
       recipes = pickDiverseMeal(recipes, mergedExclude);
       console.log(`[AI Chef] Parallel candidates picked diverse: ${recipes.length}`);
     } else if (mergedExclude.length > 0 && recipes.length > 0) {
@@ -2781,27 +2820,27 @@ export async function processAIChefChat(
       }
     }
 
-    // 3餸1湯：hard filter 之後少過 4 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
+    // 3餸1湯：hard filter 之後少過 target 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
     // 速度優先：只補一輪（最多 1 次 LLM），補唔夠就靠下面食譜庫 pool 兜底（快，唔等 LLM）
-    if (soupIntent && recipes.length > 0 && recipes.length < 4) {
-      if (recipes.length < 4) {
+    if (soupIntent && recipes.length > 0 && recipes.length < totalWanted) {
+      if (recipes.length < totalWanted) {
         const haveTypes = new Set(recipes.map(mealTypeOf));
-        const neededTypes = (["soup", "meat", "seafood", "vegetable"] as DishType[]).filter(t => !haveTypes.has(t));
+        const neededTypes = (["soup", "meat", "seafood", "vegetable", "other"] as DishType[]).filter(t => !haveTypes.has(t));
         if (neededTypes.length > 0) {
           const aiPicked = await generateMissingRecipes(
-            neededTypes.length,
+            totalWanted - recipes.length,
             false,
             [...mergedExclude, ...recipes.map(r => r.name)],
             familyId,
             userId,
-            neededTypes
+            neededTypes.slice(0, totalWanted - recipes.length)
           );
           if (aiPicked.length > 0) {
             llmUsed = true;
             // 只補「缺嘅類別」（唔會重複類別）
             const haveNow = new Set(recipes.map(mealTypeOf));
             const fresh = aiPicked.filter(r => !haveNow.has(mealTypeOf(r)));
-            recipes = [...recipes, ...fresh].slice(0, 4);
+            recipes = [...recipes, ...fresh].slice(0, totalWanted);
             console.log(`[AI Chef] Meal flow topped up: +${fresh.length} (total ${recipes.length})`);
           }
         }
