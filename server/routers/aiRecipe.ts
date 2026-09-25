@@ -1525,10 +1525,17 @@ async function generateOneType(
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
 
-  // 速度優先：只出 1 次 call（唔做二次 retry —— 舊版二次 attempt 係 55s 嘅主要來源）。
-  // 收「類型啱」嘅卡就算唔新鮮做保底，保證每個 slot 都出到卡（唔會跌去 1 卡）。
-  const first = await attempt("");
+  // 速度優先：最多 2 次 attempt —— 淨係「類型唔啱」先 retry（唔係「唔新鮮」就 retry，嗰個先係 55s 元兇）。
+  // 第一次類型啱就收；類型錯先補一個「強調類型」嘅 hint 再試一次，保證 4 卡結構唔會因為一次失手而缺位。
+  let first = await attempt("");
   if (validateType(first)) return first;
+  const retryHint = isSoup
+    ? "（再強調：你一定要生成一個湯水食譜，名要有「湯」或「羹」字，絕對唔可以係小炒/主菜。）"
+    : isVeg
+      ? "（再強調：你一定要生成一道純蔬菜菜式，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬，唔可以配肉/海鮮做主食材，唔可以係湯、麵、飯。）"
+      : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）";
+  const second = await attempt(retryHint);
+  if (validateType(second)) return second;
   console.warn(`[AI Chef] ${expectedType} slot type-invalid, dropped`);
   return null;
 }

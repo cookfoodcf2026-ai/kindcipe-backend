@@ -564,6 +564,7 @@ const shoppingRouter = router({
         commonIngredientId: z.number().int().optional(),
         fromRecipeId: z.string().max(64).optional(),
         fromRecipeName: z.string().max(128).optional(),
+        fromMealPlanId: z.number().int().optional(),
       })),
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
@@ -625,7 +626,7 @@ const shoppingRouter = router({
           proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
           fromRecipeId: item.fromRecipeId ?? input.fromRecipeId?.slice(0, 64),
           fromRecipeName: item.fromRecipeName ?? input.fromRecipeName?.slice(0, 128),
-          fromMealPlanId: input.fromMealPlanId,
+          fromMealPlanId: item.fromMealPlanId ?? input.fromMealPlanId,
           plannedDate: input.plannedDate,
           commonIngredientId: item.commonIngredientId ?? null,
         })).filter(row => {
