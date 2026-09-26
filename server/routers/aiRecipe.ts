@@ -1171,20 +1171,26 @@ async function getMixedRecipes(
 }
 
 // ─── 3餸1湯 library helper（1 湯 + 3 餸，唔夠就由 AI 補）──────────────────
-type DishType = "soup" | "meat" | "seafood" | "vegetable" | "dessert" | "drink" | "other";
+type DishType = "soup" | "meat" | "seafood" | "vegetable" | "carb" | "appetizer" | "dessert" | "drink" | "other";
 
 const DISH_TYPE_MAP: Record<string, DishType> = {
   "湯": "soup", "湯水": "soup", "湯品": "soup", "煲湯": "soup", "老火湯": "soup", "燉湯": "soup", "滾湯": "soup",
   "肉類": "meat", "主菜": "meat", "肉": "meat", "豬": "meat", "牛": "meat", "雞": "meat", "肉類主菜": "meat",
   "海鮮": "seafood", "魚": "seafood", "蝦": "seafood", "蟹": "seafood", "海鮮類": "seafood", "蛋白": "seafood", "海鮮/蛋白": "seafood",
   "蔬菜": "vegetable", "菜": "vegetable", "素菜": "vegetable", "蔬果": "vegetable", "蔬菜類": "vegetable", "小炒": "vegetable",
+  "主食": "carb", "飯": "carb", "麵": "carb", "粉": "carb", "飯麵": "carb", "飯麵/主食": "carb",
+  "前菜": "appetizer", "小食": "appetizer", "小吃": "appetizer", "涼拌": "appetizer", "沙律": "appetizer", "前菜/小食": "appetizer",
   "甜品": "dessert", "糖水": "dessert", "糕": "dessert", "點心": "dessert",
   "飲品": "drink", "涼茶": "drink", "飲料": "drink", "清熱飲": "drink",
 };
 
+const CANONICAL_DISH_TYPES: DishType[] = ["soup", "meat", "seafood", "vegetable", "carb", "appetizer", "dessert", "drink", "other"];
+
 function normalizeDishType(v: string | undefined): DishType | undefined {
   if (!v) return undefined;
   const s = String(v).trim();
+  const lower = s.toLowerCase() as DishType;
+  if (CANONICAL_DISH_TYPES.includes(lower)) return lower; // 已係 canonical key
   if (DISH_TYPE_MAP[s]) return DISH_TYPE_MAP[s];
   for (const [k, t] of Object.entries(DISH_TYPE_MAP)) {
     if (s.includes(k)) return t;
@@ -1269,7 +1275,7 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCo
   const meatPool = pool.filter(r => classify(r) === "meat" && noCarb(r));
   const seafoodPool = pool.filter(r => classify(r) === "seafood" && noCarb(r));
   const vegPool = pool.filter(r => classify(r) === "vegetable" && noCarb(r));
-  const otherPool = pool.filter(r => classify(r) === "other" && noCarb(r));
+  const otherPool = pool.filter(r => (classify(r) === "other" || classify(r) === "appetizer") && noCarb(r));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
   console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} (raw rows=${rows.length}, noSteps=${rows.length - pool.length})`);
 
@@ -1582,7 +1588,7 @@ async function generateMealRecipesParallel(
 // 由 parallel 嘅候選池揀「多樣化」：每個類型最多一個（湯/肉/海鮮/菜），唔好重複類別。
 // 若某類型（例如蔬菜）冇候選 → 回傳 <4（唔會用「第 2 個海鮮」填位）→ 交返下面 backfill 針對缺失類別補返。
 function pickDiverseMeal(candidates: SuggestedRecipe[], exclude: string[]): SuggestedRecipe[] {
-  const byType: Record<DishType, SuggestedRecipe[]> = { meat: [], seafood: [], vegetable: [], soup: [], other: [], dessert: [], drink: [] };
+  const byType: Record<DishType, SuggestedRecipe[]> = { meat: [], seafood: [], vegetable: [], soup: [], other: [], dessert: [], drink: [], carb: [], appetizer: [] };
   const excluded = exclude.map(normalizeName).filter(Boolean);
   const isSeen = (name: string) => {
     const n = normalizeName(name);

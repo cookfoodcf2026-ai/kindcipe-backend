@@ -565,7 +565,8 @@ ${text}
   "cookTime": 烹飪時間（分鐘，整數）,
   "servings": 份量（人數，整數）,
   "difficulty": "簡單" | "中等" | "困難",
-  "recipeCategory": "粵菜" | "台式" | "日式" | "韓式" | "西式" | "甜品" | "湯水" | "快手菜" | "其他",
+  "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
+  "dishType": "meat" | "seafood" | "vegetable" | "soup" | "carb" | "appetizer" | "dessert" | "drink" | "other",
   "ingredients": [
     { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
@@ -1278,7 +1279,8 @@ Platform: ${sourceType}
   "cookTime": 烹飪時間（分鐘，整數）,
   "servings": 份量（人數，整數）,
   "difficulty": "簡單" | "中等" | "困難",
-  "recipeCategory": "粵菜" | "台式" | "日式" | "韓式" | "西式" | "甜品" | "湯水" | "快手菜" | "其他",
+  "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
+  "dishType": "meat" | "seafood" | "vegetable" | "soup" | "carb" | "appetizer" | "dessert" | "drink" | "other",
   "ingredients": [
     { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
@@ -1488,7 +1490,8 @@ export const recipesRouter = router({
   "cookTime": 烹飪時間（分鐘，整數，如不確定填 30）,
   "servings": 份量（人數，整數，如不確定填 2）,
   "difficulty": "簡單" | "中等" | "困難",
-  "recipeCategory": "粵菜" | "台式" | "日式" | "韓式" | "西式" | "甜品" | "湯水" | "快手菜" | "其他",
+  "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
+  "dishType": "meat" | "seafood" | "vegetable" | "soup" | "carb" | "appetizer" | "dessert" | "drink" | "other",
   "ingredients": [
     { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
