@@ -1116,56 +1116,52 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       let fbAuthor = "";
       let fbThumbnail = "";
 
-      const mobileUA =
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+      const decodeEntities = (s: string) =>
+        s
+          .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+          .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+          .replace(/&quot;/g, '"')
+          .replace(/&#0?39;|&apos;/g, "'")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .trim();
 
-      // Step 1: Facebook oEmbed（免費、免 token）——先試貼文，再試影片/Reels
-      const oembedEndpoints = [
-        `https://www.facebook.com/plugins/post/oembed.json/?url=${encodeURIComponent(url)}`,
-        `https://www.facebook.com/plugins/video/oembed.json/?url=${encodeURIComponent(url)}`,
-      ];
-      for (const oUrl of oembedEndpoints) {
-        try {
-          const oResp = await fetch(oUrl, {
-            headers: { "User-Agent": mobileUA },
-            signal: AbortSignal.timeout(6000),
-          });
-          if (oResp.ok) {
-            const oData = (await oResp.json()) as {
-              title?: string;
-              author_name?: string;
-              thumbnail_url?: string;
-            };
-            if (oData.title) fbCaption = oData.title;
-            if (oData.author_name) fbAuthor = oData.author_name;
-            if (oData.thumbnail_url) fbThumbnail = oData.thumbnail_url;
-            if (fbCaption || fbThumbnail) break;
-          }
-        } catch { /* continue */ }
-      }
+      const ogMatch = (html: string, prop: string) =>
+        html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']*)["']`, "i"))?.[1] ??
+        html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:${prop}["']`, "i"))?.[1] ??
+        "";
 
-      // Step 2: Fallback — 抓公開頁面嘅 og meta（用 crawler UA）
-      if (!fbCaption && !fbThumbnail) {
-        try {
-          const htmlResp = await fetch(url, {
-            headers: {
-              "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-              "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-            },
-            signal: AbortSignal.timeout(8000),
-          });
-          if (htmlResp.ok) {
-            const html = await htmlResp.text();
-            const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1];
-            const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1];
-            const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1];
-            const ogAuthor = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)?.[1];
-            fbCaption = [ogTitle, ogDesc].filter(Boolean).join("\n").trim();
-            fbThumbnail = ogImage || "";
-            if (!fbAuthor && ogAuthor) fbAuthor = ogAuthor;
-          }
-        } catch { /* continue */ }
-      }
+      // Facebook 官方 oEmbed plugin 已 deprecated，oEmbed（免 token）唔再可靠。
+      // 主要方法：用 crawler UA 抓公開頁面嘅 og meta（Reels / Watch / 貼文都適用）。
+      try {
+        const htmlResp = await fetch(url, {
+          redirect: "follow",
+          headers: {
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (htmlResp.ok) {
+          const html = await htmlResp.text();
+          const ogTitle = decodeEntities(ogMatch(html, "title"));
+          const ogDesc = decodeEntities(ogMatch(html, "description"));
+          const ogImage = decodeEntities(ogMatch(html, "image"));
+          const ogSite = decodeEntities(ogMatch(html, "site_name"));
+
+          // og:title 通常係「<數字>次觀看 · <讚好> | <caption> | <Page>」→ 清走前綴統計數字
+          const cleanTitle = ogTitle.replace(/^[^|]*\|\s*/, "").replace(/\s*\|\s*[^|]*$/, "").trim();
+
+          const captionParts = [ogDesc, cleanTitle || ogTitle]
+            .map((s) => (s || "").trim())
+            .filter((s, i, a) => s && a.indexOf(s) === i);
+          fbCaption = captionParts.join("\n").trim();
+          fbThumbnail = ogImage;
+          if (ogSite) fbAuthor = ogSite;
+        }
+      } catch { /* continue */ }
 
       const parts: string[] = [];
       if (fbAuthor) parts.push(`Author: ${fbAuthor}`);
