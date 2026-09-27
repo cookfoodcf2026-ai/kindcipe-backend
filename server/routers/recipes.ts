@@ -1392,6 +1392,7 @@ Platform: ${sourceType}
             servings: { type: "integer" },
             difficulty: { type: "string" },
             recipeCategory: { type: "string" },
+            dishType: { type: "string" },
             ingredients: {
               type: "array",
               items: {
@@ -1421,7 +1422,7 @@ Platform: ${sourceType}
             sourceAuthor: { type: "string" },
             thumbnailUrl: { type: "string" },
           },
-          required: ["name", "description", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "tags", "sourceAuthor", "thumbnailUrl"],
+          required: ["name", "description", "cookTime", "servings", "difficulty", "recipeCategory", "dishType", "ingredients", "steps", "tags", "sourceAuthor", "thumbnailUrl"],
         },
       },
     },
@@ -1442,6 +1443,21 @@ Platform: ${sourceType}
     const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
     const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
     result.thumbnailUrl = randomCover;
+  }
+  // dishType：LLM 有回且合法就用；否則用分類器兜底；最後 "other"
+  const DISH_KEYS = ["meat", "seafood", "vegetable", "soup", "carb", "appetizer", "dessert", "drink", "other"];
+  const llmDish = String(result.dishType || "").trim();
+  if (DISH_KEYS.includes(llmDish)) {
+    result.dishType = llmDish;
+  } else {
+    const classified = await classifyRecipeDishTypeLLM({
+      name: result.name || "",
+      description: result.description || "",
+      ingredients: Array.isArray(result.ingredients) ? result.ingredients : [],
+      tags: Array.isArray(result.tags) ? result.tags : [],
+      category,
+    });
+    result.dishType = classified || "other";
   }
   // Determine parseReason based on result name
   if (!hasRealContent) {
