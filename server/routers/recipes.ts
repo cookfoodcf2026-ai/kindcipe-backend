@@ -405,7 +405,18 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
   if (url.includes("xiaohongshu.com") || url.includes("xhslink.com") || url.includes("xhslink.cn")) return "xiaohongshu";
   if (url.includes("threads.net")) return "threads";
   if (url.includes("tiktok.com")) return "tiktok";
+  // Facebook 冇獨立 source_type enum value，一律存做 "manual"，
+  // 但解析時另外用 isFacebookUrl() 分流處理（見 fetchPageContent）。
   return "manual";
+}
+
+/** Facebook（含 Reels / Watch / 貼文 / fb.watch / mbasic）連結判斷 */
+function isFacebookUrl(url: string): boolean {
+  return /(?:^|\.)facebook\.com|(?:^|\.)fb\.watch|(?:^|\.)fb\.me|(?:^|\.)m\.facebook\.com/i.test(
+    (() => {
+      try { return new URL(url).hostname; } catch { return url; }
+    })(),
+  );
 }
 
 // ─── parseText helper ───────────────────────────────────────────────────────
@@ -1100,6 +1111,68 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       return { text: parts.join("\n\n").slice(0, 4000), thumbnail: ttThumbnail };
     }
 
+    if (isFacebookUrl(url)) {
+      let fbCaption = "";
+      let fbAuthor = "";
+      let fbThumbnail = "";
+
+      const mobileUA =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+      // Step 1: Facebook oEmbed（免費、免 token）——先試貼文，再試影片/Reels
+      const oembedEndpoints = [
+        `https://www.facebook.com/plugins/post/oembed.json/?url=${encodeURIComponent(url)}`,
+        `https://www.facebook.com/plugins/video/oembed.json/?url=${encodeURIComponent(url)}`,
+      ];
+      for (const oUrl of oembedEndpoints) {
+        try {
+          const oResp = await fetch(oUrl, {
+            headers: { "User-Agent": mobileUA },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (oResp.ok) {
+            const oData = (await oResp.json()) as {
+              title?: string;
+              author_name?: string;
+              thumbnail_url?: string;
+            };
+            if (oData.title) fbCaption = oData.title;
+            if (oData.author_name) fbAuthor = oData.author_name;
+            if (oData.thumbnail_url) fbThumbnail = oData.thumbnail_url;
+            if (fbCaption || fbThumbnail) break;
+          }
+        } catch { /* continue */ }
+      }
+
+      // Step 2: Fallback — 抓公開頁面嘅 og meta（用 crawler UA）
+      if (!fbCaption && !fbThumbnail) {
+        try {
+          const htmlResp = await fetch(url, {
+            headers: {
+              "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+              "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+            },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (htmlResp.ok) {
+            const html = await htmlResp.text();
+            const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1];
+            const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1];
+            const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1];
+            const ogAuthor = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)?.[1];
+            fbCaption = [ogTitle, ogDesc].filter(Boolean).join("\n").trim();
+            fbThumbnail = ogImage || "";
+            if (!fbAuthor && ogAuthor) fbAuthor = ogAuthor;
+          }
+        } catch { /* continue */ }
+      }
+
+      const parts: string[] = [];
+      if (fbAuthor) parts.push(`Author: ${fbAuthor}`);
+      if (fbCaption) parts.push(`Caption:\n${fbCaption}`);
+      return { text: parts.join("\n\n").slice(0, 4000), thumbnail: fbThumbnail };
+    }
+
     return { text: "", thumbnail: "" };
   } catch {
     return { text: "", thumbnail: "" };
@@ -1237,15 +1310,17 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 - 所有文字使用${targetLang}`;
 
   // For Instagram with thumbnail but no keywords: use Vision AI to parse from image
-  const useVisionForInstagram = sourceType === "instagram" && effectiveThumbnail && !hasRecipeKeywords && hasRealContent;
+  // Facebook 同樣適用（Reels 多數只有封面圖、caption 未必有完整食材）
+  const useVisionForInstagram = effectiveThumbnail && !hasRecipeKeywords
+    && ((sourceType === "instagram" && hasRealContent) || isFacebookUrl(url));
   
   // For YouTube/Xiaohongshu: even if we have title/author, the description may not contain full recipe steps.
   const hasTitleOnly = (sourceType === "youtube" || sourceType === "xiaohongshu" || sourceType === "threads") && hasRealContent && !hasRecipeKeywords;
 
   const contentSection = useVisionForInstagram
-    ? `這是一個 Instagram 帖子，有封面圖片但文字內容沒有明顯的食譜關鍵字。請使用提供的圖片進行視覺分析，識別菜餚並推斷食材和步驟。
+    ? `這是一個社交媒體帖文，有封面圖片但文字內容沒有明顯的食譜關鍵字。請使用提供的圖片進行視覺分析，識別菜餚並推斷食材和步驟。
     
-Instagram 帖子文字內容：
+帖文文字內容：
 ${pageContent}
 
 請根據圖片中的菜餚外觀和文字提示，生成合理的食譜。`
@@ -1266,7 +1341,7 @@ ${pageContent}
 URL: ${url}
 Platform: ${sourceType}
 
-請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : sourceType === "xiaohongshu" ? "小紅書" : sourceType === "threads" ? "Threads" : "YouTube"} 複製食譜文字後貼入。"`;
+請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : sourceType === "xiaohongshu" ? "小紅書" : sourceType === "threads" ? "Threads" : isFacebookUrl(url) ? "Facebook" : sourceType === "youtube" ? "YouTube" : "該平台"} 複製食譜文字後貼入。"`;
 
   const thumbnailUrlPlaceholder = effectiveThumbnail || "";
 
