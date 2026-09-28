@@ -14,6 +14,7 @@ import { eatOutRouter } from "./routers/eatOut";
 import { subscriptionRouter } from "./routers/subscription";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
+import { listIdentities } from "./auth-identities";
 import { broadcastToFamily } from "./_core/sseSync";
 import { notifyOwner } from "./_core/notification";
 import { sendPushNotifications } from "./pushNotification";
@@ -1641,6 +1642,18 @@ export const appRouter = router({
         activeFamilyId: opts.ctx.activeFamilyId,
         activeFamilyRole: opts.ctx.activeFamilyRole,
       };
+    }),
+
+    // ── Linked sign-in methods (設定頁顯示) ─────────────────────────────────
+    identities: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await listIdentities(String(ctx.user.id));
+      return rows.map((r) => ({
+        provider: r.provider,
+        email: r.email,
+        emailVerified: r.emailVerified,
+        createdAt: r.createdAt,
+        lastLoginAt: r.lastLoginAt,
+      }));
     }),
 
     // ── Update display name (Settings → edit name) ──────────────────────────
