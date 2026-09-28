@@ -30,11 +30,13 @@ const VALID: DishKind[] = [
  */
 const NAME_CARB_RE = /(?:麵|面|飯|饭|河粉|湯河|汤河|米線|米线|烏冬|乌冬|餃|饺|粥|米粉|意粉|意面|拉麵|拉面|通粉|丼|饅頭|馒头|noodle|ramen|pasta)/i;
 const NAME_DESSERT_RE = /(?:湯圓|汤圆|糖水|糊$|豆沙|豆花|豆腐花|布甸|布丁|燉奶|炖奶|西米露|楊枝甘露|杨枝甘露|芋圓|芋圆|dessert|pudding)/i;
-const NAME_DRINK_RE = /(?:茶$|茶飲|茶饮|涼茶|凉茶|水$|果汁|奶茶|豆漿|豆浆|汽水|smoothie|juice|coffee)/i;
+const NAME_DRINK_RE = /(?:水$|茶飲|茶饮|涼茶|凉茶|奶茶|豆漿|豆浆|果汁|咖啡|汽水|smoothie|juice|coffee)/i;
 
 export function guardDishTypeByName(name: string, current: DishKind): DishKind {
   if (current !== "soup") return current; // 只處理「被誤判成湯」嘅個案
   const n = String(name || "").replace(/電飯煲|电饭煲|電子鍋|电子锅|飯煲|饭煲/g, "");
+  // 名字以「湯/羹」結尾 = 真湯，一律保留
+  if (/(?:湯|汤|soup)\s*$/.test(n) || /羹/.test(n)) return current;
   if (NAME_CARB_RE.test(n)) return "carb";
   if (NAME_DESSERT_RE.test(n)) return "dessert";
   if (NAME_DRINK_RE.test(n)) return "drink";
