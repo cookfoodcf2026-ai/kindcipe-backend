@@ -35,6 +35,13 @@ export const ENV = {
   // Expo Push Notifications
   expoPushToken: process.env.EXPO_PUSH_TOKEN ?? "",
 
+  // Sign in with Apple — Web/Android OAuth (Services ID + Key)
+  appleTeamId: process.env.APPLE_TEAM_ID ?? "",
+  appleKeyId: process.env.APPLE_KEY_ID ?? "",
+  appleServicesId: process.env.APPLE_SERVICES_ID ?? "",
+  applePrivateKey: process.env.APPLE_PRIVATE_KEY ?? "",
+  appleWebRedirectUri: process.env.APPLE_WEB_REDIRECT_URI ?? "",
+
   // CORS
   allowedOrigins: process.env.ALLOWED_ORIGINS ?? "",
   frontendUrl: process.env.FRONTEND_URL ?? "",

@@ -12,6 +12,7 @@ import { nanoid } from "nanoid";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import * as db from "./db";
 import { resolveUserForIdentity } from "./auth-identities";
+import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 import { getSessionCookieOptions } from "./_core/cookies";
 
@@ -151,9 +152,78 @@ async function handleSocialLogin(
   res.json({ success: true, token: sessionToken });
 }
 
+// ─── Sign in with Apple — Web / Android OAuth helpers ─────────────────────────
+
+function isAppleWebConfigured(): boolean {
+  return !!(ENV.appleTeamId && ENV.appleKeyId && ENV.appleServicesId && ENV.applePrivateKey && ENV.appleWebRedirectUri);
+}
+
+/** client secret JWT (ES256) signed with the Apple .p8 key (short-lived, regenerated each time). */
+async function makeAppleClientSecret(): Promise<string> {
+  const { SignJWT, importPKCS8 } = await import("jose");
+  const key = await importPKCS8(ENV.applePrivateKey, "ES256");
+  const now = Math.floor(Date.now() / 1000);
+  return await new SignJWT({})
+    .setProtectedHeader({ alg: "ES256", kid: ENV.appleKeyId })
+    .setIssuer(ENV.appleTeamId)
+    .setSubject(ENV.appleServicesId)
+    .setAudience("https://appleid.apple.com")
+    .setIssuedAt(now)
+    .setExpirationTime(now + 60 * 30)
+    .sign(key);
+}
+
+/** Signed state carrying the nonce (防 CSRF / replay)。 */
+async function makeAppleState(nonce: string): Promise<string> {
+  const { SignJWT } = await import("jose");
+  const secret = new TextEncoder().encode(ENV.cookieSecret || "kindcipe-apple-state-secret");
+  return await new SignJWT({ nonce })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(secret);
+}
+
+async function readAppleState(state: string): Promise<{ nonce: string } | null> {
+  try {
+    const { jwtVerify } = await import("jose");
+    const secret = new TextEncoder().encode(ENV.cookieSecret || "kindcipe-apple-state-secret");
+    const { payload } = await jwtVerify(state, secret);
+    return { nonce: String((payload as any).nonce || "") };
+  } catch {
+    return null;
+  }
+}
+
+/** Verify a web (Services ID audience) Apple id_token and check the nonce. */
+async function verifyAppleWebIdToken(idToken: string, expectedNonce: string): Promise<{ sub: string; email: string } | null> {
+  try {
+    const [headerB64] = idToken.split(".");
+    const header = JSON.parse(Buffer.from(headerB64, "base64url").toString());
+    const jwksRes = await fetch("https://appleid.apple.com/auth/keys");
+    if (!jwksRes.ok) return null;
+    const { keys } = (await jwksRes.json()) as { keys: Array<{ kid: string; n: string; e: string; kty: string; alg: string }> };
+    const key = keys.find((k) => k.kid === header.kid);
+    if (!key) return null;
+    const { jwtVerify, importJWK } = await import("jose");
+    const publicKey = await importJWK(key, key.alg);
+    const { payload } = await jwtVerify(idToken, publicKey, {
+      issuer: "https://appleid.apple.com",
+      audience: ENV.appleServicesId,
+    });
+    if (expectedNonce && String((payload as any).nonce || "") !== expectedNonce) return null;
+    const sub = payload.sub as string;
+    if (!sub) return null;
+    const email = (payload as any).email as string | undefined;
+    return { sub, email: email || `${sub}@privaterelay.appleid.com` };
+  } catch (err) {
+    console.error("[AppleWebAuth] id_token verify failed:", (err as Error)?.message);
+    return null;
+  }
+}
+
 // ─── Register Routes ──────────────────────────────────────────────────────────
 export function registerSocialAuthRoutes(app: Express) {
-  // Google Sign In
   app.post("/api/auth/google", async (req: Request, res: Response) => {
     const { idToken } = req.body as { idToken?: string };
     if (!idToken) {
@@ -197,5 +267,90 @@ export function registerSocialAuthRoutes(app: Express) {
       name: name || fallbackName(info.email, "apple"),
       loginMethod: "apple",
     });
+  });
+
+  // ── Sign in with Apple — Web / Android OAuth ──────────────────────────────
+  // 開始：302 去 Apple 授權頁（response_mode=form_post 會 POST 返 callback）
+  app.get("/api/auth/apple/web/start", async (req: Request, res: Response) => {
+    if (!isAppleWebConfigured()) {
+      res.status(503).send("Apple web login not configured");
+      return;
+    }
+    const nonce = nanoid(24);
+    const state = await makeAppleState(nonce);
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: ENV.appleServicesId,
+      redirect_uri: ENV.appleWebRedirectUri,
+      scope: "name email",
+      response_mode: "form_post",
+      state,
+      nonce,
+    });
+    res.redirect(`https://appleid.apple.com/auth/authorize?${params.toString()}`);
+  });
+
+  // 回呼：收 Apple form_post → 換 token → 驗 id_token → 登入 → 深層連結返 app
+  app.post("/api/auth/apple/callback", async (req: Request, res: Response) => {
+    try {
+      const body = (req.body || {}) as { code?: string; state?: string; id_token?: string; user?: string };
+      const statePayload = body.state ? await readAppleState(body.state) : null;
+      if (!statePayload || !body.code) {
+        res.redirect("kindcipe://apple-login?error=invalid_request");
+        return;
+      }
+      const clientSecret = await makeAppleClientSecret();
+      const tokenRes = await fetch("https://appleid.apple.com/auth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: body.code,
+          client_id: ENV.appleServicesId,
+          client_secret: clientSecret,
+          redirect_uri: ENV.appleWebRedirectUri,
+        }),
+      });
+      if (!tokenRes.ok) {
+        console.error("[AppleWebAuth] token exchange failed:", tokenRes.status);
+        res.redirect("kindcipe://apple-login?error=token_exchange");
+        return;
+      }
+      const tokenJson = (await tokenRes.json()) as { id_token?: string };
+      const idToken = tokenJson.id_token || body.id_token || "";
+      const info = idToken ? await verifyAppleWebIdToken(idToken, statePayload.nonce) : null;
+      if (!info) {
+        res.redirect("kindcipe://apple-login?error=invalid_token");
+        return;
+      }
+      let appleName = "";
+      if (body.user) {
+        try {
+          const u = JSON.parse(body.user);
+          appleName = [u?.name?.firstName, u?.name?.lastName].filter(Boolean).join(" ");
+        } catch { /* ignore */ }
+      }
+      const resolved = await resolveUserForIdentity({
+        provider: "apple",
+        providerUserId: info.sub,
+        email: info.email,
+        emailVerified: true,
+        name: appleName || fallbackName(info.email, "apple"),
+        loginMethod: "apple",
+      });
+      if (!resolved?.user) {
+        res.redirect("kindcipe://apple-login?error=login_failed");
+        return;
+      }
+      const sessionToken = await sdk.createSessionToken(resolved.user.openId, {
+        name: resolved.user.name || "",
+        expiresInMs: ONE_YEAR_MS,
+        passwordVersion: resolved.user.passwordVersion,
+      });
+      res.redirect(`kindcipe://apple-login?token=${encodeURIComponent(sessionToken)}`);
+    } catch (err) {
+      console.error("[AppleWebAuth] callback error:", (err as Error)?.message);
+      res.redirect("kindcipe://apple-login?error=server");
+    }
   });
 }
