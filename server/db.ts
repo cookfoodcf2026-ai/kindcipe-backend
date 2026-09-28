@@ -1437,7 +1437,7 @@ export async function getFamilySubscription(familyId: number) {
     const db = await getDb();
     if (db) {
       await db.update(families)
-        .set({ subscriptionStatus: "free", maxMembers: 1 })
+        .set({ subscriptionStatus: "free", maxMembers: 2 })
         .where(eq(families.id, familyId));
     }
   }
@@ -1448,7 +1448,7 @@ export async function getFamilySubscription(familyId: number) {
     const db = await getDb();
     if (db) {
       await db.update(families)
-        .set({ subscriptionStatus: "expired", maxMembers: 1 })
+        .set({ subscriptionStatus: "expired", maxMembers: 2 })
         .where(eq(families.id, familyId));
     }
   }
@@ -1458,11 +1458,11 @@ export async function getFamilySubscription(familyId: number) {
   return {
     status,
     isPaid,
-    maxMembers: isPaid ? 4 : 1,
+    maxMembers: isPaid ? 4 : 2,
     maxImportsPerMonth: isPaid ? 300 : 20,
     maxCustomRecipesPerMonth: isPaid ? null : 20,
     aiChatLimit: isPaid ? 300 : 30,
-    sharedLocked: !isPaid && memberCount > 1,
+    sharedLocked: !isPaid && memberCount > 2,
     trialEndsAt: family.trialEndsAt,
     subscriptionExpiresAt: family.subscriptionExpiresAt,
     subscriptionPlan: family.subscriptionPlan,

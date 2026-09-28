@@ -97,7 +97,7 @@ export async function createContext(
           .select({ c: sql`count(*)::int` })
           .from(familyMembers)
           .where(eq(familyMembers.familyId, activeFamilyId));
-        sharedLocked = (status === "free" || status === "expired") && Number(cnt?.c ?? 0) > 1;
+        sharedLocked = (status === "free" || status === "expired") && Number(cnt?.c ?? 0) > 2;
       }
     }
   }

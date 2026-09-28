@@ -253,7 +253,7 @@ const familyRouter = router({
           code: "FORBIDDEN",
           message: sub.isPaid
             ? `This kitchen has reached the maximum of ${sub.maxMembers} members.`
-            : "想同家人一齊plan 晚餐，即刻試用 7 日或升級可邀家人",
+            : "免費廚房最多 2 人（你 + 1 位家人）。追蹤 IG 攞 7 日 Pro 試用碼，即可加更多家人。",
         });
       }
       
