@@ -14,7 +14,7 @@ import { eatOutRouter } from "./routers/eatOut";
 import { subscriptionRouter } from "./routers/subscription";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
-import { listIdentities } from "./auth-identities";
+import { listIdentities, createIdentity } from "./auth-identities";
 import { broadcastToFamily } from "./_core/sseSync";
 import { notifyOwner } from "./_core/notification";
 import { sendPushNotifications } from "./pushNotification";
@@ -92,6 +92,8 @@ import {
   addRecipeNote,
   deleteRecipeNote,
   getUserByEmail,
+  getUserByOpenId,
+  upsertUser,
   createEmailUser,
   createEmailVerificationCode,
   verifyEmailCode,
@@ -1828,6 +1830,56 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "管理員帳號或密碼錯誤" });
         }
         await touchUserSignIn(user.id);
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true, token: sessionToken };
+      }),
+
+    // ── Email OTP（萬能後備 / 帳號找回：任何裝置都可登入同一 email 帳號）────
+    requestLoginOtp: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ input }) => {
+        const email = input.email.toLowerCase();
+        const recent = await getRecentEmailVerificationCode(email, 60_000);
+        if (recent) return { success: true, cooldownSeconds: 60 };
+        const user = await getUserByEmail(email);
+        const { code } = await createEmailVerificationCode({
+          userId: user ? String(user.id) : `pending:${email}`,
+          email,
+        });
+        try {
+          await sendVerificationEmail({ email, name: user?.name ?? null, code });
+        } catch (e) {
+          console.error("[requestLoginOtp] send failed:", (e as Error)?.message);
+        }
+        // 一律回 success（避免 email 枚舉）
+        return { success: true };
+      }),
+
+    verifyLoginOtp: publicProcedure
+      .input(z.object({ email: z.string().email(), code: z.string().min(4).max(8) }))
+      .mutation(async ({ ctx, input }) => {
+        const email = input.email.toLowerCase();
+        const result = await verifyEmailCode(email, input.code);
+        if (!result.ok) {
+          const messages: Record<string, string> = {
+            not_found: "驗證碼不存在或已使用，請重新發送",
+            expired: "驗證碼已過期，請重新發送",
+            too_many_attempts: "嘗試次數過多，請重新發送驗證碼",
+            wrong_code: "驗證碼不正確",
+          };
+          throw new TRPCError({ code: "BAD_REQUEST", message: messages[result.reason] ?? "驗證失敗" });
+        }
+        let user = await getUserByEmail(email);
+        if (!user) {
+          const openId = `otp_${nanoid(24)}`;
+          await upsertUser({ openId, email, name: email.split("@")[0], loginMethod: "otp", lastSignedIn: new Date() });
+          user = (await getUserByOpenId(openId)) ?? null;
+          if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "登入失敗，請稍後再試" });
+        }
+        await setUserEmailVerified(String(user.id));
+        await createIdentity({ userId: String(user.id), provider: "otp", providerUserId: email, email, emailVerified: true });
         const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
