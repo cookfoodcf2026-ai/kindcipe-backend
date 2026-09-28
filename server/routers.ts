@@ -13,6 +13,7 @@ import { weeklyMenuRouter } from "./routers/weeklyMenu";
 import { eatOutRouter } from "./routers/eatOut";
 import { subscriptionRouter } from "./routers/subscription";
 import { commonIngredientRouter } from "./routers/commonIngredient";
+import { aiChatRouter } from "./routers/aiChat";
 import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
 import { listIdentities, createIdentity } from "./auth-identities";
 import { broadcastToFamily } from "./_core/sseSync";
@@ -1973,6 +1974,7 @@ export const appRouter = router({
   recipeNotes: recipeNotesRouter,
   commonIngredient: commonIngredientRouter,
   subscription: subscriptionRouter,
+  aiChat: aiChatRouter,
 });
 
 export type AppRouter = typeof appRouter;

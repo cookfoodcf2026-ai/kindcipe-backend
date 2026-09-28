@@ -173,25 +173,44 @@ async function makeAppleClientSecret(): Promise<string> {
     .sign(key);
 }
 
-/** Signed state carrying the nonce (防 CSRF / replay)。 */
-async function makeAppleState(nonce: string): Promise<string> {
+/** Signed state carrying the nonce + optional web return URL (防 CSRF / replay)。 */
+async function makeAppleState(nonce: string, redirect?: string): Promise<string> {
   const { SignJWT } = await import("jose");
   const secret = new TextEncoder().encode(ENV.cookieSecret || "kindcipe-apple-state-secret");
-  return await new SignJWT({ nonce })
+  return await new SignJWT(redirect ? { nonce, redirect } : { nonce })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("10m")
     .sign(secret);
 }
 
-async function readAppleState(state: string): Promise<{ nonce: string } | null> {
+async function readAppleState(state: string): Promise<{ nonce: string; redirect?: string } | null> {
   try {
     const { jwtVerify } = await import("jose");
     const secret = new TextEncoder().encode(ENV.cookieSecret || "kindcipe-apple-state-secret");
     const { payload } = await jwtVerify(state, secret);
-    return { nonce: String((payload as any).nonce || "") };
+    return {
+      nonce: String((payload as any).nonce || ""),
+      redirect: (payload as any).redirect ? String((payload as any).redirect) : undefined,
+    };
   } catch {
     return null;
+  }
+}
+
+/** Only allow redirecting back to origins explicitly listed in ALLOWED_ORIGINS. */
+function isAllowedRedirect(url: string): boolean {
+  try {
+    const target = new URL(url);
+    const allowed = new Set(
+      (process.env.ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    );
+    return allowed.has(target.origin);
+  } catch {
+    return false;
   }
 }
 
@@ -277,7 +296,11 @@ export function registerSocialAuthRoutes(app: Express) {
       return;
     }
     const nonce = nanoid(24);
-    const state = await makeAppleState(nonce);
+    // Web app passes ?redirect=https://app.kindcipe.com/login to come back here;
+    // native omits it and gets the kindcipe:// deep link instead.
+    const rawRedirect = typeof req.query.redirect === "string" ? req.query.redirect : "";
+    const redirect = rawRedirect && isAllowedRedirect(rawRedirect) ? rawRedirect : undefined;
+    const state = await makeAppleState(nonce, redirect);
     const params = new URLSearchParams({
       response_type: "code",
       client_id: ENV.appleServicesId,
@@ -290,13 +313,24 @@ export function registerSocialAuthRoutes(app: Express) {
     res.redirect(`https://appleid.apple.com/auth/authorize?${params.toString()}`);
   });
 
-  // 回呼：收 Apple form_post → 換 token → 驗 id_token → 登入 → 深層連結返 app
+  // 回呼：收 Apple form_post → 換 token → 驗 id_token → 登入 → 返 web 或深層連結返 app
   app.post("/api/auth/apple/callback", async (req: Request, res: Response) => {
+    let stateRedirect: string | undefined;
+    // Web callbacks land back on the web origin with ?apple=<status>; the session
+    // cookie is set below. Native keeps the kindcipe:// deep link with the token.
+    const finish = (qs: string) => {
+      if (stateRedirect) {
+        res.redirect(`${stateRedirect}?${qs}`);
+      } else {
+        res.redirect(`kindcipe://apple-login?${qs}`);
+      }
+    };
     try {
       const body = (req.body || {}) as { code?: string; state?: string; id_token?: string; user?: string };
       const statePayload = body.state ? await readAppleState(body.state) : null;
+      stateRedirect = statePayload?.redirect;
       if (!statePayload || !body.code) {
-        res.redirect("kindcipe://apple-login?error=invalid_request");
+        finish("error=invalid_request");
         return;
       }
       const clientSecret = await makeAppleClientSecret();
@@ -313,14 +347,14 @@ export function registerSocialAuthRoutes(app: Express) {
       });
       if (!tokenRes.ok) {
         console.error("[AppleWebAuth] token exchange failed:", tokenRes.status);
-        res.redirect("kindcipe://apple-login?error=token_exchange");
+        finish("error=token_exchange");
         return;
       }
       const tokenJson = (await tokenRes.json()) as { id_token?: string };
       const idToken = tokenJson.id_token || body.id_token || "";
       const info = idToken ? await verifyAppleWebIdToken(idToken, statePayload.nonce) : null;
       if (!info) {
-        res.redirect("kindcipe://apple-login?error=invalid_token");
+        finish("error=invalid_token");
         return;
       }
       let appleName = "";
@@ -339,7 +373,7 @@ export function registerSocialAuthRoutes(app: Express) {
         loginMethod: "apple",
       });
       if (!resolved?.user) {
-        res.redirect("kindcipe://apple-login?error=login_failed");
+        finish("error=login_failed");
         return;
       }
       const sessionToken = await sdk.createSessionToken(resolved.user.openId, {
@@ -347,10 +381,16 @@ export function registerSocialAuthRoutes(app: Express) {
         expiresInMs: ONE_YEAR_MS,
         passwordVersion: resolved.user.passwordVersion,
       });
-      res.redirect(`kindcipe://apple-login?token=${encodeURIComponent(sessionToken)}`);
+      if (stateRedirect) {
+        // Web: set the httpOnly session cookie and bounce back to the app.
+        res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(req), maxAge: ONE_YEAR_MS });
+        finish("apple=success");
+      } else {
+        res.redirect(`kindcipe://apple-login?token=${encodeURIComponent(sessionToken)}`);
+      }
     } catch (err) {
       console.error("[AppleWebAuth] callback error:", (err as Error)?.message);
-      res.redirect("kindcipe://apple-login?error=server");
+      finish("error=server");
     }
   });
 }

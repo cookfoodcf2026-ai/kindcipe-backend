@@ -440,6 +440,22 @@ export const kolCreators = pgTable("kol_creators", {
 export type KolCreator = typeof kolCreators.$inferSelect;
 export type InsertKolCreator = typeof kolCreators.$inferInsert;
 
+// ─── AI Chef Chat Sessions (cross-device sync between App and Web) ────────────
+export const aiChatSessions = pgTable("ai_chat_sessions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: text("user_id").notNull(),
+  title: varchar("title", { length: 128 }).notNull().default("新對話"),
+  // JSON array of { role, content } messages (already compacted by the client).
+  messages: text("messages").notNull().default("[]"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  userUpdatedIdx: index("ai_chat_sessions_user_updated_idx").on(t.userId, t.updatedAt),
+}));
+
+export type AiChatSession = typeof aiChatSessions.$inferSelect;
+export type InsertAiChatSession = typeof aiChatSessions.$inferInsert;
+
 // ─── Weekly Menu ──────────────────────────────────────────────────────────────
 export const weeklyMenu = pgTable("weekly_menu", {
   id: serial("id").primaryKey(),
