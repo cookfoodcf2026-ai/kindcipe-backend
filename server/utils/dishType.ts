@@ -24,20 +24,20 @@ const VALID: DishKind[] = [
 ];
 
 /**
- * 由菜名做「確定性護欄」，修正 LLM 常見誤判（尤其「名稱有湯字但唔係湯」）。
- * 順序：carb → dessert → drink → soup（先匹配先贏）。
+ * 由菜名做「確定性護欄」：**只救援被誤判為 soup** 嘅情況
+ * （例如「湯麵/湯飯/湯圓/糖水」被當成湯）。其他分類一律不動，避免誤改。
+ * 先移除「電飯煲」等器具字，避免當中嘅「飯」字誤觸。
  */
-const NAME_CARB_RE = /(?:麵|面|飯|饭|河粉|湯河|汤河|米線|米线|烏冬|乌冬|餃|饺|粥|米粉|意粉|意面|拉麵|拉面|通粉|丼|饅頭|馒头|麵包|面包|三文治|漢堡|汉堡|薄餅|薄饼|披薩|披萨|pizza|noodle|ramen|rice|pasta|bread)/i;
-const NAME_DESSERT_RE = /(?:湯圓|汤圆|糖水|糊$|豆沙|豆花|豆腐花|布甸|布丁|燉奶|炖奶|雪糕|蛋糕|蛋撻|蛋挞|奶凍|奶冻|慕斯|西米露|楊枝甘露|杨枝甘露|芋圓|芋圆|dessert|cake|pudding|sorbet|ice cream)/i;
-const NAME_DRINK_RE = /(?:茶$|茶飲|茶饮|涼茶|凉茶|水$|果汁|咖啡|奶茶|豆漿|豆浆|汽水|沙冰|smoothie|juice|coffee|latte|tea)/i;
-const NAME_SOUP_RE = /(?:羹|煲湯|煲汤|燉湯|炖汤|老火湯|老火汤|滾湯|滚汤|清湯|清汤|濃湯|浓汤|羅宋湯|罗宋汤|粟米湯|番茄湯|湯$|汤$|soup)/i;
+const NAME_CARB_RE = /(?:麵|面|飯|饭|河粉|湯河|汤河|米線|米线|烏冬|乌冬|餃|饺|粥|米粉|意粉|意面|拉麵|拉面|通粉|丼|饅頭|馒头|noodle|ramen|pasta)/i;
+const NAME_DESSERT_RE = /(?:湯圓|汤圆|糖水|糊$|豆沙|豆花|豆腐花|布甸|布丁|燉奶|炖奶|西米露|楊枝甘露|杨枝甘露|芋圓|芋圆|dessert|pudding)/i;
+const NAME_DRINK_RE = /(?:茶$|茶飲|茶饮|涼茶|凉茶|水$|果汁|奶茶|豆漿|豆浆|汽水|smoothie|juice|coffee)/i;
 
 export function guardDishTypeByName(name: string, current: DishKind): DishKind {
-  const n = String(name || "");
+  if (current !== "soup") return current; // 只處理「被誤判成湯」嘅個案
+  const n = String(name || "").replace(/電飯煲|电饭煲|電子鍋|电子锅|飯煲|饭煲/g, "");
   if (NAME_CARB_RE.test(n)) return "carb";
   if (NAME_DESSERT_RE.test(n)) return "dessert";
   if (NAME_DRINK_RE.test(n)) return "drink";
-  if (NAME_SOUP_RE.test(n)) return "soup";
   return current;
 }
 
