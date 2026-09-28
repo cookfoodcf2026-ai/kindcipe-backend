@@ -11,6 +11,7 @@ import type { Express, Request, Response } from "express";
 import { nanoid } from "nanoid";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import * as db from "./db";
+import { resolveUserForIdentity } from "./auth-identities";
 import { sdk } from "./_core/sdk";
 import { getSessionCookieOptions } from "./_core/cookies";
 
@@ -118,26 +119,27 @@ async function handleSocialLogin(
   req: Request,
   res: Response,
   params: {
-    openId: string;
+    provider: "google" | "apple";
+    providerUserId: string;
     email: string;
     name: string;
     loginMethod: "google" | "apple";
   }
 ) {
-  // Upsert user
-  await db.upsertUser({
-    openId: params.openId,
+  // Resolve by identity (+ auto-link by verified email), else create — 令換機/換 provider 都搵返同一帳號
+  const resolved = await resolveUserForIdentity({
+    provider: params.provider,
+    providerUserId: params.providerUserId,
     email: params.email,
+    emailVerified: true,
     name: params.name,
     loginMethod: params.loginMethod,
-    lastSignedIn: new Date(),
   });
-
-  const user = await db.getUserByOpenId(params.openId);
-  if (!user) {
+  if (!resolved?.user) {
     res.status(500).json({ error: "Failed to create user" });
     return;
   }
+  const user = resolved.user;
 
   const sessionToken = await sdk.createSessionToken(user.openId, {
     name: params.name,
@@ -166,7 +168,8 @@ export function registerSocialAuthRoutes(app: Express) {
     }
 
     await handleSocialLogin(req, res, {
-      openId: `google_${info.sub}`,
+      provider: "google",
+      providerUserId: info.sub,
       email: info.email,
       name: info.name || fallbackName(info.email, "google"),
       loginMethod: "google",
@@ -188,7 +191,8 @@ export function registerSocialAuthRoutes(app: Express) {
     }
 
     await handleSocialLogin(req, res, {
-      openId: `apple_${info.sub}`,
+      provider: "apple",
+      providerUserId: info.sub,
       email: info.email,
       name: name || fallbackName(info.email, "apple"),
       loginMethod: "apple",

@@ -204,6 +204,13 @@
       "when": 1790231541762,
       "tag": "0028_thankful_agent_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790600383368,
+      "tag": "0029_bouncy_famine",
+      "breakpoints": true
     }
   ]
 }

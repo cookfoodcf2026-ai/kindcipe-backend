@@ -44,6 +44,25 @@ export const users = pgTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+// ─── User Identities (帳號連結：一個 user 可綁多個登入方式) ──────────────────────
+export const userIdentities = pgTable("user_identities", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(), // apple | google | email | otp
+  providerUserId: varchar("provider_user_id", { length: 191 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  emailVerified: boolean("email_verified").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastLoginAt: timestamp("last_login_at").defaultNow().notNull(),
+}, (t) => ({
+  providerUniq: uniqueIndex("user_identities_provider_uid_unique").on(t.provider, t.providerUserId),
+  userIdx: index("user_identities_user_idx").on(t.userId),
+  emailIdx: index("user_identities_email_idx").on(t.email),
+}));
+
+export type UserIdentity = typeof userIdentities.$inferSelect;
+export type InsertUserIdentity = typeof userIdentities.$inferInsert;
+
 // ─── Password Reset Tokens ───────────────────────────────────────────────────
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
