@@ -16,7 +16,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
-import { classifyRecipeDishTypeLLM } from "../utils/dishType";
+import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
 import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
@@ -1363,6 +1363,8 @@ Platform: ${sourceType}
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
 }
 
+dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯餃/粥 → carb；純湯/羹/煲湯/燉湯 → soup；湯圓/糖水/糊/豆花 → dessert；飲品 → drink；主食（飯/麵/粉/包）→ carb。
+
 翻譯規則：name、description、ingredients、steps、tags 必須全部使用${targetLang}；食材名稱要用常見煮食用字，不要保留原文；如果原文係英文/簡體/其他語言，請翻譯後再回傳。`;
 
   // For Instagram with thumbnail: use Vision AI to parse from image
@@ -1444,21 +1446,20 @@ Platform: ${sourceType}
     const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
     result.thumbnailUrl = randomCover;
   }
-  // dishType：LLM 有回且合法就用；否則用分類器兜底；最後 "other"
+  // dishType：parse LLM 有回且合法先用；一律再過 classifyRecipeDishTypeLLM（單一規則來源）
+  // 最後再過 guardDishTypeByName（確定性護欄，修正「湯麵/湯圓」等誤判）。
   const DISH_KEYS = ["meat", "seafood", "vegetable", "soup", "carb", "appetizer", "dessert", "drink", "other"];
   const llmDish = String(result.dishType || "").trim();
-  if (DISH_KEYS.includes(llmDish)) {
-    result.dishType = llmDish;
-  } else {
-    const classified = await classifyRecipeDishTypeLLM({
-      name: result.name || "",
-      description: result.description || "",
-      ingredients: Array.isArray(result.ingredients) ? result.ingredients : [],
-      tags: Array.isArray(result.tags) ? result.tags : [],
-      category,
-    });
-    result.dishType = classified || "other";
-  }
+  let dish: DishKind | undefined = DISH_KEYS.includes(llmDish) ? (llmDish as DishKind) : undefined;
+  const classified = await classifyRecipeDishTypeLLM({
+    name: result.name || "",
+    description: result.description || "",
+    ingredients: Array.isArray(result.ingredients) ? result.ingredients : [],
+    tags: Array.isArray(result.tags) ? result.tags : [],
+    category,
+  });
+  if (classified) dish = classified;
+  result.dishType = guardDishTypeByName(result.name || "", dish || "other");
   // Determine parseReason based on result name
   if (!hasRealContent) {
     result.parseReason = "cannot_read";
