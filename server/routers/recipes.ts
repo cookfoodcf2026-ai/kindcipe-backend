@@ -2414,6 +2414,8 @@ export const recipesRouter = router({
               return [];
             }
           })() : [],
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
         })),
         ...customRows.map((r) => ({
           id: `user_${r.id}`,
@@ -2458,6 +2460,8 @@ export const recipesRouter = router({
               return [];
             }
           })() : [],
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
         })),
       ];
 
