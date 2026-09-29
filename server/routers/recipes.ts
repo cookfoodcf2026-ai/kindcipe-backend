@@ -17,6 +17,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
+import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
@@ -421,8 +422,9 @@ function isFacebookUrl(url: string): boolean {
 
 // ─── parseText helper ───────────────────────────────────────────────────────
 
-async function rehostExternalImage(imageUrl: string, category?: string): Promise<string> {
-  if (!imageUrl) return "";
+async function rehostExternalImage(imageUrl: string, category?: string, opts?: { fallback?: boolean }): Promise<string> {
+  const useFallback = opts?.fallback !== false;
+  if (!imageUrl) return useFallback ? "" : "";
   // Decode HTML entities that break fetch (especially Instagram's &amp;)
   imageUrl = imageUrl.replace(/&amp;/g, "&");
   
@@ -494,7 +496,11 @@ async function rehostExternalImage(imageUrl: string, category?: string): Promise
     console.log("[rehostExternalImage] Retry fetch also failed:", (retryErr as Error).message);
   }
   
-  // Final fallback: return category-based Unsplash cover
+  // Final fallback: return category-based Unsplash cover（除非要求唔用 fallback）
+  if (!useFallback) {
+    console.log("[rehostExternalImage] All fetches failed, fallback disabled -> \"\"");
+    return "";
+  }
   console.log("[rehostExternalImage] All fetches failed, using category fallback");
   const categoryCovers = FALLBACK_COVERS[category || "其他"] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
   const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
@@ -866,8 +872,8 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
         } catch { /* continue to page scrape */ }
       }
 
-      // Step 3: Fallback — try fetching og:description from the page
-      if (!igCaption) {
+      // Step 3: Fallback — fetch page meta (og/twitter) for caption **同** 縮圖（解耦：只要缺任何一樣就試）
+      if (!igCaption || !igThumbnail) {
         try {
           const resp = await fetch(url, {
             headers: {
@@ -878,23 +884,33 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
           });
           if (resp.ok) {
             const html = await resp.text();
-            const ogDesc = html.match(/property="og:description" content="([\s\S]*?)"/) ||
-                           html.match(/content="([\s\S]*?)" property="og:description"/);
-            if (ogDesc) {
-              igCaption = ogDesc[1]
-                .replace(/&#x([0-9a-fA-F]+);/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)))
-                .replace(/&quot;/g, '"')
-                .replace(/&amp;/g, "&")
-                .replace(/&lt;/g, "<")
-                .replace(/&gt;/g, ">")
-                .replace(/^[\d.KM]+ likes[^:]*:\s*"?/i, "")
-                .replace(/"?\s*$/, "")
-                .trim();
+            if (!igCaption) {
+              const ogDesc = html.match(/property="og:description" content="([\s\S]*?)"/) ||
+                             html.match(/content="([\s\S]*?)" property="og:description"/);
+              if (ogDesc) {
+                igCaption = ogDesc[1]
+                  .replace(/&#x([0-9a-fA-F]+);/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+                  .replace(/&quot;/g, '"')
+                  .replace(/&amp;/g, "&")
+                  .replace(/&lt;/g, "<")
+                  .replace(/&gt;/g, ">")
+                  .replace(/^[\d.KM]+ likes[^:]*:\s*"?/i, "")
+                  .replace(/"?\s*$/, "")
+                  .trim();
+              }
             }
             if (!igThumbnail) {
-              const thumbMatch = html.match(/property="og:image" content="([^"]+)"/) ||
-                                 html.match(/content="([^"]+)" property="og:image"/);
+              const thumbMatch =
+                html.match(/property="og:image" content="([^"]+)"/) ||
+                html.match(/content="([^"]+)" property="og:image"/) ||
+                html.match(/name="twitter:image" content="([^"]+)"/) ||
+                html.match(/content="([^"]+)" name="twitter:image"/);
               if (thumbMatch) igThumbnail = thumbMatch[1].replace(/&amp;/g, "&");
+              // 最後掃 HTML 內任何 Instagram CDN 圖
+              if (!igThumbnail) {
+                const cdnMatch = html.match(/https:\/\/[^"'\s]*?cdninstagram\.com\/[^"'\s]+\.jpg[^"'\s]*/);
+                if (cdnMatch) igThumbnail = cdnMatch[0].replace(/&amp;/g, "&");
+              }
             }
           }
         } catch { /* continue */ }
@@ -1435,17 +1451,32 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
   if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
-  // Re-host external thumbnail to R2 so it works in preview
+  // Re-host external thumbnail to R2 so it works in preview（唔用隨機分類圖 fallback）
   const category = result.recipeCategory || "其他";
   if (result.thumbnailUrl) {
-    result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl, category);
+    result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl, category, { fallback: false });
   }
-  // Smart fallback: assign category-based cover if still no thumbnail
+  // 真係冇圖 → 試 AI 按菜名生成（A）；失敗 → 交返空（前端會顯示中性佔位 C）
   if (!result.thumbnailUrl || result.thumbnailUrl === "") {
-    const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
-    const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
-    result.thumbnailUrl = randomCover;
+    try {
+      const ai = await generateRecipeImage(result.name || "");
+      result.thumbnailUrl = ai || "";
+    } catch {
+      result.thumbnailUrl = "";
+    }
   }
+  // IG hashtags → 併入 tags（方便 AI Chef 用關鍵字搵到）
+  try {
+    const hashtags = Array.from(
+      new Set((String(pageContent).match(/#[\p{L}\p{N}_]{2,30}/gu) || []).map((h) => h.slice(1).trim()).filter(Boolean)),
+    ).slice(0, 15);
+    if (hashtags.length > 0) {
+      const existing: string[] = Array.isArray(result.tags) ? result.tags.map(String) : [];
+      const seen = new Set(existing.map((t) => t.toLowerCase()));
+      for (const h of hashtags) if (!seen.has(h.toLowerCase())) { existing.push(h); seen.add(h.toLowerCase()); }
+      result.tags = existing;
+    }
+  } catch { /* ignore hashtag extraction errors */ }
   // dishType：parse LLM 有回且合法先用；一律再過 classifyRecipeDishTypeLLM（單一規則來源）
   // 最後再過 guardDishTypeByName（確定性護欄，修正「湯麵/湯圓」等誤判）。
   const DISH_KEYS = ["meat", "seafood", "vegetable", "soup", "carb", "appetizer", "dessert", "drink", "other"];
@@ -1667,12 +1698,14 @@ export const recipesRouter = router({
         }
       }
 
-      // Smart fallback: assign category-based cover if still no thumbnail
+      // 真係冇圖 → 試 AI 按菜名生成；失敗 → 交返空（前端中性佔位）
       if (!result.thumbnailUrl || result.thumbnailUrl === "") {
-        const category = result.recipeCategory || "其他";
-        const categoryCovers = FALLBACK_COVERS[category] || FALLBACK_COVERS["中菜"] || [DEFAULT_FALLBACK];
-        const randomCover = categoryCovers[Math.floor(Math.random() * categoryCovers.length)];
-        result.thumbnailUrl = randomCover;
+        try {
+          const ai = await generateRecipeImage(result.name || "");
+          result.thumbnailUrl = ai || "";
+        } catch {
+          result.thumbnailUrl = "";
+        }
       }
 
       const hasContent = (result.ingredients && result.ingredients.length > 0) ||
