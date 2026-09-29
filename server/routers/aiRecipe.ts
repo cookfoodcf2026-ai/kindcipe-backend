@@ -2502,11 +2502,19 @@ export async function processAIChefChat(
   // ══════════ mode === "library"：快路徑（3餸1湯 → 1湯3餸 + AI補；一般 → 1 個）══════════
   if (mode === "library") {
     const libMealIntent = parseMealIntent(inputMessages as Message[]);
-    const isMealLib = libMealIntent.isMeal || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
+    const reqCount = search?.count && search.count > 1 ? search.count : 0;
+    const isMealLib = libMealIntent.isMeal || reqCount > 0 || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
     const rows = await trySearch("", 1000);
 
     if (isMealLib) {
-      const libCount = { dishCount: libMealIntent.dishCount, soupCount: libMealIntent.soupCount };
+      // 尊重前端指定嘅總卡數（例如「辛辣3餸1湯」= 4），否則用 intent；再否則 fallback 3餸1湯
+      let dishCount = libMealIntent.dishCount;
+      let soupCount = libMealIntent.soupCount;
+      if (reqCount > 0 && reqCount !== dishCount + soupCount) {
+        soupCount = (libMealIntent.soupCount > 0 || /湯/.test(lastUserText)) ? 1 : 0;
+        dishCount = Math.max(1, reqCount - soupCount);
+      }
+      const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
       const libPicked = pickSoupMeal(rows, mergedExclude, libCount.dishCount, libCount.soupCount);

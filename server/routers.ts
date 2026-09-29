@@ -1671,7 +1671,9 @@ export const appRouter = router({
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
+      // Clear both the domain-scoped and host-only cookie to be safe.
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      ctx.res.clearCookie(COOKIE_NAME, { path: "/", maxAge: -1 });
       return { success: true } as const;
     }),
 
