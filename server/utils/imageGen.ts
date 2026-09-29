@@ -10,11 +10,12 @@ const ORIGIN = (() => {
   try { return new URL(ENV.dashScopeBaseUrl).origin; } catch { return "https://dashscope-intl.aliyuncs.com"; }
 })();
 const API = `${ORIGIN}/api/v1`;
-const MODEL = process.env.DASHSCOPE_IMAGE_MODEL ?? "wanx2.1-t2i-turbo";
+const MODEL = process.env.DASHSCOPE_IMAGE_MODEL ?? "";
 
 export async function generateRecipeImage(recipeName: string): Promise<string | null> {
   const name = String(recipeName || "").trim();
-  if (!name || !ENV.dashScopeApiKey) return null;
+  // Opt-in：只有設定好 DASHSCOPE_IMAGE_MODEL 才嘗試（避免無配置時白費 request）
+  if (!name || !ENV.dashScopeApiKey || !MODEL) return null;
   try {
     const prompt = `A delicious, appetizing food photo of "${name}", Hong Kong home-cooking style, natural daylight, top-down, high detail, realistic`;
     const submit = await fetch(`${API}/services/aigc/text2image/image-synthesis`, {
