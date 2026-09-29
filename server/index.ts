@@ -5,6 +5,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerSocialAuthRoutes } from "./auth";
+import { registerStripeWebhook } from "./_core/stripeWebhook";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 
@@ -66,6 +67,10 @@ async function startServer() {
   app.use("/api/trpc/aiRecipe", aiLimiter);
   app.use("/api/v1/trpc/recipes.parse", aiLimiter);
   app.use("/api/trpc/recipes.parse", aiLimiter);
+
+  // Stripe webhook MUST receive the raw body (signature verification), so it is
+  // registered BEFORE express.json().
+  registerStripeWebhook(app);
 
   // Body parser (10MB is plenty; images are uploaded via R2, not inline)
   app.use(express.json({ limit: "10mb" }));

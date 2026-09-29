@@ -12,6 +12,7 @@ import { customRecipeRouter } from "./routers/customRecipe";
 import { weeklyMenuRouter } from "./routers/weeklyMenu";
 import { eatOutRouter } from "./routers/eatOut";
 import { subscriptionRouter } from "./routers/subscription";
+import { billingRouter } from "./routers/billing";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { aiChatRouter } from "./routers/aiChat";
 import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
@@ -1974,6 +1975,7 @@ export const appRouter = router({
   recipeNotes: recipeNotesRouter,
   commonIngredient: commonIngredientRouter,
   subscription: subscriptionRouter,
+  billing: billingRouter,
   aiChat: aiChatRouter,
 });
 

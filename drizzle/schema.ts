@@ -538,6 +538,31 @@ export const iapTransactions = pgTable("iap_transactions", {
 export type IapTransaction = typeof iapTransactions.$inferSelect;
 export type InsertIapTransaction = typeof iapTransactions.$inferInsert;
 
+// ─── Stripe Subscriptions (web billing) ───────────────────────────────────────
+// Web/Android pay via Stripe; iOS keeps Apple IAP. Both activate the same
+// family subscription (families.subscriptionStatus), so Pro state is unified.
+export const stripeSubscriptions = pgTable("stripe_subscriptions", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 128 }),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 128 }),
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 128 }),
+  productId: varchar("product_id", { length: 64 }).notNull(),
+  planType: varchar("plan_type", { length: 16 }).notNull().default("monthly"),
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  subUniq: uniqueIndex("stripe_subscriptions_sub_id_unique").on(t.stripeSubscriptionId),
+  customerIdx: index("stripe_subscriptions_customer_idx").on(t.stripeCustomerId),
+  familyIdx: index("stripe_subscriptions_family_idx").on(t.familyId),
+}));
+
+export type StripeSubscription = typeof stripeSubscriptions.$inferSelect;
+export type InsertStripeSubscription = typeof stripeSubscriptions.$inferInsert;
+
 // ─── AI Chat Usage (per-kitchen monthly pool) ──────────────────────────────────
 export const aiChatUsage = pgTable("ai_chat_usage", {
   id: serial("id").primaryKey(),

@@ -42,6 +42,14 @@ export const ENV = {
   applePrivateKey: process.env.APPLE_PRIVATE_KEY ?? "",
   appleWebRedirectUri: process.env.APPLE_WEB_REDIRECT_URI ?? "",
 
+  // Stripe (web billing)
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  stripePriceMonthly: process.env.STRIPE_PRICE_MONTHLY ?? "",
+  stripePriceYearly: process.env.STRIPE_PRICE_YEARLY ?? "",
+  stripeSuccessUrl: process.env.STRIPE_SUCCESS_URL ?? "",
+  stripeCancelUrl: process.env.STRIPE_CANCEL_URL ?? "",
+
   // CORS
   allowedOrigins: process.env.ALLOWED_ORIGINS ?? "",
   frontendUrl: process.env.FRONTEND_URL ?? "",
