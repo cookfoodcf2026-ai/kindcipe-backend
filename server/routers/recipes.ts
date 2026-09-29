@@ -496,6 +496,21 @@ async function collectInstagramThumbnailCandidates(url: string): Promise<string[
   return out;
 }
 
+/** 過濾 AI 解析出嘅「偽食材」：小標題（如「蔥油醬汁材料：」）唔應該當食材。
+ *  規則：名稱以「：或:」結尾，或屬「…材料」類標題且冇數量 → 丢弃。 */
+function sanitizeParsedIngredients(list: any[]): any[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter((ing) => {
+    const name = String(ing?.name ?? "").trim();
+    if (!name) return false;
+    const hasQty = !!String(ing?.quantity ?? "").trim() || !!String(ing?.unit ?? "").trim();
+    if (/[：:]$/.test(name)) return false;
+    if (!hasQty && /(材料|醬汁|調味料|醃料|配料)$/.test(name)) return false;
+    if (!hasQty && /^(醬汁|調味|醃料|配料|材料)/.test(name)) return false;
+    return true;
+  });
+}
+
 async function rehostExternalImage(imageUrl: string, category?: string, opts?: { fallback?: boolean }): Promise<string> {
   const useFallback = opts?.fallback !== false;
   if (!imageUrl) return useFallback ? "" : "";
@@ -758,6 +773,7 @@ ${text}
   const result: any = extractJSON(content);
   const hasContent = (result.ingredients && result.ingredients.length > 0) ||
     (result.steps && result.steps.length > 0);
+  if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
   result.parseReason = (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent)
     ? "no_recipe_content"
     : "ok";
@@ -1563,6 +1579,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
+  if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
   if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
   // Re-host：逐個候選試，第一個成功就用（唔用隨機分類圖 fallback）
   const category = result.recipeCategory || "其他";
@@ -1605,6 +1622,23 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   });
   if (classified) dish = classified;
   result.dishType = guardDishTypeByName(result.name || "", dish || "other");
+  // 標籤保底：確保至少有菜系 / 菜式類型 / 家常菜，避免匯入後標籤空白
+  try {
+    const existing: string[] = Array.isArray(result.tags) ? result.tags.map(String).filter(Boolean) : [];
+    const seen = new Set(existing.map((x) => x.toLowerCase()));
+    const add = (v?: string) => {
+      const s = String(v ?? "").trim();
+      if (s && s !== "其他" && !seen.has(s.toLowerCase())) { existing.push(s); seen.add(s.toLowerCase()); }
+    };
+    add(category);
+    const dishLabel: Record<string, string> = {
+      meat: "肉類", seafood: "海鮮", vegetable: "蔬菜", soup: "湯水",
+      carb: "主食", appetizer: "前菜", dessert: "甜品", drink: "飲品",
+    };
+    add(dishLabel[String(result.dishType || "")]);
+    if (existing.length === 0) existing.push("家常菜");
+    result.tags = existing.slice(0, 20);
+  } catch { /* ignore tag backfill errors */ }
   // Determine parseReason based on result name
   if (!hasRealContent) {
     result.parseReason = "cannot_read";
@@ -1800,6 +1834,8 @@ export const recipesRouter = router({
       const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
       if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
+
+      if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
 
       // Use real storage URL as thumbnail if AI didn't extract one
       if (!result.thumbnailUrl) {
@@ -3502,13 +3538,16 @@ export const recipesRouter = router({
       // Check access: user can view their own family's recipes or public recipes
       if (r.visibility === "private") {
         if (!ctx.user || !ctx.activeFamilyId || r.familyId !== ctx.activeFamilyId) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+          // Distinct message so the client can show a private-recipe notice
+          // (log in / no access) instead of a generic "not found".
+          throw new TRPCError({ code: "FORBIDDEN", message: "PRIVATE_RECIPE" });
         }
       }
 
       return {
         ...r,
         id: `user_${r.id}`,
+        visibility: r.visibility,
         ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
         steps: r.steps ? JSON.parse(r.steps) : [],
         stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
