@@ -422,6 +422,80 @@ function isFacebookUrl(url: string): boolean {
 
 // ─── parseText helper ───────────────────────────────────────────────────────
 
+/** IG 會對伺服器 IP 回傳「毒 host」（*.cdn.instagram.com / cdn-instagram.com，DNS 唔存在）。
+ *  呢度將佢正規化返做可解析嘅 scontent-*.cdninstagram.com，保留 path + query（簽名一般可跨 host）。 */
+function normalizeInstagramCdnUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    const h = u.hostname;
+    let newHost: string | null = null;
+    const regional = h.match(/^(scontent-[a-z0-9-]+)\.cdn\.instagram\.com$/);
+    if (regional) newHost = `${regional[1]}.cdninstagram.com`;
+    else if (h === "scontent.cdn.instagram.com") newHost = "scontent.cdninstagram.com";
+    else if (h.endsWith(".cdn-instagram.com")) newHost = h.replace(/\.cdn-instagram\.com$/, ".cdninstagram.com");
+    else if (h === "cdn-instagram.com") newHost = "cdninstagram.com";
+    if (!newHost || newHost === h) return null;
+    u.hostname = newHost;
+    if (u.searchParams.has("_nc_ht")) u.searchParams.set("_nc_ht", newHost);
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** 逐個候選 URL 試 rehost，第一個成功就用（唔用隨機 fallback）。 */
+async function rehostFirstAvailable(urls: string[], category?: string): Promise<string> {
+  const seen = new Set<string>();
+  for (const u of urls) {
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    const out = await rehostExternalImage(u, category, { fallback: false });
+    if (out) {
+      console.log("[rehostFirstAvailable] succeeded with candidate:", u.substring(0, 90));
+      return out;
+    }
+  }
+  console.log("[rehostFirstAvailable] all candidates failed");
+  return "";
+}
+
+/** 收集 IG 縮圖候選（官方 oEmbed + embed 頁），host 通常可正常下載。 */
+async function collectInstagramThumbnailCandidates(url: string): Promise<string[]> {
+  const out: string[] = [];
+  const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+  // 1) 官方 oEmbed（實測 200，回傳可用 fbcdn host）
+  try {
+    const resp = await fetch(
+      `https://www.instagram.com/api/v1/oembed/?url=${encodeURIComponent(url)}`,
+      { headers: { "User-Agent": ua, Accept: "application/json" }, signal: AbortSignal.timeout(6000) },
+    );
+    if (resp.ok) {
+      const data = (await resp.json()) as { thumbnail_url?: string };
+      if (data?.thumbnail_url) out.push(data.thumbnail_url.replace(/&amp;/g, "&"));
+    }
+  } catch { /* ignore */ }
+
+  // 2) /embed/captioned/ 頁面（EmbeddedMediaImage 或 og:image）
+  try {
+    const clean = url.split("?")[0].replace(/\/+$/, "");
+    const resp = await fetch(`${clean}/embed/captioned/`, {
+      headers: { "User-Agent": ua, Accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (resp.ok) {
+      const html = await resp.text();
+      const m =
+        html.match(/class="EmbeddedMediaImage"[^>]*src="([^"]+)"/) ||
+        html.match(/property="og:image" content="([^"]+)"/) ||
+        html.match(/content="([^"]+)" property="og:image"/);
+      if (m?.[1]) out.push(m[1].replace(/&amp;/g, "&"));
+    }
+  } catch { /* ignore */ }
+
+  return out;
+}
+
 async function rehostExternalImage(imageUrl: string, category?: string, opts?: { fallback?: boolean }): Promise<string> {
   const useFallback = opts?.fallback !== false;
   if (!imageUrl) return useFallback ? "" : "";
@@ -494,6 +568,35 @@ async function rehostExternalImage(imageUrl: string, category?: string, opts?: {
     }
   } catch (retryErr) {
     console.log("[rehostExternalImage] Retry fetch also failed:", (retryErr as Error).message);
+  }
+
+  // Attempt 3: 正規化被 IG 落毒嘅 host 再試（*.cdn.instagram.com → *.cdninstagram.com）
+  const normalizedUrl = normalizeInstagramCdnUrl(imageUrl);
+  if (normalizedUrl) {
+    try {
+      const normResp = await fetch(normalizedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Referer": "https://www.instagram.com/",
+          "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      console.log("[rehostExternalImage] Normalized fetch response:", normResp.status);
+      if (normResp.ok) {
+        const contentType = normResp.headers.get("content-type") || "image/jpeg";
+        const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+        const buf = Buffer.from(await normResp.arrayBuffer());
+        const key = `recipe-thumbnails/external-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { url } = await storagePut(key, buf, contentType);
+        const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+        const fullUrl = url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url;
+        console.log("[rehostExternalImage] Successfully rehosted (normalized):", fullUrl.substring(0, 100));
+        return fullUrl;
+      }
+    } catch (normErr) {
+      console.log("[rehostExternalImage] Normalized fetch failed:", (normErr as Error).message);
+    }
   }
   
   // Final fallback: return category-based Unsplash cover（除非要求唔用 fallback）
@@ -1284,9 +1387,19 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 
   const { text: pageContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
   const hasRealContent = pageContent.length > 30;
-  
-  // Prefer clean /media thumbnail, then backend-fetched, then client-provided
-  let effectiveThumbnail = cleanInstagramThumbnail || fetchedThumbnail || clientThumbnail;
+
+  // 縮圖候選：手機拎到（clientThumbnail，住宅 IP 最可靠）優先，其次 oEmbed/embed、/media、page
+  const thumbCandidates: string[] = [];
+  if (clientThumbnail) thumbCandidates.push(clientThumbnail);
+  if (sourceType === "instagram") {
+    try {
+      thumbCandidates.push(...(await collectInstagramThumbnailCandidates(url)));
+    } catch { /* ignore */ }
+  }
+  if (cleanInstagramThumbnail) thumbCandidates.push(cleanInstagramThumbnail);
+  if (fetchedThumbnail) thumbCandidates.push(fetchedThumbnail);
+
+  let effectiveThumbnail = thumbCandidates[0] || "";
   
   // If still no thumbnail, use category-based fallback (will be set after parsing)
   // For now, keep it empty and assign after recipeCategory is known
@@ -1451,10 +1564,11 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
   if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
-  // Re-host external thumbnail to R2 so it works in preview（唔用隨機分類圖 fallback）
+  // Re-host：逐個候選試，第一個成功就用（唔用隨機分類圖 fallback）
   const category = result.recipeCategory || "其他";
   if (result.thumbnailUrl) {
-    result.thumbnailUrl = await rehostExternalImage(result.thumbnailUrl, category, { fallback: false });
+    result.thumbnailUrl = await rehostFirstAvailable([result.thumbnailUrl, ...thumbCandidates], category);
+    console.log("[parseRecipeFromUrl] thumbnail rehost result:", result.thumbnailUrl ? "ok" : "none");
   }
   // 真係冇圖 → 試 AI 按菜名生成（A）；失敗 → 交返空（前端會顯示中性佔位 C）
   if (!result.thumbnailUrl || result.thumbnailUrl === "") {
