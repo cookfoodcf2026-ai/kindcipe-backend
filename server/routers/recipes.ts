@@ -19,12 +19,13 @@ import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } fro
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent } from "../utils/translateContent";
-import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota } from "../db";
+import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
+import { assertSafeUrl } from "../utils/safeUrl";
 
 // ─── 智能搜尋：分詞詞典、同義詞歸一化、多語言、模糊匹配、關鍵字分割 ──────────────
 
@@ -521,6 +522,14 @@ async function rehostExternalImage(imageUrl: string, category?: string, opts?: {
     (process.env.R2_PUBLIC_URL && imageUrl.startsWith(process.env.R2_PUBLIC_URL)) ||
     imageUrl.startsWith("/r2-storage/");
   if (isR2) return imageUrl;
+
+  // SSRF 防護：外部圖片 URL（可能來自被抓頁面 HTML）先驗證，失敗即當冇圖
+  try {
+    await assertSafeUrl(imageUrl);
+  } catch {
+    console.log("[rehostExternalImage] blocked unsafe url");
+    return useFallback ? "" : "";
+  }
   
   // If R2 is not configured (local dev), keep the original URL instead of falling back to Unsplash
   if (!process.env.R2_ACCOUNT_ID) {
@@ -827,7 +836,9 @@ const recipeInputSchema = z.object({
 
 async function fetchPageContent(url: string): Promise<{ text: string; thumbnail: string }> {
   try {
-    const sourceType = detectSourceType(url);
+  const sourceType = detectSourceType(url);
+  // SSRF 防護：用戶提供嘅 URL 一律先驗證（擋私網/loopback/非 http(s)）
+  await assertSafeUrl(url);
 
     if (sourceType === "youtube") {
       let title = "";
@@ -1074,8 +1085,10 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       let xhsThumbnail = "";
 
       // Step 1: Resolve xhslink.com short URL → full xiaohongshu.com URL
-      if (noteUrl.includes("xhslink.com")) {
+      // 小紅書短連結：xhslink.com 同 xhslink.cn 都要解
+      if (/xhslink\.(com|cn)/.test(noteUrl)) {
         try {
+          await assertSafeUrl(noteUrl);
           const followResp = await fetch(noteUrl, {
             method: "HEAD",
             headers: {
@@ -1085,7 +1098,11 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
             signal: AbortSignal.timeout(10000),
           });
           const location = followResp.headers.get("location");
-          if (location) noteUrl = location;
+          if (location) {
+            const resolved = new URL(location, noteUrl).toString();
+            await assertSafeUrl(resolved); // 防 redirect SSRF
+            noteUrl = resolved;
+          }
         } catch { /* use original URL */ }
       }
 
@@ -1710,14 +1727,21 @@ export const recipesRouter = router({
       base64: z.string(),
       mimeType: z.string().default("image/jpeg"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       // Validate size: base64 of 4MB ≈ 5.5M chars
       if (input.base64.length > 5_500_000) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "圖片太大，請壓縮後再上傳（最大 4MB）" });
       }
+      // 只接受圖片 MIME，避免上載任意內容
+      if (!/^image\/(jpeg|png|webp|jpg|heic|heif)$/i.test(input.mimeType)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "不支援的圖片格式" });
+      }
       const buffer = Buffer.from(input.base64, "base64");
       const ext = input.mimeType.split("/")[1] || "jpg";
-      const { key, url } = await storagePut(`recipe-screenshots/screenshot.${ext}`, buffer, input.mimeType);
+      // 安全：key 加 family 前綴 → 防止跨家庭讀取／覆寫（IDOR）
+      const key = `recipe-screenshots/f${ctx.activeFamilyId}/${crypto.randomUUID()}.${ext}`;
+      const { url } = await storagePut(key, buffer, input.mimeType);
       const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
       return { key, url: url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url };
     }),
@@ -1725,7 +1749,11 @@ export const recipesRouter = router({
   // ── Delete uploaded recipe screenshot (clean up orphan R2 files) ────────────
   deleteRecipeImage: protectedProcedure
     .input(z.object({ key: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // 安全：只可刪自己家庭嘅檔案（防未授權刪除）
+      if (!ctx.activeFamilyId || !input.key.startsWith(`recipe-screenshots/f${ctx.activeFamilyId}/`)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
+      }
       try {
         const { storageDelete } = await import("../storage");
         await storageDelete(input.key);
@@ -1754,6 +1782,12 @@ export const recipesRouter = router({
         ? input.storageKeys
         : (input.storageKey ? [input.storageKey] : []);
       if (keys.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "缺少圖片" });
+      // 安全：只可解析自己家庭嘅截圖（防 IDOR 讀取他人圖片）
+      for (const k of keys) {
+        if (!k.startsWith(`recipe-screenshots/f${ctx.activeFamilyId}/`)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
+        }
+      }
       const imageUrls = await Promise.all(keys.map((k) => storageGetSignedUrl(k)));
       const imageUrl = imageUrls[0]; // 主圖（做封面）
 
@@ -2800,6 +2834,9 @@ export const recipesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+      // 配額：匯入食譜必須先檢查（防繞過 parse 直接呼叫 importUser 濫用 LLM/翻譯成本）
+      await assertFamilyQuota(ctx.activeFamilyId);
+
       const urlHash = input.sourceUrl ? hashUrl(input.sourceUrl) : null;
       if (urlHash) {
         const existing = await db.select({ id: customRecipes.id })
@@ -2886,6 +2923,11 @@ export const recipesRouter = router({
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
       }).returning();
+
+      // 配額扣數：只有「外部來源匯入」才計（手動建立唔計）
+      if (input.sourceUrl && detectSourceType(input.sourceUrl) !== "manual") {
+        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
+      }
 
       return { success: true, id: inserted.id };
     }),

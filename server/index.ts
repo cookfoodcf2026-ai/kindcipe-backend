@@ -68,6 +68,17 @@ async function startServer() {
   app.use("/api/v1/trpc/recipes.parse", aiLimiter);
   app.use("/api/trpc/recipes.parse", aiLimiter);
 
+  // Image uploads are heavy (base64) → tight per-IP limit to prevent storage/DoS abuse.
+  const uploadLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 20,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: { json: { message: "上載太頻繁，請稍後再試。" } } },
+  });
+  app.use("/api/v1/trpc/recipes.uploadRecipeImage", uploadLimiter);
+  app.use("/api/trpc/recipes.uploadRecipeImage", uploadLimiter);
+
   // Stripe webhook MUST receive the raw body (signature verification), so it is
   // registered BEFORE express.json().
   registerStripeWebhook(app);
