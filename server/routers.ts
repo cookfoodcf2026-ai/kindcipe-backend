@@ -16,7 +16,8 @@ import { billingRouter } from "./routers/billing";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { aiChatRouter } from "./routers/aiChat";
 import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
-import { listIdentities, createIdentity } from "./auth-identities";
+import { listIdentities, createIdentity, getIdentity } from "./auth-identities";
+import { verifyGoogleIdToken } from "./auth";
 import { broadcastToFamily } from "./_core/sseSync";
 import { notifyOwner } from "./_core/notification";
 import { sendPushNotifications } from "./pushNotification";
@@ -1659,6 +1660,80 @@ export const appRouter = router({
         lastLoginAt: r.lastLoginAt,
       }));
     }),
+
+    // ── 手動連結登入方式（Apple relay 帳號唯一解法）────────────────────────
+    // 將一個新登入方式（Google / Email OTP）綁到「當前已登入帳號」。
+    // 衝突（identity / email 已屬另一個 user）→ 回 CONFLICT，交由合併流程處理。
+    linkGoogle: protectedProcedure
+      .input(z.object({ idToken: z.string().min(10) }))
+      .mutation(async ({ ctx, input }) => {
+        const info = await verifyGoogleIdToken(input.idToken);
+        if (!info) throw new TRPCError({ code: "BAD_REQUEST", message: "Google 驗證失敗" });
+        const existingIdent = await getIdentity("google", info.sub);
+        if (existingIdent && existingIdent.userId !== String(ctx.user.id)) {
+          throw new TRPCError({ code: "CONFLICT", message: "此 Google 帳號已連結到另一個帳號" });
+        }
+        const email = info.email ? info.email.toLowerCase() : "";
+        if (email) {
+          const owner = await getUserByEmail(email);
+          if (owner && String(owner.id) !== String(ctx.user.id)) {
+            throw new TRPCError({ code: "CONFLICT", message: "此 email 已有帳號，請先合併帳號" });
+          }
+        }
+        await createIdentity({
+          userId: String(ctx.user.id),
+          provider: "google",
+          providerUserId: info.sub,
+          email,
+          emailVerified: info.emailVerified,
+        });
+        if (email && info.emailVerified) await setUserEmailVerified(String(ctx.user.id));
+        return { success: true } as const;
+      }),
+
+    linkEmailStart: protectedProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ ctx, input }) => {
+        const email = input.email.toLowerCase();
+        const owner = await getUserByEmail(email);
+        if (owner && String(owner.id) !== String(ctx.user.id)) {
+          throw new TRPCError({ code: "CONFLICT", message: "此 email 已有帳號，請先合併帳號" });
+        }
+        const existingOtp = await getIdentity("otp", email);
+        if (existingOtp && existingOtp.userId !== String(ctx.user.id)) {
+          throw new TRPCError({ code: "CONFLICT", message: "此 email 已連結到另一個帳號" });
+        }
+        const recent = await getRecentEmailVerificationCode(email, 60_000);
+        if (recent) return { success: true, cooldownSeconds: 60 };
+        const { code } = await createEmailVerificationCode({ userId: String(ctx.user.id), email });
+        try {
+          await sendVerificationEmail({ email, name: ctx.user.name ?? null, code });
+        } catch (e) {
+          console.error("[linkEmailStart] send failed:", (e as Error)?.message);
+        }
+        return { success: true };
+      }),
+
+    linkEmailVerify: protectedProcedure
+      .input(z.object({ email: z.string().email(), code: z.string().min(4).max(8) }))
+      .mutation(async ({ ctx, input }) => {
+        const email = input.email.toLowerCase();
+        const result = await verifyEmailCode(email, input.code);
+        if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: "驗證碼不正確或已過期" });
+        const owner = await getUserByEmail(email);
+        if (owner && String(owner.id) !== String(ctx.user.id)) {
+          throw new TRPCError({ code: "CONFLICT", message: "此 email 已有帳號，請先合併帳號" });
+        }
+        await createIdentity({
+          userId: String(ctx.user.id),
+          provider: "otp",
+          providerUserId: email,
+          email,
+          emailVerified: true,
+        });
+        await setUserEmailVerified(String(ctx.user.id));
+        return { success: true } as const;
+      }),
 
     // ── Update display name (Settings → edit name) ──────────────────────────
     updateProfile: protectedProcedure

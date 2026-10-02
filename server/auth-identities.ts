@@ -107,10 +107,11 @@ export async function resolveUserForIdentity(params: {
     }
   }
 
-  // 2) 自動按「已驗證 email」連結（Apple relay / admin / 有歧義 → 唔連）
+  // 2) 自動按「已驗證 email」連結（Apple relay 唔連；有歧義 count>1 唔連 → 走手動合併）
+  //    注意：唔再排除 admin —— 已驗證 email 證明擁有權，排除 admin 只會整壞老闆自己嘅跨 provider 登入。
   if (email && verified && !isAppleRelayEmail(email)) {
     const existing = await getUserByEmailAnyRole(email);
-    if (existing && existing.role !== "admin") {
+    if (existing) {
       const n = await countUsersByEmail(email);
       if (n === 1) {
         await createIdentity({ userId: String(existing.id), provider, providerUserId, email, emailVerified: true });

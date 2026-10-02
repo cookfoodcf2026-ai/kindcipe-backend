@@ -43,10 +43,11 @@ const GOOGLE_CLIENT_IDS = [
 // Must match "ios.bundleIdentifier" in the Expo app config (app.json).
 const APPLE_BUNDLE_ID = "com.kindcipe.app";
 
-async function verifyGoogleIdToken(idToken: string): Promise<{
+export async function verifyGoogleIdToken(idToken: string): Promise<{
   sub: string;
   email: string;
   name: string;
+  emailVerified: boolean;
   picture?: string;
 } | null> {
   try {
@@ -68,6 +69,8 @@ async function verifyGoogleIdToken(idToken: string): Promise<{
       sub: data.sub,
       email: data.email,
       name: data.name || data.email.split("@")[0],
+      // 讀 provider 回報嘅 email_verified（唔再硬編碼 true）
+      emailVerified: String(data.email_verified ?? "") === "true",
       picture: data.picture,
     };
   } catch {
@@ -125,6 +128,7 @@ async function handleSocialLogin(
     email: string;
     name: string;
     loginMethod: "google" | "apple";
+    emailVerified?: boolean;
   }
 ) {
   // Resolve by identity (+ auto-link by verified email), else create — 令換機/換 provider 都搵返同一帳號
@@ -132,7 +136,7 @@ async function handleSocialLogin(
     provider: params.provider,
     providerUserId: params.providerUserId,
     email: params.email,
-    emailVerified: true,
+    emailVerified: params.emailVerified ?? true,
     name: params.name,
     loginMethod: params.loginMethod,
   });
@@ -262,6 +266,7 @@ export function registerSocialAuthRoutes(app: Express) {
       email: info.email,
       name: info.name || fallbackName(info.email, "google"),
       loginMethod: "google",
+      emailVerified: info.emailVerified,
     });
   });
 
