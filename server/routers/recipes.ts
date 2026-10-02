@@ -25,7 +25,7 @@ import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizz
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
-import { assertSafeUrl } from "../utils/safeUrl";
+import { assertSafeUrl, safeFetch } from "../utils/safeUrl";
 
 // ─── 智能搜尋：分詞詞典、同義詞歸一化、多語言、模糊匹配、關鍵字分割 ──────────────
 
@@ -401,11 +401,16 @@ function hashUrl(url: string): string {
   return crypto.createHash("md5").update(normaliseUrl(url)).digest("hex");
 }
 
+function hostnameOf(url: string): string {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
+}
+
 function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "manual" {
   if (url.includes("instagram.com")) return "instagram";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
   if (url.includes("xiaohongshu.com") || url.includes("xhslink.com") || url.includes("xhslink.cn")) return "xiaohongshu";
-  if (url.includes("threads.net")) return "threads";
+  // Threads：Meta 已由 threads.net 改為 threads.com，兩個 domain 都要認（hostname 比對，避免子字串誤中）
+  if (/^(.*\.)?threads\.(net|com)$/i.test(hostnameOf(url))) return "threads";
   if (url.includes("tiktok.com")) return "tiktok";
   // Facebook 冇獨立 source_type enum value，一律存做 "manual"，
   // 但解析時另外用 isFacebookUrl() 分流處理（見 fetchPageContent）。
@@ -523,13 +528,11 @@ async function rehostExternalImage(imageUrl: string, category?: string, opts?: {
     imageUrl.startsWith("/r2-storage/");
   if (isR2) return imageUrl;
 
-  // SSRF 防護：外部圖片 URL（可能來自被抓頁面 HTML）先驗證，失敗即當冇圖
-  try {
-    await assertSafeUrl(imageUrl);
-  } catch {
-    console.log("[rehostExternalImage] blocked unsafe url");
-    return useFallback ? "" : "";
-  }
+  // SSRF 防護：喺「每次 fetch 之前」驗證（唔可以喺最前面硬擋，否則會阻擋下面嘅 host 正規化救援）
+  const safeFetchImage = async (u: string, headers: Record<string, string>) => {
+    await assertSafeUrl(u);
+    return fetch(u, { headers, signal: AbortSignal.timeout(10000) });
+  };
   
   // If R2 is not configured (local dev), keep the original URL instead of falling back to Unsplash
   if (!process.env.R2_ACCOUNT_ID) {
@@ -541,15 +544,12 @@ async function rehostExternalImage(imageUrl: string, category?: string, opts?: {
   
   // Try primary fetch with Instagram referer
   try {
-    const resp = await fetch(imageUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Referer": "https://www.instagram.com/",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Sec-Fetch-Site": "cross-site",
-        "Sec-Fetch-Mode": "no-cors",
-      },
-      signal: AbortSignal.timeout(10000),
+    const resp = await safeFetchImage(imageUrl, {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Referer": "https://www.instagram.com/",
+      "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "Sec-Fetch-Site": "cross-site",
+      "Sec-Fetch-Mode": "no-cors",
     });
     console.log("[rehostExternalImage] Primary fetch response:", resp.status, resp.headers.get("content-type"));
     if (resp.ok) {
@@ -570,12 +570,9 @@ async function rehostExternalImage(imageUrl: string, category?: string, opts?: {
   
   // Retry with clean headers (no referer) - bypasses some CDN blocks
   try {
-    const retryResp = await fetch(imageUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      },
-      signal: AbortSignal.timeout(10000),
+    const retryResp = await safeFetchImage(imageUrl, {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
     });
     console.log("[rehostExternalImage] Retry fetch response:", retryResp.status);
     if (retryResp.ok) {
@@ -598,13 +595,10 @@ async function rehostExternalImage(imageUrl: string, category?: string, opts?: {
   const normalizedUrl = normalizeInstagramCdnUrl(imageUrl);
   if (normalizedUrl) {
     try {
-      const normResp = await fetch(normalizedUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          "Referer": "https://www.instagram.com/",
-          "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        },
-        signal: AbortSignal.timeout(10000),
+      const normResp = await safeFetchImage(normalizedUrl, {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://www.instagram.com/",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
       });
       console.log("[rehostExternalImage] Normalized fetch response:", normResp.status);
       if (normResp.ok) {
@@ -1188,15 +1182,16 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
         }
       } catch { /* continue to page scrape */ }
 
-      // Step 2: Fallback — page scrape og:description
+      // Step 2: Fallback — page scrape og:description（用 safeFetch：逐跳 SSRF 驗證 + 大小上限）
       if (!threadText) {
       try {
-        const resp = await fetch(url, {
+        const resp = await safeFetch(url, {
           headers: {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
             "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           },
+          maxBytes: 3_000_000,
           signal: AbortSignal.timeout(12000),
         });
         if (resp.ok) {
@@ -1225,7 +1220,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
 
           // Author from og:title (format "username on Threads")
           if (url.includes("/@")) {
-            const userMatch = url.match(/threads\.net\/@?([^/\?]+)/);
+            const userMatch = url.match(/threads\.(?:net|com)\/@?([^/\?]+)/);
             if (userMatch) threadAuthor = userMatch[1];
           }
         }
