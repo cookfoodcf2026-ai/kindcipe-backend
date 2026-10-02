@@ -1312,7 +1312,7 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
 
 // ─── AI Parse URL ─────────────────────────────────────────────────────────────
 
-async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThumbnail?: string): Promise<{
+async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThumbnail?: string, clientCaption?: string): Promise<{
   name: string;
   description: string;
   cookTime: number;
@@ -1401,7 +1401,15 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     }
   }
 
-  const { text: pageContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
+  const { text: fetchedContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
+  // Path A：若手機分享帶嚟 caption，優先/合併使用（Threads/TikTok/小紅書 後端爬唔到時靠佢）
+  const clientCaptionText = String(clientCaption ?? "").trim();
+  const pageContent = clientCaptionText.length > fetchedContent.length
+    ? clientCaptionText
+    : (fetchedContent || clientCaptionText);
+  if (clientCaptionText) {
+    console.log(`[parseRecipeFromUrl] using clientCaption (${clientCaptionText.length} chars, platform=${sourceType})`);
+  }
   const hasRealContent = pageContent.length > 30;
 
   // 縮圖候選：手機拎到（clientThumbnail，住宅 IP 最可靠）優先，其次 oEmbed/embed、/media、page
@@ -1660,7 +1668,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
   parseUrl: protectedProcedure
-    .input(z.object({ url: z.string().url(), language: z.string().optional(), clientThumbnail: z.string().optional() }))
+    .input(z.object({ url: z.string().url(), language: z.string().optional(), clientThumbnail: z.string().optional(), clientCaption: z.string().max(6000).optional() }))
     .mutation(async ({ ctx, input }) => {
       // 🛑 Quota check BEFORE calling LLM
       if (!ctx.activeFamilyId) {
@@ -1668,7 +1676,7 @@ export const recipesRouter = router({
       }
       await assertFamilyQuota(ctx.activeFamilyId);
       
-      const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail);
+      const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption);
       return {
         ...parsed,
         sourceUrl: input.url,
@@ -1730,7 +1738,8 @@ export const recipesRouter = router({
   // ── Parse Image (Vision AI: extract recipe from uploaded screenshot) ────────
   parseImage: protectedProcedure
     .input(z.object({
-      storageKey: z.string(), // key returned by uploadRecipeImage
+      storageKey: z.string().optional(), // 單張（舊）
+      storageKeys: z.array(z.string()).max(5).optional(), // 多張截圖（caption + 留言）
     }))
     .mutation(async ({ ctx, input }) => {
       // 🛑 Quota check BEFORE calling LLM
@@ -1739,9 +1748,14 @@ export const recipesRouter = router({
       }
       await assertFamilyQuota(ctx.activeFamilyId);
       
-      // Build absolute URL for Vision API via storage signed URL
+      // Build absolute URL(s) for Vision API via storage signed URL
       const { storageGetSignedUrl } = await import("../storage");
-      const imageUrl = await storageGetSignedUrl(input.storageKey);
+      const keys = (input.storageKeys && input.storageKeys.length > 0)
+        ? input.storageKeys
+        : (input.storageKey ? [input.storageKey] : []);
+      if (keys.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "缺少圖片" });
+      const imageUrls = await Promise.all(keys.map((k) => storageGetSignedUrl(k)));
+      const imageUrl = imageUrls[0]; // 主圖（做封面）
 
       const systemPrompt = `你是一個專業的食譜創作助手。請仔細分析用戶上傳的圖片：
 1. 如果圖片中有食物或菜餚，請根據外觀、顏色、質地和常見烹飪方式推測可能的食材和做法。
@@ -1776,8 +1790,10 @@ export const recipesRouter = router({
           {
             role: "user",
             content: [
-              { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
-              { type: "text", text: userPrompt },
+              ...imageUrls.map((u) => ({ type: "image_url" as const, image_url: { url: u, detail: "high" as const } })),
+              { type: "text", text: imageUrls.length > 1
+                ? `${userPrompt}\n\n（以下有 ${imageUrls.length} 張圖，可能係同一食譜嘅不同部分／留言，請合併成一份完整食譜。）`
+                : userPrompt },
             ],
           },
         ],
@@ -1841,7 +1857,7 @@ export const recipesRouter = router({
       if (!result.thumbnailUrl) {
         try {
           const { storageGet } = await import("../storage");
-          const { url: realUrl } = await storageGet(input.storageKey);
+          const { url: realUrl } = await storageGet(keys[0]);
           result.thumbnailUrl = realUrl;
         } catch {
           // Storage fetch failed — will fall back to category cover below
