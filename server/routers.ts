@@ -300,7 +300,7 @@ const familyRouter = router({
     if (!ctx.activeFamilyId) return null;
     const familyId = ctx.activeFamilyId;
     const sub = await getFamilySubscription(familyId);
-    const aiLimit = sub?.aiChatLimit ?? 30;
+    const aiLimit = sub?.aiChatLimit ?? 20;
     return {
       imports: {
         used: await getImportUsage(familyId),

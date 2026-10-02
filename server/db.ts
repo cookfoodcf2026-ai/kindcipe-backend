@@ -1461,7 +1461,8 @@ export async function getFamilySubscription(familyId: number) {
     maxMembers: isPaid ? 4 : 2,
     maxImportsPerMonth: isPaid ? 300 : 20,
     maxCustomRecipesPerMonth: isPaid ? null : 20,
-    aiChatLimit: isPaid ? 300 : 30,
+    // Free AI 對話：20/月（增值核心付費點；匯入維持 20 較寬，限制增值而非入口）
+    aiChatLimit: isPaid ? 300 : 20,
     sharedLocked: !isPaid && memberCount > 2,
     trialEndsAt: family.trialEndsAt,
     subscriptionExpiresAt: family.subscriptionExpiresAt,

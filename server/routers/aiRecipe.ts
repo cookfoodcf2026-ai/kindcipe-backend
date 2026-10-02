@@ -3379,7 +3379,7 @@ export const aiRecipeRouter = router({
       let quota: { limit: number; used: number; nearLimit: boolean } | undefined;
       if (familyId) {
         const aiSub = await getFamilySubscription(familyId);
-        const aiLimit = aiSub?.aiChatLimit ?? 30;
+        const aiLimit = aiSub?.aiChatLimit ?? 20;
         const aiUsage = await getAiChatUsage(familyId);
         quota = { limit: aiLimit, used: aiUsage, nearLimit: aiUsage >= aiLimit };
       }
