@@ -21,6 +21,9 @@ export function initSentry(): boolean {
       environment: ENV.isProduction ? "production" : "development",
       // Errors are the priority; light tracing to keep free-tier quota.
       tracesSampleRate: ENV.isProduction ? 0.1 : 0,
+      // Capture errors thrown in Express route handlers/middleware automatically
+      // (Sentry v11 uses the integration channel, not a manual error handler).
+      integrations: [Sentry.expressIntegration()],
       // Never auto-collect PII (user info, cookies, bodies, query params).
       dataCollection: {
         userInfo: false,
@@ -37,6 +40,19 @@ export function initSentry(): boolean {
   } catch (e) {
     console.warn("[Sentry] init failed (non-fatal):", (e as Error).message);
     return false;
+  }
+}
+
+/**
+ * Flush pending events before the process exits (Railway restarts/redeploys).
+ * Returns a promise that resolves once the queue is drained (or times out).
+ */
+export async function flushSentry(timeoutMs = 2000): Promise<void> {
+  if (!initialised) return;
+  try {
+    await Sentry.flush(timeoutMs);
+  } catch {
+    /* noop */
   }
 }
 

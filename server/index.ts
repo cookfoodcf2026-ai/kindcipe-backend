@@ -8,7 +8,7 @@ import { registerSocialAuthRoutes } from "./auth";
 import { registerStripeWebhook } from "./_core/stripeWebhook";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
-import { initSentry, captureException } from "./_core/sentry";
+import { initSentry, captureException, flushSentry } from "./_core/sentry";
 
 async function startServer() {
   initSentry();
@@ -247,4 +247,12 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (err) => {
   captureException(err);
   console.error("[uncaughtException]", err);
+});
+
+// Ensure queued error events reach Sentry before Railway restarts the container.
+process.on("SIGTERM", () => {
+  void flushSentry().finally(() => process.exit(0));
+});
+process.on("SIGINT", () => {
+  void flushSentry().finally(() => process.exit(0));
 });
