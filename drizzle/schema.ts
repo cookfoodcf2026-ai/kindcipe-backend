@@ -88,7 +88,9 @@ export const emailVerificationCodes = pgTable("email_verification_codes", {
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  emailUniqueIdx: index("email_verification_codes_email_unique").on(table.email),
+  // 必須係 UNIQUE：createEmailVerificationCode 用 onConflictDoUpdate({ target: email })，
+  // Postgres 要求 target 有 unique 約束（否則「no unique or exclusion constraint」→ Email OTP 500）。
+  emailUniqueIdx: uniqueIndex("email_verification_codes_email_unique").on(table.email),
 }));
 
 export type EmailVerificationCode = typeof emailVerificationCodes.$inferSelect;
