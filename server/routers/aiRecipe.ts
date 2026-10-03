@@ -82,6 +82,18 @@ const aiEditOutputSchema = z.object({
 });
 
 /**
+ * Persist payload for an AI edit. The client sends back the *previewed* recipe
+ * (the exact result it showed the user), so the backend does NOT need to call
+ * the LLM again. This guarantees one LLM call per edit (no double cost / double
+ * quota), "what you previewed is exactly what gets saved", and no way to abuse
+ * `save` to burn tokens. `editPrompt` is kept for audit only.
+ */
+const aiEditPersistInputSchema = z.object({
+  recipe: aiEditOutputSchema,
+  editPrompt: z.string().min(1).max(1000),
+});
+
+/**
  * Four-Layer Protection Schema for AI Chef JSON parsing
  * Layer 3: Zod validation with default values to prevent crashes
  */
@@ -3272,8 +3284,21 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // AI Edit 都係 LLM call → 計入 AI 月額度並硬擋
+      {
+        const aiLimit = sub?.aiChatLimit ?? 20;
+        const aiUsage = await getAiChatUsage(ctx.activeFamilyId);
+        if (aiUsage >= aiLimit) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `已達到本月 AI 用量上限（${aiUsage}/${aiLimit}），升級方案可解鎖更多。`,
+          });
+        }
+      }
+
       assertSupportedEditLanguage(input.editPrompt);
       const parsed = await runAiEdit(input, ctx.activeFamilyId, ctx.user.id);
+      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 1); } catch { /* 唔阻塞 */ }
 
       return {
         name: parsed.name || input.recipe.name,
@@ -3298,7 +3323,7 @@ export const aiRecipeRouter = router({
     }),
 
   saveEditedRecipe: familyWriteProcedure
-    .input(aiEditSaveInputSchema)
+    .input(aiEditPersistInputSchema)
     .mutation(async ({ input, ctx }) => {
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
@@ -3315,10 +3340,13 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // NOTE: intentionally NO LLM call and NO quota increment here.
+      // previewEdit() already performed the single LLM call and counted it;
+      // this procedure merely persists the previewed payload verbatim.
       assertSupportedEditLanguage(input.editPrompt);
-      const parsed = await runAiEdit(input, ctx.activeFamilyId, ctx.user.id);
+
+      const parsed = input.recipe;
       const mergedTags = Array.from(new Set([
-        ...(input.recipe.tags ?? []),
         ...(parsed.tags ?? []),
         "AI 生成",
       ]));
@@ -3326,28 +3354,28 @@ export const aiRecipeRouter = router({
       const saved = await insertCustomRecipe({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
-        name: parsed.name || input.recipe.name,
+        name: parsed.name,
         nameEn: parsed.nameEn,
         nameFil: parsed.nameFil,
         nameId: parsed.nameId,
-        description: parsed.description || input.recipe.description,
+        description: parsed.description,
         descriptionEn: parsed.descriptionEn,
         descriptionFil: parsed.descriptionFil,
         descriptionId: parsed.descriptionId,
-        image: input.recipe.thumbnailUrl ?? input.recipe.image,
-        thumbnailUrl: input.recipe.thumbnailUrl ?? input.recipe.image,
-        cookTime: parsed.cookTime ?? input.recipe.cookTime,
-        servings: parsed.servings ?? input.recipe.servings,
-        difficulty: parsed.difficulty ?? input.recipe.difficulty,
-        recipeCategory: parsed.recipeCategory ?? input.recipe.recipeCategory,
-        ingredients: JSON.stringify(parsed.ingredients.length > 0 ? parsed.ingredients : input.recipe.ingredients),
-        steps: JSON.stringify(parsed.steps.length > 0 ? parsed.steps : input.recipe.steps),
+        image: "",
+        thumbnailUrl: "",
+        cookTime: parsed.cookTime,
+        servings: parsed.servings,
+        difficulty: parsed.difficulty,
+        recipeCategory: parsed.recipeCategory,
+        ingredients: JSON.stringify(parsed.ingredients),
+        steps: JSON.stringify(parsed.steps),
         stepsEn: parsed.stepsEn ? JSON.stringify(parsed.stepsEn) : undefined,
         stepsFil: parsed.stepsFil ? JSON.stringify(parsed.stepsFil) : undefined,
         stepsId: parsed.stepsId ? JSON.stringify(parsed.stepsId) : undefined,
         tags: JSON.stringify(mergedTags),
         sourceType: "manual",
-        sourceAuthor: input.recipe.sourceAuthor,
+        sourceAuthor: undefined,
       });
 
       return { success: true, id: saved.id, name: saved.name };
@@ -3375,13 +3403,19 @@ export const aiRecipeRouter = router({
       const mode = input.mode ?? "chat";
       const excludeNames = input.excludeNames ?? [];
 
-      // AI Chef chat quota（soft cap：唔硬擋，只提示 —— 升級導向）
+      // AI Chef chat quota（硬擋：超額只准用免費食譜庫 library mode；chat/ai 一律拒絕）
       let quota: { limit: number; used: number; nearLimit: boolean } | undefined;
       if (familyId) {
         const aiSub = await getFamilySubscription(familyId);
         const aiLimit = aiSub?.aiChatLimit ?? 20;
         const aiUsage = await getAiChatUsage(familyId);
         quota = { limit: aiLimit, used: aiUsage, nearLimit: aiUsage >= aiLimit };
+        if (aiUsage >= aiLimit && mode !== "library") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `已達到本月 AI 用量上限（${aiUsage}/${aiLimit}），升級方案可解鎖更多。`,
+          });
+        }
       }
 
       const result = await processAIChefChat(

@@ -1689,6 +1689,11 @@ export const recipesRouter = router({
       await assertFamilyQuota(ctx.activeFamilyId);
       
       const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption);
+      // 扣數：只在真正解析到食譜（parseReason === "ok"）才計。解析失敗唔扣，
+      // 否則用戶會覺得「未畀到嘢我卻扣咗」。防濫用交由前端防連點 + rate limit。
+      if (parsed.parseReason === undefined || parsed.parseReason === "ok") {
+        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
+      }
       return {
         ...parsed,
         sourceUrl: input.url,
@@ -1708,6 +1713,10 @@ export const recipesRouter = router({
       await assertFamilyQuota(ctx.activeFamilyId);
       
       const parsed = await parseTextToRecipe(input.text, input.language);
+      // 扣數：只有成功解析到食譜才計（同 parseUrl 一致）
+      if (parsed.parseReason === undefined || parsed.parseReason === "ok") {
+        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
+      }
       return {
         ...parsed,
         sourceUrl: "",
@@ -1908,6 +1917,12 @@ export const recipesRouter = router({
       const parseReason = (result.name === "需要手動輸入" || result.name === "無法解析" || !hasContent)
         ? "no_recipe_content" as const
         : "ok" as const;
+
+      // 扣數：只有成功解析到食譜才計。讀唔到（no_recipe_content）唔扣，
+      // 避免「上傳咗非食譜就扣額度」引致投訴。
+      if (parseReason === "ok") {
+        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
+      }
 
       return {
         ...result,
@@ -2919,10 +2934,7 @@ export const recipesRouter = router({
         visibility: input.visibility,
       }).returning();
 
-      // 配額扣數：只有「外部來源匯入」才計（手動建立唔計）
-      if (input.sourceUrl && detectSourceType(input.sourceUrl) !== "manual") {
-        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
-      }
+      // 配額扣數已移至 parse* 步驟（真正燒 LLM 嘅位），避免同 importUser 重複計。
 
       return { success: true, id: inserted.id };
     }),
