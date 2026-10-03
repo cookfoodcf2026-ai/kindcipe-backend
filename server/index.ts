@@ -8,8 +8,10 @@ import { registerSocialAuthRoutes } from "./auth";
 import { registerStripeWebhook } from "./_core/stripeWebhook";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
+import { initSentry, captureException } from "./_core/sentry";
 
 async function startServer() {
+  initSentry();
   const app = express();
   const server = createServer(app);
   // Railway (and most hosts) sit behind a proxy — needed for correct client IPs.
@@ -111,6 +113,14 @@ async function startServer() {
       const userId = ctx?.user?.id ?? "anon";
       const familyId = ctx?.activeFamilyId ?? "-";
       console.error(`[tRPC] ${type} ${path} user=${userId} family=${familyId} code=${error.code}\n  message: ${error.message}`);
+      // Only report server-side failures (not auth/validation user errors).
+      if (error.code === "INTERNAL_SERVER_ERROR") {
+        captureException(error, {
+          userId: ctx?.user?.id ?? null,
+          familyId: ctx?.activeFamilyId ?? null,
+          path,
+        });
+      }
     },
   });
   app.use("/api/v1/trpc", trpcMiddleware);
@@ -224,4 +234,17 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+startServer().catch((e) => {
+  captureException(e);
+  console.error(e);
+});
+
+// Report otherwise-unhandled failures so the process doesn't die silently.
+process.on("unhandledRejection", (reason) => {
+  captureException(reason);
+  console.error("[unhandledRejection]", reason);
+});
+process.on("uncaughtException", (err) => {
+  captureException(err);
+  console.error("[uncaughtException]", err);
+});

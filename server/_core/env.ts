@@ -53,4 +53,7 @@ export const ENV = {
   // CORS
   allowedOrigins: process.env.ALLOWED_ORIGINS ?? "",
   frontendUrl: process.env.FRONTEND_URL ?? "",
+
+  // Observability (optional — Sentry disabled when DSN is empty)
+  sentryDsn: process.env.SENTRY_DSN ?? "",
 };
