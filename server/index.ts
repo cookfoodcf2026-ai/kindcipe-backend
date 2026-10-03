@@ -31,19 +31,31 @@ async function startServer() {
     /^https?:\/\/10\.0\.2\.2(?::\d+)?$/,
     /^exp:\/\/10\.0\.2\.2(?::\d+)?$/,
   ];
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, etc.)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.has(origin) || localOriginPatterns.some((pattern) => pattern.test(origin))) {
-          return callback(null, true);
-        }
-        return callback(new Error(`CORS: origin ${origin} not allowed`));
-      },
-      credentials: true,
-    })
-  );
+  // OAuth / provider callbacks receive server-to-server POSTs (e.g. Apple's
+  // form_post sends Origin: https://appleid.apple.com). CORS is a browser-only
+  // mechanism and must not block these — their integrity is enforced by the
+  // signed `state` + `nonce` checks inside the routes, not by CORS.
+  const isServerToServerCallback = (path: string): boolean =>
+    /^\/api\/auth\/[^/]+\/callback\/?$/.test(path) ||
+    path === "/api/stripe/webhook" ||
+    path.startsWith("/api/webhooks/");
+
+  const corsMiddleware = cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin) || localOriginPatterns.some((pattern) => pattern.test(origin))) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true,
+  });
+  app.use((req, res, next) => {
+    // Server-to-server provider callbacks are exempt from CORS entirely.
+    if (isServerToServerCallback(req.path)) return next();
+    return corsMiddleware(req, res, next);
+  });
 
   // ── Rate limiting ──────────────────────────────────────────────────────────
   // Global safety net for the whole API.
