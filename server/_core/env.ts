@@ -56,4 +56,9 @@ export const ENV = {
 
   // Observability (optional — Sentry disabled when DSN is empty)
   sentryDsn: process.env.SENTRY_DSN ?? "",
+
+  // AI cost guardrails. Daily token budget for the whole backend (0 = unlimited).
+  // When exceeded, LLM calls fail closed until midnight UTC — protects against a
+  // quota-logic bug or abuse turning into an unbounded DashScope bill.
+  llmDailyTokenBudget: Number(process.env.LLM_DAILY_TOKEN_BUDGET ?? 0),
 };

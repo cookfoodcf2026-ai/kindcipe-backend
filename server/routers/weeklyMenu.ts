@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
-import { getDb, getFamilySubscription, addMealPlanBatch } from "../db";
+import { getDb, getFamilySubscription, addMealPlanBatch, getAiChatUsage, incrementAiChatUsage } from "../db";
 import { weeklyMenu, officialRecipes, mealPlans, customRecipes } from "../../drizzle/schema";
 import { protectedProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON } from "../_core/llm";
@@ -589,6 +589,15 @@ export const weeklyMenuRouter = router({
         };
       }
 
+      if (!parsed && ctx.activeFamilyId) {
+        // AI 智能排程係 LLM call → 硬擋 + 計數（免費版行規則式，唔經呢度）
+        const aiLimit = sub?.aiChatLimit ?? 20;
+        const aiUsage = await getAiChatUsage(ctx.activeFamilyId);
+        if (aiUsage >= aiLimit) {
+          throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${aiUsage}/${aiLimit}），升級方案可解鎖更多。` });
+        }
+      }
+
       if (!parsed) {
         // 7. Build AI prompt — only IDs from DB, AI picks from the list
         const systemPrompt = `你是「煮飯啦 Cookfood」的 AI 家庭晚餐規劃助手。
@@ -702,6 +711,9 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
 
       try {
         parsed = extractJSON(content);
+        if (ctx.activeFamilyId) {
+          try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 1); } catch { /* 唔阻塞 */ }
+        }
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 返回格式錯誤" });
       }

@@ -8,6 +8,61 @@
  */
 
 import { ENV } from "./env";
+import { captureException } from "./sentry";
+
+// ─── Cost observability + daily circuit breaker ───────────────────────────────
+// Rough public list prices (USD per 1M tokens) for the DashScope intl models we
+// use; overridable if pricing changes. Used only for logging/alerts, never billing.
+const PRICE_PER_1M_INPUT = Number(process.env.LLM_PRICE_INPUT_PER_1M ?? 0.3);
+const PRICE_PER_1M_OUTPUT = Number(process.env.LLM_PRICE_OUTPUT_PER_1M ?? 1.2);
+
+type CostState = { day: string; tokens: number; calls: number; costUsd: number };
+const _cost: CostState = { day: "", tokens: 0, calls: 0, costUsd: 0 };
+let _budgetAlerted = false;
+
+function rollCostDayIfNeeded(): void {
+  const today = new Date().toISOString().slice(0, 10);
+  if (_cost.day !== today) {
+    _cost.day = today;
+    _cost.tokens = 0;
+    _cost.calls = 0;
+    _cost.costUsd = 0;
+    _budgetAlerted = false;
+  }
+}
+
+/** Fail-closed when the daily backend-wide token budget is exceeded. */
+function assertDailyBudget(): void {
+  rollCostDayIfNeeded();
+  const budget = ENV.llmDailyTokenBudget;
+  if (budget > 0 && _cost.tokens >= budget) {
+    throw new Error(
+      `Daily LLM token budget exceeded (${_cost.tokens}/${budget}); AI temporarily disabled until UTC midnight.`
+    );
+  }
+}
+
+/** Record usage for logging + budget accounting. No PII. */
+function recordLlmUsage(model: string, usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }): void {
+  rollCostDayIfNeeded();
+  const input = usage?.prompt_tokens ?? 0;
+  const output = usage?.completion_tokens ?? 0;
+  const total = usage?.total_tokens ?? input + output;
+  const cost = (input / 1_000_000) * PRICE_PER_1M_INPUT + (output / 1_000_000) * PRICE_PER_1M_OUTPUT;
+  _cost.tokens += total;
+  _cost.calls += 1;
+  _cost.costUsd += cost;
+  console.log(
+    `[LLM cost] day=${_cost.day} model=${model} tokens=${total} ` +
+      `(in=${input},out=${output}) estCost=$${cost.toFixed(4)} ` +
+      `dayTokens=${_cost.tokens} dayCalls=${_cost.calls} dayCost=$${_cost.costUsd.toFixed(2)}`
+  );
+  const budget = ENV.llmDailyTokenBudget;
+  if (budget > 0 && _cost.tokens >= budget && !_budgetAlerted) {
+    _budgetAlerted = true;
+    captureException(new Error(`LLM daily token budget reached: ${_cost.tokens}/${budget} tokens, est $${_cost.costUsd.toFixed(2)}`));
+  }
+}
 
 const DEFAULT_TEXT_MODEL = "qwen3.7-flash";
 const DEFAULT_VISION_MODEL = "qwen3.7-flash";
@@ -201,7 +256,10 @@ async function invokeLLMInner(params: LLMParams): Promise<LLMResult> {
   const model =
     params.model ?? (hasVision ? DEFAULT_VISION_MODEL : DEFAULT_TEXT_MODEL);
   const baseUrl = ENV.dashScopeBaseUrl;
-  
+
+  // Cost circuit breaker: refuse to call out once the daily budget is exhausted.
+  assertDailyBudget();
+
   // Hard timeout: 15s (Gemini suggestion - fail fast, don't make user wait 60s)
   const HARD_TIMEOUT_MS = params.timeoutMs ?? 15000;
   
@@ -298,6 +356,7 @@ async function invokeLLMInner(params: LLMParams): Promise<LLMResult> {
 
       const totalDuration = Date.now() - retryStart;
       console.log(`[LLM] Success! Total attempt duration: ${totalDuration}ms`);
+      recordLlmUsage(model, result.usage);
       return {
         choices: result.choices.map((c) => ({
           message: {
