@@ -14,7 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
-export const roleEnum = pgEnum("role", ["user", "admin"]);
+export const roleEnum = pgEnum("role", ["user", "cs", "auditor", "admin"]);
 export const familyRoleEnum = pgEnum("family_role", ["owner", "admin", "helper", "member"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["free", "trial", "active", "expired"]);
 export const shoppingStatusEnum = pgEnum("shopping_status", ["pending", "active", "bought"]);
@@ -640,3 +640,24 @@ export const redirectLogs = pgTable("redirect_logs", {
 });
 export type RedirectLog = typeof redirectLogs.$inferSelect;
 export type InsertRedirectLog = typeof redirectLogs.$inferInsert;
+
+// ─── Admin Audit Logs (append-only) ───────────────────────────────────────────
+// 所有敏感後台操作（合併帳號、修改角色、解綁登入方式…）都寫入此表。
+// 只新增、不更新、不刪除；Auditor 角色唯讀此表。
+export const adminAuditLogs = pgTable("admin_audit_logs", {
+  id: serial("id").primaryKey(),
+  actorId: text("actor_id").notNull(),
+  actorRole: varchar("actor_role", { length: 32 }).notNull(),
+  action: varchar("action", { length: 64 }).notNull(),
+  targetUserId: text("target_user_id"),
+  detail: jsonb("detail"),
+  reason: text("reason"),
+  ip: varchar("ip", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  actorIdx: index("admin_audit_logs_actor_idx").on(t.actorId),
+  targetIdx: index("admin_audit_logs_target_idx").on(t.targetUserId),
+  createdIdx: index("admin_audit_logs_created_idx").on(t.createdAt),
+}));
+export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
+export type InsertAdminAuditLog = typeof adminAuditLogs.$inferInsert;

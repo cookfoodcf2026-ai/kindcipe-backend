@@ -13,6 +13,8 @@ import {
   importUsage,
   mealPlans,
   officialRecipes,
+  userIdentities,
+  adminAuditLogs,
   pantryItems,
   purchaseHistory,
   pushTokens,
@@ -2119,4 +2121,105 @@ export async function addRedirectLog(data: InsertRedirectLog) {
   } catch (err) {
     console.warn("[RedirectLog] insert failed:", err);
   }
+}
+
+// ─── Account Merge (transactional) ───────────────────────────────────────────
+/**
+ * Merge `sourceUserId` into `targetUserId` atomically:
+ *  - move user_identities (skip/delete rows whose (provider, providerUserId) already exists on target)
+ *  - move family ownership
+ *  - move family memberships (skip/delete duplicates)
+ * The source user row is left in place but ends up with no identities, so it can
+ * no longer be signed into. Used by the self-service merge flow and by admins.
+ */
+export async function mergeAccounts(params: {
+  targetUserId: string;
+  sourceUserId: string;
+}): Promise<{ movedIdentities: number; movedFamilies: number; movedMemberships: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const target = String(params.targetUserId);
+  const source = String(params.sourceUserId);
+  if (target === source) throw new Error("target and source are the same user");
+
+  return await db.transaction(async (tx) => {
+    let movedIdentities = 0;
+    let movedFamilies = 0;
+    let movedMemberships = 0;
+
+    const idents = await tx.select().from(userIdentities).where(eq(userIdentities.userId, source));
+    for (const ident of idents) {
+      const clash = await tx
+        .select()
+        .from(userIdentities)
+        .where(and(eq(userIdentities.provider, ident.provider), eq(userIdentities.providerUserId, ident.providerUserId)))
+        .limit(1);
+      if (clash[0]) {
+        try {
+          await tx.delete(userIdentities).where(eq(userIdentities.id, ident.id));
+        } catch {
+          /* leave as-is if it is the same row we are moving */
+        }
+      } else {
+        await tx.update(userIdentities).set({ userId: target }).where(eq(userIdentities.id, ident.id));
+        movedIdentities++;
+      }
+    }
+
+    const owned = await tx.select().from(families).where(eq(families.ownerId, source));
+    for (const fam of owned) {
+      await tx.update(families).set({ ownerId: target }).where(eq(families.id, fam.id));
+      movedFamilies++;
+    }
+
+    const mems = await tx.select().from(familyMembers).where(eq(familyMembers.userId, source));
+    for (const mem of mems) {
+      const dup = await tx
+        .select()
+        .from(familyMembers)
+        .where(and(eq(familyMembers.familyId, mem.familyId), eq(familyMembers.userId, target)))
+        .limit(1);
+      if (dup.length > 0) {
+        await tx.delete(familyMembers).where(eq(familyMembers.id, mem.id));
+      } else {
+        await tx.update(familyMembers).set({ userId: target }).where(eq(familyMembers.id, mem.id));
+        movedMemberships++;
+      }
+    }
+
+    return { movedIdentities, movedFamilies, movedMemberships };
+  });
+}
+
+// ─── Admin Audit Logs (append-only) ──────────────────────────────────────────
+export async function addAdminAuditLog(entry: {
+  actorId: string;
+  actorRole: string;
+  action: string;
+  targetUserId?: string | null;
+  detail?: unknown;
+  reason?: string | null;
+  ip?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(adminAuditLogs).values({
+    actorId: String(entry.actorId),
+    actorRole: String(entry.actorRole),
+    action: entry.action,
+    targetUserId: entry.targetUserId ? String(entry.targetUserId) : null,
+    detail: (entry.detail ?? null) as any,
+    reason: entry.reason ?? null,
+    ip: entry.ip ?? null,
+  });
+}
+
+export async function listAdminAuditLogs(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(adminAuditLogs)
+    .orderBy(desc(adminAuditLogs.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 500));
 }

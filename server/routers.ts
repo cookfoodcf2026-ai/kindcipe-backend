@@ -15,7 +15,7 @@ import { subscriptionRouter } from "./routers/subscription";
 import { billingRouter } from "./routers/billing";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { aiChatRouter } from "./routers/aiChat";
-import { protectedProcedure, publicProcedure, adminProcedure, familyWriteProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, csProcedure, auditorProcedure, familyWriteProcedure, router } from "./_core/trpc";
 import { listIdentities, createIdentity, getIdentity } from "./auth-identities";
 import { verifyGoogleIdToken } from "./auth";
 import { broadcastToFamily } from "./_core/sseSync";
@@ -116,6 +116,9 @@ import {
   deleteUserAccount,
   getCommonIngredientById,
   resolveCommonIngredientByName,
+  mergeAccounts,
+  addAdminAuditLog,
+  listAdminAuditLogs,
 } from "./db";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./_core/email";
 import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families, type InsertShoppingItem } from "../drizzle/schema";
@@ -1632,6 +1635,64 @@ const recipeNotesRouter = router({
     }),
 });
 
+// ─── OPS：後台帳號修復／稽核（System Admin / CS / Auditor）─────────────────────
+// 分權原則：CS 只可查詢；合併／解綁由 Admin 執行；所有敏感操作寫入 audit log。
+const opsRouter = router({
+  // 查詢帳號（客服核對身份用）
+  lookupAccount: csProcedure
+    .input(z.object({ email: z.string().email() }))
+    .query(async ({ input }) => {
+      const user = await getUserByEmail(input.email.toLowerCase());
+      if (!user) return { found: false as const };
+      const identities = await listIdentities(String(user.id));
+      return {
+        found: true as const,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role, createdAt: user.createdAt },
+        identities: identities.map((i: any) => ({
+          provider: i.provider,
+          providerUserId: i.providerUserId,
+          email: i.email,
+        })),
+      };
+    }),
+
+  // 管理員合併帳號（把 source 併入 target），並寫入 audit log
+  adminMergeAccounts: adminProcedure
+    .input(
+      z.object({
+        targetUserId: z.string().min(1),
+        sourceUserId: z.string().min(1),
+        reason: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.targetUserId === input.sourceUserId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "target 與 source 不可相同" });
+      }
+      const stats = await mergeAccounts({
+        targetUserId: input.targetUserId,
+        sourceUserId: input.sourceUserId,
+      });
+      await addAdminAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "merge_accounts",
+        targetUserId: input.targetUserId,
+        detail: { sourceUserId: input.sourceUserId, ...stats },
+        reason: input.reason ?? null,
+        ip: ctx.req.ip ?? null,
+      });
+      return { success: true, ...stats } as const;
+    }),
+
+  // 稽核員：讀取 audit log
+  auditLogs: auditorProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
+    .query(async ({ input }) => {
+      return listAdminAuditLogs(input?.limit ?? 100);
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   aiRecipe: aiRecipeRouter,
@@ -1733,6 +1794,54 @@ export const appRouter = router({
         });
         await setUserEmailVerified(String(ctx.user.id));
         return { success: true } as const;
+      }),
+
+    // ── 自助合併帳號 ─────────────────────────────────────────────────────────
+    // 用戶現時登入 A，用 Google 或 Email OTP 證明擁有 B → 將 B 併入 A。
+    // 兩邊都要通過驗證（唔可以單靠 ID），transactional，idempotent。
+    mergeAccount: protectedProcedure
+      .input(
+        z.object({
+          method: z.enum(["google", "email"]),
+          idToken: z.string().min(10).optional(),
+          email: z.string().email().optional(),
+          code: z.string().min(4).max(8).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const targetId = String(ctx.user.id);
+        let sourceId: string | null = null;
+        let proof = "";
+
+        if (input.method === "google") {
+          if (!input.idToken) throw new TRPCError({ code: "BAD_REQUEST", message: "缺少 Google 憑證" });
+          const info = await verifyGoogleIdToken(input.idToken);
+          if (!info) throw new TRPCError({ code: "BAD_REQUEST", message: "Google 驗證失敗" });
+          const ident = await getIdentity("google", info.sub);
+          if (!ident) throw new TRPCError({ code: "BAD_REQUEST", message: "此 Google 帳號未連結任何帳號" });
+          sourceId = String(ident.userId);
+          proof = `google:${info.sub}`;
+        } else {
+          if (!input.email || !input.code) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "缺少電郵或驗證碼" });
+          }
+          const email = input.email.toLowerCase();
+          const result = await verifyEmailCode(email, input.code);
+          if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: "驗證碼不正確或已過期" });
+          const owner = await getUserByEmail(email);
+          if (!owner) throw new TRPCError({ code: "BAD_REQUEST", message: "此 email 未有帳號" });
+          sourceId = String(owner.id);
+          proof = `email:${email}`;
+        }
+
+        if (!sourceId) throw new TRPCError({ code: "BAD_REQUEST", message: "無法識別要合併的帳號" });
+        if (sourceId === targetId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "呢個登入方式已經係你嘅帳號" });
+        }
+
+        const stats = await mergeAccounts({ targetUserId: targetId, sourceUserId: sourceId });
+        console.log(`[mergeAccount] ${sourceId} → ${targetId} via ${proof}: ${JSON.stringify(stats)}`);
+        return { success: true, ...stats } as const;
       }),
 
     // ── Update display name (Settings → edit name) ──────────────────────────
@@ -2054,6 +2163,7 @@ export const appRouter = router({
   subscription: subscriptionRouter,
   billing: billingRouter,
   aiChat: aiChatRouter,
+  ops: opsRouter,
 });
 
 export type AppRouter = typeof appRouter;

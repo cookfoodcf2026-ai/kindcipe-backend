@@ -43,6 +43,13 @@ const GOOGLE_CLIENT_IDS = [
 // Must match "ios.bundleIdentifier" in the Expo app config (app.json).
 const APPLE_BUNDLE_ID = "com.kindcipe.app";
 
+/** Apple returns `is_private_email` as a boolean or a "true"/"false" string. */
+function parseIsPrivateEmail(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") return v.toLowerCase() === "true";
+  return false;
+}
+
 export async function verifyGoogleIdToken(idToken: string): Promise<{
   sub: string;
   email: string;
@@ -84,6 +91,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<{
 async function verifyAppleIdToken(idToken: string): Promise<{
   sub: string;
   email: string;
+  isPrivateEmail: boolean;
 } | null> {
   try {
     // Decode JWT header to get kid
@@ -111,7 +119,11 @@ async function verifyAppleIdToken(idToken: string): Promise<{
     const email = payload.email as string;
     if (!sub) return null;
 
-    return { sub, email: email || `${sub}@privaterelay.appleid.com` };
+    return {
+      sub,
+      email: email || `${sub}@privaterelay.appleid.com`,
+      isPrivateEmail: parseIsPrivateEmail((payload as any).is_private_email),
+    };
   } catch (err) {
     console.error("[Apple Auth] Token verification failed:", err);
     return null;
@@ -129,6 +141,7 @@ async function handleSocialLogin(
     name: string;
     loginMethod: "google" | "apple";
     emailVerified?: boolean;
+    isPrivateEmail?: boolean;
   }
 ) {
   // Resolve by identity (+ auto-link by verified email), else create — 令換機/換 provider 都搵返同一帳號
@@ -137,6 +150,7 @@ async function handleSocialLogin(
     providerUserId: params.providerUserId,
     email: params.email,
     emailVerified: params.emailVerified ?? true,
+    isPrivateEmail: params.isPrivateEmail,
     name: params.name,
     loginMethod: params.loginMethod,
   });
@@ -219,7 +233,7 @@ function isAllowedRedirect(url: string): boolean {
 }
 
 /** Verify a web (Services ID audience) Apple id_token and check the nonce. */
-async function verifyAppleWebIdToken(idToken: string, expectedNonce: string): Promise<{ sub: string; email: string } | null> {
+async function verifyAppleWebIdToken(idToken: string, expectedNonce: string): Promise<{ sub: string; email: string; isPrivateEmail: boolean } | null> {
   try {
     const [headerB64] = idToken.split(".");
     const header = JSON.parse(Buffer.from(headerB64, "base64url").toString());
@@ -238,7 +252,11 @@ async function verifyAppleWebIdToken(idToken: string, expectedNonce: string): Pr
     const sub = payload.sub as string;
     if (!sub) return null;
     const email = (payload as any).email as string | undefined;
-    return { sub, email: email || `${sub}@privaterelay.appleid.com` };
+    return {
+      sub,
+      email: email || `${sub}@privaterelay.appleid.com`,
+      isPrivateEmail: parseIsPrivateEmail((payload as any).is_private_email),
+    };
   } catch (err) {
     console.error("[AppleWebAuth] id_token verify failed:", (err as Error)?.message);
     return null;
@@ -290,6 +308,7 @@ export function registerSocialAuthRoutes(app: Express) {
       email: info.email,
       name: name || fallbackName(info.email, "apple"),
       loginMethod: "apple",
+      isPrivateEmail: info.isPrivateEmail,
     });
   });
 
@@ -374,6 +393,7 @@ export function registerSocialAuthRoutes(app: Express) {
         providerUserId: info.sub,
         email: info.email,
         emailVerified: true,
+        isPrivateEmail: info.isPrivateEmail,
         name: appleName || fallbackName(info.email, "apple"),
         loginMethod: "apple",
       });

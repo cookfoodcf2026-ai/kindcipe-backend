@@ -78,3 +78,25 @@ export const adminProcedure = t.procedure.use(
     });
   }),
 );
+
+/** Customer support: may look up accounts and file merge requests, but not execute them. */
+export const csProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    if (!ctx.user || (ctx.user.role !== 'cs' && ctx.user.role !== 'admin')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "需要客服權限" });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+);
+
+/** Auditor / admin: read-only access to audit logs and security events. */
+export const auditorProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    if (!ctx.user || (ctx.user.role !== 'auditor' && ctx.user.role !== 'admin')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "需要稽核權限" });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+);

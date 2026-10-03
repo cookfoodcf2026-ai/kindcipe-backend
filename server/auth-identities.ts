@@ -20,8 +20,18 @@ export type IdentityProvider = "apple" | "google" | "email" | "otp";
 export const normalizeEmail = (e?: string | null): string =>
   e ? String(e).trim().toLowerCase() : "";
 
-export const isAppleRelayEmail = (e: string): boolean =>
-  /@privaterelay\.appleid\.com$/i.test(String(e || ""));
+// Apple private-relay ("Hide My Email") addresses. As of 2026 Apple issues new
+// relay addresses on `private.icloud.com` in addition to the legacy
+// `privaterelay.appleid.com`. Deliberately NOT matching bare `icloud.com`, which
+// is a real iCloud mailbox domain and must not be treated as a relay.
+export const isAppleRelayEmail = (e: string): boolean => {
+  const host = String(e || "").trim().toLowerCase().split("@")[1] || "";
+  return (
+    host === "privaterelay.appleid.com" ||
+    host === "private.icloud.com" ||
+    host.endsWith(".private.icloud.com")
+  );
+};
 
 export async function getIdentity(provider: IdentityProvider, providerUserId: string) {
   const db = await getDb();
@@ -90,12 +100,17 @@ export async function resolveUserForIdentity(params: {
   providerUserId: string;
   email?: string | null;
   emailVerified?: boolean;
+  /** Apple identity token `is_private_email` claim (authoritative relay signal). */
+  isPrivateEmail?: boolean;
   name?: string | null;
   loginMethod?: string;
 }): Promise<{ user: any; outcome: ResolveOutcome } | null> {
   const { provider, providerUserId } = params;
   const email = normalizeEmail(params.email);
   const verified = !!params.emailVerified;
+  // Treat a relay address as private whether Apple flagged it explicitly or the
+  // domain matches a known relay host (covers older tokens without the claim).
+  const isPrivate = params.isPrivateEmail === true || isAppleRelayEmail(email);
 
   // 1) 已有 identity
   const ident = await getIdentity(provider, providerUserId);
@@ -103,20 +118,23 @@ export async function resolveUserForIdentity(params: {
     const user = await getUserById(ident.userId);
     if (user) {
       await touchIdentity(provider, providerUserId);
+      console.log("[identity.resolve]", JSON.stringify({ provider, outcome: "returning", userId: user.id }));
       return { user, outcome: "returning" };
     }
   }
 
-  // 2) 自動按「已驗證 email」連結（Apple relay 唔連；有歧義 count>1 唔連 → 走手動合併）
+  // 2) 自動按「已驗證 email」連結（Apple relay / private email 唔連；有歧義 count>1 唔連 → 走手動合併）
   //    注意：唔再排除 admin —— 已驗證 email 證明擁有權，排除 admin 只會整壞老闆自己嘅跨 provider 登入。
-  if (email && verified && !isAppleRelayEmail(email)) {
+  if (email && verified && !isPrivate) {
     const existing = await getUserByEmailAnyRole(email);
     if (existing) {
       const n = await countUsersByEmail(email);
       if (n === 1) {
         await createIdentity({ userId: String(existing.id), provider, providerUserId, email, emailVerified: true });
+        console.log("[identity.resolve]", JSON.stringify({ provider, outcome: "linked", userId: existing.id }));
         return { user: existing, outcome: "linked" };
       }
+      console.warn("[identity.resolve]", JSON.stringify({ provider, outcome: "ambiguous", emailCount: n }));
     }
   }
 
@@ -131,6 +149,7 @@ export async function resolveUserForIdentity(params: {
   });
   const user = await getUserByOpenId(openId);
   if (!user) return null;
+  console.log("[identity.resolve]", JSON.stringify({ provider, outcome: "created", userId: user.id, isPrivate }));
   if (verified && !user.emailVerified) {
     const db = await getDb();
     if (db) await db.update(users).set({ emailVerified: true }).where(eq(users.id, user.id));
