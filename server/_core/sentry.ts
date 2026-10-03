@@ -24,14 +24,26 @@ export function initSentry(): boolean {
       // Capture errors thrown in Express route handlers/middleware automatically
       // (Sentry v11 uses the integration channel, not a manual error handler).
       integrations: [Sentry.expressIntegration()],
-      // Never auto-collect PII (user info, cookies, bodies, query params).
-      dataCollection: {
-        userInfo: false,
-        cookies: false,
-        httpHeaders: false,
-        httpBodies: [],
-        urlQueryParams: false,
-        stackFrameVariables: false,
+      // Privacy: strip request body / cookies / sensitive headers before send.
+      // NOTE: do NOT use `dataCollection` here — on @sentry/node v11 it silently
+      // dropped error events, which broke ingestion entirely.
+      beforeSend(event) {
+        try {
+          if (event.request) {
+            delete (event.request as any).data;
+            delete (event.request as any).cookies;
+            delete (event.request as any).query_string;
+            const headers = (event.request as any).headers;
+            if (headers) {
+              for (const k of ["authorization", "cookie", "x-family-id"]) {
+                if (headers[k]) delete headers[k];
+              }
+            }
+          }
+        } catch {
+          /* never block the event */
+        }
+        return event;
       },
     });
     initialised = true;
