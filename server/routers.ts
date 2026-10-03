@@ -1572,19 +1572,20 @@ const favoriteItemsRouter = router({
 // ─── Recipe Events Router ────────────────────────────────────────────────────
 const recipeEventsRouter = router({
   /** Silently record a recipe interaction (view / plan / save / cook). Fire-and-forget. */
-  track: publicProcedure
+  track: protectedProcedure
     .input(z.object({
       recipeId: z.string(),
       recipeName: z.string(),
       eventType: z.enum(['view', 'plan', 'save', 'cook']),
       userId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await insertRecipeEvent({
         recipeId: input.recipeId,
         recipeName: input.recipeName,
         eventType: input.eventType,
-        userId: input.userId ?? null,
+        userId: input.userId ?? String(ctx.user.id),
+        familyId: ctx.activeFamilyId ?? null,
       });
       return { ok: true };
     }),
