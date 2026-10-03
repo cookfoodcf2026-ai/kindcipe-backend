@@ -408,8 +408,17 @@ export function registerSocialAuthRoutes(app: Express) {
       });
       if (stateRedirect) {
         // Web: set the httpOnly session cookie and bounce back to the app.
+        // The cookie only works when the callback shares the app's registrable
+        // domain (i.e. APPLE_WEB_REDIRECT_URI on https://api.kindcipe.com).
+        // When the callback is served from a different site (e.g. *.railway.app)
+        // browsers reject the third-party Set-Cookie, so we ALSO hand the token
+        // back in the URL fragment — fragments are never sent to servers or
+        // written to access logs, and the web client stores it in localStorage
+        // (same as the Google web flow). Native keeps the kindcipe:// deep link.
         res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(req), maxAge: ONE_YEAR_MS });
-        finish("apple=success");
+        const redirectBase = stateRedirect;
+        const hash = `#token=${encodeURIComponent(sessionToken)}`;
+        res.redirect(`${redirectBase}${redirectBase.includes("?") ? "&" : "?"}apple=success${hash}`);
       } else {
         res.redirect(`kindcipe://apple-login?token=${encodeURIComponent(sessionToken)}`);
       }
