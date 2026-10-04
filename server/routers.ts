@@ -2063,7 +2063,9 @@ export const appRouter = router({
         let user = await getUserByEmail(email);
         if (!user) {
           const openId = `otp_${nanoid(24)}`;
-          await upsertUser({ openId, email, name: email.split("@")[0], loginMethod: "otp", lastSignedIn: new Date() });
+          // 唔 auto-fill users.name（唔用 email 前綴）：留空 → 前端用 email 前綴顯示。
+          // 用戶經 onboarding / Settings 填名時，先寫入真正嘅顯示名。
+          await upsertUser({ openId, email, loginMethod: "otp", lastSignedIn: new Date() });
           user = (await getUserByOpenId(openId)) ?? null;
           if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "登入失敗，請稍後再試" });
         }
