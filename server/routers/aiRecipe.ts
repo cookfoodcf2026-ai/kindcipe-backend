@@ -856,7 +856,8 @@ async function execSearchRecipes(
       id: officialRecipes.id, name: officialRecipes.name, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId, description: officialRecipes.description,
       cookTime: officialRecipes.cookTime, servings: officialRecipes.servings, difficulty: officialRecipes.difficulty,
       recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
-      steps: officialRecipes.steps, tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
+      steps: officialRecipes.steps, stepsEn: officialRecipes.stepsEn, stepsFil: officialRecipes.stepsFil, stepsId: officialRecipes.stepsId,
+      tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
       dishType: officialRecipes.dishType,
     })
     .from(officialRecipes)
@@ -872,7 +873,8 @@ async function execSearchRecipes(
     source: "official", id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
     servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
     ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
-    steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
+    steps: safeParseJsonArray(r.steps), stepsEn: safeParseJsonArray(r.stepsEn), stepsFil: safeParseJsonArray(r.stepsFil), stepsId: safeParseJsonArray(r.stepsId),
+    tags: safeParseJsonArray(r.tags),
     thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
   });
 
@@ -882,7 +884,8 @@ async function execSearchRecipes(
         id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description,
         cookTime: customRecipes.cookTime, servings: customRecipes.servings, difficulty: customRecipes.difficulty,
         recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
-        steps: customRecipes.steps, tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
+        steps: customRecipes.steps, stepsEn: customRecipes.stepsEn, stepsFil: customRecipes.stepsFil, stepsId: customRecipes.stepsId,
+        tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
         dishType: customRecipes.dishType,
       })
       .from(customRecipes)
@@ -898,7 +901,8 @@ async function execSearchRecipes(
       source: "custom", id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
       servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
       ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
-      steps: safeParseJsonArray(r.steps), tags: safeParseJsonArray(r.tags),
+      steps: safeParseJsonArray(r.steps), stepsEn: safeParseJsonArray(r.stepsEn), stepsFil: safeParseJsonArray(r.stepsFil), stepsId: safeParseJsonArray(r.stepsId),
+      tags: safeParseJsonArray(r.tags),
       thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
     });
   }
@@ -2472,19 +2476,37 @@ export async function processAIChefChat(
         .map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s ?? ""))
         .map((t: string) => t.trim()).filter(Boolean);
       if (steps.length === 0) continue;
+      const stepsOf = (v: unknown): string[] | undefined => {
+        const arr = Array.isArray(v) ? v : [];
+        const out = arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s ?? "")).map((t: string) => t.trim()).filter(Boolean);
+        return out.length > 0 ? out : undefined;
+      };
+      const str = (v: unknown): string | undefined => {
+        const s = String(v ?? "").trim();
+        return s ? s : undefined;
+      };
       const official = r.source === "official";
       const rec: SuggestedRecipe = {
         name,
+        nameEn: str(r?.nameEn),
+        nameFil: str(r?.nameFil),
+        nameId: str(r?.nameId),
         description: String(r?.description ?? "").trim(),
         cookTime: Number(r?.cookTime ?? 30) || 30,
         servings: Number(r?.servings ?? 4) || 4,
         difficulty: (String(r?.difficulty ?? "medium")) as "easy" | "medium" | "hard",
         ingredients: (Array.isArray(r?.ingredients) ? r.ingredients : []).map((i: any) => ({
           name: String(i?.name ?? "").trim(),
+          nameEn: str(i?.nameEn),
+          nameFil: str(i?.nameFil),
+          nameId: str(i?.nameId),
           quantity: String(i?.quantity ?? "").trim(),
           unit: String(i?.unit ?? "").trim(),
         })).filter(x => x.name),
         steps,
+        stepsEn: stepsOf(r?.stepsEn),
+        stepsFil: stepsOf(r?.stepsFil),
+        stepsId: stepsOf(r?.stepsId),
         tags: Array.isArray(r?.tags) ? r.tags.map(String) : [],
         source: official ? "official" : "custom",
         officialId: official ? Number(r.id) : undefined,
