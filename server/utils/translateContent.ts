@@ -54,3 +54,39 @@ Steps: ${JSON.stringify(steps)}`;
     return {};
   }
 }
+
+/**
+ * Translate a list of ingredient names into English / Filipino / Indonesian.
+ * Returns an array in the SAME order/length as input (entries may be empty on
+ * partial failure). Returns [] only when the whole call fails.
+ */
+export async function translateIngredientNames(
+  names: string[]
+): Promise<Array<{ en?: string; fil?: string; id?: string }>> {
+  const clean = names.map((n) => String(n ?? "").trim());
+  if (clean.length === 0) return [];
+  try {
+    const prompt = `Translate each ingredient name into English, Filipino, and Indonesian.
+Return ONLY JSON of the exact shape {"items":[{"en":"...","fil":"...","id":"..."}]} with the SAME number and order as the input array.
+Keep brand names / untranslatable terms as-is.
+Input: ${JSON.stringify(clean)}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 2000,
+      temperature: 0.2,
+      timeoutMs: 30000,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "{}";
+    const p: any = extractJSON(raw);
+    const items: any[] = Array.isArray(p?.items) ? p.items : [];
+    const str = (v: any) => (v ? String(v) : undefined);
+    return clean.map((_, i) => {
+      const it = items[i] || {};
+      return { en: str(it.en), fil: str(it.fil), id: str(it.id) };
+    });
+  } catch (e) {
+    console.warn("[translateIngredientNames] failed:", (e as Error)?.message);
+    return [];
+  }
+}

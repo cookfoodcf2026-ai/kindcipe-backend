@@ -19,6 +19,7 @@ import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } fro
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent } from "../utils/translateContent";
+import { buildTranslationPatch, withIngredientTranslations } from "../utils/recipeTranslations";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
@@ -2891,9 +2892,13 @@ export const recipesRouter = router({
       }
 
       const _stepsArr = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
-      // 速度：如果已帶翻譯（AI 生成嘅食譜有 nameEn/stepsEn），跳過 LLM translate；缺先補
-      const hasTr = !!input.nameEn || (!!input.stepsEn && input.stepsEn.length > 0);
-      const _tr = hasTr
+      // 速度：只有「4 語言齊全」先跳過翻譯；否則重翻補齊（AI 生成通常只有 zh+en）
+      const hasAll =
+        !!input.nameEn && !!input.nameFil && !!input.nameId &&
+        (!!input.stepsEn && input.stepsEn.length > 0) &&
+        (!!input.stepsFil && input.stepsFil.length > 0) &&
+        (!!input.stepsId && input.stepsId.length > 0);
+      const _tr = hasAll
         ? {
             nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
             descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
@@ -2924,7 +2929,7 @@ export const recipesRouter = router({
           tags: input.tags,
           category: input.recipeCategory,
         })),
-        ingredients: JSON.stringify(input.ingredients),
+        ingredients: await withIngredientTranslations(input.ingredients),
         steps: JSON.stringify(input.steps),
         tags: JSON.stringify(input.tags || []),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
@@ -3131,7 +3136,7 @@ export const recipesRouter = router({
           tags: input.tags,
           category: input.recipeCategory,
         })),
-        ingredients: JSON.stringify(input.ingredients),
+        ingredients: await withIngredientTranslations(input.ingredients),
         steps: JSON.stringify(input.steps),
         stepsEn: _tr2.stepsEn ? JSON.stringify(_tr2.stepsEn) : undefined,
         stepsFil: _tr2.stepsFil ? JSON.stringify(_tr2.stepsFil) : undefined,
@@ -3166,9 +3171,19 @@ export const recipesRouter = router({
       if (!recipe) throw new TRPCError({ code: "NOT_FOUND" });
       if (recipe.createdByUserId !== String(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN" });
 
+      // L1: 編輯後重新翻譯（覆寫舊翻譯，避免 stale／中文）
+      const _stepsU = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
+      const _trU = await translateRecipeContent((input.name && input.name.trim()) || "", _stepsU, input.description);
+
       await db.update(customRecipes).set({
         name: (input.name && input.name.trim()) || (input.isDraft ? "未命名草稿" : input.name),
+        nameEn: _trU.nameEn,
+        nameFil: _trU.nameFil,
+        nameId: _trU.nameId,
         description: input.description ?? "",
+        descriptionEn: _trU.descriptionEn,
+        descriptionFil: _trU.descriptionFil,
+        descriptionId: _trU.descriptionId,
         image: input.image ?? "",
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
         cookTime: input.cookTime ?? 0,
@@ -3182,8 +3197,11 @@ export const recipesRouter = router({
           tags: input.tags,
           category: input.recipeCategory,
         })),
-        ingredients: JSON.stringify(input.ingredients),
+        ingredients: await withIngredientTranslations(input.ingredients),
         steps: JSON.stringify(input.steps),
+        stepsEn: _trU.stepsEn ? JSON.stringify(_trU.stepsEn) : undefined,
+        stepsFil: _trU.stepsFil ? JSON.stringify(_trU.stepsFil) : undefined,
+        stepsId: _trU.stepsId ? JSON.stringify(_trU.stepsId) : undefined,
         tags: JSON.stringify(input.tags ?? []),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
@@ -3613,16 +3631,24 @@ export const recipesRouter = router({
         }
       }
 
+      // L3: on-demand 補翻譯（缺語言先補；補完寫回 cache，之後 0 成本）
+      let patch: Record<string, string> = {};
+      try { patch = await buildTranslationPatch(r as any); } catch { /* 唔阻塞 */ }
+      if (Object.keys(patch).length > 0) {
+        try { await db.update(customRecipes).set(patch as any).where(eq(customRecipes.id, r.id)); } catch { /* 唔阻塞 */ }
+      }
+      const merged: any = { ...r, ...patch };
+
       return {
-        ...r,
+        ...merged,
         id: `user_${r.id}`,
         visibility: r.visibility,
-        ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
-        steps: r.steps ? JSON.parse(r.steps) : [],
-        stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
-        stepsFil: r.stepsFil ? (() => { try { return JSON.parse(r.stepsFil!); } catch { return []; } })() : [],
-        stepsId: r.stepsId ? (() => { try { return JSON.parse(r.stepsId!); } catch { return []; } })() : [],
-        tags: r.tags ? JSON.parse(r.tags) : [],
+        ingredients: merged.ingredients ? JSON.parse(merged.ingredients) : [],
+        steps: merged.steps ? JSON.parse(merged.steps) : [],
+        stepsEn: merged.stepsEn ? (() => { try { return JSON.parse(merged.stepsEn!); } catch { return []; } })() : [],
+        stepsFil: merged.stepsFil ? (() => { try { return JSON.parse(merged.stepsFil!); } catch { return []; } })() : [],
+        stepsId: merged.stepsId ? (() => { try { return JSON.parse(merged.stepsId!); } catch { return []; } })() : [],
+        tags: merged.tags ? JSON.parse(merged.tags) : [],
         source: "user" as const,
       };
     }),
