@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { aiReply } from "../_core/aiReply";
 import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
@@ -389,7 +390,7 @@ function dedupeNames(names: string[]): string[] {
   return out;
 }
 
-function parseRecipeWithFallback(llmContent: string): { content: string; recipes: SuggestedRecipe[] } {
+function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { content: string; recipes: SuggestedRecipe[] } {
   const parseStart = Date.now();
   
   let content = llmContent;
@@ -414,7 +415,7 @@ function parseRecipeWithFallback(llmContent: string): { content: string; recipes
         const manualReplyText = typeof parsed.replyText === 'string' ? parsed.replyText : undefined;
         recipes = manuallyConvertRecipes(parsed.recipes, manualReplyText);
         if (recipes.length > 0) {
-          content = manualReplyText || `為你推薦 ${recipes.length} 個食譜：`;
+          content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
           console.log(`[AI Chef] Manual conversion: ${recipes.length} recipes in ${Date.now() - parseStart}ms`);
           return { content, recipes };
         }
@@ -442,7 +443,7 @@ function parseRecipeWithFallback(llmContent: string): { content: string; recipes
         const manualReplyText = typeof extracted.replyText === 'string' ? extracted.replyText : undefined;
         recipes = manuallyConvertRecipes(extracted.recipes, manualReplyText);
         if (recipes.length > 0) {
-          content = manualReplyText || `為你推薦 ${recipes.length} 個食譜：`;
+          content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
           console.log(`[AI Chef] Manual extract conversion: ${recipes.length} recipes`);
           return { content, recipes };
         }
@@ -479,7 +480,7 @@ function parseRecipeWithFallback(llmContent: string): { content: string; recipes
             const manualReplyText = typeof repairedParsed.replyText === "string" ? repairedParsed.replyText : undefined;
             recipes = manuallyConvertRecipes(repairedParsed.recipes, manualReplyText);
             if (recipes.length > 0) {
-              content = manualReplyText || `為你推薦 ${recipes.length} 個食譜：`;
+              content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
               console.log(`[AI Chef] repairJSON manual conversion: ${recipes.length} recipes`);
               return { content, recipes };
             }
@@ -499,7 +500,7 @@ function parseRecipeWithFallback(llmContent: string): { content: string; recipes
         const manualReplyText = typeof salvaged.replyText === "string" ? salvaged.replyText : undefined;
         recipes = manuallyConvertRecipes(salvaged.recipes, manualReplyText);
         if (recipes.length > 0) {
-          content = manualReplyText || `為你推薦 ${recipes.length} 個食譜：`;
+          content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
           console.log(`[AI Chef] salvageJSON parse: ${recipes.length} recipes`);
           return { content, recipes };
         }
@@ -523,7 +524,7 @@ function parseRecipeWithFallback(llmContent: string): { content: string; recipes
           const manualReplyText = typeof parsed.replyText === 'string' ? parsed.replyText : undefined;
           recipes = manuallyConvertRecipes(parsed.recipes, manualReplyText);
           if (recipes.length > 0) {
-            content = manualReplyText || `為你推薦 ${recipes.length} 個食譜：`;
+            content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
             console.log(`[AI Chef] Slice parse: ${recipes.length} recipes`);
             return { content, recipes };
           }
@@ -541,7 +542,7 @@ function parseRecipeWithFallback(llmContent: string): { content: string; recipes
     if (replyMatch?.[1]) {
       content = replyMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
     } else {
-      content = "我搵到食譜，但暫時未能完整顯示，你可以再問我一次。";
+      content = aiReply(lang, "foundIncomplete");
     }
   }
 
@@ -2548,11 +2549,11 @@ export async function processAIChefChat(
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
         const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
-        return { content: `我喺食譜庫搵到 ${libPicked.length} 個 + AI 幫你補 ${aiPicked.length} 個：`, recipes: all, llmUsed };
+        return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
       }
       const dishLabel = libCount.soupCount > 0 ? `${libCount.dishCount}餸${libCount.soupCount}湯` : `${libCount.dishCount}道菜`;
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
-      return { content: `我喺食譜庫搵到呢套 ${dishLabel}：`, recipes: applyServings(libPicked), llmUsed };
+      return { content: aiReply(lang, "libMealSet", { dish: dishLabel }), recipes: applyServings(libPicked), llmUsed };
     }
 
     // 單卡：支援「庫內搜尋：X」marker（前端「換」用，指定類別換同類），亦支援結構化 search（hotkey/pantry 用）
@@ -2589,8 +2590,8 @@ export async function processAIChefChat(
         console.log(`[AI Chef] library structured: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
         await recordFamilySeenNames(familyId, picked.map(r => r.name));
         const content = search.tags?.join("、") || search.query
-          ? `我喺食譜庫搵到呢個配合「${search.tags?.join("、") || search.query}」嘅食譜：`
-          : `我喺食譜庫搵到呢個食譜：`;
+          ? aiReply(lang, "libByTag", { q: (search.tags?.join("、") || search.query) ?? "" })
+          : aiReply(lang, "libOne");
         return { content, recipes: picked, llmUsed };
       }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
@@ -2602,7 +2603,7 @@ export async function processAIChefChat(
       if (picked.length > 0) {
         console.log(`[AI Chef] library structured fallback: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
         await recordFamilySeenNames(familyId, picked.map(r => r.name));
-        return { content: `我喺食譜庫搵到呢個食譜：`, recipes: picked, llmUsed };
+        return { content: aiReply(lang, "libOne"), recipes: picked, llmUsed };
       }
     } else if (swapQuery) {
       const singleRows = await trySearch(swapQuery, 30);
@@ -2629,17 +2630,17 @@ export async function processAIChefChat(
           const sameType = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
           if (sameType.length > 0) picked = sameType;
         }
-        return { content: `我從食譜庫搵到呢個食譜：`, recipes: picked.slice(0, 3), llmUsed };
+        return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
       }
     } else {
       picked = rowsToSuggested(rows, mergedExclude, 1);
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
-        return { content: `我從食譜庫搵到呢個食譜：`, recipes: picked, llmUsed };
+        return { content: aiReply(lang, "libOneFrom"), recipes: picked, llmUsed };
       }
     }
-    return { content: "食譜庫暫時未有合適食譜，可以試吓按「AI 生成」幫你創作新菜式。", recipes: [], llmUsed };
+    return { content: aiReply(lang, "libNone"), recipes: [], llmUsed };
   }
 
   // ══════════ chat 非圖片：先試食譜庫（library-first）══════════
@@ -2656,8 +2657,8 @@ export async function processAIChefChat(
       await recordFamilySeenNames(familyId, picked.map(r => r.name));
       return {
         content: keyword
-          ? `我喺食譜庫搵到呢個「${keyword}」相關食譜：`
-          : `我喺食譜庫搵到呢個食譜：`,
+          ? aiReply(lang, "libByKeyword", { kw: keyword })
+          : aiReply(lang, "libOne"),
         recipes: picked,
         llmUsed,
       };
@@ -2776,7 +2777,7 @@ export async function processAIChefChat(
         if (libMeal.length >= totalWanted) {
           usedParallel = true;
           parallelFromLibrary = true;
-          parallelContent = `我喺食譜庫搵到呢套 ${dishLabel}：`;
+          parallelContent = aiReply(lang, "libMealSet", { dish: dishLabel });
           parallelRecipes = libMeal;
           console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib (${dishLabel})`);
         } else {
@@ -2791,7 +2792,7 @@ export async function processAIChefChat(
           const all = [...libMeal, ...aiPicked].slice(0, totalWanted);
           usedParallel = true;
           parallelFromLibrary = true;
-          parallelContent = `我喺食譜庫搵到 ${libMeal.length} 個 + AI 幫你補 ${aiPicked.length} 個：`;
+          parallelContent = aiReply(lang, "libPlusAi", { lib: libMeal.length, ai: aiPicked.length });
           parallelRecipes = all;
           console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib + ${aiPicked.length} ai (${dishLabel})`);
         }
@@ -2805,23 +2806,23 @@ export async function processAIChefChat(
     if (mealRecipes.length > 0) {
       usedParallel = true;
       llmUsed = true; // 並行 meal 每個 item 都係 LLM call
-      parallelContent = `我幫你諗好咗今晚 ${dishLabel}：`;
+      parallelContent = aiReply(lang, "madeTonight", { dish: dishLabel });
       parallelRecipes = mealRecipes;
       console.log(`[AI Chef] Parallel meal generated: ${mealRecipes.length} recipes`);
     } else {
       // 並行失敗 → 落返單輪 LLM
       if (!(await callLLM())) {
-        return { content: "暫時未能推薦，請再試", recipes: [], llmUsed };
+      return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
       }
     }
   } else {
     if (!(await callLLM())) {
-      return { content: "暫時未能推薦，請再試", recipes: [], llmUsed };
+          return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
     }
   }
 
   // Parse LLM response to extract content and recipes
-  let parsed = parseRecipeWithFallback(finalContent);
+  let parsed = parseRecipeWithFallback(finalContent, lang);
   let content = parsed.content;
   let recipes = parsed.recipes;
 
@@ -2834,7 +2835,7 @@ export async function processAIChefChat(
     llmUsed = true; // retry 都係 LLM call
     try {
       const retried = await retryLLMJson(msgs, familyId, userId);
-      const retryParsed = parseRecipeWithFallback(retried);
+      const retryParsed = parseRecipeWithFallback(retried, lang);
       if (retryParsed.recipes.length > 0) {
         content = retryParsed.content;
         recipes = retryParsed.recipes;
@@ -2898,7 +2899,7 @@ export async function processAIChefChat(
         }
         if (matched.length > 0) {
           recipes = matched;
-          content = `我喺食譜庫搵到「${matched[0].name}」呢個食譜：`;
+          content = aiReply(lang, "libByName", { name: matched[0].name });
           console.log(`[AI Chef] Text-card matched library: ${matched[0].name}`);
         }
       }
@@ -2942,7 +2943,7 @@ export async function processAIChefChat(
           llmUsed = true;
           freshAi.forEach(r => { if (!r.source || r.source === "ai") r.source = "ai"; });
           recipes = freshAi;
-          content = `我幫你諗咗個新菜式：`;
+          content = aiReply(lang, "madeNew");
           console.log(`[AI Chef] AI fresh retry: ${freshAi[0].name}`);
         }
       }
@@ -2950,7 +2951,7 @@ export async function processAIChefChat(
         // 純 AI 生成（mode="ai"）：即使 AI 失敗都唔會用食譜庫卡頂替 —— 一定全部係 AI。
         // 只係「模糊對話想睇卡」（isVague）先容許食譜庫兜底。
         if (mode === "ai" && !isVague) {
-          return { content: "暫時未能推薦，請再試", recipes: [], llmUsed };
+        return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
         }
         let fbRows = await trySearch(isVague ? "" : keyword || "", 30);
         let fb = rowsToSuggested(fbRows, mergedExclude, 1);
@@ -2961,7 +2962,7 @@ export async function processAIChefChat(
         }
         if (fb.length > 0) {
           recipes = fb;
-          content = `我喺食譜庫搵到呢個食譜：`;
+          content = aiReply(lang, "libOne");
         }
       }
     }
