@@ -113,3 +113,22 @@ export function aiReply(
   }
   return s;
 }
+
+/** Localized dish-set label, e.g. "3 餸 1 湯" / "3 dishes + 1 soup". */
+export function dishLabel(
+  dishCount: number,
+  soupCount: number,
+  lang: string | undefined | null,
+): string {
+  const l = lang && ["en", "fil", "id"].includes(lang) ? lang : "zh-TW";
+  if (soupCount > 0) {
+    if (l === "en") return `${dishCount} dishes + ${soupCount} soup`;
+    if (l === "fil") return `${dishCount} ulam + ${soupCount} sabaw`;
+    if (l === "id") return `${dishCount} lauk + ${soupCount} sup`;
+    return `${dishCount}餸${soupCount}湯`;
+  }
+  if (l === "en") return `${dishCount} dishes`;
+  if (l === "fil") return `${dishCount} ulam`;
+  if (l === "id") return `${dishCount} lauk`;
+  return `${dishCount}道菜`;
+}

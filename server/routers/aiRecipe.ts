@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
-import { aiReply } from "../_core/aiReply";
+import { aiReply, dishLabel } from "../_core/aiReply";
 import { translateRecipeContent } from "../utils/translateContent";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
@@ -2551,9 +2551,9 @@ export async function processAIChefChat(
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
         return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
       }
-      const dishLabel = libCount.soupCount > 0 ? `${libCount.dishCount}餸${libCount.soupCount}湯` : `${libCount.dishCount}道菜`;
+      const dishSetLabel = dishLabel(libCount.dishCount, libCount.soupCount, lang);
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
-      return { content: aiReply(lang, "libMealSet", { dish: dishLabel }), recipes: applyServings(libPicked), llmUsed };
+      return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: applyServings(libPicked), llmUsed };
     }
 
     // 單卡：支援「庫內搜尋：X」marker（前端「換」用，指定類別換同類），亦支援結構化 search（hotkey/pantry 用）
@@ -2764,7 +2764,7 @@ export async function processAIChefChat(
   // 由「最後一條用戶訊息」抽數量：一送一湯 -> {1,1}；兩個餸 -> {2,0}；唔要湯 -> {N,0}；冇寫 -> default {3,1}
   const mealCount = { dishCount: mealIntent.dishCount, soupCount: mealIntent.soupCount };
   const totalWanted = Math.max(mealCount.dishCount + mealCount.soupCount, 1);
-  const dishLabel = mealCount.soupCount > 0 ? `${mealCount.dishCount}餸${mealCount.soupCount}湯` : `${mealCount.dishCount}道菜`;
+  const dishSetLabel = dishLabel(mealCount.dishCount, mealCount.soupCount, lang);
   // 打字「N送M湯/兩個餸」（mode=chat + meal intent）：先搵食譜庫，庫唔夠先 AI 補缺
   // （同「食譜庫」button 一致；唔會淨係 AI 生成）
   if (mealIntent.isMeal && mode === "chat" && wantCards && db) {
@@ -2777,9 +2777,9 @@ export async function processAIChefChat(
         if (libMeal.length >= totalWanted) {
           usedParallel = true;
           parallelFromLibrary = true;
-          parallelContent = aiReply(lang, "libMealSet", { dish: dishLabel });
+          parallelContent = aiReply(lang, "libMealSet", { dish: dishSetLabel });
           parallelRecipes = libMeal;
-          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib (${dishLabel})`);
+          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib (${dishSetLabel})`);
         } else {
           // 庫唔夠 → AI 補缺（缺失類別），補到 totalWanted；用戶唔要湯就唔補湯
           const haveTypes = new Set(libMeal.map(mealTypeOf));
@@ -2794,7 +2794,7 @@ export async function processAIChefChat(
           parallelFromLibrary = true;
           parallelContent = aiReply(lang, "libPlusAi", { lib: libMeal.length, ai: aiPicked.length });
           parallelRecipes = all;
-          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib + ${aiPicked.length} ai (${dishLabel})`);
+          console.log(`[AI Chef] chat meal library-first: ${libMeal.length} lib + ${aiPicked.length} ai (${dishSetLabel})`);
         }
       }
     } catch (e) {
@@ -2806,7 +2806,7 @@ export async function processAIChefChat(
     if (mealRecipes.length > 0) {
       usedParallel = true;
       llmUsed = true; // 並行 meal 每個 item 都係 LLM call
-      parallelContent = aiReply(lang, "madeTonight", { dish: dishLabel });
+      parallelContent = aiReply(lang, "madeTonight", { dish: dishSetLabel });
       parallelRecipes = mealRecipes;
       console.log(`[AI Chef] Parallel meal generated: ${mealRecipes.length} recipes`);
     } else {
