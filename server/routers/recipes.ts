@@ -2080,28 +2080,24 @@ export const recipesRouter = router({
         ? [eq(customRecipes.familyId, ctx.activeFamilyId)]
         : []; // 無 familyId 時不加條件（雖然實際上唔會有 custom recipes）
 
-      if (searchKeywords.length > 0) {  // 多關鍵字 AND 組合（每關鍵字再以繁/簡/同義詞 OR 擴充）
-        const officialKeywordConditions = searchKeywords.map(kw => {
+      const hasForeignQuery = !!(input.query && /[a-z]/i.test(input.query));
+      if (searchKeywords.length > 0) {  // 多關鍵字組合（每關鍵字再以繁/簡/同義詞 OR 擴充）
+        // 雙語欄位 + 菜系：全部係「增加 OR term」（只會多命中、唔會少）；
+        // 中文 token 唔會 match 英文欄位 → 中文結果只增不減（無回歸）。
+        // 外文查詢用 OR（因翻譯只部分成功）；中文用 AND（保留精確度）。
+        const buildKwCond = (tbl: any, kw: string) => {
           const variants = getKeywordVariants(kw);
-          return or(
-            or(...variants.map(v => ilike(officialRecipes.name, `%${v}%`))),
-            or(...variants.map(v => ilike(officialRecipes.description ?? "", `%${v}%`))),
-            or(...variants.map(v => ilike(officialRecipes.ingredients ?? "", `%${v}%`))),
-            or(...variants.map(v => ilike(officialRecipes.tags ?? "", `%${v}%`)))
-          );
-        });
-        officialConditions.push(and(...officialKeywordConditions));
+          const fields = [
+            tbl.name, tbl.description, tbl.ingredients, tbl.tags,
+            tbl.nameEn, tbl.nameFil, tbl.nameId, tbl.recipeCategory,
+          ];
+          return or(...fields.flatMap((f: any) => variants.map(v => ilike(f, `%${v}%`))));
+        };
+        const kwOfficial = searchKeywords.map(kw => buildKwCond(officialRecipes, kw));
+        officialConditions.push(hasForeignQuery ? or(...kwOfficial) : and(...kwOfficial));
 
-        const customKeywordConditions = searchKeywords.map(kw => {
-          const variants = getKeywordVariants(kw);
-          return or(
-            or(...variants.map(v => ilike(customRecipes.name, `%${v}%`))),
-            or(...variants.map(v => ilike(customRecipes.description ?? "", `%${v}%`))),
-            or(...variants.map(v => ilike(customRecipes.ingredients ?? "", `%${v}%`))),
-            or(...variants.map(v => ilike(customRecipes.tags ?? "", `%${v}%`)))
-          );
-        });
-        customConditions.push(and(...customKeywordConditions));
+        const kwCustom = searchKeywords.map(kw => buildKwCond(customRecipes, kw));
+        customConditions.push(hasForeignQuery ? or(...kwCustom) : and(...kwCustom));
       }
 
       if (input.category) {

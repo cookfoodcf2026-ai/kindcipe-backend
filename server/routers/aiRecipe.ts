@@ -850,7 +850,7 @@ async function execSearchRecipes(
             // 雙語欄位：中文 token 唔會 match 英文欄位，安全；反之令外文 token 命中
             return or(...[
               table.name, table.description, table.tags, table.ingredients,
-              table.nameEn, table.nameFil, table.nameId,
+              table.nameEn, table.nameFil, table.nameId, table.recipeCategory,
             ].flatMap(f => variants.map(v => ilike(f, `%${v}%`))));
           }),
         )
