@@ -820,7 +820,6 @@ async function execSearchRecipes(
   db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[] }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
-  const results: Record<string, unknown>[] = [];
 
   // 時間約束：單獨抽「N 分鐘」→ cookTime ≤ N；其餘字詞照常 AND 搜尋
   // 時間命中（cookTime 合符）可獨立命中，唔受關鍵字完全吻合限制（例如「30分鐘快煮」搵 30 分鐘食譜）
@@ -829,85 +828,105 @@ async function execSearchRecipes(
   const rawQuery = minutes && minutes > 0 ? args.query.replace(/(\d{1,3})\s*分鐘/g, " ") : args.query;
   const cookTimeMax = args.cookTimeMax ?? minutes;
 
-  // 與食譜搜尋一致：外文 → 中文 → 繁簡歸一 → 分詞，AND 組合（每關鍵字以變體 OR 擴充）
+  // 與食譜搜尋一致：外文 → 中文 → 繁簡歸一 → 分詞。
+  // 注意：外文（菲/印/英）經 resolveForeignToChinese 只會「部分」翻譯，故：
+  //   ① 搜尋擴至雙語欄位（nameEn/nameFil/nameId），令未翻譯 token 都可以命中；
+  //   ② AND 命中 0 → OR 保底，避免一個未譯 token 令全盤 0（→ 唔會誤跌 LLM 扣數）。
   const hasForeign = /[a-z]/i.test(rawQuery);
   const resolved = hasForeign ? await resolveForeignToChinese(rawQuery) : rawQuery.trim().toLowerCase();
   const normalized = normalizeQuery(resolved);
   const keywords = segmentQuery(normalized);
 
-  const buildSearchCond = (table: any, fields: any[]) => {
+  const searchTable = async (
+    table: any,
+    cols: any,
+    extraWhere: any[],
+    mode: "and" | "or",
+  ): Promise<Record<string, unknown>[]> => {
     const textCond = keywords.length > 0
-      ? and(...keywords.map(kw => {
-          const variants = getKeywordVariants(kw);
-          return or(...fields.flatMap(f => variants.map(v => ilike(f, `%${v}%`))));
-        }))
+      ? (mode === "and" ? and : or)(
+          ...keywords.map(kw => {
+            const variants = getKeywordVariants(kw);
+            // 雙語欄位：中文 token 唔會 match 英文欄位，安全；反之令外文 token 命中
+            return or(...[
+              table.name, table.description, table.tags, table.ingredients,
+              table.nameEn, table.nameFil, table.nameId,
+            ].flatMap(f => variants.map(v => ilike(f, `%${v}%`))));
+          }),
+        )
       : undefined;
     const timeCond = cookTimeMax && cookTimeMax > 0 ? lte(table.cookTime, cookTimeMax) : undefined;
     const tagConds = (args.tags ?? []).map(tag => ilike(table.tags, `%"${tag}"%`));
     const tagCond = tagConds.length > 0 ? and(...tagConds) : undefined;
-    // 時間獨立命中（OR）；tags 用 AND（要符合所有 tag）
     const combined = [textCond, tagCond].filter(Boolean) as any[];
     const mainCond = combined.length > 0 ? and(...combined) : undefined;
-    return mainCond && timeCond ? or(mainCond, timeCond) : (mainCond ?? timeCond);
+    const where = and(
+      mainCond && timeCond ? or(mainCond, timeCond) : (mainCond ?? timeCond),
+      ...extraWhere,
+    );
+    return (await db.select(cols).from(table).where(where).orderBy(desc(table.createdAt)).limit(limit)) as Record<string, unknown>[];
   };
 
-  const official = await db
-    .select({
-      id: officialRecipes.id, name: officialRecipes.name, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId, description: officialRecipes.description,
-      cookTime: officialRecipes.cookTime, servings: officialRecipes.servings, difficulty: officialRecipes.difficulty,
-      recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
-      steps: officialRecipes.steps, stepsEn: officialRecipes.stepsEn, stepsFil: officialRecipes.stepsFil, stepsId: officialRecipes.stepsId,
-      tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
-      dishType: officialRecipes.dishType,
-    })
-    .from(officialRecipes)
-    .where(and(
-      eq(officialRecipes.isActive, true),
-      buildSearchCond(officialRecipes, [officialRecipes.name, officialRecipes.description, officialRecipes.tags, officialRecipes.ingredients]),
-      args.category ? eq(officialRecipes.recipeCategory, args.category) : undefined,
-      args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(officialRecipes.recipeCategory, args.excludeCategories) : undefined,
-    ))
-    .orderBy(desc(officialRecipes.createdAt)).limit(limit);
+  const officialCols = {
+    id: officialRecipes.id, name: officialRecipes.name, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId, description: officialRecipes.description,
+    cookTime: officialRecipes.cookTime, servings: officialRecipes.servings, difficulty: officialRecipes.difficulty,
+    recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
+    steps: officialRecipes.steps, stepsEn: officialRecipes.stepsEn, stepsFil: officialRecipes.stepsFil, stepsId: officialRecipes.stepsId,
+    tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
+    dishType: officialRecipes.dishType,
+  };
+  const customCols = {
+    id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description,
+    cookTime: customRecipes.cookTime, servings: customRecipes.servings, difficulty: customRecipes.difficulty,
+    recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
+    steps: customRecipes.steps, stepsEn: customRecipes.stepsEn, stepsFil: customRecipes.stepsFil, stepsId: customRecipes.stepsId,
+    tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
+    dishType: customRecipes.dishType,
+  };
 
-  for (const r of official) results.push({
-    source: "official", id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
+  const officialWhere = [
+    eq(officialRecipes.isActive, true),
+    args.category ? eq(officialRecipes.recipeCategory, args.category) : undefined,
+    args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(officialRecipes.recipeCategory, args.excludeCategories) : undefined,
+  ].filter(Boolean);
+  let officialRows = await searchTable(officialRecipes, officialCols, officialWhere, "and");
+  if (officialRows.length === 0 && keywords.length > 1) {
+    officialRows = await searchTable(officialRecipes, officialCols, officialWhere, "or");
+  }
+
+  let customRows: Record<string, unknown>[] = [];
+  if (familyId) {
+    const customWhere = [
+      eq(customRecipes.familyId, familyId),
+      args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
+      args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
+    ].filter(Boolean);
+    customRows = await searchTable(customRecipes, customCols, customWhere, "and");
+    if (customRows.length === 0 && keywords.length > 1) {
+      customRows = await searchTable(customRecipes, customCols, customWhere, "or");
+    }
+  }
+
+  const mapRow = (r: Record<string, unknown>, source: "official" | "custom") => ({
+    source, id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
     servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
-    ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
-    steps: safeParseJsonArray(r.steps), stepsEn: safeParseJsonArray(r.stepsEn), stepsFil: safeParseJsonArray(r.stepsFil), stepsId: safeParseJsonArray(r.stepsId),
-    tags: safeParseJsonArray(r.tags),
+    ingredients: safeParseJsonArray(r.ingredients as string).slice(0, 8),
+    steps: safeParseJsonArray(r.steps as string), stepsEn: safeParseJsonArray(r.stepsEn as string), stepsFil: safeParseJsonArray(r.stepsFil as string), stepsId: safeParseJsonArray(r.stepsId as string),
+    tags: safeParseJsonArray(r.tags as string),
     thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
   });
 
-  if (familyId) {
-    const custom = await db
-      .select({
-        id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description,
-        cookTime: customRecipes.cookTime, servings: customRecipes.servings, difficulty: customRecipes.difficulty,
-        recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
-        steps: customRecipes.steps, stepsEn: customRecipes.stepsEn, stepsFil: customRecipes.stepsFil, stepsId: customRecipes.stepsId,
-        tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
-        dishType: customRecipes.dishType,
-      })
-      .from(customRecipes)
-      .where(and(
-        eq(customRecipes.familyId, familyId),
-        buildSearchCond(customRecipes, [customRecipes.name, customRecipes.description, customRecipes.tags, customRecipes.ingredients]),
-        args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
-        args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
-      ))
-      .orderBy(desc(customRecipes.createdAt)).limit(limit);
-
-    for (const r of custom) results.push({
-      source: "custom", id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
-      servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
-      ingredients: safeParseJsonArray(r.ingredients).slice(0, 8),
-      steps: safeParseJsonArray(r.steps), stepsEn: safeParseJsonArray(r.stepsEn), stepsFil: safeParseJsonArray(r.stepsFil), stepsId: safeParseJsonArray(r.stepsId),
-      tags: safeParseJsonArray(r.tags),
-      thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
-    });
+  // custom 優先：custom 命中排前，再補 official；同菜名去重
+  const seen = new Set<string>();
+  const merged: Record<string, unknown>[] = [];
+  for (const r of [...customRows.map(r => mapRow(r, "custom")), ...officialRows.map(r => mapRow(r, "official"))]) {
+    const key = String(r.name ?? "").trim().toLowerCase();
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    merged.push(r);
   }
 
-  return { count: results.length, recipes: results.slice(0, limit) };
+  return { count: merged.length, recipes: merged.slice(0, limit) };
 }
 
 async function execGetPantryItems(db: Db, familyId?: number) {
@@ -2529,8 +2548,10 @@ export async function processAIChefChat(
     const q = raw
       .replace(/[。，、！？!?.,;；：:…\s]+/g, " ")
       .replace(/[0-9]+/g, " ")
+      // 拉丁語系虛詞（菲/印尼/英）：用 \b 避免誤刪內容字（例如 bawang 內嘅 "ng"）
+      .replace(/\b(gusto|ko|mo|ng|namin|natin|ang|mga|at|pwede|puwede|ba|ano|anong|sa|para|ngayon|ako|kami|tayo|po|lang|din|rin|yung|ito|iyon|may|meron|walang|saya|aku|mau|ingin|untuk|dengan|dan|atau|yang|di|ke|ini|itu|ada|tidak|tanpa|bisa|tolong|kasih|beri|apa|gimana|bagaimana|dong)\b/gi, " ")
       .replace(/(我|我想|想要|要|嚟|幫我|請|希望|可以|可否|推薦|推介|介紹|提供|搵|選|選擇|整個|煮個|煮|整|食譜庫|唔同|唔該|今晚|今日|早餐|午餐|晚餐|宵夜|有咩|有乜|咩|乜|乜嘢|咩嘢|嗎|呢|呀|啊|喔|哦|啦|喎|please|give|me|some|for|tonight|dinner|lunch|breakfast|today|recommend|suggest|suggestion|recipes|food|what|to|eat|cook|make|want|\bi\b|和|同|同埋|又|仲有|還有|或者|定係|邊個|邊種|好唔好|想|要|諗|好|食|吃|下|哋)/gi, " ")
-      .trim();
+       .trim();
     return q.length >= 2 ? q : "";
   };
 
