@@ -406,15 +406,17 @@ function hostnameOf(url: string): string {
   try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
 }
 
-function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "manual" {
+function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "facebook" | "import" | "manual" {
   if (url.includes("instagram.com")) return "instagram";
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
   if (url.includes("xiaohongshu.com") || url.includes("xhslink.com") || url.includes("xhslink.cn")) return "xiaohongshu";
   // Threads：Meta 已由 threads.net 改為 threads.com，兩個 domain 都要認（hostname 比對，避免子字串誤中）
   if (/^(.*\.)?threads\.(net|com)$/i.test(hostnameOf(url))) return "threads";
   if (url.includes("tiktok.com")) return "tiktok";
-  // Facebook 冇獨立 source_type enum value，一律存做 "manual"，
-  // 但解析時另外用 isFacebookUrl() 分流處理（見 fetchPageContent）。
+  // Facebook（含 Reels / Watch / 貼文 / fb.watch / mbasic）→ 獨立分類
+  if (isFacebookUrl(url)) return "facebook";
+  // 其他 http(s) 連結（網頁匯入）→ "import"（唔再當係手動自建）
+  if (/^https?:\/\//i.test(url)) return "import";
   return "manual";
 }
 
@@ -1298,16 +1300,36 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
           const ogDesc = decodeEntities(ogMatch(html, "description"));
           const ogImage = decodeEntities(ogMatch(html, "image"));
           const ogSite = decodeEntities(ogMatch(html, "site_name"));
+          const ogUrl = decodeEntities(ogMatch(html, "url"));
 
-          // og:title 通常係「<數字>次觀看 · <讚好> | <caption> | <Page>」→ 清走前綴統計數字
-          const cleanTitle = ogTitle.replace(/^[^|]*\|\s*/, "").replace(/\s*\|\s*[^|]*$/, "").trim();
+          // og:title 通常係「<數字>次觀看 · <讚好> | <caption> | <Page>」→ 清走前綴統計數字同尾段 Page 名
+          const titleSegments = ogTitle.split("|").map((s) => s.trim()).filter(Boolean);
+          const cleanTitle = titleSegments.length > 2
+            ? titleSegments.slice(1, -1).join(" | ").trim()
+            : ogTitle.replace(/^[^|]*\|\s*/, "").trim();
 
           const captionParts = [ogDesc, cleanTitle || ogTitle]
             .map((s) => (s || "").trim())
             .filter((s, i, a) => s && a.indexOf(s) === i);
           fbCaption = captionParts.join("\n").trim();
           fbThumbnail = ogImage;
-          if (ogSite) fbAuthor = ogSite;
+
+          // 作者 best-effort（Reels 無可靠 oEmbed）：
+          // HTML 內嵌 JSON owner/actor.name > URL profile handle > og:title 尾段 Page 名 > og:site_name（非泛用時）
+          const unescapeJson = (s: string) =>
+            s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+              .replace(/\\\//g, "/")
+              .replace(/\\"/g, '"');
+          const ownerM = html.match(/"(?:owner|actor|page|uploader)"\s*:\s*\{[^{}]{0,200}?"name"\s*:\s*"([^"]{1,80})"/i);
+          const jsonAuthor = ownerM ? unescapeJson(ownerM[1]).trim() : "";
+          const handleM = (ogUrl || url).match(/facebook\.com\/([A-Za-z0-9._-]{2,50})\/(?:videos|posts|photos|reels)\//i);
+          const urlAuthor =
+            handleM && !/^\d+$/.test(handleM[1]) && !["reel", "watch", "share"].includes(handleM[1].toLowerCase())
+              ? handleM[1]
+              : "";
+          const titleAuthor = titleSegments.length >= 2 ? titleSegments[titleSegments.length - 1] : "";
+          const siteIsGeneric = !ogSite || /^facebook$/i.test(ogSite);
+          fbAuthor = jsonAuthor || urlAuthor || titleAuthor || (siteIsGeneric ? "" : ogSite);
         }
       } catch { /* continue */ }
 
@@ -1660,10 +1682,16 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     if (existing.length === 0) existing.push("家常菜");
     result.tags = existing.slice(0, 20);
   } catch { /* ignore tag backfill errors */ }
+  // 正規化：難度補 default（URL parse 用 strict:false，LLM 可能漏 difficulty）
+  if (!String(result.difficulty ?? "").trim()) result.difficulty = "中等";
+  // 內容檢查：URL parse 以前只睇 name → 「有 name 但無料」都會當成功，存入空食譜。
+  const hasContent =
+    (Array.isArray(result.ingredients) && result.ingredients.length > 0) ||
+    (Array.isArray(result.steps) && result.steps.length > 0);
   // Determine parseReason based on result name
   if (!hasRealContent) {
     result.parseReason = "cannot_read";
-  } else if (result.name === "無法解析" || result.name === "需要手動輸入") {
+  } else if (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent) {
     result.parseReason = "no_recipe_content";
   } else {
     result.parseReason = "ok";
@@ -1721,7 +1749,7 @@ export const recipesRouter = router({
       return {
         ...parsed,
         sourceUrl: "",
-        sourceType: "manual" as const,
+        sourceType: "import" as const,
         sourceUrlHash: "",
       };
     }),
@@ -1929,7 +1957,7 @@ export const recipesRouter = router({
         ...result,
         parseReason,
         sourceUrl: "",
-        sourceType: "manual" as const,
+        sourceType: "import" as const,
         sourceUrlHash: "",
       };
     }),
@@ -2077,7 +2105,7 @@ export const recipesRouter = router({
 
       const officialConditions: any[] = [eq(officialRecipes.isActive, true)];
       const customConditions: any[] = ctx.activeFamilyId
-        ? [eq(customRecipes.familyId, ctx.activeFamilyId)]
+        ? [eq(customRecipes.familyId, ctx.activeFamilyId), eq(customRecipes.isDraft, false)] // 排除草稿：令 badge 數字同可顯示嘅卡一致
         : []; // 無 familyId 時不加條件（雖然實際上唔會有 custom recipes）
 
       const hasForeignQuery = !!(input.query && /[a-z]/i.test(input.query));
@@ -2484,6 +2512,7 @@ export const recipesRouter = router({
           description: r.description,
           sourceAuthor: r.sourceAuthor,
           sourceType: r.sourceType,
+          sourceUrl: r.sourceUrl,
           image: r.image || r.thumbnailUrl,
           thumbnailUrl: r.thumbnailUrl,
           cookTime: r.cookTime,
@@ -2887,6 +2916,13 @@ export const recipesRouter = router({
         }
       }
 
+      // 守門：唔准存入「完全空白」食譜（無食材又無步驟）→ 前端顯示手動輸入提示
+      const _hasIngredients = Array.isArray(input.ingredients) && input.ingredients.some((i: any) => String(i?.name ?? "").trim());
+      const _hasSteps = Array.isArray(input.steps) && input.steps.some((s: any) => String(typeof s === "string" ? s : (s?.instruction ?? "")).trim());
+      if (!_hasIngredients && !_hasSteps) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "食譜內容不足（沒有食材或步驟），請手動輸入。" });
+      }
+
       const _stepsArr = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
       // 速度：只有「4 語言齊全」先跳過翻譯；否則重翻補齊（AI 生成通常只有 zh+en）
       const hasAll =
@@ -2916,7 +2952,7 @@ export const recipesRouter = router({
         thumbnailUrl: resolvedThumbnailUrl,
         cookTime: input.cookTime,
         servings: input.servings,
-        difficulty: input.difficulty,
+        difficulty: input.difficulty || "中等",
         recipeCategory: input.recipeCategory,
         dishType: input.dishType || (await classifyRecipeDishTypeLLM({
           name: input.name,

@@ -1649,9 +1649,14 @@ export async function incrementImportUsage(userId: string, familyId: number): Pr
   const db = await getDb();
   if (!db) return 0;
   const yearMonth = getYearMonthKey();
-  await db.insert(importUsage)
-    .values({ userId, familyId, yearMonth, count: 1 })
-    .onConflictDoUpdate({ target: [importUsage.familyId, importUsage.yearMonth, importUsage.userId], set: { count: sql`${importUsage.count} + 1` } });
+  try {
+    await db.insert(importUsage)
+      .values({ userId, familyId, yearMonth, count: 1 })
+      .onConflictDoUpdate({ target: [importUsage.familyId, importUsage.yearMonth, importUsage.userId], set: { count: sql`${importUsage.count} + 1` } });
+  } catch (e) {
+    // 唔阻塞匯入，但一定要見到（曾經因為缺 unique index 而靜默失敗 → 配額永遠係 0）
+    console.error("[incrementImportUsage] failed:", e instanceof Error ? e.message : e);
+  }
   // Re-fetch the updated count
   const result = await db.select({ count: importUsage.count }).from(importUsage)
     .where(and(eq(importUsage.familyId, familyId), eq(importUsage.yearMonth, yearMonth), eq(importUsage.userId, userId)))

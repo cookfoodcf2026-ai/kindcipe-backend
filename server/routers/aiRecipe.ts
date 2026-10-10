@@ -898,6 +898,7 @@ async function execSearchRecipes(
   if (familyId) {
     const customWhere = [
       eq(customRecipes.familyId, familyId),
+      eq(customRecipes.isDraft, false),
       args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
       args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
     ].filter(Boolean);
@@ -1315,22 +1316,37 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCo
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
   console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} (raw rows=${rows.length}, noSteps=${rows.length - pool.length})`);
 
+  // custom 優先（段內才 shuffle），令用戶自己嘅食譜排先；同時保留排除去重
+  const shuffleLocal = <T,>(a: T[]): T[] => {
+    const out = [...a];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+  const customFirst = (arr: Record<string, unknown>[]): Record<string, unknown>[] => [
+    ...shuffleLocal(arr.filter((r) => r.source !== "official")),
+    ...shuffleLocal(arr.filter((r) => r.source === "official")),
+  ];
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
     const fresh = arr.filter(r => !excluded.has(normalizeName(String(r.name ?? ""))));
     const reused = arr.filter(r => excluded.has(normalizeName(String(r.name ?? ""))));
-    const pool = (fresh.length > 0 ? fresh : reused).sort(() => Math.random() - 0.5);
-    return pool.slice(0, n);
+    return customFirst(fresh.length > 0 ? fresh : reused).slice(0, n);
   };
 
   const soup = pickN(soupPool, Math.min(soupCount, 3));
   const usedFams = new Set<string>();
-  // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），fresh 優先次序保留
+  // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），custom 優先，fresh 優先次序保留
   const pickNByFamily = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
     const fresh = arr.filter(r => !excluded.has(normalizeName(String(r.name ?? ""))));
     const reused = arr.filter(r => excluded.has(normalizeName(String(r.name ?? ""))));
     const pool = (fresh.length > 0 ? fresh : reused).sort((a, b) => {
+      const ca = a.source === "official" ? 1 : 0;
+      const cb = b.source === "official" ? 1 : 0;
+      if (ca !== cb) return ca - cb;
       const pa = usedFams.has(dishFamily(String(a.name ?? ""))) ? 1 : 0;
       const pb = usedFams.has(dishFamily(String(b.name ?? ""))) ? 1 : 0;
       return pa - pb || Math.random() - 0.5;
@@ -1401,18 +1417,33 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCo
       .map((t: string) => t.trim()).filter(Boolean);
     if (steps.length === 0) return null;
     const official = r.source === "official";
+    const str = (v: unknown): string | undefined => { const s = String(v ?? "").trim(); return s ? s : undefined; };
+    const stepsOf = (v: unknown): string[] | undefined => {
+      const arr = Array.isArray(v) ? v : [];
+      const out = arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s ?? "")).map((t: string) => t.trim()).filter(Boolean);
+      return out.length > 0 ? out : undefined;
+    };
     return {
       name: String(r.name ?? "").trim(),
+      nameEn: str((r as any).nameEn),
+      nameFil: str((r as any).nameFil),
+      nameId: str((r as any).nameId),
       description: String(r.description ?? "").trim(),
       cookTime: Number(r.cookTime ?? 30) || 30,
       servings: Number(r.servings ?? 4) || 4,
       difficulty: String(r.difficulty ?? "medium"),
       ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).map((i: any) => ({
         name: String(i?.name ?? "").trim(),
+        nameEn: str(i?.nameEn),
+        nameFil: str(i?.nameFil),
+        nameId: str(i?.nameId),
         quantity: String(i?.quantity ?? "").trim(),
         unit: String(i?.unit ?? "").trim(),
       })).filter((x: any) => x.name),
       steps,
+      stepsEn: stepsOf((r as any).stepsEn),
+      stepsFil: stepsOf((r as any).stepsFil),
+      stepsId: stepsOf((r as any).stepsId),
       tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
       source: official ? "official" : "custom",
       officialId: official ? Number(r.id) : undefined,
