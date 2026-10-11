@@ -699,7 +699,7 @@ ${text}
       type: "json_schema",
       json_schema: {
         name: "recipe_parse_text",
-        strict: true,
+        strict: false,
         schema: {
           type: "object",
           properties: {
@@ -1917,7 +1917,7 @@ export const recipesRouter = router({
           type: "json_schema",
           json_schema: {
             name: "recipe_parse_image",
-            strict: true,
+            strict: false,
             schema: {
               type: "object",
               properties: {
