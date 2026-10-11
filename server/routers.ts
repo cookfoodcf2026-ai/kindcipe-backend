@@ -498,6 +498,8 @@ const shoppingRouter = router({
     .input(z.object({
       name: z.string().min(1).max(128),
       nameEn: z.string().max(128).optional(),
+      nameFil: z.string().max(128).optional(),
+      nameId: z.string().max(128).optional(),
       category: z.string().max(64).optional(),
       quantity: z.string().max(64).nullable().optional(),
       unit: z.string().max(32).optional(),
@@ -519,11 +521,15 @@ const shoppingRouter = router({
       // Sanitize name: trim and truncate to 128 chars
       const sanitizedName = input.name.trim().slice(0, 128);
 
-      // Auto-fill nameEn (and matching bilingual hint) from common ingredient when not provided
+      // Auto-fill nameEn/Fil/Id from common ingredient when not provided
       let autoNameEn: string | undefined;
-      if (!input.nameEn && input.commonIngredientId != null) {
+      let autoNameFil: string | undefined;
+      let autoNameId: string | undefined;
+      if ((!input.nameEn || !input.nameFil || !input.nameId) && input.commonIngredientId != null) {
         const ci = await getCommonIngredientById(input.commonIngredientId);
         autoNameEn = ci?.nameEn ?? undefined;
+        autoNameFil = (ci as any)?.nameFil ?? undefined;
+        autoNameId = (ci as any)?.nameId ?? undefined;
       }
       
       try {
@@ -531,6 +537,8 @@ const shoppingRouter = router({
           familyId: ctx.activeFamilyId!,
           name: sanitizedName,
           nameEn: (input.nameEn || autoNameEn)?.slice(0, 128),
+          nameFil: (input.nameFil || autoNameFil)?.slice(0, 128),
+          nameId: (input.nameId || autoNameId)?.slice(0, 128),
           category: input.category?.slice(0, 64),
           quantity: input.quantity?.slice(0, 64),
           unit: input.unit?.slice(0, 32),
@@ -567,6 +575,8 @@ const shoppingRouter = router({
       items: z.array(z.object({
         name: z.string().min(1).max(128),
         nameEn: z.string().max(128).optional(),
+        nameFil: z.string().max(128).optional(),
+        nameId: z.string().max(128).optional(),
         category: z.string().max(64).optional(),
         quantity: z.string().max(64).nullable().optional(),
         unit: z.string().max(32).optional(),
@@ -627,6 +637,8 @@ const shoppingRouter = router({
           familyId: ctx.activeFamilyId!,
           name: item.name.trim().slice(0, 128),
           nameEn: item.nameEn?.slice(0, 128),
+          nameFil: item.nameFil?.slice(0, 128),
+          nameId: item.nameId?.slice(0, 128),
           category: item.category?.slice(0, 64),
           quantity: item.quantity?.slice(0, 64),
           unit: item.unit?.slice(0, 32),
@@ -642,6 +654,17 @@ const shoppingRouter = router({
           // Filter out rows with null quantity (should not happen due to schema, but safety check)
           return row.quantity !== null;
         });
+        // Fill missing nameEn/Fil/Id from the common-ingredient dictionary (so 菲/印 users see their language)
+        for (const row of rows) {
+          if ((!row.nameEn || !row.nameFil || !row.nameId) && row.name) {
+            try {
+              const ci: any = await resolveCommonIngredientByName(String(row.name));
+              if (ci?.nameEn && !row.nameEn) row.nameEn = ci.nameEn;
+              if (ci?.nameFil && !row.nameFil) row.nameFil = ci.nameFil;
+              if (ci?.nameId && !row.nameId) row.nameId = ci.nameId;
+            } catch { /* skip */ }
+          }
+        }
         await addShoppingItems(rows);
       }
 
@@ -1021,13 +1044,15 @@ const mealPlanRouter = router({
           fromMealPlanId: newPlanId,
           plannedDate: shoppingDate,
         }));
-        // Resolve each ingredient to a common ingredient to fill nameEn (English name)
+        // Resolve each ingredient to a common ingredient to fill nameEn/Fil/Id
         for (const row of rows) {
-          if (!row.nameEn && row.name) {
+          if ((!row.nameEn || !row.nameFil || !row.nameId) && row.name) {
             try {
-              const ci = await resolveCommonIngredientByName(String(row.name));
-              if (ci?.nameEn) row.nameEn = ci.nameEn;
-            } catch { /* skip resolve errors, nameEn stays null */ }
+              const ci: any = await resolveCommonIngredientByName(String(row.name));
+              if (ci?.nameEn && !row.nameEn) row.nameEn = ci.nameEn;
+              if (ci?.nameFil && !row.nameFil) row.nameFil = ci.nameFil;
+              if (ci?.nameId && !row.nameId) row.nameId = ci.nameId;
+            } catch { /* skip resolve errors */ }
           }
         }
         await addShoppingItems(rows);

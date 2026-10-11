@@ -1478,6 +1478,15 @@
   {
     "categoryKey": "seafood",
     "defaultUnitKey": "piece",
+    "nameYue": "蛤蜊",
+    "nameZh": "蛤蜊",
+    "nameEn": "Clam",
+    "nameFil": "Halaan",
+    "nameId": "Kerang"
+  },
+  {
+    "categoryKey": "seafood",
+    "defaultUnitKey": "piece",
     "nameYue": "青口",
     "nameZh": "青口",
     "nameEn": "Mussel",

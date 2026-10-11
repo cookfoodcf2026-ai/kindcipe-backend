@@ -204,6 +204,8 @@ export const shoppingItems = pgTable("shopping_items", {
   familyId: integer("family_id").notNull(),
   name: varchar("name", { length: 128 }).notNull(),
   nameEn: varchar("name_en", { length: 128 }),
+  nameFil: varchar("name_fil", { length: 128 }),
+  nameId: varchar("name_id", { length: 128 }),
   category: varchar("category", { length: 64 }),
   quantity: varchar("quantity", { length: 64 }),
   unit: varchar("unit", { length: 32 }),
