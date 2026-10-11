@@ -487,6 +487,9 @@ export const weeklyMenuRouter = router({
       const officialList = await db.select({
         id: officialRecipes.id,
         name: officialRecipes.name,
+        nameEn: officialRecipes.nameEn,
+        nameFil: officialRecipes.nameFil,
+        nameId: officialRecipes.nameId,
         cookTime: officialRecipes.cookTime,
         recipeCategory: officialRecipes.recipeCategory,
         thumbnailUrl: officialRecipes.thumbnailUrl,
@@ -542,6 +545,9 @@ export const weeklyMenuRouter = router({
         return {
           id: `official:${r.id}`,
           name: r.name,
+          nameEn: r.nameEn,
+          nameFil: r.nameFil,
+          nameId: r.nameId,
           dishType,
           cookTime: r.cookTime,
           tags: parsedTags,
@@ -762,7 +768,7 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
         const getInfo = (id: string | null, reason: string, slotType: SlotType) => {
           if (!id) {
             // ID 為 null，返回空 slot
-            return { id: null, name: null, image: null, cookTime: null, reason: null };
+            return { id: null, name: null, nameEn: null, nameFil: null, nameId: null, image: null, cookTime: null, reason: null };
           }
           const r = recipeMap.get(id);
           if (!r) {
@@ -770,7 +776,7 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
             const fallback = byType[slotType as keyof typeof byType][0];
             if (!fallback) {
               // 如果連 fallback 都冇，返回 null
-              return { id: null, name: null, image: null, cookTime: null, reason: null };
+              return { id: null, name: null, nameEn: null, nameFil: null, nameId: null, image: null, cookTime: null, reason: null };
             }
             
             // 內部記錄 AI 錯誤（開發用）
@@ -781,6 +787,9 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
             return {
               id: fallback.id,
               name: fallback.name,
+              nameEn: fallback.nameEn,
+              nameFil: fallback.nameFil,
+              nameId: fallback.nameId,
               image: fallback.image,
               cookTime: fallback.cookTime ?? null,
               reason: reason || `自動替換（原 ID: ${id} 無效）`,
@@ -789,6 +798,9 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
           return {
             id: r.id,
             name: r.name,
+            nameEn: r.nameEn,
+            nameFil: r.nameFil,
+            nameId: r.nameId,
             image: r.image, // Always from DB, never invented
             cookTime: r.cookTime ?? null,
             reason,
@@ -813,6 +825,9 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
           mealType: "dinner";
           recipeId: string;
           recipeName: string;
+          recipeNameEn: string | null;
+          recipeNameFil: string | null;
+          recipeNameId: string | null;
           recipeImage: string | null;
           status: "confirmed";
           proposedByUserId: string;
@@ -823,7 +838,7 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
           date.setDate(base.getDate() + (d.dayOfWeek - 1));
           const ds = date.toISOString().slice(0, 10);
           for (const key of ["meat", "seafood", "veg", "soup"] as const) {
-            const info = (d as any)[key] as { id: string | null; name: string | null; image: string | null };
+            const info = (d as any)[key] as { id: string | null; name: string | null; nameEn?: string | null; nameFil?: string | null; nameId?: string | null; image: string | null };
             if (info?.id && info.name) {
               rows.push({
                 familyId: ctx.activeFamilyId,
@@ -831,6 +846,9 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
                 mealType: "dinner",
                 recipeId: info.id,
                 recipeName: info.name,
+                recipeNameEn: info.nameEn ?? null,
+                recipeNameFil: info.nameFil ?? null,
+                recipeNameId: info.nameId ?? null,
                 recipeImage: info.image,
                 status: "confirmed",
                 proposedByUserId: userId,
