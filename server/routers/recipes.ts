@@ -18,7 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
 import { generateRecipeImage } from "../utils/imageGen";
-import { translateRecipeContent } from "../utils/translateContent";
+import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations } from "../utils/recipeTranslations";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
@@ -646,52 +646,13 @@ async function parseTextToRecipe(text: string, userLanguage?: string): Promise<{
   thumbnailUrl: string;
   parseReason?: "ok" | "no_recipe_content";
 }> {
-  const languageNameMap: Record<string, string> = {
-    "zh-TW": "繁體中文",
-    "zh-CN": "简体中文",
-    "zh": "中文",
-    "en": "English",
-    "fil": "Filipino",
-    "id": "Indonesian",
-    "es": "Spanish",
-    "fr": "French",
-    "de": "German",
-    "it": "Italian",
-    "pt": "Portuguese",
-    "ru": "Russian",
-    "ja": "Japanese",
-    "ko": "Korean",
-    "vi": "Vietnamese",
-    "th": "Thai",
-    "ms": "Malay",
-    "ar": "Arabic",
-    "hi": "Hindi",
-    "bn": "Bengali",
-    "ur": "Urdu",
-    "tr": "Turkish",
-    "pl": "Polish",
-    "nl": "Dutch",
-    "sv": "Swedish",
-    "no": "Norwegian",
-    "da": "Danish",
-    "fi": "Finnish",
-    "el": "Greek",
-    "he": "Hebrew",
-    "fa": "Persian",
-    "sw": "Swahili",
-  };
-
-  const targetLang = userLanguage && languageNameMap[userLanguage]
-    ? languageNameMap[userLanguage]
-    : userLanguage || "繁體中文";
-
   const systemPrompt = `你是一個專業的食譜解析助手。從用戶貼上的文字（可能來自小紅書、WhatsApp、網站等）中提取完整的食譜資訊並以 JSON 格式回傳。
   
   重要規則：
   - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
   - 如果內容中沒有食譜資訊（例如純聊天、問候、食評、無食材和步驟的文字），請在 name 回傳"無法解析"，並在 description 說明原因
   - 食材分類規則：肉類、海鮮/蔬菜/調味料/乾貨/其他
-  - 所有文字使用${targetLang}`;
+  - 主要文字使用繁體中文；並同時提供英(En)/菲(Fil)/印尼(Id)譯文`;
 
   const userPrompt = `請從以下食譜文字中提取食譜資訊：
 
@@ -699,25 +660,35 @@ async function parseTextToRecipe(text: string, userLanguage?: string): Promise<{
 ${text}
 ---
 
-請回傳以下 JSON 格式（所有文字使用${targetLang}）：
+請回傳以下 JSON 格式（主要文字一律用**繁體中文**；**同時**提供英/菲/印尼譯文）：
 {
-  "name": "食譜名稱",
-  "description": "簡短描述（1-2句）",
+  "name": "食譜名稱（繁中）",
+  "nameEn": "English name",
+  "nameFil": "Filipino name",
+  "nameId": "Indonesian name",
+  "description": "簡短描述（1-2句，繁中）",
+  "descriptionEn": "English description",
+  "descriptionFil": "Filipino description",
+  "descriptionId": "Indonesian description",
   "cookTime": 烹飪時間（分鐘，整數）,
   "servings": 份量（人數，整數）,
   "difficulty": "簡單" | "中等" | "困難",
   "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
-  "dishType": "meat" | "seafood" | "vegetable" | "soup" | "carb" | "appetizer" | "dessert" | "drink" | "other",
   "ingredients": [
-    { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
+    { "name": "食材名稱（繁中）", "nameEn": "English", "nameFil": "Filipino", "nameId": "Indonesian", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
   "steps": [
-    { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
+    { "instruction": "步驟說明（繁中）", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
+  "stepsEn": ["English step 1"],
+  "stepsFil": ["Filipino step 1"],
+  "stepsId": ["Indonesian step 1"],
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱（如文字中有提及）",
   "thumbnailUrl": ""
-}`;
+}
+
+翻譯規則：主要文字用繁體中文；nameEn/Fil/Id、descriptionEn/Fil/Id、stepsEn/Fil/Id、每個 ingredient 的 nameEn/Fil/Id 係對應譯文；stepsEn/Fil/Id 同 steps 同數目同次序。`;
 
   const response = await invokeLLM({
     messages: [
@@ -733,7 +704,13 @@ ${text}
           type: "object",
           properties: {
             name: { type: "string" },
+            nameEn: { type: "string" },
+            nameFil: { type: "string" },
+            nameId: { type: "string" },
             description: { type: "string" },
+            descriptionEn: { type: "string" },
+            descriptionFil: { type: "string" },
+            descriptionId: { type: "string" },
             cookTime: { type: "integer" },
             servings: { type: "integer" },
             difficulty: { type: "string" },
@@ -744,11 +721,14 @@ ${text}
                 type: "object",
                 properties: {
                   name: { type: "string" },
+                  nameEn: { type: "string" },
+                  nameFil: { type: "string" },
+                  nameId: { type: "string" },
                   quantity: { type: "string" },
                   unit: { type: "string" },
                   category: { type: "string" },
                 },
-                required: ["name", "quantity", "unit", "category"],
+                required: ["name", "nameEn", "nameFil", "nameId", "quantity", "unit", "category"],
               },
             },
             steps: {
@@ -763,11 +743,14 @@ ${text}
                 required: ["instruction"],
               },
             },
+            stepsEn: { type: "array", items: { type: "string" } },
+            stepsFil: { type: "array", items: { type: "string" } },
+            stepsId: { type: "array", items: { type: "string" } },
             tags: { type: "array", items: { type: "string" } },
             sourceAuthor: { type: "string" },
             thumbnailUrl: { type: "string" },
           },
-          required: ["name", "description", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "tags", "sourceAuthor", "thumbnailUrl"],
+          required: ["name", "nameEn", "nameFil", "nameId", "description", "descriptionEn", "descriptionFil", "descriptionId", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "stepsEn", "stepsFil", "stepsId", "tags", "sourceAuthor", "thumbnailUrl"],
         },
       },
     },
@@ -791,6 +774,9 @@ ${text}
 
 const ingredientSchema = z.object({
   name: z.string(),
+  nameEn: z.string().optional(),
+  nameFil: z.string().optional(),
+  nameId: z.string().optional(),
   quantity: z.string().optional(),
   unit: z.string().optional(),
   category: z.string().optional(),
@@ -1364,45 +1350,6 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 }> {
   const sourceType = detectSourceType(url);
 
-  const languageNameMap: Record<string, string> = {
-    "zh-TW": "繁體中文",
-    "zh-CN": "简体中文",
-    "zh": "中文",
-    "en": "English",
-    "fil": "Filipino",
-    "id": "Indonesian",
-    "es": "Spanish",
-    "fr": "French",
-    "de": "German",
-    "it": "Italian",
-    "pt": "Portuguese",
-    "ru": "Russian",
-    "ja": "Japanese",
-    "ko": "Korean",
-    "vi": "Vietnamese",
-    "th": "Thai",
-    "ms": "Malay",
-    "ar": "Arabic",
-    "hi": "Hindi",
-    "bn": "Bengali",
-    "ur": "Urdu",
-    "tr": "Turkish",
-    "pl": "Polish",
-    "nl": "Dutch",
-    "sv": "Swedish",
-    "no": "Norwegian",
-    "da": "Danish",
-    "fi": "Finnish",
-    "el": "Greek",
-    "he": "Hebrew",
-    "fa": "Persian",
-    "sw": "Swahili",
-  };
-
-  const targetLang = userLanguage && languageNameMap[userLanguage]
-    ? languageNameMap[userLanguage]
-    : userLanguage || "繁體中文";
-
   // For Instagram: try /media endpoint first to get a clean thumbnail (no "Video" overlay)
   let cleanInstagramThumbnail = "";
   if (sourceType === "instagram") {
@@ -1492,7 +1439,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
 - 如果內容中沒有食譜資訊，請在 name 回傳"無法解析"，並在 description 說明原因
 - 食材分類：肉類/海鮮/蔬菜/調味料/乾貨/其他
-- 所有文字使用${targetLang}`;
+- 主要文字使用繁體中文；並同時提供英(En)/菲(Fil)/印尼(Id)譯文`;
 
   // For Instagram with thumbnail but no keywords: use Vision AI to parse from image
   // Facebook 同樣適用（Reels 多數只有封面圖、caption 未必有完整食材）
@@ -1532,21 +1479,30 @@ Platform: ${sourceType}
 
   const userPrompt = `${contentSection}
 
-請回傳以下 JSON 格式：
+請回傳以下 JSON 格式（主要文字一律用**繁體中文**；**同時**提供英(En)/菲(Fil)/印尼(Id)譯文）：
 {
-  "name": "食譜名稱",
-  "description": "簡短描述（1-2句）",
+  "name": "食譜名稱（繁中）",
+  "nameEn": "English name",
+  "nameFil": "Filipino name",
+  "nameId": "Indonesian name",
+  "description": "簡短描述（1-2句，繁中）",
+  "descriptionEn": "English description",
+  "descriptionFil": "Filipino description",
+  "descriptionId": "Indonesian description",
   "cookTime": 烹飪時間（分鐘，整數）,
   "servings": 份量（人數，整數）,
   "difficulty": "簡單" | "中等" | "困難",
   "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
   "dishType": "meat" | "seafood" | "vegetable" | "soup" | "carb" | "appetizer" | "dessert" | "drink" | "other",
   "ingredients": [
-    { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
+    { "name": "食材名稱（繁中）", "nameEn": "English", "nameFil": "Filipino", "nameId": "Indonesian", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
   "steps": [
-    { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
+    { "instruction": "步驟說明（繁中）", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
+  "stepsEn": ["English step 1", "..."],
+  "stepsFil": ["Filipino step 1", "..."],
+  "stepsId": ["Indonesian step 1", "..."],
   "tags": ["標籤1", "標籤2"],
   "sourceAuthor": "創作者名稱",
   "thumbnailUrl": "${thumbnailUrlPlaceholder}"
@@ -1554,9 +1510,9 @@ Platform: ${sourceType}
 
 dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯餃/粥 → carb；純湯/羹/煲湯/燉湯 → soup；湯圓/糖水/糊/豆花 → dessert；飲品 → drink；主食（飯/麵/粉/包）→ carb。
 
-翻譯規則：name、description、ingredients、steps、tags 必須全部使用${targetLang}；食材名稱要用常見煮食用字，不要保留原文；如果原文係英文/簡體/其他語言，請翻譯後再回傳。
+翻譯規則：name、description、ingredients、steps、tags 主要文字一律用**繁體中文**；另外 nameEn/nameFil/nameId、descriptionEn/Fil/Id、stepsEn/Fil/Id、以及每個 ingredient 的 nameEn/Fil/Id 係對應譯文（同一食材/步驟名要前後一致）。若原文係英文/菲文/印尼文/簡體等，先理解再翻成上述 4 種語言。
 
-步驟規則（務必跟隨）：steps 必須有至少 3 步完整、可操作嘅烹調步驟。若帖文/caption 只有食材但冇清楚步驟（常見於 IG/FB/Threads），請根據菜式同食材推斷合理嘅標準做法，切勿留空 steps 或只回 1 步。`;
+步驟規則（務必跟隨）：steps 必須有至少 3 步完整、可操作嘅烹調步驟，stepsEn/Fil/Id 要同 steps 同數目同次序。若帖文/caption 只有食材但冇清楚步驟（常見於 IG/FB/Threads），請根據菜式同食材推斷合理嘅標準做法，切勿留空 steps 或只回 1 步。`;
 
   // For Instagram with thumbnail: use Vision AI to parse from image
   const visionImage: MessageContent = useVisionForInstagram && effectiveThumbnail
@@ -1580,7 +1536,13 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
           type: "object",
           properties: {
             name: { type: "string" },
+            nameEn: { type: "string" },
+            nameFil: { type: "string" },
+            nameId: { type: "string" },
             description: { type: "string" },
+            descriptionEn: { type: "string" },
+            descriptionFil: { type: "string" },
+            descriptionId: { type: "string" },
             cookTime: { type: "integer" },
             servings: { type: "integer" },
             difficulty: { type: "string" },
@@ -1592,6 +1554,9 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
                 type: "object",
                 properties: {
                   name: { type: "string" },
+                  nameEn: { type: "string" },
+                  nameFil: { type: "string" },
+                  nameId: { type: "string" },
                   quantity: { type: "string" },
                   unit: { type: "string" },
                   category: { type: "string" },
@@ -1611,6 +1576,9 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
                 required: ["instruction"],
               },
             },
+            stepsEn: { type: "array", items: { type: "string" } },
+            stepsFil: { type: "array", items: { type: "string" } },
+            stepsId: { type: "array", items: { type: "string" } },
             tags: { type: "array", items: { type: "string" } },
             sourceAuthor: { type: "string" },
             thumbnailUrl: { type: "string" },
@@ -1700,6 +1668,76 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     result.parseReason = "ok";
   }
   return result;
+}
+
+/**
+ * 由「作者語言」嘅輸入，產出 4 語言（中文 base + en/fil/id）。
+ * - 中文輸入：1 call（zh→en/fil/id）。
+ * - 非中文輸入：2 calls（→中文，再→en/fil/id）；作者語言欄用返原文。
+ * 唔會 throw（翻譯失敗就回原文，base 盡量用中文）。
+ */
+async function buildAllLangs(params: {
+  name: string;
+  description?: string;
+  steps: any[];               // [{instruction,duration?,tip?}] or string[]
+  ingredients: any[];         // [{name,...}]
+  srcLang?: string;
+}): Promise<{
+  name: string;
+  description: string;
+  steps: any[];               // base（中文）steps 物件
+  nameEn?: string; nameFil?: string; nameId?: string;
+  descriptionEn?: string; descriptionFil?: string; descriptionId?: string;
+  stepsEn?: string[]; stepsFil?: string[]; stepsId?: string[];
+  ingredients: any[];
+}> {
+  const isZh = !params.srcLang || params.srcLang.startsWith("zh");
+  const stepText = (s: any) => (typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? "")).trim();
+  let zhName = String(params.name ?? "").trim();
+  let zhDesc = String(params.description ?? "").trim();
+  let zhStepText = (params.steps ?? []).map(stepText).filter(Boolean);
+  let ingNames = (params.ingredients ?? []).map((i: any) => String(i?.name ?? "").trim());
+
+  if (!isZh) {
+    const zh = await translateToChinese(zhName, zhStepText, zhDesc, ingNames, params.srcLang!);
+    if (zh.name) zhName = zh.name;
+    if (zh.description) zhDesc = zh.description;
+    if (zh.steps && zh.steps.length === zhStepText.length) zhStepText = zh.steps;
+    if (zh.ingredientNames && zh.ingredientNames.length === ingNames.length) ingNames = zh.ingredientNames;
+  }
+
+  const tr = await translateRecipeContent(zhName, zhStepText, zhDesc);
+
+  const baseSteps = isZh
+    ? (params.steps ?? [])   // 中文：保留原物件（連 duration/tip）
+    : zhStepText.map((instruction) => ({ instruction }));
+
+  const out: any = {
+    name: zhName,
+    description: zhDesc,
+    steps: baseSteps,
+    nameEn: tr.nameEn, nameFil: tr.nameFil, nameId: tr.nameId,
+    descriptionEn: tr.descriptionEn, descriptionFil: tr.descriptionFil, descriptionId: tr.descriptionId,
+    stepsEn: tr.stepsEn, stepsFil: tr.stepsFil, stepsId: tr.stepsId,
+    ingredients: (params.ingredients ?? []).map((ing: any, idx: number) => ({ ...ing, name: ingNames[idx] || String(ing?.name ?? "") })),
+  };
+
+  if (!isZh) {
+    // 目標語言欄用作者原文（保留語氣）；其餘用 tr
+    const lang = params.srcLang!;
+    if (lang.startsWith("en")) { out.nameEn = params.name; out.descriptionEn = params.description; out.stepsEn = params.steps.map(stepText); }
+    else if (lang.startsWith("fil")) { out.nameFil = params.name; out.descriptionFil = params.description; out.stepsFil = params.steps.map(stepText); }
+    else if (lang.startsWith("id")) { out.nameId = params.name; out.descriptionId = params.description; out.stepsId = params.steps.map(stepText); }
+    out.ingredients = out.ingredients.map((ing: any, idx: number) => {
+      const orig = String(params.ingredients[idx]?.name ?? "");
+      if (lang.startsWith("en")) return { ...ing, nameEn: orig };
+      if (lang.startsWith("fil")) return { ...ing, nameFil: orig };
+      if (lang.startsWith("id")) return { ...ing, nameId: orig };
+      return ing;
+    });
+  }
+
+  return out;
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -1831,24 +1869,32 @@ export const recipesRouter = router({
 1. 如果圖片中有食物或菜餚，請根據外觀、顏色、質地和常見烹飪方式推測可能的食材和做法。
 2. 如果圖片中同時有文字（例如食材清單、步驟），請把文字資訊作為輔助，提高準確度。
 3. 只有在完全無法判斷圖片內容（例如圖片空白、過度模糊、或與食物無關）時，才在 name 回傳「需要手動輸入」，並在 description 說明原因。
-請以繁體中文回傳，並使用以下 JSON 格式。name、description、ingredients、steps、tags 全部要用繁體中文；食材名稱要翻譯成常見煮食用字，唔好保留原文。食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
+      請以繁體中文作為主要文字，並使用以下 JSON 格式。name、description、ingredients、steps、tags 全部要用繁體中文；同時提供英(En)/菲(Fil)/印尼(Id)譯文。食材名稱要翻譯成常見煮食用字，唔好保留原文。食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
 
       const userPrompt = `請分析這張圖片，盡力識別或推測出食材和烹飪步驟。
-請回傳以下 JSON 格式（所有文字使用繁體中文）：
+請回傳以下 JSON 格式（主要文字繁體中文；同時英/菲/印尼譯文）：
 {
-  "name": "食譜名稱",
-  "description": "簡短描述（1-2句）",
+  "name": "食譜名稱（繁中）",
+  "nameEn": "English name",
+  "nameFil": "Filipino name",
+  "nameId": "Indonesian name",
+  "description": "簡短描述（1-2句，繁中）",
+  "descriptionEn": "English description",
+  "descriptionFil": "Filipino description",
+  "descriptionId": "Indonesian description",
   "cookTime": 烹飪時間（分鐘，整數，如不確定填 30）,
   "servings": 份量（人數，整數，如不確定填 2）,
   "difficulty": "簡單" | "中等" | "困難",
   "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
-  "dishType": "meat" | "seafood" | "vegetable" | "soup" | "carb" | "appetizer" | "dessert" | "drink" | "other",
   "ingredients": [
-    { "name": "食材名稱", "quantity": "數量", "unit": "單位", "category": "分類" }
+    { "name": "食材名稱（繁中）", "nameEn": "English", "nameFil": "Filipino", "nameId": "Indonesian", "quantity": "數量", "unit": "單位", "category": "分類" }
   ],
   "steps": [
-    { "instruction": "步驟說明", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
+    { "instruction": "步驟說明（繁中）", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
   ],
+  "stepsEn": ["English step 1"],
+  "stepsFil": ["Filipino step 1"],
+  "stepsId": ["Indonesian step 1"],
   "tags": ["標籤 1", "標籤 2"],
   "sourceAuthor": "創作者名稱（如圖片中有顯示）",
   "thumbnailUrl": ""
@@ -1876,7 +1922,13 @@ export const recipesRouter = router({
               type: "object",
               properties: {
                 name: { type: "string" },
+                nameEn: { type: "string" },
+                nameFil: { type: "string" },
+                nameId: { type: "string" },
                 description: { type: "string" },
+                descriptionEn: { type: "string" },
+                descriptionFil: { type: "string" },
+                descriptionId: { type: "string" },
                 cookTime: { type: "integer" },
                 servings: { type: "integer" },
                 difficulty: { type: "string" },
@@ -1887,11 +1939,14 @@ export const recipesRouter = router({
                     type: "object",
                     properties: {
                       name: { type: "string" },
+                      nameEn: { type: "string" },
+                      nameFil: { type: "string" },
+                      nameId: { type: "string" },
                       quantity: { type: "string" },
                       unit: { type: "string" },
                       category: { type: "string" },
                     },
-                    required: ["name", "quantity", "unit", "category"],
+                    required: ["name", "nameEn", "nameFil", "nameId", "quantity", "unit", "category"],
                   },
                 },
                 steps: {
@@ -1906,11 +1961,14 @@ export const recipesRouter = router({
                     required: ["instruction"],
                   },
                 },
+                stepsEn: { type: "array", items: { type: "string" } },
+                stepsFil: { type: "array", items: { type: "string" } },
+                stepsId: { type: "array", items: { type: "string" } },
                 tags: { type: "array", items: { type: "string" } },
                 sourceAuthor: { type: "string" },
                 thumbnailUrl: { type: "string" },
               },
-              required: ["name", "description", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "tags", "sourceAuthor", "thumbnailUrl"],
+              required: ["name", "nameEn", "nameFil", "nameId", "description", "descriptionEn", "descriptionFil", "descriptionId", "cookTime", "servings", "difficulty", "recipeCategory", "ingredients", "steps", "stepsEn", "stepsFil", "stepsId", "tags", "sourceAuthor", "thumbnailUrl"],
             },
           },
         },
@@ -2881,6 +2939,7 @@ export const recipesRouter = router({
     .input(recipeInputSchema.extend({
       visibility: z.enum(["private", "pending_public"]).default("private"),
       isAiGenerated: z.boolean().optional(),
+      inputLang: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -2940,28 +2999,41 @@ export const recipesRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "食譜內容不足（沒有食材或步驟），請手動輸入。" });
       }
 
-      const _stepsArr = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
-      // 速度：只有「4 語言齊全」先跳過翻譯；否則重翻補齊（AI 生成通常只有 zh+en）
+      // 速度：只有「4 語言齊全」先跳過翻譯；否則由作者語言 buildAllLangs 補齊（保證中文 base + en/fil/id）
       const hasAll =
         !!input.nameEn && !!input.nameFil && !!input.nameId &&
         (!!input.stepsEn && input.stepsEn.length > 0) &&
         (!!input.stepsFil && input.stepsFil.length > 0) &&
         (!!input.stepsId && input.stepsId.length > 0);
-      const _tr = hasAll
-        ? {
-            nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
-            descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
-            stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
-          }
-        : await translateRecipeContent(input.name, _stepsArr, input.description);
+
+      let baseName = input.name;
+      let baseDesc = input.description ?? "";
+      let baseSteps: any[] = input.steps;
+      let baseIngredients: any[] = input.ingredients;
+      let _tr: any;
+      if (hasAll) {
+        _tr = {
+          nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
+          descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
+          stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
+        };
+      } else {
+        const built = await buildAllLangs({
+          name: input.name, description: input.description, steps: input.steps,
+          ingredients: input.ingredients, srcLang: input.inputLang,
+        });
+        baseName = built.name; baseDesc = built.description; baseSteps = built.steps; baseIngredients = built.ingredients;
+        _tr = built;
+      }
+
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
-        name: input.name,
+        name: baseName,
         nameEn: _tr.nameEn,
         nameFil: _tr.nameFil,
         nameId: _tr.nameId,
-        description: input.description,
+        description: baseDesc,
         descriptionEn: _tr.descriptionEn,
         descriptionFil: _tr.descriptionFil,
         descriptionId: _tr.descriptionId,
@@ -2972,14 +3044,14 @@ export const recipesRouter = router({
         difficulty: normalizeDifficulty(input.difficulty),
         recipeCategory: input.recipeCategory,
         dishType: input.dishType || (await classifyRecipeDishTypeLLM({
-          name: input.name,
-          description: input.description,
-          ingredients: input.ingredients,
+          name: baseName,
+          description: baseDesc,
+          ingredients: baseIngredients,
           tags: input.tags,
           category: input.recipeCategory,
         })),
-        ingredients: await withIngredientTranslations(input.ingredients),
-        steps: JSON.stringify(input.steps),
+        ingredients: await withIngredientTranslations(baseIngredients),
+        steps: JSON.stringify(baseSteps),
         stepsEn: _tr.stepsEn ? JSON.stringify(_tr.stepsEn) : undefined,
         stepsFil: _tr.stepsFil ? JSON.stringify(_tr.stepsFil) : undefined,
         stepsId: _tr.stepsId ? JSON.stringify(_tr.stepsId) : undefined,
@@ -3157,22 +3229,36 @@ export const recipesRouter = router({
       name: z.string().max(128),
       visibility: z.enum(["private", "pending_public"]).default("private"),
       isDraft: z.boolean().default(false),
+      inputLang: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房，才能儲存食譜" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const _stepsArr2 = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
-      const _tr2 = await translateRecipeContent((input.name && input.name.trim()) || "", _stepsArr2, input.description);
+      const isDraft = input.isDraft;
+      let baseName = (input.name && input.name.trim()) || (isDraft ? "未命名草稿" : input.name);
+      let baseDesc = input.description ?? "";
+      let baseSteps: any[] = input.steps;
+      let baseIngredients: any[] = input.ingredients;
+      let _tr2: any = {};
+      // 草稿唔翻譯（避免自動儲存狂燒錢）；最終儲存先補齊 4 語言（保證中文 base）
+      if (!isDraft) {
+        const built = await buildAllLangs({
+          name: baseName, description: input.description, steps: input.steps,
+          ingredients: input.ingredients, srcLang: input.inputLang,
+        });
+        baseName = built.name; baseDesc = built.description; baseSteps = built.steps; baseIngredients = built.ingredients;
+        _tr2 = built;
+      }
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
         createdByUserId: String(ctx.user.id),
-        name: (input.name && input.name.trim()) || (input.isDraft ? "未命名草稿" : input.name),
+        name: baseName,
         nameEn: _tr2.nameEn,
         nameFil: _tr2.nameFil,
         nameId: _tr2.nameId,
-        description: input.description ?? "",
+        description: baseDesc,
         descriptionEn: _tr2.descriptionEn,
         descriptionFil: _tr2.descriptionFil,
         descriptionId: _tr2.descriptionId,
@@ -3182,15 +3268,15 @@ export const recipesRouter = router({
         servings: input.servings ?? 2,
         difficulty: normalizeDifficulty(input.difficulty),
         recipeCategory: input.recipeCategory ?? "mixed",
-        dishType: input.dishType || (await classifyRecipeDishTypeLLM({
-          name: input.name,
-          description: input.description,
-          ingredients: input.ingredients,
+        dishType: input.dishType || (isDraft ? "other" : (await classifyRecipeDishTypeLLM({
+          name: baseName,
+          description: baseDesc,
+          ingredients: baseIngredients,
           tags: input.tags,
           category: input.recipeCategory,
-        })),
-        ingredients: await withIngredientTranslations(input.ingredients),
-        steps: JSON.stringify(input.steps),
+        }))),
+        ingredients: isDraft ? JSON.stringify(baseIngredients) : await withIngredientTranslations(baseIngredients),
+        steps: JSON.stringify(baseSteps),
         stepsEn: _tr2.stepsEn ? JSON.stringify(_tr2.stepsEn) : undefined,
         stepsFil: _tr2.stepsFil ? JSON.stringify(_tr2.stepsFil) : undefined,
         stepsId: _tr2.stepsId ? JSON.stringify(_tr2.stepsId) : undefined,
@@ -3212,6 +3298,7 @@ export const recipesRouter = router({
       name: z.string().max(128),
       visibility: z.enum(["private", "pending_public"]).default("private"),
       isDraft: z.boolean().default(false),
+      inputLang: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房" });
@@ -3224,37 +3311,25 @@ export const recipesRouter = router({
       if (!recipe) throw new TRPCError({ code: "NOT_FOUND" });
       if (recipe.createdByUserId !== String(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN" });
 
-      // L1: 編輯後重新翻譯（覆寫舊翻譯，避免 stale／中文）
-      const _stepsU = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
-      const _trU = await translateRecipeContent((input.name && input.name.trim()) || "", _stepsU, input.description);
-
-      await db.update(customRecipes).set({
-        name: (input.name && input.name.trim()) || (input.isDraft ? "未命名草稿" : input.name),
-        nameEn: _trU.nameEn,
-        nameFil: _trU.nameFil,
-        nameId: _trU.nameId,
+      const isDraft = input.isDraft;
+      const baseNameRaw = (input.name && input.name.trim()) || (isDraft ? "未命名草稿" : input.name);
+      const update: any = {
+        name: baseNameRaw,
         description: input.description ?? "",
-        descriptionEn: _trU.descriptionEn,
-        descriptionFil: _trU.descriptionFil,
-        descriptionId: _trU.descriptionId,
         image: input.image ?? "",
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
         cookTime: input.cookTime ?? 0,
         servings: input.servings ?? 2,
         difficulty: normalizeDifficulty(input.difficulty),
         recipeCategory: input.recipeCategory ?? "mixed",
-        dishType: input.dishType || (await classifyRecipeDishTypeLLM({
-          name: input.name,
+        dishType: input.dishType || (isDraft ? "other" : (await classifyRecipeDishTypeLLM({
+          name: baseNameRaw,
           description: input.description,
           ingredients: input.ingredients,
           tags: input.tags,
           category: input.recipeCategory,
-        })),
-        ingredients: await withIngredientTranslations(input.ingredients),
+        }))),
         steps: JSON.stringify(input.steps),
-        stepsEn: _trU.stepsEn ? JSON.stringify(_trU.stepsEn) : undefined,
-        stepsFil: _trU.stepsFil ? JSON.stringify(_trU.stepsFil) : undefined,
-        stepsId: _trU.stepsId ? JSON.stringify(_trU.stepsId) : undefined,
         tags: JSON.stringify(input.tags ?? []),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
@@ -3262,7 +3337,28 @@ export const recipesRouter = router({
         visibility: input.visibility,
         isDraft: input.isDraft,
         updatedAt: new Date(),
-      }).where(eq(customRecipes.id, input.id));
+      };
+      if (!isDraft) {
+        // 最終儲存：由作者語言 buildAllLangs 補齊 4 語言（保證中文 base）；非中文編輯唔會覆寫中文 base
+        const built = await buildAllLangs({
+          name: baseNameRaw, description: input.description, steps: input.steps,
+          ingredients: input.ingredients, srcLang: input.inputLang,
+        });
+        update.name = built.name;
+        update.description = built.description;
+        update.nameEn = built.nameEn; update.nameFil = built.nameFil; update.nameId = built.nameId;
+        update.descriptionEn = built.descriptionEn; update.descriptionFil = built.descriptionFil; update.descriptionId = built.descriptionId;
+        update.steps = JSON.stringify(built.steps);
+        update.stepsEn = built.stepsEn ? JSON.stringify(built.stepsEn) : undefined;
+        update.stepsFil = built.stepsFil ? JSON.stringify(built.stepsFil) : undefined;
+        update.stepsId = built.stepsId ? JSON.stringify(built.stepsId) : undefined;
+        update.ingredients = await withIngredientTranslations(built.ingredients);
+      } else {
+        // 草稿：唔翻譯、亦唔覆寫現有翻譯（避免自動儲存清空譯文）
+        update.ingredients = JSON.stringify(input.ingredients);
+      }
+
+      await db.update(customRecipes).set(update).where(eq(customRecipes.id, input.id));
 
       return { success: true };
     }),

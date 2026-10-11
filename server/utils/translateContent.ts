@@ -1,6 +1,48 @@
 import { invokeLLM, extractJSON } from "../_core/llm";
 
 /**
+ * Translate a recipe (name + steps + description + ingredient names) from ANY
+ * source language into Traditional Chinese (the app's canonical base).
+ * Returns {} on failure (never throws).
+ */
+export async function translateToChinese(
+  name: string,
+  steps: string[],
+  description: string | undefined,
+  ingredientNames: string[],
+  srcLang: string,
+): Promise<{ name?: string; description?: string; steps?: string[]; ingredientNames?: string[] }> {
+  try {
+    const hasDesc = typeof description === "string" && description.trim().length > 0;
+    const prompt = `Translate the following recipe from ${srcLang} into Traditional Chinese (繁體中文).
+Return ONLY JSON: {"name":"...","description":"...","steps":["..."],"ingredientNames":["..."]}
+Keep the SAME number and order of steps and ingredientNames. Keep quantities/times.
+Dish name: ${name}${hasDesc ? `\nDescription: ${description}` : ""}
+Steps: ${JSON.stringify(steps)}
+Ingredients: ${JSON.stringify(ingredientNames)}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 2600,
+      temperature: 0.2,
+      timeoutMs: 30000,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "{}";
+    const p: any = extractJSON(raw);
+    const arr = (v: any) => (Array.isArray(v) ? v.map((x: any) => String(x)) : undefined);
+    return {
+      name: p?.name ? String(p.name) : undefined,
+      description: p?.description ? String(p.description) : undefined,
+      steps: arr(p?.steps),
+      ingredientNames: arr(p?.ingredientNames),
+    };
+  } catch (e) {
+    console.warn("[translateToChinese] failed:", (e as Error)?.message);
+    return {};
+  }
+}
+
+/**
  * Translate a recipe dish name + cooking steps into English / Filipino / Indonesian.
  * Shared by the URL-import / KOL pipeline and the AI Edit pipeline (fallback).
  * Returns {} on failure (never throws).
