@@ -68,20 +68,23 @@ const aiEditOutputSchema = z.object({
   nameEn: z.string().optional(),
   nameFil: z.string().optional(),
   nameId: z.string().optional(),
-  description: z.string(),
+  description: z.string().default(""),
   descriptionEn: z.string().optional(),
   descriptionFil: z.string().optional(),
   descriptionId: z.string().optional(),
-  cookTime: z.number().int(),
-  servings: z.number().int(),
-  difficulty: z.string(),
-  recipeCategory: z.string(),
-  ingredients: z.array(aiRecipeIngredientSchema),
-  steps: z.array(aiRecipeStepSchema),
+  cookTime: z.number().int().default(30),
+  servings: z.number().int().default(4),
+  difficulty: z.string().default("中等"),
+  recipeCategory: z.string().default("其他"),
+  dishType: z.string().optional(),
+  image: z.string().optional(),
+  thumbnailUrl: z.string().optional(),
+  ingredients: z.array(aiRecipeIngredientSchema).default([]),
+  steps: z.array(aiRecipeStepSchema).default([]),
   stepsEn: z.array(aiRecipeStepSchema).optional(),
   stepsFil: z.array(aiRecipeStepSchema).optional(),
   stepsId: z.array(aiRecipeStepSchema).optional(),
-  tags: z.array(z.string()),
+  tags: z.array(z.string()).default([]),
 });
 
 /**
@@ -3297,22 +3300,22 @@ async function runAiEdit(
       rawParsed = extracted;
     }
   }
-  const parsed = aiEditOutputSchema.parse(rawParsed);
+  const parsed = (() => {
+    try {
+      return aiEditOutputSchema.parse(rawParsed);
+    } catch {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "LLM 回覆格式異常，請再試。" });
+    }
+  })();
   
-  // Apply differential check to prevent over-editing
+  // Apply differential check — 只作警示，唔會靜默改寫 AI 輸出（WYSIWYG：用戶睇 preview 自己決定）
   const validation = validateEditDifferential(input.recipe, parsed);
   if (!validation.safe) {
-    console.warn("[AI Edit] ⚠️ Over-edit detected", {
+    console.warn("[AI Edit] ⚠️ Over-edit detected (warning only, no auto-fix)", {
       issues: validation.issues,
       originalRecipe: input.recipe.name,
       editPrompt: input.editPrompt
     });
-    
-    // Apply auto-fixes for critical issues
-    if (validation.autoFixes.name) {
-      parsed.name = validation.autoFixes.name;
-      console.log("[AI Edit] Auto-fixed: restored original recipe name");
-    }
   }
 
   // Fallback: if the edit call did not return translations (or returned a
@@ -3386,7 +3389,17 @@ export const aiRecipeRouter = router({
         } catch { /* 翻譯失敗 → 用原文 */ }
       }
 
+      // 是否實質無改（容忍比對）→ 前端可提示「AI 改唔到」而唔當成功
+      const _n = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, "");
+      const _origIng = (input.recipe.ingredients ?? []).map((i: any) => _n(i?.name)).filter(Boolean).sort().join("|");
+      const _editIng = (ingredients ?? []).map((i: any) => _n(i?.name)).filter(Boolean).sort().join("|");
+      const _origSteps = (input.recipe.steps ?? []).map((s: any) => _n(typeof s === "string" ? s : s?.instruction)).filter(Boolean).join("|");
+      const _editSteps = (parsed.steps ?? []).map((s: any) => _n(s?.instruction)).filter(Boolean).join("|");
+      const unchanged =
+        _n(input.recipe.name) === _n(parsed.name) && _origIng === _editIng && _origSteps === _editSteps;
+
       return {
+        unchanged,
         name: parsed.name || input.recipe.name,
         nameEn: parsed.nameEn,
         nameFil: parsed.nameFil,
@@ -3399,6 +3412,7 @@ export const aiRecipeRouter = router({
         servings: parsed.servings ?? input.recipe.servings,
         difficulty: normalizeDifficulty(parsed.difficulty || input.recipe.difficulty),
         recipeCategory: parsed.recipeCategory || input.recipe.recipeCategory,
+        dishType: parsed.dishType || (input.recipe as any).dishType,
         ingredients,
         steps: parsed.steps.length > 0 ? parsed.steps : input.recipe.steps,
         stepsEn: parsed.stepsEn,
@@ -3448,12 +3462,13 @@ export const aiRecipeRouter = router({
         descriptionEn: parsed.descriptionEn,
         descriptionFil: parsed.descriptionFil,
         descriptionId: parsed.descriptionId,
-        image: "",
-        thumbnailUrl: "",
+        image: parsed.image ?? "",
+        thumbnailUrl: parsed.thumbnailUrl ?? parsed.image ?? "",
         cookTime: parsed.cookTime,
         servings: parsed.servings,
         difficulty: normalizeDifficulty(parsed.difficulty),
         recipeCategory: parsed.recipeCategory,
+        dishType: parsed.dishType,
         ingredients: JSON.stringify(parsed.ingredients),
         steps: JSON.stringify(parsed.steps),
         stepsEn: parsed.stepsEn ? JSON.stringify(parsed.stepsEn) : undefined,

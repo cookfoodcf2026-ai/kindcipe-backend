@@ -2969,6 +2969,9 @@ export const recipesRouter = router({
         })),
         ingredients: await withIngredientTranslations(input.ingredients),
         steps: JSON.stringify(input.steps),
+        stepsEn: _tr.stepsEn ? JSON.stringify(_tr.stepsEn) : undefined,
+        stepsFil: _tr.stepsFil ? JSON.stringify(_tr.stepsFil) : undefined,
+        stepsId: _tr.stepsId ? JSON.stringify(_tr.stepsId) : undefined,
         tags: JSON.stringify(input.tags || []),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
@@ -3669,13 +3672,17 @@ export const recipesRouter = router({
         }
       }
 
-      // L3: on-demand 補翻譯（缺語言先補；補完寫回 cache，之後 0 成本）
-      let patch: Record<string, string> = {};
-      try { patch = await buildTranslationPatch(r as any); } catch { /* 唔阻塞 */ }
-      if (Object.keys(patch).length > 0) {
-        try { await db.update(customRecipes).set(patch as any).where(eq(customRecipes.id, r.id)); } catch { /* 唔阻塞 */ }
-      }
-      const merged: any = { ...r, ...patch };
+      // L3: on-demand 補翻譯 —— 非阻塞（fire-and-forget）：唔好等 LLM 拖慢詳情頁。
+      // 缺語言先背景補 + 寫回 cache；今次先回基底資料，下次開就有譯文。
+      void (async () => {
+        try {
+          const patch = await buildTranslationPatch(r as any);
+          if (Object.keys(patch).length > 0) {
+            await db.update(customRecipes).set(patch as any).where(eq(customRecipes.id, r.id));
+          }
+        } catch { /* 唔阻塞 */ }
+      })();
+      const merged: any = { ...r };
 
       return {
         ...merged,

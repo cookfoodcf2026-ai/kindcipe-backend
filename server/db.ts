@@ -1310,13 +1310,14 @@ export async function insertCustomRecipe(data: {
   servings?: number;
   difficulty?: string;
   recipeCategory?: string;
+  dishType?: string;
   ingredients?: string;
   steps?: string;
   stepsEn?: string;
   stepsFil?: string;
   stepsId?: string;
   tags?: string;
-  sourceType?: "instagram" | "youtube" | "xiaohongshu" | "threads" | "manual";
+  sourceType?: "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "facebook" | "import" | "manual" | "kol";
   sourceUrl?: string;
   sourceUrlHash?: string;
   sourceAuthor?: string;
