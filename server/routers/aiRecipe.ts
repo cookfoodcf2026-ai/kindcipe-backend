@@ -5,6 +5,8 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { translateRecipeContent } from "../utils/translateContent";
+import { withIngredientTranslations } from "../utils/recipeTranslations";
+import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { storageGetSignedUrl } from "../storage";
@@ -247,7 +249,7 @@ const AI_RECIPE_LLM_TIMEOUT_MS = 45000;
 const AI_RECIPE_CHAT_TIMEOUT_MS = 30000;
 // AI Edit returns the recipe in 4 languages (zh + en/fil/id) → needs a bigger budget.
 const AI_EDIT_MAX_TOKENS = 7000;
-const AI_EDIT_LLM_TIMEOUT_MS = 110000;
+const AI_EDIT_LLM_TIMEOUT_MS = 80000;
 const AI_RECIPE_FALLBACK_CONTENT = "AI 暫時未能回應，請再試。";
 
 // Fix2: 後端自己記住最近推薦過嘅菜式（per-family，last 30，7 日內有效）—— DB 持久化 + memory fallback
@@ -3375,6 +3377,15 @@ export const aiRecipeRouter = router({
       const parsed = await runAiEdit(input, ctx.activeFamilyId, ctx.user.id);
       try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 1); } catch { /* 唔阻塞 */ }
 
+      // 補齊食材翻譯（schema 放寬後模型可能省略 nameEn/Fil/Id）→ 菲/印用戶唔會見到中文
+      let ingredients = parsed.ingredients.length > 0 ? parsed.ingredients : input.recipe.ingredients;
+      if (ingredients.length > 0) {
+        try {
+          const enriched = JSON.parse(await withIngredientTranslations(ingredients));
+          if (Array.isArray(enriched) && enriched.length === ingredients.length) ingredients = enriched;
+        } catch { /* 翻譯失敗 → 用原文 */ }
+      }
+
       return {
         name: parsed.name || input.recipe.name,
         nameEn: parsed.nameEn,
@@ -3386,9 +3397,9 @@ export const aiRecipeRouter = router({
         descriptionId: parsed.descriptionId,
         cookTime: parsed.cookTime ?? input.recipe.cookTime,
         servings: parsed.servings ?? input.recipe.servings,
-        difficulty: parsed.difficulty || input.recipe.difficulty,
+        difficulty: normalizeDifficulty(parsed.difficulty || input.recipe.difficulty),
         recipeCategory: parsed.recipeCategory || input.recipe.recipeCategory,
-        ingredients: parsed.ingredients.length > 0 ? parsed.ingredients : input.recipe.ingredients,
+        ingredients,
         steps: parsed.steps.length > 0 ? parsed.steps : input.recipe.steps,
         stepsEn: parsed.stepsEn,
         stepsFil: parsed.stepsFil,
@@ -3441,7 +3452,7 @@ export const aiRecipeRouter = router({
         thumbnailUrl: "",
         cookTime: parsed.cookTime,
         servings: parsed.servings,
-        difficulty: parsed.difficulty,
+        difficulty: normalizeDifficulty(parsed.difficulty),
         recipeCategory: parsed.recipeCategory,
         ingredients: JSON.stringify(parsed.ingredients),
         steps: JSON.stringify(parsed.steps),

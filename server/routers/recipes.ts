@@ -20,6 +20,7 @@ import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from ".
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations } from "../utils/recipeTranslations";
+import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
@@ -418,20 +419,6 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
   // 其他 http(s) 連結（網頁匯入）→ "import"（唔再當係手動自建）
   if (/^https?:\/\//i.test(url)) return "import";
   return "manual";
-}
-
-/** 難度正規化：LLM 可能回英文/簡體/空 → 一律轉做 canonical 中文，永不為空 */
-function normalizeDifficulty(v: unknown): "簡單" | "中等" | "困難" {
-  const s = String(v ?? "").trim();
-  const key = s.toLowerCase();
-  const map: Record<string, "簡單" | "中等" | "困難"> = {
-    easy: "簡單", medium: "中等", hard: "困難",
-    "簡單": "簡單", "中等": "中等", "困難": "困難",
-    "简单": "簡單", "困难": "困難",
-    "1": "簡單", "2": "中等", "3": "困難",
-    beginner: "簡單", intermediate: "中等", advanced: "困難",
-  };
-  return map[s] ?? map[key] ?? "中等";
 }
 
 /** Facebook（含 Reels / Watch / 貼文 / fb.watch / mbasic）連結判斷 */function isFacebookUrl(url: string): boolean {
@@ -2971,7 +2958,7 @@ export const recipesRouter = router({
         thumbnailUrl: resolvedThumbnailUrl,
         cookTime: input.cookTime,
         servings: input.servings,
-        difficulty: input.difficulty || "中等",
+        difficulty: normalizeDifficulty(input.difficulty),
         recipeCategory: input.recipeCategory,
         dishType: input.dishType || (await classifyRecipeDishTypeLLM({
           name: input.name,
@@ -3178,7 +3165,7 @@ export const recipesRouter = router({
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
         cookTime: input.cookTime ?? 0,
         servings: input.servings ?? 2,
-        difficulty: input.difficulty ?? "中等",
+        difficulty: normalizeDifficulty(input.difficulty),
         recipeCategory: input.recipeCategory ?? "mixed",
         dishType: input.dishType || (await classifyRecipeDishTypeLLM({
           name: input.name,
@@ -3239,7 +3226,7 @@ export const recipesRouter = router({
         thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
         cookTime: input.cookTime ?? 0,
         servings: input.servings ?? 2,
-        difficulty: input.difficulty ?? "中等",
+        difficulty: normalizeDifficulty(input.difficulty),
         recipeCategory: input.recipeCategory ?? "mixed",
         dishType: input.dishType || (await classifyRecipeDishTypeLLM({
           name: input.name,
