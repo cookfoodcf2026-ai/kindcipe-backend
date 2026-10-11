@@ -1676,7 +1676,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
  * - 非中文輸入：2 calls（→中文，再→en/fil/id）；作者語言欄用返原文。
  * 唔會 throw（翻譯失敗就回原文，base 盡量用中文）。
  */
-async function buildAllLangs(params: {
+export async function buildAllLangs(params: {
   name: string;
   description?: string;
   steps: any[];               // [{instruction,duration?,tip?}] or string[]
