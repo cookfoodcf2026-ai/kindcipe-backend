@@ -1473,7 +1473,7 @@ ${pageContent}
 URL: ${url}
 Platform: ${sourceType}
 
-請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，從 ${sourceType === "instagram" ? "Instagram" : sourceType === "xiaohongshu" ? "小紅書" : sourceType === "threads" ? "Threads" : isFacebookUrl(url) ? "Facebook" : sourceType === "youtube" ? "YouTube" : "該平台"} 複製食譜文字後貼入。"`;
+請在 name 回傳"需要手動輸入"，在 description 說明"無法自動讀取此連結的內容，請使用「貼上文字」功能，複製食譜文字後貼入。"`;
 
   const thumbnailUrlPlaceholder = effectiveThumbnail || "";
 
