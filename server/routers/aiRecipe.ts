@@ -895,7 +895,7 @@ async function execSearchRecipes(
     args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(officialRecipes.recipeCategory, args.excludeCategories) : undefined,
   ].filter(Boolean);
   let officialRows = await searchTable(officialRecipes, officialCols, officialWhere, "and");
-  if (officialRows.length === 0 && keywords.length > 1) {
+  if (officialRows.length === 0) {
     officialRows = await searchTable(officialRecipes, officialCols, officialWhere, "or");
   }
 
@@ -908,7 +908,7 @@ async function execSearchRecipes(
       args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
     ].filter(Boolean);
     customRows = await searchTable(customRecipes, customCols, customWhere, "and");
-    if (customRows.length === 0 && keywords.length > 1) {
+    if (customRows.length === 0) {
       customRows = await searchTable(customRecipes, customCols, customWhere, "or");
     }
   }
@@ -922,10 +922,15 @@ async function execSearchRecipes(
     thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
   });
 
-  // custom 優先：custom 命中排前，再補 official；同菜名去重
+  // custom 優先，但唔可以擠走全部 official（避免 family 自訂太多令換卡只剩 AI）：
+  // custom 先佔最多一半，其餘 official，再補 custom。
+  const mapCustom = customRows.map(r => mapRow(r, "custom"));
+  const mapOfficial = officialRows.map(r => mapRow(r, "official"));
+  const capCustom = Math.max(1, Math.ceil(limit / 2));
+  const ordered = [...mapCustom.slice(0, capCustom), ...mapOfficial, ...mapCustom.slice(capCustom)];
   const seen = new Set<string>();
   const merged: Record<string, unknown>[] = [];
-  for (const r of [...customRows.map(r => mapRow(r, "custom")), ...officialRows.map(r => mapRow(r, "official"))]) {
+  for (const r of ordered) {
     const key = String(r.name ?? "").trim().toLowerCase();
     if (key && seen.has(key)) continue;
     if (key) seen.add(key);
