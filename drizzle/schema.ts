@@ -289,6 +289,7 @@ export const customRecipes = pgTable("custom_recipes", {
   sourceAuthor: varchar("source_author", { length: 128 }),
   visibility: visibilityEnum("visibility").default("private").notNull(),
   isDraft: boolean("is_draft").default(false).notNull(),
+  isAiGenerated: boolean("is_ai_generated").default(false).notNull(),
   approvedByUserId: text("approved_by_user_id"),
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),

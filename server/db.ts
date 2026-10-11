@@ -1321,6 +1321,7 @@ export async function insertCustomRecipe(data: {
   sourceUrl?: string;
   sourceUrlHash?: string;
   sourceAuthor?: string;
+  isAiGenerated?: boolean;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");

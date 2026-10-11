@@ -3482,6 +3482,7 @@ export const aiRecipeRouter = router({
         tags: JSON.stringify(mergedTags),
         sourceType: "manual",
         sourceAuthor: undefined,
+        isAiGenerated: true,
       });
 
       return { success: true, id: saved.id, name: saved.name };

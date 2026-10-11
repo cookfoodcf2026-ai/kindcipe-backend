@@ -2085,7 +2085,7 @@ export const recipesRouter = router({
       cookTimeMax: z.number().optional(),
       popularChips: z.array(z.string()).optional(),
       ingredientCategory: z.string().optional(),  // 食材類別篩選
-      source: z.enum(["all", "official", "user", "kol", "hot"]).optional(),  // 搜尋來源：all=全部，official=只官方，user=只自訂，kol=只 KOL，hot=熱門(官方+公開)按 popularity
+      source: z.enum(["all", "official", "user", "kol", "hot", "ai"]).optional(),  // 搜尋來源：all=全部(含AI)，official=只官方，user=只我的(不含AI)，kol=只 KOL，hot=熱門，ai=只AI生成
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -2093,7 +2093,7 @@ export const recipesRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         const db = await getDb();
-        if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, kolCount: 0, nextCursor: undefined };
+        if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, aiCount: 0, kolCount: 0, nextCursor: undefined };
 
       const offset = input.cursor ?? input.offset ?? 0;
 
@@ -2401,6 +2401,7 @@ export const recipesRouter = router({
 
       // 根據 source 參數決定是否查詢官方/自訂食譜
       const isHotQuery = input.source === "hot";
+      const isAiQuery = input.source === "ai";
       const shouldQueryOfficial = !input.source || input.source === "all" || input.source === "official" || isHotQuery;
       let shouldQueryCustom = !input.source || input.source === "all" || input.source === "user" || isHotQuery;
 
@@ -2408,12 +2409,17 @@ export const recipesRouter = router({
       // 用戶自己由 IG/YouTube 匯入嘅食譜屬於「我的食譜」，唔應該出現喺 KOL。
       const isKolQuery = input.source === "kol";
       if (isKolQuery) shouldQueryCustom = true;
-      // 「熱門」：官方 + 公開（public）嘅食譜（跨家庭），按 popularity 排序 —— 之後可放廣告食譜喺頭幾位
+      if (isAiQuery) shouldQueryCustom = true;
+      // 「我的」(user) 排除 AI；「全部」(all) 含 AI；「AI」(ai) 只 AI。
+      const aiExclude = eq(customRecipes.isAiGenerated, false);
+      const aiOnly = eq(customRecipes.isAiGenerated, true);
       const effectiveCustomConditions: any[] = isKolQuery
         ? [eq(customRecipes.sourceType, "kol")]
         : isHotQuery
           ? [eq(customRecipes.visibility, "public")]
-          : customConditions;
+          : isAiQuery
+            ? [...customConditions, aiOnly]
+            : (input.source === "user" ? [...customConditions, aiExclude] : customConditions);
 
       // 先計算總數，再用於精確分頁（單一清單 offset 分頁）
       let totalOfficial = 0;
@@ -2441,7 +2447,11 @@ export const recipesRouter = router({
         .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]))[0]?.count ?? 0);
       const badgeCustom = ctx.activeFamilyId && customConditions.length > 0
         ? Number((await db.select({ count: count() }).from(customRecipes)
-            .where(customConditions.length > 1 ? and(...customConditions) : customConditions[0]))[0]?.count ?? 0)
+            .where(and(...customConditions, aiExclude)))[0]?.count ?? 0)
+        : 0;
+      const aiCount = ctx.activeFamilyId && customConditions.length > 0
+        ? Number((await db.select({ count: count() }).from(customRecipes)
+            .where(and(...customConditions, aiOnly)))[0]?.count ?? 0)
         : 0;
       const kolCount = Number((await db.select({ count: count() }).from(customRecipes)
         .where(eq(customRecipes.sourceType, "kol")))[0]?.count ?? 0);
@@ -2570,7 +2580,7 @@ export const recipesRouter = router({
       const hasMore = offset + input.limit < total;
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
-      return { recipes, total, officialCount: badgeOfficial, customCount: badgeCustom, kolCount, nextCursor };
+      return { recipes, total, officialCount: badgeOfficial, customCount: badgeCustom, aiCount, kolCount, nextCursor };
       } catch (error) {
         console.error("[recipes.search] Error:", {
           error: error instanceof Error ? error.message : error,
@@ -2870,6 +2880,7 @@ export const recipesRouter = router({
   importUser: protectedProcedure
     .input(recipeInputSchema.extend({
       visibility: z.enum(["private", "pending_public"]).default("private"),
+      isAiGenerated: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -2978,6 +2989,7 @@ export const recipesRouter = router({
         sourceUrlHash: urlHash ?? undefined,
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
+        isAiGenerated: input.isAiGenerated ?? false,
       }).returning();
 
       // 配額扣數已移至 parse* 步驟（真正燒 LLM 嘅位），避免同 importUser 重複計。
