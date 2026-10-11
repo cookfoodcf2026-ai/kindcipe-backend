@@ -247,7 +247,7 @@ const AI_RECIPE_LLM_TIMEOUT_MS = 45000;
 const AI_RECIPE_CHAT_TIMEOUT_MS = 30000;
 // AI Edit returns the recipe in 4 languages (zh + en/fil/id) → needs a bigger budget.
 const AI_EDIT_MAX_TOKENS = 7000;
-const AI_EDIT_LLM_TIMEOUT_MS = 60000;
+const AI_EDIT_LLM_TIMEOUT_MS = 110000;
 const AI_RECIPE_FALLBACK_CONTENT = "AI 暫時未能回應，請再試。";
 
 // Fix2: 後端自己記住最近推薦過嘅菜式（per-family，last 30，7 日內有效）—— DB 持久化 + memory fallback
@@ -3232,7 +3232,7 @@ async function runAiEdit(
                   unit: { type: "string" },
                   category: { type: "string" },
                 },
-                required: ["name", "nameEn", "nameFil", "nameId"],
+                required: ["name"],
               },
             },
             steps: {

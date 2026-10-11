@@ -420,8 +420,21 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
   return "manual";
 }
 
-/** Facebook（含 Reels / Watch / 貼文 / fb.watch / mbasic）連結判斷 */
-function isFacebookUrl(url: string): boolean {
+/** 難度正規化：LLM 可能回英文/簡體/空 → 一律轉做 canonical 中文，永不為空 */
+function normalizeDifficulty(v: unknown): "簡單" | "中等" | "困難" {
+  const s = String(v ?? "").trim();
+  const key = s.toLowerCase();
+  const map: Record<string, "簡單" | "中等" | "困難"> = {
+    easy: "簡單", medium: "中等", hard: "困難",
+    "簡單": "簡單", "中等": "中等", "困難": "困難",
+    "简单": "簡單", "困难": "困難",
+    "1": "簡單", "2": "中等", "3": "困難",
+    beginner: "簡單", intermediate: "中等", advanced: "困難",
+  };
+  return map[s] ?? map[key] ?? "中等";
+}
+
+/** Facebook（含 Reels / Watch / 貼文 / fb.watch / mbasic）連結判斷 */function isFacebookUrl(url: string): boolean {
   return /(?:^|\.)facebook\.com|(?:^|\.)fb\.watch|(?:^|\.)fb\.me|(?:^|\.)m\.facebook\.com/i.test(
     (() => {
       try { return new URL(url).hostname; } catch { return url; }
@@ -780,6 +793,7 @@ ${text}
   const hasContent = (result.ingredients && result.ingredients.length > 0) ||
     (result.steps && result.steps.length > 0);
   if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
+  result.difficulty = normalizeDifficulty(result.difficulty);
   result.parseReason = (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent)
     ? "no_recipe_content"
     : "ok";
@@ -1553,7 +1567,9 @@ Platform: ${sourceType}
 
 dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯餃/粥 → carb；純湯/羹/煲湯/燉湯 → soup；湯圓/糖水/糊/豆花 → dessert；飲品 → drink；主食（飯/麵/粉/包）→ carb。
 
-翻譯規則：name、description、ingredients、steps、tags 必須全部使用${targetLang}；食材名稱要用常見煮食用字，不要保留原文；如果原文係英文/簡體/其他語言，請翻譯後再回傳。`;
+翻譯規則：name、description、ingredients、steps、tags 必須全部使用${targetLang}；食材名稱要用常見煮食用字，不要保留原文；如果原文係英文/簡體/其他語言，請翻譯後再回傳。
+
+步驟規則（務必跟隨）：steps 必須有至少 3 步完整、可操作嘅烹調步驟。若帖文/caption 只有食材但冇清楚步驟（常見於 IG/FB/Threads），請根據菜式同食材推斷合理嘅標準做法，切勿留空 steps 或只回 1 步。`;
 
   // For Instagram with thumbnail: use Vision AI to parse from image
   const visionImage: MessageContent = useVisionForInstagram && effectiveThumbnail
@@ -1682,8 +1698,8 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     if (existing.length === 0) existing.push("家常菜");
     result.tags = existing.slice(0, 20);
   } catch { /* ignore tag backfill errors */ }
-  // 正規化：難度補 default（URL parse 用 strict:false，LLM 可能漏 difficulty）
-  if (!String(result.difficulty ?? "").trim()) result.difficulty = "中等";
+  // 正規化：難度統一 canonical 中文（LLM 可能回英文/空）
+  result.difficulty = normalizeDifficulty(result.difficulty);
   // 內容檢查：URL parse 以前只睇 name → 「有 name 但無料」都會當成功，存入空食譜。
   const hasContent =
     (Array.isArray(result.ingredients) && result.ingredients.length > 0) ||
@@ -1941,6 +1957,7 @@ export const recipesRouter = router({
         }
       }
 
+      result.difficulty = normalizeDifficulty(result.difficulty);
       const hasContent = (result.ingredients && result.ingredients.length > 0) ||
         (result.steps && result.steps.length > 0);
       const parseReason = (result.name === "需要手動輸入" || result.name === "無法解析" || !hasContent)
@@ -2431,6 +2448,17 @@ export const recipesRouter = router({
 
       const total = totalOfficial + totalCustom;
 
+      // ── Badge counts（來源無關）：令「我的/官方/KOL」數字係各來源真實總數，
+      // 唔會因當前 source（如熱門=public）或分頁而顯示錯誤數字。
+      const badgeOfficial = Number((await db.select({ count: count() }).from(officialRecipes)
+        .where(officialConditions.length > 1 ? and(...officialConditions) : officialConditions[0]))[0]?.count ?? 0);
+      const badgeCustom = ctx.activeFamilyId && customConditions.length > 0
+        ? Number((await db.select({ count: count() }).from(customRecipes)
+            .where(customConditions.length > 1 ? and(...customConditions) : customConditions[0]))[0]?.count ?? 0)
+        : 0;
+      const kolCount = Number((await db.select({ count: count() }).from(customRecipes)
+        .where(eq(customRecipes.sourceType, "kol")))[0]?.count ?? 0);
+
       // 合併清單順序 = 官方（前） + 自製（後）。依全域 offset 推導各自分頁範圍，
       // 確保每頁恰好回傳 limit 筆，不再每頁 2× limit。
       const officialOffset = Math.min(offset, totalOfficial);
@@ -2555,16 +2583,7 @@ export const recipesRouter = router({
       const hasMore = offset + input.limit < total;
       const nextCursor = hasMore ? offset + input.limit : undefined;
 
-      // Calculate kolCount separately（全局公共 KOL 內容，唔綁 familyId）
-      let kolCount = 0;
-      if (input.source === "kol" || input.source === "all" || !input.source) {
-        const kolResult = await db.select({ count: count() })
-          .from(customRecipes)
-          .where(eq(customRecipes.sourceType, "kol"));
-        kolCount = Number(kolResult[0]?.count ?? 0);
-      }
-
-      return { recipes, total, officialCount: totalOfficial, customCount: totalCustom, kolCount, nextCursor };
+      return { recipes, total, officialCount: badgeOfficial, customCount: badgeCustom, kolCount, nextCursor };
       } catch (error) {
         console.error("[recipes.search] Error:", {
           error: error instanceof Error ? error.message : error,
