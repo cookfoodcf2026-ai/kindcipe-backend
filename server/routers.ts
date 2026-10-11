@@ -522,14 +522,16 @@ const shoppingRouter = router({
       const sanitizedName = input.name.trim().slice(0, 128);
 
       // Auto-fill nameEn/Fil/Id from common ingredient when not provided
+      // （先按 id，無 id 就按中文名解析 → 令官方食譜（食材只有中文）都有菲/印名）
       let autoNameEn: string | undefined;
       let autoNameFil: string | undefined;
       let autoNameId: string | undefined;
-      if ((!input.nameEn || !input.nameFil || !input.nameId) && input.commonIngredientId != null) {
-        const ci = await getCommonIngredientById(input.commonIngredientId);
+      if (!input.nameEn || !input.nameFil || !input.nameId) {
+        const ciById = input.commonIngredientId != null ? await getCommonIngredientById(input.commonIngredientId) : null;
+        const ci: any = ciById ?? await resolveCommonIngredientByName(sanitizedName);
         autoNameEn = ci?.nameEn ?? undefined;
-        autoNameFil = (ci as any)?.nameFil ?? undefined;
-        autoNameId = (ci as any)?.nameId ?? undefined;
+        autoNameFil = ci?.nameFil ?? undefined;
+        autoNameId = ci?.nameId ?? undefined;
       }
       
       try {

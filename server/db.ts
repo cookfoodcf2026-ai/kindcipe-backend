@@ -2009,7 +2009,7 @@ export async function getCommonIngredientById(id: number) {
 /** Resolve a (Chinese) ingredient name to a common ingredient, exact then contains. */
 export async function resolveCommonIngredientByName(name: string) {
   if (!name || !name.trim()) return null;
-  const all = (await getCommonIngredients()).map((c) => ({ id: c.id, nameZh: c.nameZh, nameYue: c.nameYue, nameEn: c.nameEn }));
+  const all = (await getCommonIngredients()).map((c) => ({ id: c.id, nameZh: c.nameZh, nameYue: c.nameYue, nameEn: c.nameEn, nameFil: c.nameFil, nameId: c.nameId }));
   const norm = (s: string) => s.replace(/\s+/g, "").replace(/[，,。．.、()（）【】\[\]《》]/g, "").trim();
   const byNorm = new Map<string, (typeof all)[number]>();
   for (const c of all) {
