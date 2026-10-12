@@ -11,6 +11,9 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "check:i18n-coverage": "node scripts/check-i18n-coverage.cjs",
+    "check:en": "tsx scripts/check-en-coverage.ts",
+    "backfill:translations": "tsx scripts/backfill-recipe-translations.ts",
+    "backfill:ingredient-l10n": "tsx scripts/backfill-ingredient-l10n.ts",
     "promote:admin": "tsx scripts/promote-admin.ts"
   },
   "dependencies": {

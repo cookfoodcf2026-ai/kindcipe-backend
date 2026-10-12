@@ -692,6 +692,8 @@ ${text}
 翻譯規則：主要文字用繁體中文；nameEn/Fil/Id、descriptionEn/Fil/Id、stepsEn/Fil/Id、每個 ingredient 的 nameEn/Fil/Id 係對應譯文；stepsEn/Fil/Id 同 steps 同數目同次序。`;
 
   const response = await invokeLLM({
+    // Parse/vision + long 4-language JSON can exceed the 15s default; give it room.
+    timeoutMs: 45000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -1524,6 +1526,8 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     : userPrompt;
 
   const response = await invokeLLM({
+    // Parse/vision + long 4-language JSON can exceed the 15s default; give it room.
+    timeoutMs: 45000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: visionImage },
@@ -1661,7 +1665,10 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     (Array.isArray(result.ingredients) && result.ingredients.length > 0) ||
     (Array.isArray(result.steps) && result.steps.length > 0);
   // Determine parseReason based on result name
-  if (!hasRealContent) {
+  // No usable result at all (LLM returned empty / unparseable JSON) → technical
+  // read failure, NOT "post has no recipe content".
+  const emptyResult = !result.name || String(result.name).trim() === "";
+  if (!hasRealContent || emptyResult) {
     result.parseReason = "cannot_read";
   } else if (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent) {
     result.parseReason = "no_recipe_content";
@@ -1908,6 +1915,8 @@ export const recipesRouter = router({
 }`;
 
       const response = await invokeLLM({
+    // Parse/vision + long 4-language JSON can exceed the 15s default; give it room.
+    timeoutMs: 45000,
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -2704,6 +2713,8 @@ export const recipesRouter = router({
       const userPrompt = `請生成 ${count} 個獨特嘅 ${category} 食譜。確保每個食譜都係真正唔同嘅菜式，唔好重複。`;
 
       const response = await invokeLLM({
+    // Parse/vision + long 4-language JSON can exceed the 15s default; give it room.
+    timeoutMs: 45000,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -3040,12 +3051,19 @@ export const recipesRouter = router({
           stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
         };
       } else {
-        const built = await buildAllLangs({
-          name: input.name, description: input.description, steps: input.steps,
-          ingredients: input.ingredients, srcLang: input.inputLang,
-        });
-        baseName = built.name; baseDesc = built.description; baseSteps = built.steps; baseIngredients = built.ingredients;
-        _tr = built;
+        // Degrade gracefully: if translation fails, still save the canonical base
+        // (missing locales are filled later by buildTranslationPatch on read).
+        try {
+          const built = await buildAllLangs({
+            name: input.name, description: input.description, steps: input.steps,
+            ingredients: input.ingredients, srcLang: input.inputLang,
+          });
+          baseName = built.name; baseDesc = built.description; baseSteps = built.steps; baseIngredients = built.ingredients;
+          _tr = built;
+        } catch (e) {
+          console.warn("[importUser] buildAllLangs failed; saving canonical base only:", (e as Error)?.message);
+          _tr = {};
+        }
       }
 
       const [inserted] = await db.insert(customRecipes).values({

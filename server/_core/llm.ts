@@ -492,8 +492,46 @@ export function extractJSON<T = Record<string, unknown>>(raw: string): T {
   try {
     return JSON.parse(content) as T;
   } catch (err) {
+    // Best-effort repair for truncated output (hit token/timeout mid-stream):
+    // close an open string, drop a dangling key/separator, then close brackets.
+    const repaired = repairTruncatedJson(content);
+    if (repaired) {
+      try {
+        console.warn("[LLM] extractJSON: repaired truncated JSON");
+        return JSON.parse(repaired) as T;
+      } catch { /* fall through */ }
+    }
     console.warn("[LLM] extractJSON parse failed:", String((err as Error)?.message || err));
     return {} as T;
+  }
+}
+
+/** Best-effort repair of a JSON string truncated mid-generation. */
+export function repairTruncatedJson(input: string): string | null {
+  if (!input) return null;
+  let inStr = false, esc = false;
+  const stack: string[] = [];
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") stack.push(c);
+    else if (c === "}" || c === "]") stack.pop();
+  }
+  let out = input;
+  if (inStr) out += '"';
+  out = out.replace(/[,\:]\s*$/, "");
+  for (let i = stack.length - 1; i >= 0; i--) out += stack[i] === "{" ? "}" : "]";
+  try {
+    JSON.parse(out);
+    return out;
+  } catch {
+    return null;
   }
 }
 

@@ -257,6 +257,9 @@ const AI_RECIPE_FALLBACK_CONTENT = "AI 暫時未能回應，請再試。";
 
 // Fix2: 後端自己記住最近推薦過嘅菜式（per-family，last 30，7 日內有效）—— DB 持久化 + memory fallback
 const SEEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 日
+// Custom (user's own) recipes resurface sooner so users keep seeing their own
+// imports; official recipes keep the full 7-day freshness window.
+const SEEN_CUSTOM_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 日
 type SeenEntry = { name: string; seenAt: number };
 const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
 const MAX_RECENT_PER_FAMILY = 40;
@@ -283,6 +286,34 @@ async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   const now = Date.now();
   const entries = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
   return entries.filter(e => now - e.seenAt < SEEN_EXPIRY_MS).map(e => e.name);
+}
+
+/** Split recently-shown names by window: official uses 7d, custom uses 1d. */
+async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen7d: string[]; seen1d: string[] }> {
+  if (familyId === undefined) return { seen7d: [], seen1d: [] };
+  const now = Date.now();
+  try {
+    const db = await getDb();
+    if (db) {
+      const cutoff = new Date(now - SEEN_EXPIRY_MS);
+      const rows = await db
+        .select({ name: aiChefSeenRecipes.name, seenAt: aiChefSeenRecipes.seenAt })
+        .from(aiChefSeenRecipes)
+        .where(and(eq(aiChefSeenRecipes.familyId, familyId), gt(aiChefSeenRecipes.seenAt, cutoff)))
+        .orderBy(desc(aiChefSeenRecipes.seenAt))
+        .limit(MAX_RECENT_PER_FAMILY);
+      const seen7d = rows.map(r => r.name);
+      const seen1d = rows.filter(r => now - new Date(r.seenAt).getTime() < SEEN_CUSTOM_EXPIRY_MS).map(r => r.name);
+      return { seen7d, seen1d };
+    }
+  } catch (e) {
+    console.warn("[AI Chef] getFamilySeenNamesSplit DB failed, fallback memory:", (e as Error)?.message);
+  }
+  const entries = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
+  return {
+    seen7d: entries.filter(e => now - e.seenAt < SEEN_EXPIRY_MS).map(e => e.name),
+    seen1d: entries.filter(e => now - e.seenAt < SEEN_CUSTOM_EXPIRY_MS).map(e => e.name),
+  };
 }
 
 async function recordFamilySeenNames(familyId: number | undefined, names: string[]): Promise<void> {
@@ -848,7 +879,11 @@ async function execSearchRecipes(
     extraWhere: any[],
     mode: "and" | "or",
   ): Promise<Record<string, unknown>[]> => {
-    const textCond = keywords.length > 0
+    // Scenario (hotkey) is the primary selector: when present, do NOT also AND the
+    // fuzzy text/tag conditions (that over-narrows, e.g. healthy = scenario AND text
+    // "清淡"). Time (quick) still applies.
+    const scenarioPrimary = !!args.scenario;
+    const textCond = !scenarioPrimary && keywords.length > 0
       ? (mode === "and" ? and : or)(
           ...keywords.map(kw => {
             const variants = getKeywordVariants(kw);
@@ -861,7 +896,7 @@ async function execSearchRecipes(
         )
       : undefined;
     const timeCond = cookTimeMax && cookTimeMax > 0 ? lte(table.cookTime, cookTimeMax) : undefined;
-    const tagConds = (args.tags ?? []).map(tag => ilike(table.tags, `%"${tag}"%`));
+    const tagConds = !scenarioPrimary ? (args.tags ?? []).map(tag => ilike(table.tags, `%"${tag}"%`)) : [];
     const tagCond = tagConds.length > 0 ? and(...tagConds) : undefined;
     const combined = [textCond, tagCond].filter(Boolean) as any[];
     const mainCond = combined.length > 0 ? and(...combined) : undefined;
@@ -1302,8 +1337,19 @@ function dishFamily(name: string): string {
 }
 
 // 由 library rows 揀「1 湯 + 3 餸」；排除已睇過（優先 fresh，池盡翻兜）
-function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCount = 3, soupCount = 1): SuggestedRecipe[] {
-  const excluded = new Set(exclude.map(normalizeName).filter(Boolean));
+// Source-aware exclusion: official uses the 7-day set, custom uses the 1-day set,
+// so a user's own recipes are not hidden for a week after being shown once.
+type ExcludeSets = { official: Set<string>; custom: Set<string> };
+const mkExcludeSets = (official: Iterable<string>, custom: Iterable<string>): ExcludeSets => ({
+  official: new Set([...official].map(normalizeName).filter(Boolean)),
+  custom: new Set([...custom].map(normalizeName).filter(Boolean)),
+});
+const isRowExcluded = (ex: ExcludeSets, r: Record<string, unknown>): boolean => {
+  const set = r.source === "official" ? ex.official : ex.custom;
+  return set.has(normalizeName(String(r.name ?? "")));
+};
+
+function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1): SuggestedRecipe[] {
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
@@ -1343,8 +1389,8 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCo
   ];
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
-    const fresh = arr.filter(r => !excluded.has(normalizeName(String(r.name ?? ""))));
-    const reused = arr.filter(r => excluded.has(normalizeName(String(r.name ?? ""))));
+    const fresh = arr.filter(r => !isRowExcluded(ex, r));
+    const reused = arr.filter(r => isRowExcluded(ex, r));
     return customFirst(fresh.length > 0 ? fresh : reused).slice(0, n);
   };
 
@@ -1353,8 +1399,8 @@ function pickSoupMeal(rows: Record<string, unknown>[], exclude: string[], dishCo
   // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），custom 優先，fresh 優先次序保留
   const pickNByFamily = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
-    const fresh = arr.filter(r => !excluded.has(normalizeName(String(r.name ?? ""))));
-    const reused = arr.filter(r => excluded.has(normalizeName(String(r.name ?? ""))));
+    const fresh = arr.filter(r => !isRowExcluded(ex, r));
+    const reused = arr.filter(r => isRowExcluded(ex, r));
     const pool = (fresh.length > 0 ? fresh : reused).sort((a, b) => {
       const ca = a.source === "official" ? 1 : 0;
       const cb = b.source === "official" ? 1 : 0;
@@ -2474,15 +2520,17 @@ export async function processAIChefChat(
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Fix2: 合併後端自己記住嘅已推薦名單（唔靠前端 state），確保去重一定生效
-  const seenFromCache = await getFamilySeenNames(familyId);
-  const mergedExclude = [...new Set([...excludeNames, ...seenFromCache])];
+  const seenSplit = await getFamilySeenNamesSplit(familyId);
+  const fusedOfficial = [...new Set([...excludeNames, ...seenSplit.seen7d])];
+  const mergedExclude = [...fusedOfficial];
   // 參考「熱門」風格 + 唔重複：攞近期熱門菜名，加入 exclude（AI 唔會出返呢啲），
   // 並生成一段「流行風格」hint 注入 prompt，令 AI 生成偏向多人食嘅家常菜（似 Gemini AI Overview）。
   let popularHint = "";
+  let trendingNames: string[] = [];
   try {
     const trending = await getTrendingRecipes(7, 15);
     if (trending.length > 0) {
-      const trendingNames = trending.map(t => t.recipeName).filter(Boolean);
+      trendingNames = trending.map(t => t.recipeName).filter(Boolean);
       // 熱門菜名加入 exclude → AI 唔會出返（微調生成新版本，唔重複）
       mergedExclude.push(...trendingNames);
       popularHint = `參考以下近期人氣/熱門家常菜嘅風格（但唔好直接出返呢啲名，要微調生成全新、唔重複嘅版本）：${trendingNames.slice(0, 8).join("、")}`;
@@ -2490,6 +2538,11 @@ export async function processAIChefChat(
   } catch (e) {
     console.warn("[AI Chef] trending fetch failed:", (e as Error)?.message);
   }
+  // Source-aware exclusion for library picking: official → 7d (+trending), custom → 1d.
+  const excludeSets: ExcludeSets = mkExcludeSets(
+    [...fusedOfficial, ...trendingNames],
+    [...new Set([...excludeNames, ...seenSplit.seen1d])],
+  );
   const textOf = (m: any): string =>
     typeof m?.content === "string"
       ? m.content
@@ -2534,8 +2587,7 @@ export async function processAIChefChat(
   };
 
   // 將 DB search rows 轉成正確 SuggestedRecipe（source 由 r.source 決定，官方=official）
-  const rowsToSuggested = (rows: Record<string, unknown>[], exclude: string[], count: number): SuggestedRecipe[] => {
-    const excluded = new Set(exclude.map(normalizeName).filter(Boolean));
+  const rowsToSuggested = (rows: Record<string, unknown>[], ex: ExcludeSets, count: number): SuggestedRecipe[] => {
     const fresh: SuggestedRecipe[] = [];
     const reused: SuggestedRecipe[] = [];
     for (const r of rows) {
@@ -2587,7 +2639,7 @@ export async function processAIChefChat(
         benefits: (r as any).benefits || undefined,
         waterVolume: (r as any).waterVolume || undefined,
       };
-      (excluded.has(normalizeName(name)) ? reused : fresh).push(rec);
+      (isRowExcluded(ex, r) ? reused : fresh).push(rec);
     }
     // 優先非排除，池盡先翻兜（永遠有卡）
     return [...shuffleArr(fresh), ...shuffleArr(reused)].slice(0, count);
@@ -2623,7 +2675,7 @@ export async function processAIChefChat(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
-      const libPicked = pickSoupMeal(rows, mergedExclude, libCount.dishCount, libCount.soupCount);
+      const libPicked = pickSoupMeal(rows, excludeSets, libCount.dishCount, libCount.soupCount);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
       // 問卷「N人」→ 覆蓋卡片 servings（library 卡 DB 預設 4 人，要跟用戶答嘅人數）
@@ -2676,7 +2728,7 @@ export async function processAIChefChat(
           console.warn("[AI Chef] structured lib search failed:", e);
         }
       }
-      picked = rowsToSuggested(applySearchFilters(searchRows, search), mergedExclude, searchCount);
+      picked = rowsToSuggested(applySearchFilters(searchRows, search), excludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -2690,7 +2742,7 @@ export async function processAIChefChat(
       }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
       const filteredRows = applySearchFilters(rows, search);
-      picked = rowsToSuggested(filteredRows, mergedExclude, searchCount);
+      picked = rowsToSuggested(filteredRows, excludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -2703,8 +2755,8 @@ export async function processAIChefChat(
       const singleRows = await trySearch(swapQuery, 30);
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
-      const swapExclude = [...new Set(excludeNames)];
-      let picked = rowsToSuggested(singleRows, swapExclude, 6);
+      const swapSets = mkExcludeSets(excludeNames, excludeNames);
+      let picked = rowsToSuggested(singleRows, swapSets, 6);
       if (picked.length > 1) {
         // 名直接含 swapQuery 嘅排最前（換湯先至係真湯），fresh 優先次序保留喺第二層
         picked = [...picked].sort((a, b) => (b.name.includes(swapQuery) ? 1 : 0) - (a.name.includes(swapQuery) ? 1 : 0));
@@ -2727,7 +2779,7 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
       }
     } else {
-      picked = rowsToSuggested(rows, mergedExclude, 1);
+      picked = rowsToSuggested(rows, excludeSets, 1);
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
@@ -2745,7 +2797,7 @@ export async function processAIChefChat(
     const chatTimeMatch = lastUserText.match(/(\d{1,3})\s*分鐘/);
     const chatCookTimeMax = chatTimeMatch ? parseInt(chatTimeMatch[1], 10) : undefined;
     const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
-    const picked = rowsToSuggested(rows, mergedExclude, 1);
+    const picked = rowsToSuggested(rows, excludeSets, 1);
     if (picked.length > 0) {
       console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
       await recordFamilySeenNames(familyId, picked.map(r => r.name));
@@ -2864,7 +2916,7 @@ export async function processAIChefChat(
   if (mealIntent.isMeal && mode === "chat" && wantCards && db) {
     try {
       const libRows = await trySearch("", 1000);
-      const libMeal = pickSoupMeal(libRows, mergedExclude, mealCount.dishCount, mealCount.soupCount);
+      const libMeal = pickSoupMeal(libRows, excludeSets, mealCount.dishCount, mealCount.soupCount);
       if (libMeal.length > 0) {
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);
@@ -2982,14 +3034,14 @@ export async function processAIChefChat(
       if (boldName) {
         console.log(`[AI Chef] Extracted recipe name from text: "${boldName}"`);
         const matchRows = await trySearch(boldName, 10);
-        let matched = rowsToSuggested(matchRows, mergedExclude, 1);
+        let matched = rowsToSuggested(matchRows, excludeSets, 1);
         // 揀同抽到嘅名最相近嘅（唔係 random）
         const bySim = matchRows
           .map((r: any) => ({ r, sim: recipeNameSimilarity(normalizeName(String(r.name ?? "")), normalizeName(boldName)) }))
           .filter(x => x.sim >= 0.3)
           .sort((a, b) => b.sim - a.sim);
         if (bySim.length > 0) {
-          matched = rowsToSuggested(bySim.slice(0, 1).map(x => x.r), mergedExclude, 1);
+          matched = rowsToSuggested(bySim.slice(0, 1).map(x => x.r), excludeSets, 1);
         }
         if (matched.length > 0) {
           recipes = matched;
@@ -3053,11 +3105,11 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
         }
         let fbRows = await trySearch(isVague ? "" : keyword || "", 30);
-        let fb = rowsToSuggested(fbRows, mergedExclude, 1);
+        let fb = rowsToSuggested(fbRows, excludeSets, 1);
         if (fb.length === 0 && keyword) {
           // keyword 搜唔到合適替代 → fallback 去 generic pool，保證一定有卡（排除咗已睇過）
           const genRows = await trySearch("", 1000);
-          fb = rowsToSuggested(genRows, mergedExclude, 1);
+          fb = rowsToSuggested(genRows, excludeSets, 1);
         }
         if (fb.length > 0) {
           recipes = fb;

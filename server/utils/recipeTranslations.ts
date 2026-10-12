@@ -93,26 +93,73 @@ export async function buildTranslationPatch(row: TranslatableRow): Promise<Recor
     (i: any) => i && String(i.name ?? "").trim() && (!i.nameEn || !i.nameFil || !i.nameId),
   );
   if (ingredientsMissing) {
-    const names = ingredients.map((i: any) => String(i?.name ?? "").trim());
-    const trs = await translateIngredientNames(names);
-    if (trs.length === ingredients.length) {
-      const merged = ingredients.map((ing: any, i: number) => ({
-        ...ing,
-        nameEn: ing?.nameEn ?? trs[i]?.en,
-        nameFil: ing?.nameFil ?? trs[i]?.fil,
-        nameId: ing?.nameId ?? trs[i]?.id,
-      }));
-      patch.ingredients = JSON.stringify(merged);
-    }
+    const merged = await localizeIngredientNames(ingredients);
+    if (merged) patch.ingredients = JSON.stringify(merged);
   }
 
   return patch;
 }
 
 /**
+ * Dictionary-first ingredient localization with per-item LLM fallback.
+ * Never throws; returns null when nothing could be resolved.
+ */
+export async function localizeIngredientNames(ingredients: any[]): Promise<any[] | null> {
+  const arr = Array.isArray(ingredients) ? [...ingredients] : [];
+  if (arr.length === 0) return null;
+
+  // 1) common-ingredient dictionary (free, consistent)
+  try {
+    const { resolveCommonIngredientByName } = await import("../db");
+    for (let i = 0; i < arr.length; i++) {
+      const ing = arr[i];
+      const nm = String(ing?.name ?? "").trim();
+      if (!nm) continue;
+      if (ing.nameEn && ing.nameFil && ing.nameId) continue;
+      try {
+        const ci: any = await resolveCommonIngredientByName(nm);
+        if (ci) {
+          arr[i] = {
+            ...ing,
+            nameEn: ing.nameEn || ci.nameEn || undefined,
+            nameFil: ing.nameFil || ci.nameFil || undefined,
+            nameId: ing.nameId || ci.nameId || undefined,
+          };
+        }
+      } catch { /* ignore per-item */ }
+    }
+  } catch { /* ignore dictionary */ }
+
+  // 2) LLM batch for the still-missing names
+  const still = arr
+    .map((ing, i) => ({ ing, i }))
+    .filter(({ ing }) => ing && String(ing.name ?? "").trim() && (!ing.nameEn || !ing.nameFil || !ing.nameId));
+  if (still.length > 0) {
+    try {
+      const trs = await translateIngredientNames(still.map(({ ing }) => String(ing.name).trim()));
+      if (trs.length === still.length) {
+        still.forEach(({ i }, k) => {
+          const t = trs[k] || {};
+          const ing = arr[i];
+          arr[i] = {
+            ...ing,
+            nameEn: ing.nameEn || t.en || undefined,
+            nameFil: ing.nameFil || t.fil || undefined,
+            nameId: ing.nameId || t.id || undefined,
+          };
+        });
+      }
+    } catch { /* ignore */ }
+  }
+
+  const anyFilled = arr.some((ing) => ing && (ing.nameEn || ing.nameFil || ing.nameId));
+  return anyFilled ? arr : null;
+}
+
+/**
  * Return a JSON string of the ingredients array with bilingual names filled in
- * (only translates names that are missing en/fil/id). Falls back to the
- * original JSON if translation fails or the count mismatches.
+ * (dictionary-first, then per-item LLM fallback). Falls back to the original
+ * JSON if nothing could be resolved.
  */
 export async function withIngredientTranslations(ingredients: any): Promise<string> {
   const arr = Array.isArray(ingredients) ? ingredients : [];
@@ -120,15 +167,6 @@ export async function withIngredientTranslations(ingredients: any): Promise<stri
     (i: any) => i && String(i?.name ?? "").trim() && (!i.nameEn || !i.nameFil || !i.nameId),
   );
   if (!needs) return JSON.stringify(arr);
-  const names = arr.map((i: any) => String(i?.name ?? "").trim());
-  const trs = await translateIngredientNames(names);
-  if (trs.length !== arr.length) return JSON.stringify(arr);
-  return JSON.stringify(
-    arr.map((ing: any, i: number) => ({
-      ...ing,
-      nameEn: ing?.nameEn ?? trs[i]?.en,
-      nameFil: ing?.nameFil ?? trs[i]?.fil,
-      nameId: ing?.nameId ?? trs[i]?.id,
-    })),
-  );
+  const merged = await localizeIngredientNames(arr);
+  return JSON.stringify(merged ?? arr);
 }
