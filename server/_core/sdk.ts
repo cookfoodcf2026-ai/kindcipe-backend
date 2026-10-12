@@ -340,6 +340,7 @@ function buildCronUser(
     email: null,
     passwordHash: null,
     emailVerified: false,
+    language: null,
     loginMethod: null,
     passwordVersion: 0,
     trialCount: 0,

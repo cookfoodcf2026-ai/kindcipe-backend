@@ -119,8 +119,11 @@ import {
   mergeAccounts,
   addAdminAuditLog,
   listAdminAuditLogs,
+  getFamilyLanguage,
+  setUserLanguage,
 } from "./db";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./_core/email";
+import { msg } from "./_core/msg";
 import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families, type InsertShoppingItem } from "../drizzle/schema";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 
@@ -750,9 +753,10 @@ const shoppingRouter = router({
       await approveShoppingItem(input.id, ctx.activeFamilyId);
       broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
+      const lang = await getFamilyLanguage(ctx.activeFamilyId);
       sendPushNotifications(tokens, {
-        title: '✅ 採購已批准',
-        body: input.itemName ? `Owner已批准採購：${input.itemName}` : 'Owner已批准你的採購提議',
+        title: msg(lang, "push.shoppingApproved.title"),
+        body: input.itemName ? msg(lang, "push.shoppingApproved.body", { name: input.itemName }) : msg(lang, "push.shoppingApproved.title"),
         data: { type: 'shopping_approved' },
       }).catch(() => {});
       return { success: true };
@@ -768,9 +772,10 @@ const shoppingRouter = router({
       await rejectShoppingItem(input.id, ctx.activeFamilyId);
       broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
+      const lang = await getFamilyLanguage(ctx.activeFamilyId);
       sendPushNotifications(tokens, {
-        title: '❌ 採購未批准',
-        body: input.itemName ? `Owner未批准採購：${input.itemName}` : 'Owner未批准你的採購提議',
+        title: msg(lang, "push.shoppingRejected.title"),
+        body: input.itemName ? msg(lang, "push.shoppingRejected.body", { name: input.itemName }) : msg(lang, "push.shoppingRejected.title"),
         data: { type: 'shopping_rejected' },
       }).catch(() => {});
       return { success: true };
@@ -1060,8 +1065,8 @@ const mealPlanRouter = router({
         await addShoppingItems(rows);
       }
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
-      const mealTypeLabels: Record<string, string> = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '小食' };
-      const mealLabel = mealTypeLabels[input.mealType] ?? input.mealType;
+      const famLang = await getFamilyLanguage(ctx.activeFamilyId);
+      const mealLabel = msg(famLang, `push.mealType.${input.mealType}`);
       const actorName = ctx.user.name || 'Member';
       if (needsApproval) {
         const adminTokens = await getPushTokensByUserIds(
@@ -1070,15 +1075,15 @@ const mealPlanRouter = router({
             .map(m => m.user.id)
         );
         sendPushNotifications(adminTokens, {
-          title: `🍽️ ${actorName} 提議排餐`,
-          body: `${input.date} ${mealLabel}：${input.recipeName}（待確認）`,
+          title: msg(famLang, "push.mealProposed.title", { actor: actorName }),
+          body: `${input.date} ${mealLabel}${input.recipeName}`,
           data: { type: 'meal_plan_proposed' },
         }).catch(() => {});
       } else {
         const allTokens = await getPushTokensByFamily(ctx.activeFamilyId);
         sendPushNotifications(allTokens, {
-          title: '📅 排餐已更新',
-          body: `${input.date} ${mealLabel}：${input.recipeName}`,
+          title: msg(famLang, "push.mealUpdated.title"),
+          body: `${input.date} ${mealLabel}${input.recipeName}`,
           data: { type: 'meal_plan_updated' },
         }).catch(() => {});
       }
@@ -1209,6 +1214,7 @@ const mealPlanRouter = router({
       const uniqueDays = new Set(successfulItems.map(i => i.date));
       const uniqueRecipes = new Set(successfulItems.map(i => i.recipeId));
       const actorName = ctx.user.name || 'Member';
+      const batchLang = await getFamilyLanguage(ctx.activeFamilyId);
       
       if (needsApproval) {
         const adminTokens = await getPushTokensByUserIds(
@@ -1217,15 +1223,15 @@ const mealPlanRouter = router({
             .map(m => m.user.id)
         );
         sendPushNotifications(adminTokens, {
-          title: `🍽️ ${actorName} 提議 ${uniqueDays.size} 天排餐`,
-          body: `${successfulItems.length} 個餐次，${uniqueRecipes.size} 個菜式（待確認）`,
+          title: msg(batchLang, "push.mealBatchProposed.title", { actor: actorName, n: uniqueDays.size }),
+          body: `${successfulItems.length} / ${uniqueRecipes.size}`,
           data: { type: 'meal_plan_batch_proposed' },
         }).catch(() => {});
       } else {
         const allTokens = await getPushTokensByFamily(ctx.activeFamilyId);
         sendPushNotifications(allTokens, {
-          title: `📅 已排入 ${uniqueDays.size} 天晚餐`,
-          body: `${successfulItems.length} 個餐次，${uniqueRecipes.size} 個菜式`,
+          title: msg(batchLang, "push.mealBatchAdded.title", { n: uniqueDays.size }),
+          body: `${successfulItems.length} / ${uniqueRecipes.size}`,
           data: { type: 'meal_plan_batch_updated' },
         }).catch(() => {});
       }
@@ -1796,7 +1802,7 @@ export const appRouter = router({
         if (recent) return { success: true, cooldownSeconds: 60 };
         const { code } = await createEmailVerificationCode({ userId: String(ctx.user.id), email });
         try {
-          await sendVerificationEmail({ email, name: ctx.user.name ?? null, code });
+          await sendVerificationEmail({ email, name: ctx.user.name ?? null, code, lang: (ctx.user as any).language ?? null });
         } catch (e) {
           console.error("[linkEmailStart] send failed:", (e as Error)?.message);
         }
@@ -1881,6 +1887,12 @@ export const appRouter = router({
         await updateUserName(String(ctx.user.id), name);
         return { success: true, name };
       }),
+    setLanguage: protectedProcedure
+      .input(z.object({ language: z.string().max(16) }))
+      .mutation(async ({ ctx, input }) => {
+        await setUserLanguage(String(ctx.user.id), input.language || null);
+        return { success: true } as const;
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       // Clear both the domain-scoped and host-only cookie to be safe.
@@ -1908,6 +1920,7 @@ export const appRouter = router({
           email: user.email,
           name: user.name,
           resetLink,
+          lang: (user as any).language ?? null,
         });
 
         return { success: true } as const;
@@ -1993,7 +2006,7 @@ export const appRouter = router({
         if (recent) return { success: true, cooldownSeconds: 60 };
 
         const { code } = await createEmailVerificationCode({ userId: String(user.id), email: input.email });
-        await sendVerificationEmail({ email: input.email, name: user.name, code });
+        await sendVerificationEmail({ email: input.email, name: user.name, code, lang: (user as any).language ?? null });
         return { success: true };
       }),
 
@@ -2065,7 +2078,7 @@ export const appRouter = router({
           email,
         });
         try {
-          await sendVerificationEmail({ email, name: user?.name ?? null, code });
+          await sendVerificationEmail({ email, name: user?.name ?? null, code, lang: (user as any)?.language ?? null });
         } catch (e) {
           console.error("[requestLoginOtp] send failed:", (e as Error)?.message);
         }

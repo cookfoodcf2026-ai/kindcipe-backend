@@ -1,6 +1,7 @@
 import { ENV } from "./env";
+import { msg, normalizeLang } from "./msg";
 
-export async function sendPasswordResetEmail(params: { email: string; name?: string | null; resetLink: string }) {
+export async function sendPasswordResetEmail(params: { email: string; name?: string | null; resetLink: string; lang?: string | null }) {
   if (!ENV.resendApiKey) {
     if (!ENV.isProduction) {
       console.log("[PasswordResetEmail][DEV]", params.email, params.resetLink);
@@ -9,15 +10,16 @@ export async function sendPasswordResetEmail(params: { email: string; name?: str
     throw new Error("RESEND_API_KEY is not configured");
   }
 
-  const displayName = params.name?.trim() || "Kindcipe 用戶";
-  const subject = "重設你的 Kindcipe 密碼";
+  const lang = normalizeLang(params.lang);
+  const displayName = params.name?.trim() || (lang === "zh-TW" ? "Kindcipe 用戶" : "Kindcipe user");
+  const subject = msg(lang, "email.reset.subject");
   const text = [
-    `你好 ${displayName},`,
+    msg(lang, "email.reset.greeting", { name: displayName }),
     "",
-    "我們收到重設密碼請求。",
-    `請於 15 分鐘內打開以下連結：${params.resetLink}`,
+    msg(lang, "email.reset.received"),
+    msg(lang, "email.reset.link", { link: params.resetLink }),
     "",
-    "如果不是你本人操作，可以忽略此電郵。",
+    msg(lang, "email.reset.ignore"),
   ].join("\n");
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -47,35 +49,33 @@ export async function sendPasswordResetEmail(params: { email: string; name?: str
  * instead of failing — so a Beta household can still be verified manually from
  * the Railway logs. Configure Resend before the public launch.
  */
-export async function sendVerificationEmail(params: { email: string; name?: string | null; code: string }) {
+export async function sendVerificationEmail(params: { email: string; name?: string | null; code: string; lang?: string | null }) {
   if (!ENV.resendApiKey) {
     console.warn(`[VerificationEmail] RESEND_API_KEY missing — code for ${params.email}: ${params.code}`);
     return;
   }
 
-  const displayName = params.name?.trim() || "Kindcipe 用戶";
-  const subject = `Kindcipe 驗證碼 ${params.code} · Verify your email`;
+  const lang = normalizeLang(params.lang);
+  const displayName = params.name?.trim() || (lang === "zh-TW" ? "Kindcipe 用戶" : "Kindcipe user");
+  const subject = msg(lang, "email.verify.subject", { code: params.code });
   const text = [
-    `你好 ${displayName} / Hi ${displayName},`,
+    msg(lang, "email.verify.greeting", { name: displayName }),
     "",
-    `你的 Kindcipe 驗證碼是：${params.code}`,
-    `Your Kindcipe verification code is: ${params.code}`,
+    msg(lang, "email.verify.codeLine", { code: params.code }),
     "",
-    "此驗證碼 10 分鐘內有效。",
-    "This code is valid for 10 minutes.",
+    msg(lang, "email.verify.valid"),
     "",
-    "如果不是你本人操作，可以忽略此電郵。",
-    "If you didn't request this, you can ignore this email.",
+    msg(lang, "email.verify.ignore"),
   ].join("\n");
 
   const html = `
   <div style="font-family:-apple-system,Segoe UI,PingFang HK,Microsoft JhengHei,sans-serif;background:#FAF8F5;padding:32px">
     <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:28px">
       <h1 style="margin:0 0 8px;color:#013E77;font-size:22px">Kindcipe</h1>
-      <p style="margin:0 0 20px;color:#6B7280;font-size:14px">驗證你的電郵 · Verify your email</p>
-      <p style="margin:0 0 8px;color:#1F2937;font-size:15px">你的驗證碼 / Your code:</p>
+      <p style="margin:0 0 20px;color:#6B7280;font-size:14px">${msg(lang, "email.verify.heading")}</p>
+      <p style="margin:0 0 8px;color:#1F2937;font-size:15px">${msg(lang, "email.verify.codeLabel")}:</p>
       <p style="margin:0 0 20px;font-size:34px;font-weight:800;letter-spacing:8px;color:#013E77">${params.code}</p>
-      <p style="margin:0;color:#6B7280;font-size:13px">10 分鐘內有效 · Valid for 10 minutes</p>
+      <p style="margin:0;color:#6B7280;font-size:13px">${msg(lang, "email.verify.validShort")}</p>
     </div>
     <p style="text-align:center;color:#9CA3AF;font-size:12px;margin-top:20px">© Kindcipe · https://kindcipe.com</p>
   </div>`;

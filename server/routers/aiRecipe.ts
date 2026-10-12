@@ -1523,7 +1523,7 @@ async function generateMissingRecipes(
   }
   try {
     const soupHint = needSoup ? "必須包含 1 個湯水食譜。" : "";
-    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-5 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供英文名（nameEn）；steps 係中文步驟，同時提供 stepsEn（英文步驟，每一步對應）。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}]}`;
+    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-5 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
       maxTokens: 2600 * count,
@@ -1566,7 +1566,7 @@ async function generateOneType(
     : isVeg
       ? "呢道必須係一道蔬菜（清淡為主，唔好配肉/海鮮做主角，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬）；唔可以係湯、唔可以係麵/飯。"
       : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
-  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。每個 ingredient 請提供英文名（nameEn）；呢道餸本身提供 nameEn（英文名）。steps 係中文步驟（請精簡，4-5 步）；請同時提供 stepsEn（英文步驟），每一步對應中文步驟嘅同一步，份量/時間一致。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}`;
+  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。每個 ingredient 請提供 nameEn/nameFil/nameId；呢道餸本身提供 nameEn/nameFil/nameId。steps 係中文步驟（請精簡，4-5 步）；請同時提供 stepsEn/stepsFil/stepsId（每一步對應，份量/時間一致）。description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}`;
 
   const attempt = async (extra: string): Promise<SuggestedRecipe | null> => {
     try {
@@ -1799,8 +1799,8 @@ function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW
 
 **如果用戶想食譜**（例如「今晚食咩」、「我想整番茄炒蛋」、「有咩好煮」、「beef」）：
 你必須用以下 JSON 格式回覆，唔可以用純文字，因為系統要顯示食譜卡。
-每個食譜請同時提供：name（中文名）、nameEn（英文名）；每個 ingredient 同樣提供 nameEn；steps 係中文步驟，同時提供 stepsEn（英文步驟，每一步對應）。
-{"replyText":"...","recipes":[{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}]}
+每個食譜請同時提供 4 種語言：name（繁中名）、nameEn（英）、nameFil（菲）、nameId（印尼）；每個 ingredient 同樣提供 nameEn/nameFil/nameId；steps 係繁中步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 用繁中，同時提供 descriptionEn/descriptionFil/descriptionId。
+{"replyText":"...","recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}
 
 **如果用戶純粹傾偈**（例如「hi」、「多謝」、「你好」）：
 用正常文字回覆，唔好加 JSON。
@@ -1819,7 +1819,7 @@ function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW
   // 回覆語言：非中文裝置 → 對話文字用該語言（食譜內容仍 name 中文 + nameEn 英文）
   if (lang && lang !== "zh-TW") {
     const langName = lang === "en" ? "English" : lang === "fil" ? "Filipino (Tagalog)" : lang === "id" ? "Indonesian" : "English";
-    modeSection += `\n\n【回覆語言】請用 ${langName} 撰寫所有對話文字（replyText 及一般回覆）。食譜內容：name 欄用繁體中文、nameEn 用英文、steps 用中文、stepsEn 用英文。`;
+    modeSection += `\n\n【回覆語言】請用 ${langName} 撰寫所有對話文字（replyText 及一般回覆）。食譜內容：name 用繁體中文、nameEn 英、nameFil 菲、nameId 印尼；steps 用中文，同時 stepsEn/stepsFil/stepsId；description 同時提供 descriptionEn/descriptionFil/descriptionId。`;
   }
   
   return SYSTEM_PROMPT + modeSection;
@@ -1973,7 +1973,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 ⚠️ 新鮮感但唔好太難：所謂「新鮮感」係指未煮過嘅家常菜，或者用返平日常見食材但換個新煮法。**嚴禁**推出需要特殊工具、罕見/難買食材、或者步驟極度複雜嘅菜式。保持喺「香港家庭日常可煮」嘅難度範圍內（避免慢火濃縮、低溫慢煮、分子料理、異國稀有食材等）。
 
 ⚠️【JSON 格式要求】食譜必須完整，唔好截斷：
-{"replyText":"...","recipes":[{"name":"...","nameEn":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","nameEn":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."]}]}
+{"replyText":"...","recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}
 
 ⚠️【3 餸 1 湯】強制規則：當用戶請求「3 餸 1 湯」「三餸一湯」「3 菜 1 湯」「今晚食咩」時，你**必須生成剛好 4 個食譜**（唔可以係 3 個或 5 個）：
 - 食譜一：肉類主菜（如豬/牛/雞）
@@ -2983,7 +2983,12 @@ export async function processAIChefChat(
         }
         if (matched.length > 0) {
           recipes = matched;
-          content = aiReply(lang, "libByName", { name: matched[0].name });
+          const _m: any = matched[0];
+          const _disp = lang === "fil" ? (_m.nameFil || _m.nameEn || _m.name)
+            : lang === "id" ? (_m.nameId || _m.nameEn || _m.name)
+            : lang === "en" ? (_m.nameEn || _m.name)
+            : _m.name;
+          content = aiReply(lang, "libByName", { name: _disp });
           console.log(`[AI Chef] Text-card matched library: ${matched[0].name}`);
         }
       }

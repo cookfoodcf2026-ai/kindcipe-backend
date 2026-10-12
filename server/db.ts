@@ -1850,6 +1850,29 @@ export async function getPushTokensByFamily(familyId: number): Promise<string[]>
   return result.map((r) => r.token);
 }
 
+/** Recipient language for a family (falls back to owner's user language, then null→zh). */
+export async function getFamilyLanguage(familyId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const [f] = await db.select({ language: families.language, ownerId: families.ownerId }).from(families).where(eq(families.id, familyId)).limit(1);
+    if (!f) return null;
+    if (f.language) return f.language;
+    if (f.ownerId) {
+      const [u] = await db.select({ language: users.language }).from(users).where(eq(users.id, f.ownerId)).limit(1);
+      return u?.language ?? null;
+    }
+    return null;
+  } catch { return null; }
+}
+
+/** Persist a user's preferred language (best-effort). */
+export async function setUserLanguage(userId: string, language: string | null): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try { await db.update(users).set({ language } as any).where(eq(users.id, userId)); } catch { /* ignore */ }
+}
+
 export async function getPushTokensByUser(userId: string): Promise<string[]> {
   const db = await getDb();
   if (!db) return [];

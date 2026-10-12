@@ -15,7 +15,9 @@ import {
   incrementImportUsage,
   countCustomRecipesCreatedThisMonth,
   getPushTokensByFamily,
+  getFamilyLanguage,
 } from "../db";
+import { msg } from "../_core/msg";
 import { sendPushNotifications } from "../pushNotification";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 
@@ -99,10 +101,11 @@ export const customRecipeRouter = router({
       // Push notification to all family members when a recipe is imported
       if (isImport && ctx.activeFamilyId) {
         const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
-        const importerName = ctx.user.name || "家庭成員";
+        const importerName = ctx.user.name || "Member";
+        const lang = await getFamilyLanguage(ctx.activeFamilyId);
         sendPushNotifications(tokens, {
-          title: "🍳 新食譜加入廚房",
-          body: `${importerName} 匯入了新食譜：${input.name}`,
+          title: msg(lang, "push.newRecipe.title"),
+          body: msg(lang, "push.newRecipe.body", { name: input.name }),
           data: { type: "recipe_imported", recipeId: String(recipe?.id ?? "") },
         }).catch(() => {});
       }
