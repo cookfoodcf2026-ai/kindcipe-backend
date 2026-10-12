@@ -1849,6 +1849,12 @@ export const recipesRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
       await assertFamilyQuota(ctx.activeFamilyId);
+
+      // 🛑 Screenshot/camera import is a Pro feature
+      const sub = await getFamilySubscription(ctx.activeFamilyId);
+      if (!sub?.isPaid) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "截圖匯入係 Pro 功能，升級後即可用相機／截圖匯入。" });
+      }
       
       // Build absolute URL(s) for Vision API via storage signed URL
       const { storageGetSignedUrl } = await import("../storage");

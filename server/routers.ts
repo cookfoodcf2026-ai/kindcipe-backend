@@ -192,10 +192,11 @@ const familyRouter = router({
         return { ...owned.family, role: "owner", reused: true as const };
       }
 
-      if (myFamilies.length > 0) {
+      // 每個帳號最多 2 個廚房：1 個自己 + 1 個加入。已有自己嘅廚房 → 重用；否則可開自己嗰個。
+      if (myFamilies.length >= 2) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "每個帳號最多建立 1 個廚房，請先離開目前廚房",
+          message: "每個帳號最多 2 個廚房（1 個自己 + 1 個加入）",
         });
       }
 
@@ -311,7 +312,7 @@ const familyRouter = router({
     return {
       imports: {
         used: await getImportUsage(familyId),
-        limit: sub?.maxImportsPerMonth ?? 5,
+        limit: sub?.maxImportsPerMonth ?? 20,
       },
       customRecipes: {
         used: await countCustomRecipesCreatedThisMonth(familyId),

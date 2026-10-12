@@ -433,7 +433,8 @@ export async function deleteUserAccount(userId: string | number) {
 export async function createFamily(data: InsertFamily) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(families).values(data);
+  // New kitchens start on the Free tier (Pro is unlocked via IG promo code).
+  await db.insert(families).values({ subscriptionStatus: "free", maxMembers: 2, ...data });
   const result = await db.select().from(families).where(eq(families.inviteCode, data.inviteCode)).limit(1);
   return result[0];
 }
@@ -1421,6 +1422,7 @@ export async function getFamilySubscription(familyId: number) {
     return {
       status: "active" as const,
       isPaid: true,
+      multiLang: true,
       maxMembers: 4,
       maxImportsPerMonth: 300,
       maxCustomRecipesPerMonth: null,
@@ -1462,6 +1464,7 @@ export async function getFamilySubscription(familyId: number) {
   return {
     status,
     isPaid,
+    multiLang: isPaid,
     maxMembers: isPaid ? 4 : 2,
     maxImportsPerMonth: isPaid ? 300 : 20,
     maxCustomRecipesPerMonth: isPaid ? null : 20,
@@ -1544,7 +1547,7 @@ export async function activateFamilySubscription(familyId: number, plan: "monthl
       subscriptionStatus: "active",
       subscriptionPlan: plan,
       subscriptionExpiresAt: expiresAt,
-      maxMembers: 6,
+      maxMembers: 4,
     })
     .where(eq(families.id, familyId));
 }
@@ -1618,7 +1621,7 @@ export async function assertFamilyQuota(familyId: number): Promise<number> {
     throw new TRPCError({ code: "NOT_FOUND", message: "家庭不存在" });
   }
   
-  const limit = family.maxImportsPerMonth ?? 5;
+  const limit = family.maxImportsPerMonth ?? 20;
   const count = await getImportUsage(familyId);
   
   if (count >= limit) {
