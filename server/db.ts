@@ -45,6 +45,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { normalizeIngredientCandidates } from "./utils/ingredientResolve";
+import { computeScenarioTags } from "./utils/scenario";
 
 let _pgClient: ReturnType<typeof postgres> | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1329,6 +1330,11 @@ export async function insertCustomRecipe(data: {
   const [row] = await db.insert(customRecipes).values({
     ...data,
     visibility: "private",
+    scenarioTags: computeScenarioTags({
+      name: (data as any).name, description: (data as any).description, cookTime: (data as any).cookTime,
+      difficulty: (data as any).difficulty, recipeCategory: (data as any).recipeCategory,
+      dishType: (data as any).dishType, ingredients: (data as any).ingredients, steps: (data as any).steps, tags: (data as any).tags,
+    }),
   }).returning();
   return row;
 }
@@ -1354,7 +1360,18 @@ export async function updateCustomRecipeById(
   await db.update(customRecipes).set(data).where(
     and(eq(customRecipes.id, id), eq(customRecipes.familyId, familyId))
   );
-  const [row] = await db.select().from(customRecipes).where(eq(customRecipes.id, id));
+  let [row] = await db.select().from(customRecipes).where(eq(customRecipes.id, id));
+  if (row) {
+    const st = computeScenarioTags({
+      name: row.name, description: row.description, cookTime: row.cookTime,
+      difficulty: row.difficulty, recipeCategory: row.recipeCategory, dishType: row.dishType,
+      ingredients: row.ingredients, steps: row.steps, tags: row.tags,
+    });
+    if (st !== row.scenarioTags) {
+      await db.update(customRecipes).set({ scenarioTags: st }).where(eq(customRecipes.id, id));
+      row = { ...row, scenarioTags: st };
+    }
+  }
   return row;
 }
 

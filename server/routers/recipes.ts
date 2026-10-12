@@ -17,6 +17,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
+import { computeScenarioTags } from "../utils/scenario";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations } from "../utils/recipeTranslations";
@@ -2797,6 +2798,11 @@ export const recipesRouter = router({
           sourceUrl: null,
           sourceUrlHash: null,
           sourceAuthor: null,
+          scenarioTags: computeScenarioTags({
+            name: recipe.name, description: recipe.description, cookTime: recipe.cookTime,
+            difficulty: recipe.difficulty, recipeCategory: recipe.recipeCategory,
+            dishType: recipe.dishType, ingredients: recipe.ingredients, steps: recipe.steps, tags: recipe.tags,
+          }),
         }).returning();
         inserted.push(row.id);
       }
@@ -2878,6 +2884,11 @@ export const recipesRouter = router({
         sourceUrl: input.sourceUrl,
         sourceUrlHash: urlHash ?? undefined,
         sourceAuthor: input.sourceAuthor,
+        scenarioTags: computeScenarioTags({
+          name: input.name, description: input.description, cookTime: input.cookTime,
+          difficulty: input.difficulty, recipeCategory: input.recipeCategory,
+          dishType: input.dishType, ingredients: input.ingredients, steps: input.steps, tags: input.tags,
+        }),
       }).returning();
 
       return { success: true, id: inserted.id };
@@ -2923,6 +2934,11 @@ export const recipesRouter = router({
             sourceUrl: recipe.sourceUrl,
             sourceUrlHash: urlHash ?? undefined,
             sourceAuthor: recipe.sourceAuthor,
+            scenarioTags: computeScenarioTags({
+              name: recipe.name, description: recipe.description, cookTime: recipe.cookTime,
+              difficulty: recipe.difficulty, recipeCategory: recipe.recipeCategory,
+              dishType: recipe.dishType, ingredients: recipe.ingredients, steps: recipe.steps, tags: recipe.tags,
+            }),
             isActive: true,
           });
           results.push({ name: recipe.name, status: "imported" });
@@ -3068,6 +3084,11 @@ export const recipesRouter = router({
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
         isAiGenerated: input.isAiGenerated ?? false,
+        scenarioTags: computeScenarioTags({
+          name: baseName, description: baseDesc, cookTime: input.cookTime,
+          difficulty: input.difficulty, recipeCategory: input.recipeCategory,
+          dishType: input.dishType, ingredients: baseIngredients, steps: baseSteps, tags: input.tags,
+        }),
       }).returning();
 
       // 配額扣數已移至 parse* 步驟（真正燒 LLM 嘅位），避免同 importUser 重複計。
@@ -3292,6 +3313,11 @@ export const recipesRouter = router({
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
         isDraft: input.isDraft,
+        scenarioTags: isDraft ? "[]" : computeScenarioTags({
+          name: baseName, description: baseDesc, cookTime: input.cookTime,
+          difficulty: input.difficulty, recipeCategory: input.recipeCategory,
+          dishType: input.dishType, ingredients: baseIngredients, steps: baseSteps, tags: input.tags,
+        }),
       }).returning();
 
       return { success: true, id: inserted.id };
@@ -3343,6 +3369,11 @@ export const recipesRouter = router({
         visibility: input.visibility,
         isDraft: input.isDraft,
         updatedAt: new Date(),
+        scenarioTags: isDraft ? "[]" : computeScenarioTags({
+          name: baseNameRaw, description: input.description, cookTime: input.cookTime,
+          difficulty: input.difficulty, recipeCategory: input.recipeCategory,
+          dishType: input.dishType, ingredients: input.ingredients, steps: input.steps, tags: input.tags,
+        }),
       };
       if (!isDraft) {
         // 最終儲存：由作者語言 buildAllLangs 補齊 4 語言（保證中文 base）；非中文編輯唔會覆寫中文 base
@@ -3461,6 +3492,11 @@ export const recipesRouter = router({
         sourceUrl: input.sourceUrl ?? '',
         tips: input.tips ?? '',
         isActive: true,
+        scenarioTags: computeScenarioTags({
+          name: input.name, description: input.description, cookTime: input.cookTime,
+          difficulty: input.difficulty, recipeCategory: input.recipeCategory,
+          ingredients: [], steps: [], tags: input.tags,
+        }),
       }).returning();
       return { success: true, id: inserted.id };
     }),
@@ -3507,6 +3543,10 @@ export const recipesRouter = router({
         sourceType: input.sourceType,
         tips: input.tips ?? '',
         updatedAt: new Date(),
+        scenarioTags: computeScenarioTags({
+          name: input.name, description: input.description, cookTime: input.cookTime,
+          difficulty: input.difficulty, recipeCategory: input.recipeCategory, tags: input.tags,
+        }),
       }).where(eq(officialRecipes.id, input.id));
       return { success: true };
     }),
@@ -3550,6 +3590,11 @@ export const recipesRouter = router({
         sourceUrl: input.url,
         sourceAuthor: input.sourceAuthor ?? parsed.sourceAuthor ?? "",
         visibility: "public",
+        scenarioTags: computeScenarioTags({
+          name: parsed.name, description: parsed.description, cookTime: parsed.cookTime ?? 30,
+          difficulty: parsed.difficulty, recipeCategory: parsed.recipeCategory,
+          ingredients: parsed.ingredients, steps: parsed.steps, tags: parsed.tags,
+        }),
       }).returning();
       return { success: true, id: inserted.id, name: parsed.name };
     }),
@@ -3588,6 +3633,11 @@ export const recipesRouter = router({
             sourceType: "kol", sourceUrl: url,
             sourceAuthor: input.sourceAuthor ?? parsed.sourceAuthor ?? "",
             visibility: "public",
+            scenarioTags: computeScenarioTags({
+              name: parsed.name, description: parsed.description, cookTime: parsed.cookTime ?? 30,
+              difficulty: parsed.difficulty, recipeCategory: parsed.recipeCategory,
+              ingredients: parsed.ingredients, steps: parsed.steps, tags: parsed.tags,
+            }),
           });
           results.push({ url, ok: true, name: parsed.name });
         } catch (e) {
@@ -3648,6 +3698,11 @@ export const recipesRouter = router({
         tags: kol.tags, sourceType: "manual",
         sourceUrl: kol.sourceUrl, sourceAuthor: kol.sourceAuthor,
         visibility: "private",
+        scenarioTags: kol.scenarioTags ?? computeScenarioTags({
+          name: kol.name, description: kol.description, cookTime: kol.cookTime,
+          difficulty: kol.difficulty, recipeCategory: kol.recipeCategory, dishType: kol.dishType,
+          ingredients: kol.ingredients, steps: kol.steps, tags: kol.tags,
+        }),
       }).returning();
       return { success: true, id: inserted.id };
     }),
@@ -3729,6 +3784,11 @@ export const recipesRouter = router({
         tags: src.tags, sourceType: "kol",
         sourceUrl: src.sourceUrl, sourceAuthor: src.sourceAuthor ?? ctx.user.name ?? "",
         visibility: "public",
+        scenarioTags: src.scenarioTags ?? computeScenarioTags({
+          name: src.name, description: src.description, cookTime: src.cookTime,
+          difficulty: src.difficulty, recipeCategory: src.recipeCategory, dishType: src.dishType,
+          ingredients: src.ingredients, steps: src.steps, tags: src.tags,
+        }),
       }).returning();
       return { success: true, id: inserted.id };
     }),

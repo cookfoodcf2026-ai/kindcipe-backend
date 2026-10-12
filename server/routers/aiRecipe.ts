@@ -822,7 +822,7 @@ function safeParseJsonArray(value: unknown): unknown[] {
 }
 
 async function execSearchRecipes(
-  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[] }, familyId?: number
+  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
 
@@ -893,6 +893,7 @@ async function execSearchRecipes(
     eq(officialRecipes.isActive, true),
     args.category ? eq(officialRecipes.recipeCategory, args.category) : undefined,
     args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(officialRecipes.recipeCategory, args.excludeCategories) : undefined,
+    args.scenario ? ilike(officialRecipes.scenarioTags, `%"${args.scenario}"%`) : undefined,
   ].filter(Boolean);
   let officialRows = await searchTable(officialRecipes, officialCols, officialWhere, "and");
   if (officialRows.length === 0) {
@@ -906,6 +907,7 @@ async function execSearchRecipes(
       eq(customRecipes.isDraft, false),
       args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
       args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
+      args.scenario ? ilike(customRecipes.scenarioTags, `%"${args.scenario}"%`) : undefined,
     ].filter(Boolean);
     customRows = await searchTable(customRecipes, customCols, customWhere, "and");
     if (customRows.length === 0) {
@@ -1473,8 +1475,15 @@ function applySearchFilters(rows: Record<string, unknown>[], search?: { cookTime
   if (!search) return rows;
   const exc = (search.excludeCategories ?? []).map(String);
   return rows.filter(r => {
-    const ct = Number(r.cookTime ?? 0);
-    if (search.cookTimeMax && ct > search.cookTimeMax) return false;
+    if (search.cookTimeMax) {
+      // Match the DB layer (`lte(cookTime, max)`): unknown cookTime (NULL) does NOT
+      // pass a time filter. Previously null was coerced to 0 → included, which made
+      // hotkey results depend on whether the primary search returned anything.
+      const raw = r.cookTime;
+      if (raw === null || raw === undefined || raw === "") return false;
+      const ct = Number(raw);
+      if (!Number.isFinite(ct) || ct > search.cookTimeMax) return false;
+    }
     const d = classifyDishType(r);
     if (exc.includes("甜品") && d === "dessert") return false;
     if (exc.includes("湯水") && d === "soup") return false;
@@ -2459,7 +2468,7 @@ export async function processAIChefChat(
   userId?: number,
   mode: "chat" | "ai" | "library" = "chat",
   excludeNames: string[] = [],
-  search?: { query?: string; tags?: string[]; cookTimeMax?: number; category?: string; count?: number; rank?: "shortestTime" | "default"; excludeCategories?: string[] },
+  search?: { query?: string; tags?: string[]; cookTimeMax?: number; category?: string; count?: number; rank?: "shortestTime" | "default"; excludeCategories?: string[]; scenario?: string },
   lang: string = "zh-TW"
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
@@ -2657,6 +2666,7 @@ export async function processAIChefChat(
               tags: search.tags,
               cookTimeMax: search.cookTimeMax,
               excludeCategories: search.excludeCategories,
+              scenario: search.scenario,
               limit: 30,
             }, familyId),
             8000, "lib search"
@@ -3507,6 +3517,7 @@ export const aiRecipeRouter = router({
         count: z.number().int().min(1).max(10).optional(),
         rank: z.enum(["shortestTime", "default"]).optional(),
         excludeCategories: z.array(z.string()).optional(),
+        scenario: z.enum(["quick", "healthy", "ricecooker", "kids", "guest"]).optional(),
       }).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
