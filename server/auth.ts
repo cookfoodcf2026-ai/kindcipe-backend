@@ -312,6 +312,36 @@ export function registerSocialAuthRoutes(app: Express) {
     });
   });
 
+  // Sign in with Apple — Web (JS popup).
+  // The browser Apple JS SDK returns an id_token whose `aud` is the Services ID
+  // (not the iOS bundle ID), so it must be verified with verifyAppleWebIdToken.
+  // Mirrors /api/auth/google: the client gets the session token in the response
+  // body (no redirect, no cookie, no URL fragment to lose).
+  app.post("/api/auth/apple/web", async (req: Request, res: Response) => {
+    const { idToken, name } = req.body as { idToken?: string; name?: string };
+    if (!idToken) {
+      res.status(400).json({ error: "idToken is required" });
+      return;
+    }
+
+    // Empty nonce → the popup flow relies on Apple's signed id_token (signature +
+    // issuer + audience), same trust model as the Google endpoint.
+    const info = await verifyAppleWebIdToken(idToken, "");
+    if (!info) {
+      res.status(401).json({ error: "Invalid Apple token" });
+      return;
+    }
+
+    await handleSocialLogin(req, res, {
+      provider: "apple",
+      providerUserId: info.sub,
+      email: info.email,
+      name: name || fallbackName(info.email, "apple"),
+      loginMethod: "apple",
+      isPrivateEmail: info.isPrivateEmail,
+    });
+  });
+
   // ── Sign in with Apple — Web / Android OAuth ──────────────────────────────
   // 開始：302 去 Apple 授權頁（response_mode=form_post 會 POST 返 callback）
   app.get("/api/auth/apple/web/start", async (req: Request, res: Response) => {
