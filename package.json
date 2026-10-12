@@ -10,6 +10,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "check:i18n-coverage": "node scripts/check-i18n-coverage.cjs",
     "promote:admin": "tsx scripts/promote-admin.ts"
   },
   "dependencies": {
