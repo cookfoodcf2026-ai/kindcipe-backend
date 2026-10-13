@@ -46,6 +46,70 @@ export function planForPriceId(priceId: string): "monthly" | "yearly" | null {
   return null;
 }
 
+/**
+ * Resolve a user-entered promotion code to a Stripe promotion_code id
+ * (promo_...). Returns null when unknown / inactive / expired.
+ */
+export async function resolvePromotionCodeId(code: string): Promise<string | null> {
+  const trimmed = String(code ?? "").trim();
+  if (!trimmed) return null;
+  try {
+    const stripe = getStripe();
+    const list = await stripe.promotionCodes.list({ code: trimmed, active: true, limit: 1 });
+    const pc: any = list.data[0];
+    if (!pc) return null;
+    if (pc.expires_at && pc.expires_at * 1000 < Date.now()) return null;
+    return pc.id as string;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get a promotion code's coupon + discount info (for the in-app order summary).
+ * Amounts are in the smallest currency unit (cents).
+ */
+export async function getPromotionInfo(code: string): Promise<
+  | { promotionCodeId: string; percentOff?: number; amountOff?: number; currency?: string; couponId?: string }
+  | null
+> {
+  const trimmed = String(code ?? "").trim();
+  if (!trimmed) return null;
+  try {
+    const stripe = getStripe();
+    const list = await stripe.promotionCodes.list({
+      code: trimmed,
+      active: true,
+      limit: 1,
+      expand: ["data.coupon"],
+    });
+    const pc: any = list.data[0];
+    if (!pc) return null;
+    if (pc.expires_at && pc.expires_at * 1000 < Date.now()) return null;
+    const coupon: any = pc.coupon;
+    return {
+      promotionCodeId: pc.id as string,
+      percentOff: coupon?.percent_off ?? undefined,
+      amountOff: coupon?.amount_off ?? undefined,
+      currency: coupon?.currency ? String(coupon.currency).toUpperCase() : undefined,
+      couponId: coupon?.id,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch a plan's configured price amount + currency (smallest unit). */
+export async function getPlanPrice(plan: "monthly" | "yearly"): Promise<{ amount: number; currency: string } | null> {
+  try {
+    const stripe = getStripe();
+    const price = await stripe.prices.retrieve(priceIdForPlan(plan));
+    return { amount: price.unit_amount ?? 0, currency: String(price.currency ?? "hkd").toUpperCase() };
+  } catch {
+    return null;
+  }
+}
+
 export const PRODUCT_ID_FOR_PLAN: Record<"monthly" | "yearly", string> = {
   monthly: "kindcipe_monthly_30",
   yearly: "kindcipe_yearly_288",

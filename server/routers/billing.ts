@@ -15,6 +15,9 @@ import {
   getStripe,
   isStripeConfigured,
   priceIdForPlan,
+  resolvePromotionCodeId,
+  getPromotionInfo,
+  getPlanPrice,
   PRODUCT_ID_FOR_PLAN,
 } from "../_core/stripe";
 import { ENV } from "../_core/env";
@@ -39,6 +42,28 @@ export const billingRouter = router({
   }),
 
   /**
+   * Validate an Instagram promo code and return the in-app order summary
+   * (subtotal / discount / total) so the paywall can show the real charged
+   * amount before redirecting to Stripe. Amounts are in the smallest unit.
+   */
+  previewPromoCode: protectedProcedure
+    .input(z.object({ plan: z.enum(["monthly", "yearly"]), code: z.string().min(1).max(64) }))
+    .mutation(async ({ input }) => {
+      if (!isStripeConfigured()) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "網上付款暫時未開放，請稍後再試。" });
+      }
+      const price = await getPlanPrice(input.plan);
+      if (!price) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "價格未設定" });
+      const info = await getPromotionInfo(input.code);
+      if (!info) return { valid: false as const, subtotal: price.amount, discount: 0, total: price.amount, currency: price.currency };
+      let discount = 0;
+      if (info.percentOff != null) discount = Math.round((price.amount * info.percentOff) / 100);
+      else if (info.amountOff != null) discount = Math.min(info.amountOff, price.amount);
+      const total = Math.max(0, price.amount - discount);
+      return { valid: true as const, subtotal: price.amount, discount, total, currency: price.currency, percentOff: info.percentOff ?? null };
+    }),
+
+  /**
    * Create a Stripe Checkout Session for the current family, then the web
    * client redirects the browser to `url`.
    */
@@ -48,6 +73,8 @@ export const billingRouter = router({
         plan: z.enum(["monthly", "yearly"]),
         /** Origin the browser should return to (validated against ALLOWED_ORIGINS). */
         returnUrl: z.string().url().optional(),
+        /** Optional Instagram promo code (validated → applied as a discount). */
+        promoCode: z.string().max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -94,10 +121,18 @@ export const billingRouter = router({
         ? `${origin}/settings?billing=cancel`
         : resolveReturnUrl("cancel", "https://app.kindcipe.com/settings?billing=cancel");
 
+      // Resolve an optional Instagram promo code → Stripe promotion_code discount.
+      const promotionCodeId = input.promoCode
+        ? await resolvePromotionCodeId(input.promoCode)
+        : null;
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         customer: customerId,
         line_items: [{ price: priceIdForPlan(input.plan), quantity: 1 }],
+        // Apply the promo code as a discount so the charged amount matches the
+        // in-app order summary. (discounts and allow_promotion_codes are mutually
+        // exclusive in Stripe Checkout.)
+        ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
         success_url: successUrl,
         cancel_url: cancelUrl,
         client_reference_id: String(ctx.activeFamilyId),
@@ -105,6 +140,7 @@ export const billingRouter = router({
           familyId: String(ctx.activeFamilyId),
           userId: String(ctx.user?.id ?? ""),
           plan: input.plan,
+          promoCode: input.promoCode ?? "",
         },
         subscription_data: {
           metadata: { familyId: String(ctx.activeFamilyId), plan: input.plan },
