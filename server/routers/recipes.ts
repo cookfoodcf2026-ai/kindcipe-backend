@@ -20,7 +20,7 @@ import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from ".
 import { computeScenarioTags } from "../utils/scenario";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
-import { buildTranslationPatch, withIngredientTranslations } from "../utils/recipeTranslations";
+import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
@@ -511,7 +511,7 @@ async function collectInstagramThumbnailCandidates(url: string): Promise<string[
  *  規則：名稱以「：或:」結尾，或屬「…材料」類標題且冇數量 → 丢弃。 */
 function sanitizeParsedIngredients(list: any[]): any[] {
   if (!Array.isArray(list)) return [];
-  return list.filter((ing) => {
+  const kept = list.filter((ing) => {
     const name = String(ing?.name ?? "").trim();
     if (!name) return false;
     const hasQty = !!String(ing?.quantity ?? "").trim() || !!String(ing?.unit ?? "").trim();
@@ -519,6 +519,20 @@ function sanitizeParsedIngredients(list: any[]): any[] {
     if (!hasQty && /(材料|醬汁|調味料|醃料|配料)$/.test(name)) return false;
     if (!hasQty && /^(醬汁|調味|醃料|配料|材料)/.test(name)) return false;
     return true;
+  });
+  // 把描述型量詞（適量/少許…）由 quantity/name 移入 unit，避免非中文介面漏中文。
+  return kept.map((ing) => {
+    const name = String(ing?.name ?? "").trim();
+    const q = String(ing?.quantity ?? "").trim();
+    const u = String(ing?.unit ?? "").trim();
+    const out: any = { ...ing };
+    if (!u && DESCRIPTOR_SET.has(q)) { out.quantity = ""; out.unit = q; }
+    const desc = extractDescriptor(name);
+    if (desc.descriptor) {
+      out.name = desc.name || name;
+      if (!String(out.unit ?? "").trim()) { out.unit = desc.descriptor; out.quantity = ""; }
+    }
+    return out;
   });
 }
 
@@ -771,7 +785,7 @@ ${text}
   result.parseReason = (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent)
     ? "no_recipe_content"
     : "ok";
-  return result;
+  return await ensureParseTranslations(result);
 }
 
 // ─── Ingredient / Step schemas ────────────────────────────────────────────────
@@ -1338,6 +1352,40 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
 
 // ─── AI Parse URL ─────────────────────────────────────────────────────────────
 
+/**
+ * Guarantee a parsed recipe result carries en/fil/id (name/description/steps/
+ * ingredients) before returning — so an English user's editor never shows a
+ * blank base name (which would fail save). Never throws.
+ */
+async function ensureParseTranslations(result: any): Promise<any> {
+  if (!result || !result.name || result.name === "無法解析" || result.name === "需要手動輸入") return result;
+  try {
+    const stepTexts = (Array.isArray(result.steps) ? result.steps : [])
+      .map((s: any) => (typeof s === "string" ? s : String(s?.instruction ?? ""))).filter(Boolean);
+    const needName = !result.nameEn || !result.nameFil || !result.nameId;
+    const needDesc = !!result.description && (!result.descriptionEn || !result.descriptionFil || !result.descriptionId);
+    const needSteps = stepTexts.length > 0 && (!result.stepsEn?.length || !result.stepsFil?.length || !result.stepsId?.length);
+    if (needName || needDesc || needSteps) {
+      const tr = await translateRecipeContent(result.name, stepTexts, result.description ?? "");
+      if (needName) { result.nameEn = result.nameEn || tr.nameEn; result.nameFil = result.nameFil || tr.nameFil; result.nameId = result.nameId || tr.nameId; }
+      if (needDesc) { result.descriptionEn = result.descriptionEn || tr.descriptionEn; result.descriptionFil = result.descriptionFil || tr.descriptionFil; result.descriptionId = result.descriptionId || tr.descriptionId; }
+      if (needSteps) {
+        result.stepsEn = result.stepsEn?.length ? result.stepsEn : tr.stepsEn;
+        result.stepsFil = result.stepsFil?.length ? result.stepsFil : tr.stepsFil;
+        result.stepsId = result.stepsId?.length ? result.stepsId : tr.stepsId;
+      }
+    }
+    const ings = Array.isArray(result.ingredients) ? result.ingredients : [];
+    if (ings.some((i: any) => i?.name && (!i.nameEn || !i.nameFil || !i.nameId))) {
+      const merged = await localizeIngredientNames(ings);
+      if (merged) result.ingredients = merged;
+    }
+  } catch (e) {
+    console.warn("[ensureParseTranslations] failed:", (e as Error)?.message);
+  }
+  return result;
+}
+
 /** Fetch raw HTML (for JSON-LD extraction), SSRF-guarded + size-capped. */
 async function fetchRawHtml(url: string): Promise<string> {
   try {
@@ -1361,9 +1409,30 @@ async function fetchRawHtml(url: string): Promise<string> {
 
 const REAL_UNIT_RE = /^(g|kg|mg|ml|l|cc|cup|cups|tbsp|tsp|tablespoon|teaspoon|oz|lb|gram|grams|克|公斤|毫升|杯|湯匙|茶匙|大匙|小匙|匙|個|隻|條|片|塊|包|粒|顆|把|支|扎|碗|碟|份|斤|兩)$/i;
 
+// 描述型「量」→ 應歸入 unit（前端會本地化），唔好留喺 quantity/name 度漏中文。
+const DESCRIPTOR_UNIT_RE = /^(適量|适量|少許|少许|少量|酌量|隨意|随意|適量調味|适量调味|少許調味|少许调味|適量即可)\s*(.*)$/;
+const DESCRIPTOR_TRAIL_RE = /\s*(適量|适量|少許|少许|少量|酌量)\s*$/;
+const DESCRIPTOR_SET = new Set(["適量", "适量", "少許", "少许", "少量", "酌量", "隨意", "随意", "適量調味", "适量调味", "少許調味", "少许调味", "適量即可", "to taste", "pinch"]);
+
+/** "適量鹽" → {name:"鹽", unit:"適量"}；"鹽 適量" 同理；描述型量詞唔留喺 name。 */
+function extractDescriptor(nameRaw: string): { name: string; descriptor: string } {
+  const name = String(nameRaw ?? "").trim();
+  const lead = name.match(DESCRIPTOR_UNIT_RE);
+  if (lead) return { name: (lead[2] || name).trim(), descriptor: lead[1] };
+  const trail = name.match(DESCRIPTOR_TRAIL_RE);
+  if (trail) {
+    const rest = name.slice(0, trail.index).trim();
+    if (rest) return { name: rest, descriptor: trail[1] };
+  }
+  return { name, descriptor: "" };
+}
+
 /** Best-effort split of an ingredient line "500 g chicken breast" → qty/unit/name. */
 function parseIngredientLine(raw: string): { name: string; quantity: string; unit: string } {
   const s = String(raw ?? "").trim();
+  if (!s) return { name: "", quantity: "", unit: "" };
+  const desc = extractDescriptor(s);
+  if (desc.descriptor) return { name: desc.name || desc.descriptor, quantity: "", unit: desc.descriptor };
   const m = s.match(/^([0-9]+(?:[./][0-9]+)?(?:\s*[-–~至]\s*[0-9]+(?:[./][0-9]+)?)?)\s*([A-Za-z\u4e00-\u9fff]{0,7})?\s*(.+)$/);
   if (!m || !m[3]) return { name: s, quantity: "", unit: "" };
   const qty = m[1].replace(/\s+/g, "");
@@ -1772,7 +1841,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   } else {
     result.parseReason = "ok";
   }
-  return result;
+  return await ensureParseTranslations(result);
 }
 
 /**
@@ -1976,13 +2045,13 @@ export const recipesRouter = router({
       const imageUrls = await Promise.all(keys.map((k) => storageGetSignedUrl(k)));
       const imageUrl = imageUrls[0]; // 主圖（做封面）
 
-      const systemPrompt = `你是一個專業的食譜創作助手。請仔細分析用戶上傳的圖片：
-1. 如果圖片中有食物或菜餚，請根據外觀、顏色、質地和常見烹飪方式推測可能的食材和做法。
-2. 如果圖片中同時有文字（例如食材清單、步驟），請把文字資訊作為輔助，提高準確度。
-3. 只有在完全無法判斷圖片內容（例如圖片空白、過度模糊、或與食物無關）時，才在 name 回傳「需要手動輸入」，並在 description 說明原因。
-      請以繁體中文作為主要文字，並使用以下 JSON 格式。name、description、ingredients、steps、tags 全部要用繁體中文；同時提供英(En)/菲(Fil)/印尼(Id)譯文。食材名稱要翻譯成常見煮食用字，唔好保留原文。食材分類規則：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
+      const systemPrompt = `你係食譜文字辨識（OCR）助手。只讀取圖片中清楚可見嘅文字：
+1. 若圖中有食材清單／步驟文字 → 如實抽取（主要文字用繁體中文；同時提供英(En)/菲(Fil)/印尼(Id)譯文）。
+2. 唔准靠菜名、外觀或常識推測食材或步驟（寧缺勿作）。
+3. 若圖中冇可讀嘅食譜文字（例如只係食物相、冇字、模糊）→ 喺 name 回傳「需要手動輸入」，並喺 description 簡述原因。
+      食材名稱用常見煮食用字；食材分類：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
 
-      const userPrompt = `請分析這張圖片，盡力識別或推測出食材和烹飪步驟。
+      const userPrompt = `請只根據圖片中可見嘅文字抽出食材同步驟，唔好靠外觀估。若圖中冇可讀食譜文字，回傳 name「需要手動輸入」。
 請回傳以下 JSON 格式（主要文字繁體中文；同時英/菲/印尼譯文）：
 {
   "name": "食譜名稱（繁中）",
@@ -2127,6 +2196,8 @@ export const recipesRouter = router({
       if (parseReason === "ok") {
         try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
       }
+
+      await ensureParseTranslations(result);
 
       return {
         ...result,
@@ -3070,6 +3141,8 @@ export const recipesRouter = router({
       visibility: z.enum(["private", "pending_public"]).default("private"),
       isAiGenerated: z.boolean().optional(),
       inputLang: z.string().optional(),
+      // 用戶主動「先儲存（名＋連結）」時允許無食材/步驟，仍標記為未完整（讀取時依內容判斷）
+      allowIncomplete: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -3122,10 +3195,13 @@ export const recipesRouter = router({
         }
       }
 
-      // 守門：唔准存入「完全空白」食譜（無食材又無步驟）→ 前端顯示手動輸入提示
+      // 守門：唔准存入「無名」食譜。無食材又無步驟 → 只有用戶主動 allowIncomplete（先儲存名＋連結）才放行。
+      if (!String(input.name ?? "").trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "請輸入食譜名稱。" });
+      }
       const _hasIngredients = Array.isArray(input.ingredients) && input.ingredients.some((i: any) => String(i?.name ?? "").trim());
       const _hasSteps = Array.isArray(input.steps) && input.steps.some((s: any) => String(typeof s === "string" ? s : (s?.instruction ?? "")).trim());
-      if (!_hasIngredients && !_hasSteps) {
+      if (!_hasIngredients && !_hasSteps && !input.allowIncomplete) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "食譜內容不足（沒有食材或步驟），請手動輸入。" });
       }
 
