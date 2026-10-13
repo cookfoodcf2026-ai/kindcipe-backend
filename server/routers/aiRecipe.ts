@@ -5,7 +5,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { translateRecipeContent } from "../utils/translateContent";
-import { withIngredientTranslations } from "../utils/recipeTranslations";
+import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
@@ -769,6 +769,9 @@ export type SuggestedRecipe = {
   servings: number;
   difficulty: string;
   description: string;
+  descriptionEn?: string;
+  descriptionFil?: string;
+  descriptionId?: string;
   ingredients: { name: string; nameEn?: string; nameFil?: string; nameId?: string; quantity: string; unit: string }[];
   steps: string[];
   stepsEn?: string[];
@@ -1581,9 +1584,9 @@ async function generateMissingRecipes(
     const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-5 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 2600 * count,
+      maxTokens: 3500 * Math.max(1, count),
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
       maxRetries: 1,
       enableSearch: false,
       responseFormat: { type: "json_object" },
@@ -1627,10 +1630,10 @@ async function generateOneType(
     try {
       const resp = await invokeLLM({
         messages: [{ role: "user", content: basePrompt + extra }],
-        maxTokens: 1800,
+        maxTokens: 4000,
         temperature: 0.7,
-        timeoutMs: 12000,
-        maxRetries: 0,
+        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+        maxRetries: 1,
         enableSearch: false,
         responseFormat: { type: "json_object" },
       });
@@ -1675,8 +1678,11 @@ async function generateOneType(
       : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）";
   const second = await attempt(retryHint);
   if (validateType(second)) return second;
-  console.warn(`[AI Chef] ${expectedType} slot type-invalid, dropped`);
-  return null;
+  // Never drop the slot (that caused missing 3餸1湯 cards / failed single generation).
+  // Return the best attempt we have so the meal keeps its card count.
+  const fallback = second ?? first;
+  console.warn(`[AI Chef] ${expectedType} slot type-invalid — keeping best attempt (no drop)`);
+  return fallback;
 }
 
 // 3餸1湯 AI 生成：並行 4 個獨立 call（1 湯 + 3 餸），每個 ~8-10s，總時間 ~10s（比起一次過生成 4 個 20-30s 快好多）
@@ -2507,6 +2513,38 @@ async function resolveImageUrls(input: Array<{ role: string; content: string | A
 }
 
 // ─── Exported: non-streamed chat ─────────────────────────
+
+/**
+ * Fill en/fil/id for a SuggestedRecipe (name/description/steps/ingredients)
+ * when missing — dictionary-first for ingredients, LLM for the rest. Never throws.
+ */
+async function localizeSuggestedRecipe(rec: SuggestedRecipe): Promise<SuggestedRecipe> {
+  if (!rec) return rec;
+  try {
+    const needName = !rec.nameEn || !rec.nameFil || !rec.nameId;
+    const steps = Array.isArray(rec.steps) ? rec.steps : [];
+    const needSteps = steps.length > 0 && (!rec.stepsEn?.length || !rec.stepsFil?.length || !rec.stepsId?.length);
+    const needDesc = !!rec.description && (!rec.descriptionEn || !rec.descriptionFil || !rec.descriptionId);
+    if (needName || needSteps || needDesc) {
+      const tr = await translateRecipeContent(rec.name || "", steps, rec.description || "");
+      if (needName) { rec.nameEn = rec.nameEn || tr.nameEn; rec.nameFil = rec.nameFil || tr.nameFil; rec.nameId = rec.nameId || tr.nameId; }
+      if (needDesc) { rec.descriptionEn = rec.descriptionEn || tr.descriptionEn; rec.descriptionFil = rec.descriptionFil || tr.descriptionFil; rec.descriptionId = rec.descriptionId || tr.descriptionId; }
+      if (needSteps) {
+        rec.stepsEn = rec.stepsEn?.length ? rec.stepsEn : tr.stepsEn;
+        rec.stepsFil = rec.stepsFil?.length ? rec.stepsFil : tr.stepsFil;
+        rec.stepsId = rec.stepsId?.length ? rec.stepsId : tr.stepsId;
+      }
+    }
+    const ings = Array.isArray(rec.ingredients) ? rec.ingredients : [];
+    if (ings.some((i: any) => i?.name && (!i.nameEn || !i.nameFil || !i.nameId))) {
+      const merged = await localizeIngredientNames(ings);
+      if (merged) rec.ingredients = merged as any;
+    }
+  } catch (e) {
+    console.warn("[localizeSuggestedRecipe] failed:", (e as Error)?.message);
+  }
+  return rec;
+}
 
 export async function processAIChefChat(
   inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
@@ -3615,6 +3653,11 @@ export const aiRecipeRouter = router({
           quota.nearLimit = quota.used >= quota.limit;
         }
       }
+
+      // Ensure every returned recipe carries en/fil/id (name/description/steps/
+      // ingredients). AI output often omits translations, and the client now hides
+      // raw CJK for non-zh locales — a missing translation would render blank.
+      result.recipes = await Promise.all((result.recipes ?? []).map(localizeSuggestedRecipe));
 
       return { ...result, quota };
     }),
