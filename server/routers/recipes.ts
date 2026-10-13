@@ -21,6 +21,7 @@ import { computeScenarioTags } from "../utils/scenario";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations } from "../utils/recipeTranslations";
+import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
@@ -1337,6 +1338,81 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
 
 // ─── AI Parse URL ─────────────────────────────────────────────────────────────
 
+/** Fetch raw HTML (for JSON-LD extraction), SSRF-guarded + size-capped. */
+async function fetchRawHtml(url: string): Promise<string> {
+  try {
+    await assertSafeUrl(url);
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return "";
+    const ct = resp.headers.get("content-type") ?? "";
+    if (!/html|json/i.test(ct)) return "";
+    const text = await resp.text();
+    return text.slice(0, 1_500_000);
+  } catch {
+    return "";
+  }
+}
+
+const REAL_UNIT_RE = /^(g|kg|mg|ml|l|cc|cup|cups|tbsp|tsp|tablespoon|teaspoon|oz|lb|gram|grams|克|公斤|毫升|杯|湯匙|茶匙|大匙|小匙|匙|個|隻|條|片|塊|包|粒|顆|把|支|扎|碗|碟|份|斤|兩)$/i;
+
+/** Best-effort split of an ingredient line "500 g chicken breast" → qty/unit/name. */
+function parseIngredientLine(raw: string): { name: string; quantity: string; unit: string } {
+  const s = String(raw ?? "").trim();
+  const m = s.match(/^([0-9]+(?:[./][0-9]+)?(?:\s*[-–~至]\s*[0-9]+(?:[./][0-9]+)?)?)\s*([A-Za-z\u4e00-\u9fff]{0,7})?\s*(.+)$/);
+  if (!m || !m[3]) return { name: s, quantity: "", unit: "" };
+  const qty = m[1].replace(/\s+/g, "");
+  let unit = (m[2] || "").trim();
+  let name = m[3].trim();
+  if (unit && !REAL_UNIT_RE.test(unit)) { name = `${unit} ${name}`.trim(); unit = ""; }
+  return { name, quantity: qty, unit };
+}
+
+/** Build a recipe result from a schema.org JSON-LD node (real extraction — no fabrication). */
+async function recipeFromJsonLd(jl: any, thumbnail: string): Promise<any | null> {
+  try {
+    const srcLang = /[\u4e00-\u9fff]/.test(jl.name + (jl.description ?? "") + jl.ingredients.join(" ")) ? "zh-TW" : "en";
+    const ingredients = (jl.ingredients as string[]).map(parseIngredientLine);
+    const steps = (jl.steps as string[]).map((instruction: string) => ({ instruction }));
+    const built = await buildAllLangs({ name: jl.name, description: jl.description, steps, ingredients, srcLang });
+    const dishType = await classifyRecipeDishTypeLLM({
+      name: built.name, description: built.description, ingredients: built.ingredients, tags: [], category: undefined,
+    });
+    let thumbUrl = thumbnail || jl.image || "";
+    if (jl.image) {
+      try { thumbUrl = (await rehostFirstAvailable([jl.image, thumbnail].filter(Boolean), "其他")) || thumbUrl; } catch { /* ignore */ }
+    }
+    return {
+      name: built.name,
+      description: built.description || "",
+      cookTime: jl.cookTime ?? 0,
+      servings: jl.servings ?? 2,
+      difficulty: "中等",
+      recipeCategory: "其他",
+      dishType,
+      ingredients: (built.ingredients || []).map((i: any) => ({
+        name: i.name, quantity: i.quantity ?? "", unit: i.unit ?? "", category: i.category ?? "食材",
+      })),
+      steps: built.steps,
+      tags: [],
+      sourceAuthor: jl.author ?? "",
+      thumbnailUrl: thumbUrl,
+      parseReason: "ok" as const,
+      nameEn: built.nameEn, nameFil: built.nameFil, nameId: built.nameId,
+      descriptionEn: built.descriptionEn, descriptionFil: built.descriptionFil, descriptionId: built.descriptionId,
+      stepsEn: built.stepsEn, stepsFil: built.stepsFil, stepsId: built.stepsId,
+    };
+  } catch (e) {
+    console.warn("[recipeFromJsonLd] failed:", (e as Error)?.message);
+    return null;
+  }
+}
+
 async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThumbnail?: string, clientCaption?: string): Promise<{
   name: string;
   description: string;
@@ -1410,6 +1486,27 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   if (fetchedThumbnail) thumbCandidates.push(fetchedThumbnail);
 
   let effectiveThumbnail = thumbCandidates[0] || "";
+
+  // ── Fast, accurate path: schema.org JSON-LD (no LLM, no hallucination) ──
+  // Website → use it directly; social (IG/FB/YT…) → follow the creator's own
+  // outbound recipe link and read the JSON-LD there (same dish, authoritative).
+  try {
+    const isSocial = /instagram|youtube|facebook|threads|xiaohongshu|tiktok/.test(sourceType);
+    const candidate = isSocial ? findOutboundRecipeUrl(pageContent || clientCaption || "") : url;
+    if (candidate) {
+      const html = await fetchRawHtml(candidate);
+      const jl = html ? extractRecipeJsonLd(html) : null;
+      if (jl) {
+        const fromJsonLd = await recipeFromJsonLd(jl, effectiveThumbnail);
+        if (fromJsonLd) {
+          console.log(`[parseRecipeFromUrl] JSON-LD path ok (${candidate})`);
+          return fromJsonLd;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[parseRecipeFromUrl] JSON-LD path failed:", (e as Error)?.message);
+  }
   
   // If still no thumbnail, use category-based fallback (will be set after parsing)
   // For now, keep it empty and assign after recipeCategory is known
@@ -1453,18 +1550,18 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   const hasTitleOnly = (sourceType === "youtube" || sourceType === "xiaohongshu" || sourceType === "threads") && hasRealContent && !hasRecipeKeywords;
 
   const contentSection = useVisionForInstagram
-    ? `這是一個社交媒體帖文，有封面圖片但文字內容沒有明顯的食譜關鍵字。請使用提供的圖片進行視覺分析，識別菜餚並推斷食材和步驟。
+    ? `這是一個社交媒體帖文，文字內容冇明顯食譜。請對提供嘅圖片做**文字辨識（OCR）**：**只抽取圖中清楚可見**嘅食材／步驟文字，唔好靠菜名估。
     
 帖文文字內容：
 ${pageContent}
 
-請根據圖片中的菜餚外觀和文字提示，生成合理的食譜。`
+若圖中冇可讀嘅食譜文字（例如只係食物相），請喺 name 回傳「無法解析」，**絕對唔好虛構**任何食材或步驟。`
     : hasTitleOnly
-    ? `以下是從${sourceType === "youtube" ? "YouTube 影片" : sourceType === "threads" ? "Threads 帖子" : "小紅書筆記"}頁面提取的資訊：
+    ? `以下是從${sourceType === "youtube" ? "YouTube 影片" : sourceType === "threads" ? "Threads 帖子" : "小紅書筆記"}頁面提取的資訊（可能只有標題／作者）：
 
 ${pageContent}
 
-注意：內容可能沒有完整食譜詳細資訊。請根據標題和描述推斷這是什麼類型的食譜，並生成合理的食材和步驟（標記為「根據標題推斷」）。sourceAuthor 使用上面的 Author 欄位。`
+注意：如果內容**冇**完整食材同步驟，請喺 name 回傳「無法解析」，**唔好虛構**。sourceAuthor 使用上面的 Author 欄位。`
     : hasRealContent
     ? `以下是從網頁提取的實際內容：
 
@@ -1515,7 +1612,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
 
 翻譯規則：name、description、ingredients、steps、tags 主要文字一律用**繁體中文**；另外 nameEn/nameFil/nameId、descriptionEn/Fil/Id、stepsEn/Fil/Id、以及每個 ingredient 的 nameEn/Fil/Id 係對應譯文（同一食材/步驟名要前後一致）。若原文係英文/菲文/印尼文/簡體等，先理解再翻成上述 4 種語言。
 
-步驟規則（務必跟隨）：steps 必須有至少 3 步完整、可操作嘅烹調步驟，stepsEn/Fil/Id 要同 steps 同數目同次序。若帖文/caption 只有食材但冇清楚步驟（常見於 IG/FB/Threads），請根據菜式同食材推斷合理嘅標準做法，切勿留空 steps 或只回 1 步。`;
+步驟規則（務必跟隨）：steps 必須**來自來源內容**（帖文／caption／網頁）；若來源冇清楚步驟，**唔好虛構**，steps 可留空。若有步驟，stepsEn/Fil/Id 要同 steps 同數目同次序。`;
 
   // For Instagram with thumbnail: use Vision AI to parse from image
   const visionImage: MessageContent = useVisionForInstagram && effectiveThumbnail

@@ -119,11 +119,12 @@ export async function localizeIngredientNames(ingredients: any[]): Promise<any[]
       try {
         const ci: any = await resolveCommonIngredientByName(nm);
         if (ci) {
+          // Dictionary wins so the recipe and shopping list share ONE English name.
           arr[i] = {
             ...ing,
-            nameEn: ing.nameEn || ci.nameEn || undefined,
-            nameFil: ing.nameFil || ci.nameFil || undefined,
-            nameId: ing.nameId || ci.nameId || undefined,
+            nameEn: ci.nameEn || ing.nameEn || undefined,
+            nameFil: ci.nameFil || ing.nameFil || undefined,
+            nameId: ci.nameId || ing.nameId || undefined,
           };
         }
       } catch { /* ignore per-item */ }

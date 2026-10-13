@@ -2088,14 +2088,15 @@ export async function resolveCommonIngredientByName(name: string) {
     if (hit) return hit;
   }
 
-  // 2) substring fallback
+  // 2) substring fallback — prefer the LONGEST matching dictionary key (avoid
+  //    e.g. 「銀針米粉」 wrongly matching the shorter 「米粉」).
   const nq = norm(name);
   let best: { nameEn: string | null; nameZh: string } | null = null;
   for (const c of all) {
     const cz = norm(c.nameZh);
     if (cz.length < 2) continue;
     if (nq.includes(cz) || cz.includes(nq)) {
-      if (!best || cz.length < norm(best.nameZh).length) best = c as any;
+      if (!best || cz.length > norm(best.nameZh).length) best = c as any;
     }
   }
   return best;

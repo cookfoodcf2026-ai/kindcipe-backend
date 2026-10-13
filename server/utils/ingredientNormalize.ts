@@ -92,13 +92,16 @@ export function normalizeRecipeIngredients(
     if (parts.length <= 1) {
       // 單一食材：保留，重新分類（若無 category 或 category 係「其他」但實際分到類）
       const cat = ing?.category && ing.category !== "其他" ? ing.category : categorizeIngredientName(rawName);
-      out.push({ name: rawName, quantity: String(ing?.quantity ?? ""), unit: String(ing?.unit ?? ""), category: cat });
+      // IMPORTANT: spread the original so extra fields (nameEn/nameFil/nameId,
+      // aiInferred, etc.) survive normalization — otherwise translations and
+      // provenance get wiped on every save.
+      out.push({ ...(ing as any), name: rawName, quantity: String(ing?.quantity ?? ""), unit: String(ing?.unit ?? ""), category: cat } as any);
       continue;
     }
-    // 一欄多樣：拆開
+    // 一欄多樣：拆開（翻譯不可逐樣拆 → 留空，之後字典補；保留 aiInferred 標記）
     const per = perItemQty(String(ing?.quantity ?? ""), parts.length);
     for (const p of parts) {
-      out.push({ name: p, quantity: per.quantity, unit: per.unit, category: categorizeIngredientName(p) });
+      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: per.quantity, unit: per.unit, category: categorizeIngredientName(p) } as any);
     }
   }
   return out;
