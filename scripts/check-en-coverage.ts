@@ -10,7 +10,7 @@ config({ path: resolve(process.cwd(), ".env") });
 
 async function main() {
   const { getDb } = await import("../server/db");
-  const { officialRecipes, customRecipes } = await import("../drizzle/schema");
+  const { officialRecipes, customRecipes, shoppingItems } = await import("../drizzle/schema");
   const { eq } = await import("drizzle-orm");
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -42,12 +42,20 @@ async function main() {
   check("official", official);
   check("custom", custom);
 
+  // Shopping items must have an English name too (non-zh users must not see Chinese).
+  try {
+    const shopping = await db.select().from(shoppingItems);
+    for (const s of shopping as any[]) {
+      if (s.name && !s.nameEn) { problems++; report.push(`  shopping id=${s.id} "${s.name}": nameEn`); }
+    }
+  } catch { /* table may be absent in fresh envs */ }
+
   if (problems > 0) {
-    console.error(`❌ EN coverage: ${problems} recipe(s) missing English baseline`);
+    console.error(`❌ EN coverage: ${problems} row(s) missing English`);
     console.error(report.slice(0, 40).join("\n"));
     process.exit(1);
   }
-  console.log(`✅ EN coverage: ${official.length} official + ${custom.length} custom all have nameEn/descriptionEn/stepsEn/ingredient nameEn`);
+  console.log(`✅ EN coverage: ${official.length} official + ${custom.length} custom recipes + shopping all have English`);
   process.exit(0);
 }
 main().catch((e) => { console.error("[check-en-coverage] failed:", e); process.exit(1); });

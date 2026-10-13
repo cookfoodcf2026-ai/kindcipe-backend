@@ -46,6 +46,7 @@ import {
 import { ENV } from "./_core/env";
 import { normalizeIngredientCandidates } from "./utils/ingredientResolve";
 import { computeScenarioTags } from "./utils/scenario";
+import { localizeIngredientNames } from "./utils/recipeTranslations";
 
 let _pgClient: ReturnType<typeof postgres> | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1327,8 +1328,19 @@ export async function insertCustomRecipe(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  // Choke point: ensure ingredient names carry en/fil/id (dictionary → LLM)
+  // regardless of which router created the recipe.
+  let ingredients = (data as any).ingredients as string | undefined;
+  if (typeof ingredients === "string" && ingredients) {
+    try {
+      const arr = JSON.parse(ingredients);
+      const merged = await localizeIngredientNames(arr);
+      if (merged) ingredients = JSON.stringify(merged);
+    } catch { /* keep original */ }
+  }
   const [row] = await db.insert(customRecipes).values({
     ...data,
+    ingredients,
     visibility: "private",
     scenarioTags: computeScenarioTags({
       name: (data as any).name, description: (data as any).description, cookTime: (data as any).cookTime,
@@ -1357,6 +1369,14 @@ export async function updateCustomRecipeById(
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  // Choke point: localize ingredient names before persisting.
+  if (typeof data.ingredients === "string" && data.ingredients) {
+    try {
+      const arr = JSON.parse(data.ingredients);
+      const merged = await localizeIngredientNames(arr);
+      if (merged) data = { ...data, ingredients: JSON.stringify(merged) };
+    } catch { /* keep original */ }
+  }
   await db.update(customRecipes).set(data).where(
     and(eq(customRecipes.id, id), eq(customRecipes.familyId, familyId))
   );
