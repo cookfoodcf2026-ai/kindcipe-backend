@@ -2081,6 +2081,35 @@ export async function resolveCommonIngredientByName(name: string) {
   return best;
 }
 
+/**
+ * Resolve ingredient name translations (en/fil/id): dictionary first, then an
+ * LLM batch fallback for misses (open-vocabulary names). Never throws.
+ */
+export async function resolveIngredientL10n(
+  name: string,
+  commonIngredientId?: number | null,
+): Promise<{ nameEn?: string; nameFil?: string; nameId?: string }> {
+  const nm = String(name ?? "").trim();
+  if (!nm) return {};
+  let ci: any = null;
+  try {
+    ci = commonIngredientId != null ? await getCommonIngredientById(commonIngredientId) : null;
+    if (!ci) ci = await resolveCommonIngredientByName(nm);
+  } catch { /* ignore */ }
+  let en: string | undefined = ci?.nameEn ?? undefined;
+  let fil: string | undefined = ci?.nameFil ?? undefined;
+  let id: string | undefined = ci?.nameId ?? undefined;
+  if (en && fil && id) return { nameEn: en, nameFil: fil, nameId: id };
+  try {
+    const { translateIngredientNames } = await import("./utils/translateContent");
+    const tr = (await translateIngredientNames([nm]))[0] || {};
+    en = en || (tr.en ?? undefined);
+    fil = fil || (tr.fil ?? undefined);
+    id = id || (tr.id ?? undefined);
+  } catch { /* ignore */ }
+  return { nameEn: en, nameFil: fil, nameId: id };
+}
+
 /** Insert common ingredients (idempotent: skip if nameYue already exists) */
 export async function insertCommonIngredients(items: InsertCommonIngredient[]): Promise<number> {
   if (items.length === 0) return 0;

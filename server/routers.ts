@@ -116,6 +116,7 @@ import {
   deleteUserAccount,
   getCommonIngredientById,
   resolveCommonIngredientByName,
+  resolveIngredientL10n,
   mergeAccounts,
   addAdminAuditLog,
   listAdminAuditLogs,
@@ -525,17 +526,15 @@ const shoppingRouter = router({
       // Sanitize name: trim and truncate to 128 chars
       const sanitizedName = input.name.trim().slice(0, 128);
 
-      // Auto-fill nameEn/Fil/Id from common ingredient when not provided
-      // （先按 id，無 id 就按中文名解析 → 令官方食譜（食材只有中文）都有菲/印名）
+      // Auto-fill nameEn/Fil/Id: dictionary first, then LLM fallback for misses.
       let autoNameEn: string | undefined;
       let autoNameFil: string | undefined;
       let autoNameId: string | undefined;
       if (!input.nameEn || !input.nameFil || !input.nameId) {
-        const ciById = input.commonIngredientId != null ? await getCommonIngredientById(input.commonIngredientId) : null;
-        const ci: any = ciById ?? await resolveCommonIngredientByName(sanitizedName);
-        autoNameEn = ci?.nameEn ?? undefined;
-        autoNameFil = ci?.nameFil ?? undefined;
-        autoNameId = ci?.nameId ?? undefined;
+        const l10n = await resolveIngredientL10n(sanitizedName, input.commonIngredientId ?? null);
+        autoNameEn = l10n.nameEn;
+        autoNameFil = l10n.nameFil;
+        autoNameId = l10n.nameId;
       }
       
       try {
@@ -660,14 +659,15 @@ const shoppingRouter = router({
           // Filter out rows with null quantity (should not happen due to schema, but safety check)
           return row.quantity !== null;
         });
-        // Fill missing nameEn/Fil/Id from the common-ingredient dictionary (so 菲/印 users see their language)
+        // Fill missing nameEn/Fil/Id (dictionary first, then LLM fallback) so
+        // non-Chinese users never see a Chinese-only ingredient.
         for (const row of rows) {
           if ((!row.nameEn || !row.nameFil || !row.nameId) && row.name) {
             try {
-              const ci: any = await resolveCommonIngredientByName(String(row.name));
-              if (ci?.nameEn && !row.nameEn) row.nameEn = ci.nameEn;
-              if (ci?.nameFil && !row.nameFil) row.nameFil = ci.nameFil;
-              if (ci?.nameId && !row.nameId) row.nameId = ci.nameId;
+              const l10n = await resolveIngredientL10n(String(row.name), row.commonIngredientId ?? null);
+              if (l10n.nameEn && !row.nameEn) row.nameEn = l10n.nameEn;
+              if (l10n.nameFil && !row.nameFil) row.nameFil = l10n.nameFil;
+              if (l10n.nameId && !row.nameId) row.nameId = l10n.nameId;
             } catch { /* skip */ }
           }
         }
