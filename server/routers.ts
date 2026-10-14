@@ -457,7 +457,7 @@ const familyRouter = router({
       if (targetId === String(ctx.user.id)) throw new TRPCError({ code: "BAD_REQUEST", message: "Already owner" });
       const target = await getFamilyMemberByUserId(ctx.activeFamilyId, targetId);
       if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Not a member" });
-      await updateFamilyMemberRole(ctx.activeFamilyId, String(ctx.user.id), "admin");
+      await updateFamilyMemberRole(ctx.activeFamilyId, String(ctx.user.id), "member");
       await updateFamilyMemberRole(ctx.activeFamilyId, targetId, "owner");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });

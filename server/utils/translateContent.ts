@@ -17,6 +17,7 @@ export async function translateToChinese(
     const prompt = `Translate the following recipe from ${srcLang} into Traditional Chinese (繁體中文).
 Return ONLY JSON: {"name":"...","description":"...","steps":["..."],"ingredientNames":["..."]}
 Keep the SAME number and order of steps and ingredientNames. Keep quantities/times.
+Terminology (use these EXACT Chinese terms when they appear): silver pin noodles = 銀針粉; ho fun / flat rice noodles = 河粉; rice vermicelli = 米粉; rice noodles = 河粉 (never 銀針粉 unless "silver pin").
 Dish name: ${name}${hasDesc ? `\nDescription: ${description}` : ""}
 Steps: ${JSON.stringify(steps)}
 Ingredients: ${JSON.stringify(ingredientNames)}`;

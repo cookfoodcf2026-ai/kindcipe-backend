@@ -3133,6 +3133,24 @@
   },
   {
     "categoryKey": "staple",
+    "defaultUnitKey": "pack",
+    "nameYue": "銀針粉",
+    "nameZh": "銀針粉",
+    "nameEn": "Silver pin noodles",
+    "nameFil": "Silver pin noodles",
+    "nameId": "Mie jarum perak"
+  },
+  {
+    "categoryKey": "staple",
+    "defaultUnitKey": "pack",
+    "nameYue": "銀針米粉",
+    "nameZh": "銀針米粉",
+    "nameEn": "Silver pin noodles",
+    "nameFil": "Silver pin noodles",
+    "nameId": "Mie jarum perak"
+  },
+  {
+    "categoryKey": "staple",
     "defaultUnitKey": "piece",
     "nameYue": "烏冬",
     "nameZh": "烏冬",
