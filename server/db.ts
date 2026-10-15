@@ -42,6 +42,8 @@ import {
   type InsertPasswordResetToken,
   redirectLogs,
   recipeNotes,
+  aiChefSeenRecipes,
+  stripeSubscriptions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { normalizeIngredientCandidates } from "./utils/ingredientResolve";
@@ -394,6 +396,12 @@ async function deleteFamilyData(tx: any, familyId: number) {
   await tx.delete(favoriteItems).where(eq(favoriteItems.familyId, familyId));
   await tx.delete(importUsage).where(eq(importUsage.familyId, familyId));
   await tx.delete(aiChatUsage).where(eq(aiChatUsage.familyId, familyId));
+  // 孤兒表（之前漏咗 → dissolve 後仍殘留）
+  await tx.delete(promoCodeRedemptions).where(eq(promoCodeRedemptions.familyId, familyId));
+  await tx.delete(aiChefSeenRecipes).where(eq(aiChefSeenRecipes.familyId, familyId));
+  await tx.delete(stripeSubscriptions).where(eq(stripeSubscriptions.familyId, familyId));
+  await tx.delete(iapTransactions).where(eq(iapTransactions.familyId, familyId));
+  await tx.delete(redirectLogs).where(eq(redirectLogs.familyId, familyId));
   await tx.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
   await tx.delete(families).where(eq(families.id, familyId));
 }
