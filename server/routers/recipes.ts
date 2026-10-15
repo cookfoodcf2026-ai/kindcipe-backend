@@ -517,7 +517,10 @@ function sanitizeParsedIngredients(list: any[]): any[] {
     const hasQty = !!String(ing?.quantity ?? "").trim() || !!String(ing?.unit ?? "").trim();
     if (/[：:]$/.test(name)) return false;
     if (!hasQty && /(材料|醬汁|調味料|醃料|配料)$/.test(name)) return false;
-    if (!hasQty && /^(醬汁|調味|醃料|配料|材料)/.test(name)) return false;
+    if (!hasQty && /^(醬汁|調味|醃料|配料|材料|主料|輔料)/.test(name)) return false;
+    // 英文 section header（Marinade/Sauce/…）唔好當食材
+    if (!hasQty && /^(marinade|sauce|seasoning|garnish|topping|for the|ingredients)\b/i.test(name)) return false;
+    if (!hasQty && /\b(marinade|sauce|seasoning|garnish|topping)\s*:?\s*$/i.test(name)) return false;
     return true;
   });
   // 把描述型量詞（適量/少許…）由 quantity/name 移入 unit，避免非中文介面漏中文。
@@ -544,12 +547,21 @@ function sanitizeParsedIngredients(list: any[]): any[] {
 function groundIngredients(ingredients: any[], sourceText: string): any[] {
   if (!Array.isArray(ingredients) || ingredients.length === 0) return ingredients;
   const src = String(sourceText ?? "").toLowerCase();
-  if (src.length < 60) return ingredients; // 太短無法判斷 → 唔動
-  const srcTokens = new Set(src.match(/[a-z0-9]+|[\u4e00-\u9fff]{2,}/g) || []);
+  if (src.length < 80) return ingredients; // 太短無法判斷 → 唔動
+  const srcTokens = new Set(src.match(/[a-z0-9]+/g) || []);
+  const cjkOverlap = (n: string): boolean => {
+    const runs = n.match(/[\u4e00-\u9fff]+/g) || [];
+    for (const run of runs) {
+      if (src.includes(run)) return true;
+      // 滑動 2 字窗（處理「中筋麵粉」vs 來源「麵粉」）
+      for (let i = 0; i + 2 <= run.length; i++) if (src.includes(run.slice(i, i + 2))) return true;
+    }
+    return false;
+  };
   const overlap = (name: string): boolean => {
     const n = String(name ?? "").toLowerCase().trim();
     if (!n) return false;
-    for (const c of (n.match(/[\u4e00-\u9fff]{2,}/g) || [])) if (src.includes(c)) return true;
+    if (cjkOverlap(n)) return true;
     for (const tk of (n.match(/[a-z0-9]+/g) || [])) if (tk.length >= 3 && srcTokens.has(tk)) return true;
     return false;
   };
@@ -1446,7 +1458,7 @@ const DESCRIPTOR_SET = new Set(["適量", "适量", "少許", "少许", "少量"
 function extractDescriptor(nameRaw: string): { name: string; descriptor: string } {
   const name = String(nameRaw ?? "").trim();
   const lead = name.match(DESCRIPTOR_UNIT_RE);
-  if (lead) return { name: (lead[2] || name).trim(), descriptor: lead[1] };
+  if (lead) return { name: (lead[2] || "").trim(), descriptor: lead[1] };
   const trail = name.match(DESCRIPTOR_TRAIL_RE);
   if (trail) {
     const rest = name.slice(0, trail.index).trim();
@@ -1970,11 +1982,7 @@ export const recipesRouter = router({
       await assertFamilyQuota(ctx.activeFamilyId);
       
       const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption);
-      // 扣數：只在真正解析到食譜（parseReason === "ok"）才計。解析失敗唔扣，
-      // 否則用戶會覺得「未畀到嘢我卻扣咗」。防濫用交由前端防連點 + rate limit。
-      if (parsed.parseReason === undefined || parsed.parseReason === "ok") {
-        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
-      }
+      // 配額改為喺 importUser（真正儲存）先扣，避免「解析扣咗但存唔到」嘅 off-by-one。
       return {
         ...parsed,
         sourceUrl: input.url,
@@ -1994,10 +2002,7 @@ export const recipesRouter = router({
       await assertFamilyQuota(ctx.activeFamilyId);
       
       const parsed = await parseTextToRecipe(input.text, input.language);
-      // 扣數：只有成功解析到食譜才計（同 parseUrl 一致）
-      if (parsed.parseReason === undefined || parsed.parseReason === "ok") {
-        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
-      }
+      // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
       return {
         ...parsed,
         sourceUrl: "",
@@ -2026,17 +2031,20 @@ export const recipesRouter = router({
       const ext = input.mimeType.split("/")[1] || "jpg";
       // 安全：key 加 family 前綴 → 防止跨家庭讀取／覆寫（IDOR）
       const key = `recipe-screenshots/f${ctx.activeFamilyId}/${crypto.randomUUID()}.${ext}`;
-      const { url } = await storagePut(key, buffer, input.mimeType);
+      const { key: storedKey, url } = await storagePut(key, buffer, input.mimeType);
       const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
-      return { key, url: url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url };
+      // 必須回傳 storagePut 實際用嘅 key（含 hash 後綴），否則之後 storageGet/delete 會搵唔到檔案。
+      return { key: storedKey, url: url.startsWith("/") && backendHost ? `https://${backendHost}${url}` : url };
     }),
 
   // ── Delete uploaded recipe screenshot (clean up orphan R2 files) ────────────
   deleteRecipeImage: protectedProcedure
     .input(z.object({ key: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // 安全：只可刪自己家庭嘅檔案（防未授權刪除）
-      if (!ctx.activeFamilyId || !input.key.startsWith(`recipe-screenshots/f${ctx.activeFamilyId}/`)) {
+      // 安全：只可刪自己家庭嘅截圖，或自己上載嘅縮圖（防未授權刪除）
+      const ownScreenshot = input.key.startsWith(`recipe-screenshots/f${ctx.activeFamilyId}/`);
+      const ownThumb = input.key.startsWith(`recipe-thumbnails/user-${ctx.user.id}-`);
+      if (!ctx.activeFamilyId || (!ownScreenshot && !ownThumb)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
       }
       try {
@@ -2211,15 +2219,8 @@ export const recipesRouter = router({
         }
       }
 
-      // 真係冇圖 → 試 AI 按菜名生成；失敗 → 交返空（前端中性佔位）
-      if (!result.thumbnailUrl || result.thumbnailUrl === "") {
-        try {
-          const ai = await generateRecipeImage(result.name || "");
-          result.thumbnailUrl = ai || "";
-        } catch {
-          result.thumbnailUrl = "";
-        }
-      }
+      // 冇圖：唔再喺解析路徑阻塞生成 AI 圖（同 parseUrl 一致）。
+      if (!result.thumbnailUrl) result.thumbnailUrl = "";
 
       result.difficulty = normalizeDifficulty(result.difficulty);
       const hasContent = (result.ingredients && result.ingredients.length > 0) ||
@@ -2228,12 +2229,7 @@ export const recipesRouter = router({
         ? "no_recipe_content" as const
         : "ok" as const;
 
-      // 扣數：只有成功解析到食譜才計。讀唔到（no_recipe_content）唔扣，
-      // 避免「上傳咗非食譜就扣額度」引致投訴。
-      if (parseReason === "ok") {
-        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
-      }
-
+      // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
       await ensureParseTranslations(result);
 
       return {
@@ -2250,20 +2246,22 @@ export const recipesRouter = router({
     .input(z.object({
       sourceUrl: z.string().optional(),
       name: z.string().optional(),
-      familyId: z.number().int().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const urlHash = input.sourceUrl ? hashUrl(input.sourceUrl) : null;
-      const familyId = input.familyId ?? ctx.activeFamilyId ?? null;
+      // 唔再信任 caller 提供嘅 familyId（防枚舉）；只用已驗證嘅 activeFamilyId。
+      const familyId = ctx.activeFamilyId ?? null;
       const db = await getDb();
       if (!db) return { hasDuplicate: false, duplicates: [] };
+      // 轉義 LIKE 萬用字元（防 % / _ 注入）
+      const esc = (s: string) => s.replace(/[%_\\]/g, (m) => "\\" + m);
 
       const duplicates: { type: "url" | "name"; source: "official" | "user"; id: number; name: string }[] = [];
 
       if (urlHash) {
         const existing = await db.select({ id: officialRecipes.id, name: officialRecipes.name })
           .from(officialRecipes)
-          .where(eq(officialRecipes.sourceUrlHash, urlHash))
+          .where(and(eq(officialRecipes.sourceUrlHash, urlHash), eq(officialRecipes.isActive, true)))
           .limit(1);
         if (existing.length > 0) {
           duplicates.push({ type: "url", source: "official", id: existing[0].id, name: existing[0].name });
@@ -2272,7 +2270,7 @@ export const recipesRouter = router({
       if (input.name) {
         const existing = await db.select({ id: officialRecipes.id, name: officialRecipes.name })
           .from(officialRecipes)
-          .where(like(officialRecipes.name, `%${input.name}%`))
+          .where(and(eq(officialRecipes.isActive, true), ilike(officialRecipes.name, `%${esc(input.name)}%`)))
           .limit(3);
         existing.forEach((r: { id: number; name: string }) =>
           duplicates.push({ type: "name", source: "official", id: r.id, name: r.name })
@@ -2292,7 +2290,7 @@ export const recipesRouter = router({
         if (input.name) {
           const existing = await db.select({ id: customRecipes.id, name: customRecipes.name })
             .from(customRecipes)
-            .where(and(eq(customRecipes.familyId, familyId), like(customRecipes.name, `%${input.name}%`)))
+            .where(and(eq(customRecipes.familyId, familyId), ilike(customRecipes.name, `%${esc(input.name)}%`)))
             .limit(3);
           existing.forEach((r: { id: number; name: string }) =>
             duplicates.push({ type: "name", source: "user", id: r.id, name: r.name })
@@ -3186,8 +3184,11 @@ export const recipesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      // 配額：匯入食譜必須先檢查（防繞過 parse 直接呼叫 importUser 濫用 LLM/翻譯成本）
-      await assertFamilyQuota(ctx.activeFamilyId);
+      // 配額：匯入食譜先檢查＋扣數（唯一扣數點）。AI 生成食譜用 AI Chef 自己嘅配額 → 唔計匯入。
+      if (!input.isAiGenerated) {
+        await assertFamilyQuota(ctx.activeFamilyId);
+        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
+      }
 
       const urlHash = input.sourceUrl ? hashUrl(input.sourceUrl) : null;
       if (urlHash) {
@@ -3207,6 +3208,7 @@ export const recipesRouter = router({
         (process.env.R2_PUBLIC_URL && rawThumb.startsWith(process.env.R2_PUBLIC_URL));
       if (rawThumb && !isManusStorage && !rawThumb.startsWith("/r2-storage/")) {
         try {
+          await assertSafeUrl(rawThumb); // SSRF 防護：唔准指向內網/本機
           const imgResp = await fetch(rawThumb, {
             headers: {
               "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
@@ -3576,8 +3578,10 @@ export const recipesRouter = router({
       const update: any = {
         name: baseNameRaw,
         description: input.description ?? "",
-        image: input.image ?? "",
-        thumbnailUrl: input.thumbnailUrl ?? input.image ?? "",
+        // 只在有提供時更新圖片，否則保留原有（防部分更新清空圖）
+        ...(input.image !== undefined || input.thumbnailUrl !== undefined
+          ? { image: input.image ?? input.thumbnailUrl ?? "", thumbnailUrl: input.thumbnailUrl ?? input.image ?? "" }
+          : {}),
         cookTime: input.cookTime ?? 0,
         servings: input.servings ?? 2,
         difficulty: normalizeDifficulty(input.difficulty),
@@ -4071,6 +4075,12 @@ export const recipesRouter = router({
           // Distinct message so the client can show a private-recipe notice
           // (log in / no access) instead of a generic "not found".
           throw new TRPCError({ code: "FORBIDDEN", message: "PRIVATE_RECIPE" });
+        }
+      }
+      // pending_public 未審批 → 只有自己家庭睇得到（防公開枚舉）
+      if (r.visibility === "pending_public") {
+        if (!ctx.user || !ctx.activeFamilyId || r.familyId !== ctx.activeFamilyId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
         }
       }
 

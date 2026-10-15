@@ -79,8 +79,14 @@ async function startServer() {
   app.use("/api", globalLimiter);
   app.use("/api/v1/trpc/aiRecipe", aiLimiter);
   app.use("/api/trpc/aiRecipe", aiLimiter);
-  app.use("/api/v1/trpc/recipes.parse", aiLimiter);
-  app.use("/api/trpc/recipes.parse", aiLimiter);
+  app.use("/api/v1/trpc/recipes.parseUrl", aiLimiter);
+  app.use("/api/v1/trpc/recipes.parseText", aiLimiter);
+  app.use("/api/v1/trpc/recipes.parseImage", aiLimiter);
+  app.use("/api/v1/trpc/recipes.importUser", aiLimiter);
+  app.use("/api/trpc/recipes.parseUrl", aiLimiter);
+  app.use("/api/trpc/recipes.parseText", aiLimiter);
+  app.use("/api/trpc/recipes.parseImage", aiLimiter);
+  app.use("/api/trpc/recipes.importUser", aiLimiter);
 
   // Image uploads are heavy (base64) → tight per-IP limit to prevent storage/DoS abuse.
   const uploadLimiter = rateLimit({

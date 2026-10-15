@@ -424,7 +424,17 @@ export async function deleteUserAccount(userId: string | number) {
         await tx.delete(familyMembers).where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, userIdStr)));
       }
     }
-    // 刪除用戶個人資料
+    // 刪除用戶個人資料（清埋 identities/email/chat/bookmarks/billing，否則「永久刪除」係假，
+    // 且殘留 user_identities 會令同一個 Google/Apple 帳號再登入時生成 ghost 用戶）
+    await tx.delete(userIdentities).where(eq(userIdentities.userId, userIdStr));
+    await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userIdStr));
+    await tx.delete(aiChatUsage).where(eq(aiChatUsage.userId, userIdStr));
+    await tx.delete(importUsage).where(eq(importUsage.userId, userIdStr));
+    await tx.delete(favoriteItems).where(eq(favoriteItems.userId, userIdStr));
+    await tx.delete(recipeNotes).where(eq(recipeNotes.userId, userIdStr));
+    await tx.delete(recipeEvents).where(eq(recipeEvents.userId, userIdStr));
+    await tx.delete(purchaseHistory).where(eq(purchaseHistory.userId, userIdStr));
+    await tx.delete(iapTransactions).where(eq(iapTransactions.userId, userIdStr));
     await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userIdStr));
     await tx.delete(pushTokens).where(eq(pushTokens.userId, userIdStr));
     await tx.delete(users).where(eq((users.id as any), userIdStr));

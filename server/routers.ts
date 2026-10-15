@@ -155,7 +155,7 @@ const familyRouter = router({
           nickname: m.member.nickname,
           familyRole: m.member.familyRole,
           joinedAt: m.member.joinedAt,
-          email: m.user.email,
+          // 私隱：唔回 email（成員之間唔需要互見 email）
         })),
       };
       return result;
@@ -201,8 +201,15 @@ const familyRouter = router({
         });
       }
 
-      const inviteCode = nanoid(6).toUpperCase();
-      const family = await createFamily({ name: input.name, inviteCode, ownerId: String(ctx.user.id) });
+      // 邀請碼 unique 碰撞 → 重試（罕見，但避免直接 500）
+      let family: any = null;
+      for (let i = 0; i < 5 && !family; i++) {
+        try {
+          family = await createFamily({ name: input.name, inviteCode: nanoid(6).toUpperCase(), ownerId: String(ctx.user.id) });
+        } catch (e) {
+          if (i === 4) throw e;
+        }
+      }
       if (!family) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       // No automatic 7-day trial — Pro is unlocked via an IG-follow promo code
