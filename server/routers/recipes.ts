@@ -536,8 +536,36 @@ function sanitizeParsedIngredients(list: any[]): any[] {
   });
 }
 
-async function rehostExternalImage(imageUrl: string, category?: string, opts?: { fallback?: boolean }): Promise<string> {
-  const useFallback = opts?.fallback !== false;
+/**
+ * Grounding 驗證（防「AI 老作」）：只保留喺來源文字搵到嘅食材。
+ * 保守設計：來源太短（<60 字）或 vision（圖為主）→ 唔做（避免誤刪）。
+ * 食材 4 種語言名任一對得上來源（CJK 2+ 字子串 / 拉丁 3+ 字母 token）→ 保留。
+ */
+function groundIngredients(ingredients: any[], sourceText: string): any[] {
+  if (!Array.isArray(ingredients) || ingredients.length === 0) return ingredients;
+  const src = String(sourceText ?? "").toLowerCase();
+  if (src.length < 60) return ingredients; // 太短無法判斷 → 唔動
+  const srcTokens = new Set(src.match(/[a-z0-9]+|[\u4e00-\u9fff]{2,}/g) || []);
+  const overlap = (name: string): boolean => {
+    const n = String(name ?? "").toLowerCase().trim();
+    if (!n) return false;
+    for (const c of (n.match(/[\u4e00-\u9fff]{2,}/g) || [])) if (src.includes(c)) return true;
+    for (const tk of (n.match(/[a-z0-9]+/g) || [])) if (tk.length >= 3 && srcTokens.has(tk)) return true;
+    return false;
+  };
+  const kept = ingredients.filter((ing) => {
+    const variants = [ing?.name, ing?.nameEn, ing?.nameFil, ing?.nameId]
+      .map((v) => String(v ?? "").trim()).filter(Boolean);
+    if (variants.length === 0) return false;
+    return variants.some(overlap);
+  });
+  if (kept.length !== ingredients.length) {
+    console.log(`[parseUrl] grounding dropped ${ingredients.length - kept.length} ingredient(s) not found in source`);
+  }
+  return kept;
+}
+
+async function rehostExternalImage(imageUrl: string, category?: string, opts?: { fallback?: boolean }): Promise<string> {  const useFallback = opts?.fallback !== false;
   if (!imageUrl) return useFallback ? "" : "";
   // Decode HTML entities that break fetch (especially Instagram's &amp;)
   imageUrl = imageUrl.replace(/&amp;/g, "&");
@@ -1497,6 +1525,10 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   parseReason?: "ok" | "no_recipe_content" | "cannot_read";
 }> {
   const sourceType = detectSourceType(url);
+  // 匯入效能量度（睇 railway logs 搵瓶頸；唔含 PII）
+  const __t0 = Date.now();
+  const __stage = (s: string) => console.log(`[parseUrl] ${s} +${Date.now() - __t0}ms`);
+  __stage("start");
 
   // For Instagram: try /media endpoint first to get a clean thumbnail (no "Video" overlay)
   let cleanInstagramThumbnail = "";
@@ -1533,6 +1565,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   }
 
   const { text: fetchedContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
+  __stage("fetchPageContent done");
   // Path A：若手機分享帶嚟 caption，優先/合併使用（Threads/TikTok/小紅書 後端爬唔到時靠佢）
   const clientCaptionText = String(clientCaption ?? "").trim();
   const pageContent = clientCaptionText.length > fetchedContent.length
@@ -1564,6 +1597,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     const candidate = isSocial ? findOutboundRecipeUrl(pageContent || clientCaption || "") : url;
     if (candidate) {
       const html = await fetchRawHtml(candidate);
+      __stage("jsonld fetch done");
       const jl = html ? extractRecipeJsonLd(html) : null;
       if (jl) {
         const fromJsonLd = await recipeFromJsonLd(jl, effectiveThumbnail);
@@ -1761,6 +1795,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   });
 
   const rawContent = response.choices[0]?.message?.content;
+  __stage("llm parse done");
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
   const result: any = extractJSON(parsedContent);
@@ -1803,6 +1838,7 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     });
     if (classified) dish = classified;
   }
+  __stage("classify done");
   result.dishType = guardDishTypeByName(result.name || "", dish || "other");
   // 標籤保底：確保至少有菜系 / 菜式類型 / 家常菜，避免匯入後標籤空白
   try {
@@ -1821,6 +1857,10 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     if (existing.length === 0) existing.push("家常菜");
     result.tags = existing.slice(0, 20);
   } catch { /* ignore tag backfill errors */ }
+  // Grounding（防 AI 老作）：非 vision 路徑 → 刪走來源文字搵唔到嘅食材
+  if (!useVisionForInstagram && hasRealContent) {
+    result.ingredients = groundIngredients(Array.isArray(result.ingredients) ? result.ingredients : [], pageContent);
+  }
   // 正規化：難度統一 canonical 中文（LLM 可能回英文/空）
   result.difficulty = normalizeDifficulty(result.difficulty);
   // 內容檢查：URL parse 以前只睇 name → 「有 name 但無料」都會當成功，存入空食譜。
