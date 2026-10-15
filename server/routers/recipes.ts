@@ -1772,15 +1772,9 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
     result.thumbnailUrl = await rehostFirstAvailable([result.thumbnailUrl, ...thumbCandidates], category);
     console.log("[parseRecipeFromUrl] thumbnail rehost result:", result.thumbnailUrl ? "ok" : "none");
   }
-  // 真係冇圖 → 試 AI 按菜名生成（A）；失敗 → 交返空（前端會顯示中性佔位 C）
-  if (!result.thumbnailUrl || result.thumbnailUrl === "") {
-    try {
-      const ai = await generateRecipeImage(result.name || "");
-      result.thumbnailUrl = ai || "";
-    } catch {
-      result.thumbnailUrl = "";
-    }
-  }
+  // 冇圖：唔再喺解析路徑「阻塞式」生成 AI 圖（generateRecipeImage 好慢，係匯入最大延遲來源）。
+  // 交返空 → 前端用中性佔位／分類封面。AI 封面如需，改為儲存後非同步生成。
+  if (!result.thumbnailUrl) result.thumbnailUrl = "";
   // IG hashtags → 併入 tags（方便 AI Chef 用關鍵字搵到）
   try {
     const hashtags = Array.from(
@@ -1798,14 +1792,17 @@ dishType 規則（務必跟隨）：湯麵/湯飯/湯河/湯米線/湯烏冬/湯
   const DISH_KEYS = ["meat", "seafood", "vegetable", "soup", "carb", "appetizer", "dessert", "drink", "other"];
   const llmDish = String(result.dishType || "").trim();
   let dish: DishKind | undefined = DISH_KEYS.includes(llmDish) ? (llmDish as DishKind) : undefined;
-  const classified = await classifyRecipeDishTypeLLM({
-    name: result.name || "",
-    description: result.description || "",
-    ingredients: Array.isArray(result.ingredients) ? result.ingredients : [],
-    tags: Array.isArray(result.tags) ? result.tags : [],
-    category,
-  });
-  if (classified) dish = classified;
+  // 速度：parse LLM 已經回合法 dishType → 唔再額外 call classify（省一次 LLM round-trip）。
+  if (!dish) {
+    const classified = await classifyRecipeDishTypeLLM({
+      name: result.name || "",
+      description: result.description || "",
+      ingredients: Array.isArray(result.ingredients) ? result.ingredients : [],
+      tags: Array.isArray(result.tags) ? result.tags : [],
+      category,
+    });
+    if (classified) dish = classified;
+  }
   result.dishType = guardDishTypeByName(result.name || "", dish || "other");
   // 標籤保底：確保至少有菜系 / 菜式類型 / 家常菜，避免匯入後標籤空白
   try {
