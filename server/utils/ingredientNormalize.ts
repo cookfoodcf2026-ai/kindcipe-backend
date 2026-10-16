@@ -88,6 +88,15 @@ function cleanUnit(u?: string): string {
   return PLACEHOLDER_UNITS.has(s.toLowerCase()) ? "" : s;
 }
 
+// 若 quantity 尾已經包含單位（例如 "400ml" + unit "ml"、"幾片" + unit "片"）→ 剝走，避免「400ml ml」。
+function stripUnitFromQty(qty: string | undefined, unit: string): string {
+  const q = String(qty ?? "").trim();
+  const u = String(unit ?? "").trim();
+  if (!q || !u) return q;
+  const re = new RegExp(`\\s*${u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i");
+  return re.test(q) ? q.replace(re, "").trim() : q;
+}
+
 export function normalizeRecipeIngredients(
   ingredients: Array<{ name: string; quantity?: string; unit?: string; category?: string }>
 ): NormalizedIngredient[] {
@@ -103,13 +112,15 @@ export function normalizeRecipeIngredients(
       // IMPORTANT: spread the original so extra fields (nameEn/nameFil/nameId,
       // aiInferred, etc.) survive normalization — otherwise translations and
       // provenance get wiped on every save.
-      out.push({ ...(ing as any), name: rawName, quantity: String(ing?.quantity ?? ""), unit: cleanUnit(ing?.unit), category: cat } as any);
+      const u = cleanUnit(ing?.unit);
+      out.push({ ...(ing as any), name: rawName, quantity: stripUnitFromQty(ing?.quantity, u), unit: u, category: cat } as any);
       continue;
     }
     // 一欄多樣：拆開（翻譯不可逐樣拆 → 留空，之後字典補；保留 aiInferred 標記）
     const per = perItemQty(String(ing?.quantity ?? ""), parts.length);
     for (const p of parts) {
-      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: per.quantity, unit: cleanUnit(per.unit), category: categorizeIngredientName(p) } as any);
+      const pu = cleanUnit(per.unit);
+      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: stripUnitFromQty(per.quantity, pu), unit: pu, category: categorizeIngredientName(p) } as any);
     }
   }
   return out;

@@ -53,6 +53,26 @@ function cacheParseUrl(key: string, result: any) {
   if (parseUrlCache.size > PARSE_CACHE_MAX) parseUrlCache.clear();
 }
 
+// 清走來源/AI decode 殘渣（例如 `&#x4e0a;` 被剝成 `x4e0a`）同垃圾 tag。
+const TAG_JUNK_RE = /^x[0-9a-fA-F]{2,6}$/;
+function cleanTags(tags: any): string[] {
+  if (!Array.isArray(tags)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tags) {
+    const s = String(t ?? "").replace(/^#/, "").trim();
+    if (!s) continue;
+    if (TAG_JUNK_RE.test(s)) continue;                 // xXXXX escape 殘渣
+    if (/^[\d\s.,;:()（）]+$/.test(s)) continue;         // 純數字/標點
+    if (s.length > 24) continue;                        // 過長（多數係句子碎片）
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out.slice(0, 20);
+}
+
 const CULINARY_KEYWORDS = [
   // 蔬菜 / 水果
   "番茄", "蕃茄", "番薯", "蕃薯", "薯仔", "土豆", "洋蔥", "西蘭花", "菜心", "白菜", "生菜", "菠菜", "椰菜", "芹菜", "韭菜", "青瓜", "南瓜", "茄子", "苦瓜", "冬瓜", "節瓜", "絲瓜", "粟米", "玉米", "蘆筍", "豆角", "荷蘭豆", "四季豆",
@@ -897,6 +917,20 @@ const recipeInputSchema = z.object({
 
 // ─── Fetch webpage content helper ────────────────────────────────────────────
 
+/** 完整 decode HTML entities（含 `&#x…;` 用 fromCodePoint，正確處理 emoji/地區旗）。 */
+function decodeHtmlEntities(s: string): string {
+  return String(s ?? "")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ""; } })
+    .replace(/&#(\d+);/g, (_, d) => { try { return String.fromCodePoint(parseInt(d, 10)); } catch { return ""; } })
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
 async function fetchPageContent(url: string): Promise<{ text: string; thumbnail: string }> {
   try {
   const sourceType = detectSourceType(url);
@@ -1269,17 +1303,13 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
           // og:title
           const titleMatch = html.match(/property="og:title"\s*content="([^"]+)"/) ||
                              html.match(/name="twitter:title"\s*content="([^"]+)"/);
-          if (titleMatch) threadText = `Title: ${titleMatch[1].replace(/&amp;/g, "&")}`;
+          if (titleMatch) threadText = `Title: ${decodeHtmlEntities(titleMatch[1])}`;
 
           // og:description (usually contains the post text)
           const descMatch = html.match(/property="og:description"\s*content="([\s\S]*?)"/) ||
                             html.match(/name="description"\s*content="([^"]+)"/);
           if (descMatch) {
-            const desc = descMatch[1]
-              .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-              .replace(/&quot;/g, '"')
-              .replace(/&amp;/g, "&")
-              .trim();
+            const desc = decodeHtmlEntities(descMatch[1]);
             threadText += threadText ? `\n\nDescription:\n${desc}` : `Description: ${desc}`;
           }
 
@@ -3132,7 +3162,7 @@ ${TAGS_RULE}`;
         stepsEn: _trO.stepsEn ? JSON.stringify(_trO.stepsEn) : undefined,
         stepsFil: _trO.stepsFil ? JSON.stringify(_trO.stepsFil) : undefined,
         stepsId: _trO.stepsId ? JSON.stringify(_trO.stepsId) : undefined,
-        tags: JSON.stringify(input.tags || []),
+        tags: JSON.stringify(cleanTags(input.tags || [])),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
         sourceUrlHash: urlHash ?? undefined,
@@ -3347,7 +3377,7 @@ ${TAGS_RULE}`;
         stepsEn: _tr.stepsEn ? JSON.stringify(_tr.stepsEn) : undefined,
         stepsFil: _tr.stepsFil ? JSON.stringify(_tr.stepsFil) : undefined,
         stepsId: _tr.stepsId ? JSON.stringify(_tr.stepsId) : undefined,
-        tags: JSON.stringify(input.tags || []),
+        tags: JSON.stringify(cleanTags(input.tags || [])),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
         sourceUrlHash: urlHash ?? undefined,
@@ -3634,7 +3664,7 @@ ${TAGS_RULE}`;
           category: input.recipeCategory,
         }))),
         steps: JSON.stringify(input.steps),
-        tags: JSON.stringify(input.tags ?? []),
+        tags: JSON.stringify(cleanTags(input.tags ?? [])),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
         sourceAuthor: input.sourceAuthor,
@@ -3758,7 +3788,7 @@ ${TAGS_RULE}`;
         recipeCategory: input.recipeCategory,
         ingredients: JSON.stringify([]),
         steps: JSON.stringify([]),
-        tags: JSON.stringify(input.tags ?? []),
+        tags: JSON.stringify(cleanTags(input.tags ?? [])),
         sourceType: 'manual',
         sourceAuthor: input.sourceAuthor ?? '',
         sourceUrl: input.sourceUrl ?? '',
@@ -3809,7 +3839,7 @@ ${TAGS_RULE}`;
         servings: input.servings,
         difficulty: input.difficulty,
         recipeCategory: input.recipeCategory,
-        tags: JSON.stringify(input.tags ?? []),
+        tags: JSON.stringify(cleanTags(input.tags ?? [])),
         sourceAuthor: input.sourceAuthor ?? '',
         sourceUrl: input.sourceUrl ?? '',
         sourceType: input.sourceType,
