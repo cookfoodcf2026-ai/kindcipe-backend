@@ -43,6 +43,16 @@ const CANONICAL_TAGS = [
 ];
 const TAGS_RULE = `標籤規則（務必跟隨）：tags 只可以從以下清單揀（可多選，一律用繁體中文），唔准自創清單以外嘅 tag：${CANONICAL_TAGS.join("、")}。`;
 
+// URL 解析快取（private，唔會重新發布做官方食譜）：同 URL 短時間內重用結果 → 省 LLM 成本 + 加快。
+const PARSE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小時
+const PARSE_CACHE_MAX = 500;
+const parseUrlCache = new Map<string, { at: number; result: any }>();
+function cacheParseUrl(key: string, result: any) {
+  if (!key || !result || result.parseReason !== "ok") return; // 只快取成功，避免快取 transient 失敗
+  parseUrlCache.set(key, { at: Date.now(), result });
+  if (parseUrlCache.size > PARSE_CACHE_MAX) parseUrlCache.clear();
+}
+
 const CULINARY_KEYWORDS = [
   // 蔬菜 / 水果
   "番茄", "蕃茄", "番薯", "蕃薯", "薯仔", "土豆", "洋蔥", "西蘭花", "菜心", "白菜", "生菜", "菠菜", "椰菜", "芹菜", "韭菜", "青瓜", "南瓜", "茄子", "苦瓜", "冬瓜", "節瓜", "絲瓜", "粟米", "玉米", "蘆筍", "豆角", "荷蘭豆", "四季豆",
@@ -1553,6 +1563,16 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   const __stage = (s: string) => console.log(`[parseUrl] ${s} +${Date.now() - __t0}ms`);
   __stage("start");
 
+  // 快取命中 → 直接回（省 LLM 成本 + 加快）
+  const __cacheKey = url.trim();
+  {
+    const hit = parseUrlCache.get(__cacheKey);
+    if (hit && Date.now() - hit.at < PARSE_CACHE_TTL_MS) {
+      console.log("[parseUrl] cache hit");
+      return hit.result;
+    }
+  }
+
   // For Instagram: try /media endpoint first to get a clean thumbnail (no "Video" overlay)
   let cleanInstagramThumbnail = "";
   if (sourceType === "instagram") {
@@ -1626,6 +1646,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
         const fromJsonLd = await recipeFromJsonLd(jl, effectiveThumbnail);
         if (fromJsonLd) {
           console.log(`[parseRecipeFromUrl] JSON-LD path ok (${candidate})`);
+          cacheParseUrl(__cacheKey, fromJsonLd);
           return fromJsonLd;
         }
       }
@@ -1639,6 +1660,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 
   // Detect if content has actual recipe info (ingredients/steps keywords)
   const hasRecipeKeywords = /(?:材料 | 食材|做法 | 作法|步驟|ingredient|step|recipe|gram|tbsp|tsp|大匙 | 小匙 | 公克 | 毫升 | 份量 | 人份 | 醃製 | 醃漬|[0-9]+\s*(?:克|g|ml|cc|杯|匙|顆|粒|把|片|個|包|湯匙 | 茶匙))/i.test(pageContent);
+  console.log(`[parseUrl] source=${sourceType} pageContent=${pageContent.length} hasKeywords=${hasRecipeKeywords} clientCaption=${clientCaptionText.length} thumbnail=${!!effectiveThumbnail}`);
 
   // If we have text but NO recipe keywords AND no thumbnail to try Vision → return early
   // Note: For Instagram, if we have clientThumbnail (from oEmbed), continue to AI parsing even without keywords
@@ -1822,6 +1844,7 @@ ${TAGS_RULE}`;
   __stage("llm parse done");
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
+  console.log(`[parseUrl] llmRawLen=${parsedContent.length} jsonClosed=${parsedContent.trim().endsWith("}")}`);
   const result: any = extractJSON(parsedContent);
   if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
   if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
@@ -1902,7 +1925,10 @@ ${TAGS_RULE}`;
   } else {
     result.parseReason = "ok";
   }
-  return await ensureParseTranslations(result);
+  console.log(`[parseUrl] reason=${result.parseReason} name=${String(result.name || "").slice(0, 40)} ingredients=${result.ingredients?.length ?? 0} steps=${result.steps?.length ?? 0}`);
+  const __out = await ensureParseTranslations(result);
+  cacheParseUrl(__cacheKey, __out);
+  return __out;
 }
 
 /**
