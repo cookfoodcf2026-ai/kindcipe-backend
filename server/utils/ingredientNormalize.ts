@@ -80,6 +80,14 @@ function perItemQty(rawQty: string, totalParts: number): { quantity: string; uni
  * 主入口：將 ingredient array normalize。
  * 每個 ingredient：name 若含分隔符 → 拆開；每樣重新分類 + 分份量。
  */
+// 清走 AI 有時回嘅佔位「單位」（例如字面 "unit"）→ 避免顯示 "米,unit"。
+const PLACEHOLDER_UNITS = new Set(["unit", "units", "unit(s)", "單位", "份", "n/a", "na", "null", "undefined"]);
+function cleanUnit(u?: string): string {
+  const s = String(u ?? "").trim();
+  if (!s) return "";
+  return PLACEHOLDER_UNITS.has(s.toLowerCase()) ? "" : s;
+}
+
 export function normalizeRecipeIngredients(
   ingredients: Array<{ name: string; quantity?: string; unit?: string; category?: string }>
 ): NormalizedIngredient[] {
@@ -95,13 +103,13 @@ export function normalizeRecipeIngredients(
       // IMPORTANT: spread the original so extra fields (nameEn/nameFil/nameId,
       // aiInferred, etc.) survive normalization — otherwise translations and
       // provenance get wiped on every save.
-      out.push({ ...(ing as any), name: rawName, quantity: String(ing?.quantity ?? ""), unit: String(ing?.unit ?? ""), category: cat } as any);
+      out.push({ ...(ing as any), name: rawName, quantity: String(ing?.quantity ?? ""), unit: cleanUnit(ing?.unit), category: cat } as any);
       continue;
     }
     // 一欄多樣：拆開（翻譯不可逐樣拆 → 留空，之後字典補；保留 aiInferred 標記）
     const per = perItemQty(String(ing?.quantity ?? ""), parts.length);
     for (const p of parts) {
-      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: per.quantity, unit: per.unit, category: categorizeIngredientName(p) } as any);
+      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: per.quantity, unit: cleanUnit(per.unit), category: categorizeIngredientName(p) } as any);
     }
   }
   return out;

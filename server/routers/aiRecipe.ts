@@ -3486,6 +3486,40 @@ async function generateFromHintLLM(hint: string): Promise<SuggestedRecipe | null
   }
 }
 
+/** C6：由食物相生成 1 個相似食譜（AI 創作，vision）。回傳 null 表示失敗。 */
+async function generateFromImageLLM(imageUrls: string[]): Promise<SuggestedRecipe | null> {
+  try {
+    const prompt = `睇以下食物相，**生成一個相似嘅家常菜食譜（AI 創作）**。分析相中菜式（食材、醬汁、煮法），產生一個合理、可煮嘅食譜。
+用繁體中文。包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（4-6 步）。
+每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。
+回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":2,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
+    const content = [
+      ...imageUrls.map((u) => ({ type: "image_url" as const, image_url: { url: u, detail: "high" as const } })),
+      { type: "text" as const, text: prompt },
+    ];
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: content as any }],
+      maxTokens: 3000,
+      temperature: 0.6,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+      maxRetries: 1,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = parseRecipeWithFallback(raw);
+    if (parsed.recipes.length > 0) return parsed.recipes[0];
+    const extracted = extractJSON<Record<string, unknown>>(raw);
+    if (extracted && (extracted as any).name) {
+      const single = manuallyConvertRecipes([extracted], undefined);
+      if (single.length > 0) return single[0];
+    }
+    return null;
+  } catch (e) {
+    console.warn("[generateFromImage] failed:", (e as Error)?.message);
+    return null;
+  }
+}
+
 export const aiRecipeRouter = router({
   // C6：由線索（菜名／caption）AI 生成 1 個食譜（明確 AI 創作，唔冒充原帖）
   generateFromHint: protectedProcedure
@@ -3499,6 +3533,32 @@ export const aiRecipeRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
       }
       const recipe = await generateFromHintLLM(input.hint);
+      if (!recipe) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
+      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
+      const localized = await localizeSuggestedRecipe(recipe);
+      return { recipe: localized };
+    }),
+
+  // C6：由食物相（vision）AI 生成 1 個相似食譜（明確 AI 創作，Pro）
+  generateFromImage: protectedProcedure
+    .input(z.object({ storageKeys: z.array(z.string()).min(1).max(5) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      const sub = await getFamilySubscription(ctx.activeFamilyId);
+      if (!sub?.isPaid) throw new TRPCError({ code: "FORBIDDEN", message: "AI 生成相片食譜係 Pro 功能。" });
+      const limit = sub.aiChatLimit ?? 20;
+      const used = await getAiChatUsage(ctx.activeFamilyId);
+      if (used >= limit) {
+        throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
+      }
+      // 安全：只可讀自己家庭嘅截圖（防 IDOR）
+      for (const k of input.storageKeys) {
+        if (!k.startsWith(`recipe-screenshots/f${ctx.activeFamilyId}/`)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
+        }
+      }
+      const urls = await Promise.all(input.storageKeys.map((k) => storageGetSignedUrl(k)));
+      const recipe = await generateFromImageLLM(urls);
       if (!recipe) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
       try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
       const localized = await localizeSuggestedRecipe(recipe);
