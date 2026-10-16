@@ -3455,7 +3455,56 @@ async function runAiEdit(
   return parsed;
 }
 
+/** C6：由線索生成 1 個食譜（AI 創作）。回傳 null 表示失敗。 */
+async function generateFromHintLLM(hint: string): Promise<SuggestedRecipe | null> {
+  try {
+    const prompt = `請根據以下線索生成 1 個家常菜食譜（AI 創作，用繁體中文）：${hint}
+包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（4-5 步）。
+每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。
+回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 3000,
+      temperature: 0.7,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+      maxRetries: 1,
+      enableSearch: false,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = parseRecipeWithFallback(raw);
+    if (parsed.recipes.length > 0) return parsed.recipes[0];
+    const extracted = extractJSON<Record<string, unknown>>(raw);
+    if (extracted && (extracted as any).name) {
+      const single = manuallyConvertRecipes([extracted], undefined);
+      if (single.length > 0) return single[0];
+    }
+    return null;
+  } catch (e) {
+    console.warn("[generateFromHint] failed:", (e as Error)?.message);
+    return null;
+  }
+}
+
 export const aiRecipeRouter = router({
+  // C6：由線索（菜名／caption）AI 生成 1 個食譜（明確 AI 創作，唔冒充原帖）
+  generateFromHint: protectedProcedure
+    .input(z.object({ hint: z.string().min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      const sub = await getFamilySubscription(ctx.activeFamilyId);
+      const limit = sub?.aiChatLimit ?? 20;
+      const used = await getAiChatUsage(ctx.activeFamilyId);
+      if (used >= limit) {
+        throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
+      }
+      const recipe = await generateFromHintLLM(input.hint);
+      if (!recipe) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
+      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
+      const localized = await localizeSuggestedRecipe(recipe);
+      return { recipe: localized };
+    }),
+
   previewEdit: familyWriteProcedure
     .input(aiEditSaveInputSchema)
     .mutation(async ({ input, ctx }) => {
