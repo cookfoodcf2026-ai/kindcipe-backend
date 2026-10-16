@@ -3205,6 +3205,7 @@ export const recipesRouter = router({
       let resolvedThumbnailUrl = input.image || input.thumbnailUrl || "";
       const rawThumb = input.thumbnailUrl || input.image || "";
       const isManusStorage = rawThumb.includes(".r2.cloudflarestorage.com/") ||
+        rawThumb.includes("/r2-storage/") ||
         (process.env.R2_PUBLIC_URL && rawThumb.startsWith(process.env.R2_PUBLIC_URL));
       if (rawThumb && !isManusStorage && !rawThumb.startsWith("/r2-storage/")) {
         try {
