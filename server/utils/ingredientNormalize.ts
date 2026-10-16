@@ -88,13 +88,14 @@ function cleanUnit(u?: string): string {
   return PLACEHOLDER_UNITS.has(s.toLowerCase()) ? "" : s;
 }
 
-// 若 quantity 尾已經包含單位（例如 "400ml" + unit "ml"、"幾片" + unit "片"）→ 剝走，避免「400ml ml」。
-function stripUnitFromQty(qty: string | undefined, unit: string): string {
+// 若 quantity 尾已經包含單位（例如 "400ml" + unit "ml"、"幾片" + unit "片"）
+// → 清空重複嘅 unit（保留 quantity 原樣，避免 "幾 片" 咁怪）。
+function dedupeUnit(qty: string | undefined, unit: string): { quantity: string; unit: string } {
   const q = String(qty ?? "").trim();
   const u = String(unit ?? "").trim();
-  if (!q || !u) return q;
+  if (!q || !u) return { quantity: q, unit: u };
   const re = new RegExp(`\\s*${u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i");
-  return re.test(q) ? q.replace(re, "").trim() : q;
+  return re.test(q) ? { quantity: q, unit: "" } : { quantity: q, unit: u };
 }
 
 export function normalizeRecipeIngredients(
@@ -112,15 +113,15 @@ export function normalizeRecipeIngredients(
       // IMPORTANT: spread the original so extra fields (nameEn/nameFil/nameId,
       // aiInferred, etc.) survive normalization — otherwise translations and
       // provenance get wiped on every save.
-      const u = cleanUnit(ing?.unit);
-      out.push({ ...(ing as any), name: rawName, quantity: stripUnitFromQty(ing?.quantity, u), unit: u, category: cat } as any);
+      const { quantity: q1, unit: u1 } = dedupeUnit(ing?.quantity, cleanUnit(ing?.unit));
+      out.push({ ...(ing as any), name: rawName, quantity: q1, unit: u1, category: cat } as any);
       continue;
     }
     // 一欄多樣：拆開（翻譯不可逐樣拆 → 留空，之後字典補；保留 aiInferred 標記）
     const per = perItemQty(String(ing?.quantity ?? ""), parts.length);
     for (const p of parts) {
-      const pu = cleanUnit(per.unit);
-      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: stripUnitFromQty(per.quantity, pu), unit: pu, category: categorizeIngredientName(p) } as any);
+      const { quantity: q2, unit: u2 } = dedupeUnit(per.quantity, cleanUnit(per.unit));
+      out.push({ ...(ing as any), name: p, nameEn: undefined, nameFil: undefined, nameId: undefined, quantity: q2, unit: u2, category: categorizeIngredientName(p) } as any);
     }
   }
   return out;
