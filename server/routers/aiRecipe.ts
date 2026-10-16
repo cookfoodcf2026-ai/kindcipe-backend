@@ -3486,6 +3486,45 @@ async function generateFromHintLLM(hint: string): Promise<SuggestedRecipe | null
   }
 }
 
+/** AI 補齊：只根據現有材料補缺失做法（唔准加新材料）。 */
+async function fillStepsLLM(input: { name: string; description?: string; ingredients: { name: string; quantity?: string; unit?: string }[]; steps: string[] }): Promise<SuggestedRecipe | null> {
+  try {
+    const ingText = input.ingredients.map((i) => `${i.name}${i.quantity ? " " + i.quantity : ""}${i.unit ? " " + i.unit : ""}`).join("、");
+    const prompt = `以下食譜缺少部分做法（例如某個醬汁／配菜嘅做法）。請**只根據現有材料**補齊完整、合理嘅做法，**唔准加入新材料**，亦唔准改動材料清單。
+菜名：${input.name}
+簡介：${input.description ?? ""}
+現有材料：${ingText}
+現有步驟：${JSON.stringify(input.steps)}
+用繁體中文寫步驟（4-8 步，清晰可煮）；同時提供 stepsEn/stepsFil/stepsId（每一步對應，份量/時間一致）。
+回傳 JSON：{"recipes":[{"name":"${input.name}","steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 2600,
+      temperature: 0.5,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+      maxRetries: 1,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = parseRecipeWithFallback(raw);
+    let rec = parsed.recipes[0];
+    if (!rec) {
+      const e = extractJSON<Record<string, unknown>>(raw);
+      if (e && (e as any).name) rec = manuallyConvertRecipes([e], undefined)[0];
+    }
+    if (!rec || !Array.isArray(rec.steps) || rec.steps.length === 0) return null;
+    // 保留原名稱＋原材料；只用 AI 嘅步驟
+    return {
+      ...rec,
+      name: input.name,
+      ingredients: input.ingredients.map((i) => ({ name: i.name, quantity: i.quantity ?? "", unit: i.unit ?? "" })),
+    };
+  } catch (e) {
+    console.warn("[fillSteps] failed:", (e as Error)?.message);
+    return null;
+  }
+}
+
 /** C6：由食物相生成 1 個相似食譜（AI 創作，vision）。回傳 null 表示失敗。 */
 async function generateFromImageLLM(imageUrls: string[]): Promise<SuggestedRecipe | null> {
   try {
@@ -3560,6 +3599,31 @@ export const aiRecipeRouter = router({
       const urls = await Promise.all(input.storageKeys.map((k) => storageGetSignedUrl(k)));
       const recipe = await generateFromImageLLM(urls);
       if (!recipe) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
+      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
+      const localized = await localizeSuggestedRecipe(recipe);
+      return { recipe: localized };
+    }),
+
+  // AI 補齊：保留原材料，只補缺失做法（有據、標示 AI）
+  fillSteps: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(128),
+      description: z.string().optional(),
+      ingredients: z.array(z.object({ name: z.string(), quantity: z.string().optional(), unit: z.string().optional() })).min(1),
+      steps: z.array(z.string()).default([]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      const sub = await getFamilySubscription(ctx.activeFamilyId);
+      const limit = sub?.aiChatLimit ?? 20;
+      const used = await getAiChatUsage(ctx.activeFamilyId);
+      if (used >= limit) {
+        throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
+      }
+      const recipe = await fillStepsLLM(input);
+      if (!recipe || !Array.isArray(recipe.steps) || recipe.steps.length === 0) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補齊失敗，請再試。" });
+      }
       try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
       const localized = await localizeSuggestedRecipe(recipe);
       return { recipe: localized };

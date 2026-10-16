@@ -2277,15 +2277,32 @@ ${TAGS_RULE}`;
 
       if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
 
-      // Use real storage URL as thumbnail if AI didn't extract one
+      // Use real storage URL as thumbnail if AI didn't extract one.
+      // 用後端代理 URL（`/r2-storage/<key>`，永久穩定），避免 1 小時過期嘅預簽 URL。
       if (!result.thumbnailUrl) {
         try {
-          const { storageGet } = await import("../storage");
-          const { url: realUrl } = await storageGet(keys[0]);
-          result.thumbnailUrl = realUrl;
+          const backendHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+          const publicUrl = process.env.R2_PUBLIC_URL;
+          if (publicUrl) {
+            result.thumbnailUrl = `${publicUrl.replace(/\/+$/, "")}/${keys[0]}`;
+          } else if (backendHost) {
+            result.thumbnailUrl = `https://${backendHost}/r2-storage/${keys[0]}`;
+          } else {
+            const { storageGet } = await import("../storage");
+            const { url: realUrl } = await storageGet(keys[0]);
+            result.thumbnailUrl = realUrl;
+          }
         } catch {
           // Storage fetch failed — will fall back to category cover below
         }
+      }
+
+      // 清走多餘截圖（keys[1..] 只用嚟合併解析，唔會保留）→ 防 R2 孤兒。
+      if (keys.length > 1) {
+        try {
+          const { storageDelete } = await import("../storage");
+          await Promise.all(keys.slice(1).map((k) => storageDelete(k).catch(() => {})));
+        } catch { /* ignore */ }
       }
 
       // 冇圖：唔再喺解析路徑阻塞生成 AI 圖（同 parseUrl 一致）。

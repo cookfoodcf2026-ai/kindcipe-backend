@@ -89,6 +89,8 @@ export function registerStripeWebhook(app: Express) {
         switch (event.type) {
           case "checkout.session.completed": {
             const session = event.data.object as import("stripe").Stripe.Checkout.Session;
+            // 未付款（例如 async payment 未完成）→ 唔啟動，等真正付款先
+            if (session.payment_status && session.payment_status === "unpaid") break;
             const familyId = Number(session.metadata?.familyId ?? session.client_reference_id);
             if (!familyId) break;
             const plan = (session.metadata?.plan === "yearly" ? "yearly" : "monthly") as
