@@ -3499,26 +3499,35 @@ async function fillStepsLLM(input: { name: string; description?: string; ingredi
 回傳 JSON：{"recipes":[{"name":"${input.name}","steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 2600,
+      maxTokens: 3500,
       temperature: 0.5,
       timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
       maxRetries: 1,
       responseFormat: { type: "json_object" },
     });
     const raw = resp.choices?.[0]?.message?.content || "";
-    const parsed = parseRecipeWithFallback(raw);
-    let rec = parsed.recipes[0];
-    if (!rec) {
-      const e = extractJSON<Record<string, unknown>>(raw);
-      if (e && (e as any).name) rec = manuallyConvertRecipes([e], undefined)[0];
-    }
-    if (!rec || !Array.isArray(rec.steps) || rec.steps.length === 0) return null;
+    // 直接解析（唔靠 parseRecipeWithFallback：佢要求完整 recipe 欄位，會丟 steps-only 回應）
+    let o: any = extractJSON<Record<string, unknown>>(raw);
+    if (!o) { try { o = JSON.parse(repairJSON(raw)); } catch { o = null; } }
+    const r: any = o?.recipes?.[0] ?? o;
+    const mapSteps = (a: any) => (Array.isArray(a) ? a.map((s: any) => String(s)).filter(Boolean) : undefined);
+    const steps = Array.isArray(r?.steps) ? r.steps.map((s: any) => String(s)).filter(Boolean)
+      : (Array.isArray(r?.instructions) ? r.instructions.map((s: any) => String(s)).filter(Boolean) : []);
+    if (steps.length === 0) return null;
     // 保留原名稱＋原材料；只用 AI 嘅步驟
     return {
-      ...rec,
       name: input.name,
+      description: input.description ?? "",
+      cookTime: Number(r?.cookTime ?? 30),
+      servings: Number(r?.servings ?? 2),
+      difficulty: String(r?.difficulty ?? "中等"),
       ingredients: input.ingredients.map((i) => ({ name: i.name, quantity: i.quantity ?? "", unit: i.unit ?? "" })),
-    };
+      steps,
+      stepsEn: mapSteps(r?.stepsEn),
+      stepsFil: mapSteps(r?.stepsFil),
+      stepsId: mapSteps(r?.stepsId),
+      tags: Array.isArray(r?.tags) ? r.tags.map((x: any) => String(x)) : [],
+    } as SuggestedRecipe;
   } catch (e) {
     console.warn("[fillSteps] failed:", (e as Error)?.message);
     return null;
