@@ -67,9 +67,9 @@ export async function getDb() {
         });
         // 暖機：每 60 秒 select 1，保持至少一條連線活躍（避免 Railway 斷閒置 TCP）
         if (!_warmTimer) {
-          _warmTimer = setInterval(() => {
-            try { void _pgClient!`select 1`.catch(() => {}); } catch { /* ignore */ }
-          }, 60_000);
+          const warm = () => { try { void _pgClient!`select 1`.catch(() => {}); } catch { /* ignore */ } };
+          setTimeout(warm, 2_000); // 啟動後即刻暖一條
+          _warmTimer = setInterval(warm, 60_000);
           (_warmTimer as any).unref?.();
         }
       }
