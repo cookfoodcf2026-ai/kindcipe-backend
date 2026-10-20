@@ -52,6 +52,7 @@ import { localizeIngredientNames } from "./utils/recipeTranslations";
 
 let _pgClient: ReturnType<typeof postgres> | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
+let _warmTimer: ReturnType<typeof setInterval> | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -60,9 +61,17 @@ export async function getDb() {
         // 使用連接池優化（max: 10 個連接，減少連接建立延遲）
         _pgClient = postgres(process.env.DATABASE_URL, {
           max: 10,
-          idle_timeout: 20,
+          // 0 = 唔自動斷閒置連線（避免冷連線 handshake，跨區時可省 ~1.2s）
+          idle_timeout: 0,
           connect_timeout: 10,
         });
+        // 暖機：每 60 秒 select 1，保持至少一條連線活躍（避免 Railway 斷閒置 TCP）
+        if (!_warmTimer) {
+          _warmTimer = setInterval(() => {
+            try { void _pgClient!`select 1`.catch(() => {}); } catch { /* ignore */ }
+          }, 60_000);
+          (_warmTimer as any).unref?.();
+        }
       }
       _db = drizzle(_pgClient);
     } catch (error) {
