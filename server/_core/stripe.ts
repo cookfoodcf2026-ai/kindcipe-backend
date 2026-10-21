@@ -1,8 +1,9 @@
 /**
- * Stripe billing service — web/Android subscription payments.
+ * Stripe billing service — web subscription payments only.
  *
- * iOS keeps Apple IAP (App Store guideline 3.1.1). Both channels activate the
- * same family subscription so Pro state is unified across App and Web.
+ * iOS uses Apple IAP (App Store guideline 3.1.1); Android uses Google Play
+ * Billing (Play payments policy). All channels activate the same family
+ * subscription so Pro state is unified across App and Web.
  *
  * Config (Railway env):
  *   STRIPE_SECRET_KEY      sk_live_... / sk_test_...

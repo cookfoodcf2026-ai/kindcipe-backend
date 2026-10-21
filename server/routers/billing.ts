@@ -1,8 +1,9 @@
 /**
- * Billing router — Stripe checkout / portal / status for web + Android.
+ * Billing router — Stripe checkout / portal / status for web only.
  *
- * iOS uses Apple IAP (see subscription.verifyIap); this router is the web path.
- * Both call activateFamilySubscription() so Pro state is unified.
+ * iOS uses Apple IAP; Android uses Google Play Billing (both via
+ * subscription.verifyIap). Stripe must never be used on native stores.
+ * All paths call activateFamilySubscription() so Pro state is unified.
  */
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -212,14 +213,25 @@ export const billingRouter = router({
       if (session.payment_status !== "paid" && session.status !== "complete") {
         return { status: "pending" as const };
       }
-      const sub = session.subscription as import("stripe").Stripe.Subscription | null;
-      const periodEnd =
-        sub && typeof sub !== "string" && (sub as any).current_period_end
-          ? new Date((sub as any).current_period_end * 1000)
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      // The session must belong to the caller's active family. Without this a
+      // leaked/guessed session id could activate Pro for a different family.
+      const sessionFamilyId = Number(
+        session.metadata?.familyId ?? session.client_reference_id
+      );
+      if (!sessionFamilyId || sessionFamilyId !== ctx.activeFamilyId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "此付款記錄不屬於目前廚房" });
+      }
+
       const plan = (session.metadata?.plan === "yearly" ? "yearly" : "monthly") as
         | "monthly"
         | "yearly";
+      const sub = typeof session.subscription === "string" ? null : session.subscription;
+      const periodEndTs =
+        sub?.items?.data?.[0]?.current_period_end ??
+        (sub as any)?.current_period_end;
+      const periodEnd = periodEndTs
+        ? new Date(periodEndTs * 1000)
+        : new Date(Date.now() + (plan === "yearly" ? 365 : 30) * 24 * 60 * 60 * 1000);
       await activateFamilySubscription(ctx.activeFamilyId, plan, periodEnd);
       return { status: "active" as const, plan, expiresAt: periodEnd.toISOString() };
     }),
