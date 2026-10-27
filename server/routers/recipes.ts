@@ -23,7 +23,9 @@ import { translateRecipeContent, translateToChinese } from "../utils/translateCo
 import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
-import { getDb, getCommonIngredients, getFamilySubscription, getImportUsage, assertFamilyQuota, incrementImportUsage } from "../db";
+import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
+import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
+import { assertUsageAvailable, commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -2038,6 +2040,17 @@ export async function buildAllLangs(params: {
  * 失敗時回傳空 object（唔阻塞存檔）。
  */
 
+async function assertImportAvailable(familyId: number, userId: string): Promise<void> {
+  const ent = await getFamilyEntitlements(familyId, userId);
+  if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+  if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+  await assertUsageAvailable({
+    familyId,
+    limits: ent.limits,
+    cost: { credits: 1, imports: 1 },
+  });
+}
+
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
   parseUrl: protectedProcedure
@@ -2047,7 +2060,7 @@ export const recipesRouter = router({
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
-      await assertFamilyQuota(ctx.activeFamilyId);
+      await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
       
       const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption);
       // 配額改為喺 importUser（真正儲存）先扣，避免「解析扣咗但存唔到」嘅 off-by-one。
@@ -2067,7 +2080,7 @@ export const recipesRouter = router({
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
-      await assertFamilyQuota(ctx.activeFamilyId);
+      await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
       
       const parsed = await parseTextToRecipe(input.text, input.language);
       // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
@@ -2135,7 +2148,7 @@ export const recipesRouter = router({
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
-      await assertFamilyQuota(ctx.activeFamilyId);
+      await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
 
       // 🛑 Screenshot/camera import is a Pro feature
       const sub = await getFamilySubscription(ctx.activeFamilyId);
@@ -2455,6 +2468,9 @@ ${TAGS_RULE}`;
     }))
     .query(async ({ ctx, input }) => {
       try {
+        if (input.source === "kol" && ctx.activeFamilyId && ctx.clientPlatform !== "native") {
+          await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
+        }
         const db = await getDb();
         if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, aiCount: 0, kolCount: 0, nextCursor: undefined };
 
@@ -3267,14 +3283,32 @@ ${TAGS_RULE}`;
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+
+      let reservationId: number | undefined;
+      if (!input.isAiGenerated) {
+        try {
+          const reservation = await reserveUsage({
+            familyId,
+            userId,
+            kind: "import",
+            limits: ent.limits,
+            idempotencyKey: `import:${familyId}:${userId}:${crypto.randomUUID()}`,
+            cost: { credits: 1, imports: 1 },
+          });
+          reservationId = reservation.eventId;
+        } catch (error) {
+          usageLimitToTRPC(error);
+        }
+      }
+
+      try {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-
-      // 配額：匯入食譜先檢查＋扣數（唯一扣數點）。AI 生成食譜用 AI Chef 自己嘅配額 → 唔計匯入。
-      if (!input.isAiGenerated) {
-        await assertFamilyQuota(ctx.activeFamilyId);
-        try { await incrementImportUsage(String(ctx.user.id), ctx.activeFamilyId); } catch { /* 唔阻塞 */ }
-      }
 
       const urlHash = input.sourceUrl ? hashUrl(input.sourceUrl) : null;
       if (urlHash) {
@@ -3408,9 +3442,13 @@ ${TAGS_RULE}`;
         }),
       }).returning();
 
-      // 配額扣數已移至 parse* 步驟（真正燒 LLM 嘅位），避免同 importUser 重複計。
+      if (reservationId) await commitUsage(reservationId);
 
       return { success: true, id: inserted.id };
+      } catch (error) {
+        if (reservationId) await refundUsage(reservationId).catch(() => {});
+        usageLimitToTRPC(error);
+      }
     }),
 
   // ── List user's own recipes ─────────────────────────────────────────────────
@@ -3995,6 +4033,9 @@ ${TAGS_RULE}`;
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: 'BAD_REQUEST', message: '請先加入家庭廚房' });
+      if (ctx.clientPlatform !== "native") {
+        await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
       const [kol] = await db.select().from(customRecipes)
@@ -4338,12 +4379,16 @@ ${TAGS_RULE}`;
     }),
 
   // ── Public: list KOL recipes (source_type = 'kol' only) ───────────────────
-  listKol: publicProcedure
+  listKol: protectedProcedure
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
     }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) return [];
+      if (ctx.clientPlatform !== "native") {
+        await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
+      }
       const db = await getDb();
       if (!db) return [];
 

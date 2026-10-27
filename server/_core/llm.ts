@@ -7,6 +7,7 @@
  *   DASHSCOPE_BASE_URL - API endpoint（選填，預設新加坡 region）
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { ENV } from "./env";
 import { captureException } from "./sentry";
 
@@ -17,6 +18,43 @@ const PRICE_PER_1M_INPUT = Number(process.env.LLM_PRICE_INPUT_PER_1M ?? 0.3);
 const PRICE_PER_1M_OUTPUT = Number(process.env.LLM_PRICE_OUTPUT_PER_1M ?? 1.2);
 
 type CostState = { day: string; tokens: number; calls: number; costUsd: number };
+export type LlmMeterContext = {
+  familyId?: number;
+  userId?: string;
+  route?: string;
+  requestId?: string;
+};
+export type LlmMeter = {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  context?: LlmMeterContext;
+};
+export type LlmCostEvent = {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  costMicros: number;
+  context: LlmMeterContext;
+};
+type LlmCostSink = (event: LlmCostEvent) => void | Promise<void>;
+let _costSink: LlmCostSink | null = null;
+const llmMeterStorage = new AsyncLocalStorage<LlmMeter>();
+
+export function setLlmCostSink(sink: LlmCostSink | null): void {
+  _costSink = sink;
+}
+
+export function startLlmMeter(context?: LlmMeterContext): LlmMeter {
+  const meter: LlmMeter = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, context };
+  llmMeterStorage.enterWith(meter);
+  return meter;
+}
+
+export function getLlmMeter(): LlmMeter | null {
+  return llmMeterStorage.getStore() ?? null;
+}
 const _cost: CostState = { day: "", tokens: 0, calls: 0, costUsd: 0 };
 let _budgetAlerted = false;
 
@@ -52,6 +90,26 @@ function recordLlmUsage(model: string, usage?: { prompt_tokens: number; completi
   _cost.tokens += total;
   _cost.calls += 1;
   _cost.costUsd += cost;
+  const meter = llmMeterStorage.getStore();
+  if (meter) {
+    meter.calls += 1;
+    meter.inputTokens += input;
+    meter.outputTokens += output;
+    meter.costUsd += cost;
+    const context = meter.context;
+    if (context?.familyId && context.userId && _costSink) {
+      const event: LlmCostEvent = {
+        model,
+        inputTokens: input,
+        outputTokens: output,
+        costMicros: Math.max(0, Math.round(cost * 1_000_000)),
+        context,
+      };
+      void Promise.resolve(_costSink(event)).catch((err) => {
+        console.warn("[LLM cost sink] failed:", (err as Error)?.message || err);
+      });
+    }
+  }
   console.log(
     `[LLM cost] day=${_cost.day} model=${model} tokens=${total} ` +
       `(in=${input},out=${output}) estCost=$${cost.toFixed(4)} ` +

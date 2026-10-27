@@ -52,10 +52,10 @@ export const familyWriteProcedure = protectedProcedure.use(
     if (!ctx.activeFamilyId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
     }
-    if (ctx.sharedLocked) {
+    if (ctx.readOnly) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "此廚房試用已到期，成員暫時只可檢視。請管理員升級或續費後即可恢復共用功能",
+        message: "此廚房已變回免費方案；你目前只可檢視。請管理員升級或移除超額成員。",
       });
     }
     return next({ ctx: { ...ctx, user: ctx.user } });

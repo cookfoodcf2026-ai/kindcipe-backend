@@ -126,3 +126,32 @@ export function normalizeRecipeIngredients(
   }
   return out;
 }
+
+const INVALID_INGREDIENT_NAMES = new Set([
+  "適量", "少許", "些許", "若干", "適宜", "適當", "隨意",
+  "切片", "切絲", "切碎", "切段", "切粒", "切塊", "切件", "切條", "切丁", "切末",
+  "去皮", "去核", "去籽", "去骨", "洗淨", "瀝乾", "備用", "打散", "拌勻",
+  "過篩", "解凍", "浸泡", "泡發", "拍扁", "剁碎", "氽水", "汆水", "焯水", "飛水",
+]);
+
+const INVALID_QTY_ONLY_RE = /^(?:約|大約|大概|近約|左右)?\s*(?:\d+(?:\.\d+)?(?:\s*[-~至到]\s*\d+(?:\.\d+)?)?|半|一|兩|二|三|四|五|六|七|八|九|十|幾)\s*(?:克|千克|公斤|毫升|公升|升|斤|兩|磅|安士|茶匙|湯匙|大匙|小匙|匙|杯|碗|碟|勺|小撮|撮|個|隻|條|片|塊|支|根|包|盒|罐|粒|顆|瓣|棵|紮|份|副|角|串|張|朵|束|把|球|圈|cm|mm|g|kg|ml|l)?\s*$/i;
+
+export function isUsableIngredientName(value: string): boolean {
+  const name = String(value ?? "").trim();
+  if (!name) return false;
+  if (INVALID_INGREDIENT_NAMES.has(name)) return false;
+  if (INVALID_QTY_ONLY_RE.test(name)) return false;
+  return true;
+}
+
+export function hasUsableMainIngredient(
+  ingredients: Array<{ name: string; quantity?: string; unit?: string; category?: string }>,
+): boolean {
+  const normalized = normalizeRecipeIngredients(ingredients);
+  return normalized.some((ing) => {
+    if (!isUsableIngredientName(ing.name)) return false;
+    if (categorizeIngredientName(ing.name) === "調味料") return false;
+    if (/^(?:清水|水|滾水|熱水|凍水|開水|冰水|涼水)$/.test(ing.name.trim())) return false;
+    return true;
+  });
+}

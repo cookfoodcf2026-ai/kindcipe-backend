@@ -7,7 +7,12 @@ import postgres from "postgres";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(__dirname, "..", "drizzle", "migrations");
 
-const sql = postgres(process.env.DATABASE_URL, { ssl: "require", max: 1 });
+const url = process.env.DATABASE_PUBLIC_URL ?? process.env.DATABASE_URL;
+if (!url) {
+  console.error("DATABASE_PUBLIC_URL or DATABASE_URL is required");
+  process.exit(1);
+}
+const sql = postgres(url, { ssl: "require", max: 1 });
 
 // 已 apply 嘅 migration 名（用 schema_migrations 表記住，令 script 可重現 + idempotent）
 async function ensureTable() {

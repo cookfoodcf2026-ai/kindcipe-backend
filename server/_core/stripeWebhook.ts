@@ -1,66 +1,19 @@
 /**
- * Stripe webhook — activates family subscriptions on successful payment.
+ * Stripe webhook — the authoritative async path for web billing.
  *
  * Mounted BEFORE express.json() so the raw body is available for signature
  * verification. Endpoint: POST /api/stripe/webhook
  */
 import type { Express, Request, Response } from "express";
 import express from "express";
-import { eq } from "drizzle-orm";
-import { getDb } from "../db";
-import { stripeSubscriptions } from "../../drizzle/schema";
-import { activateFamilySubscription } from "../db";
-import { getStripe, planForPriceId, PRODUCT_ID_FOR_PLAN } from "../_core/stripe";
-import { ENV } from "../_core/env";
-
-async function upsertSubscription(params: {
-  familyId: number;
-  userId?: string;
-  customerId?: string | null;
-  subscriptionId?: string | null;
-  checkoutSessionId?: string | null;
-  productId: string;
-  plan: "monthly" | "yearly";
-  status: string;
-  currentPeriodEnd?: Date | null;
-}) {
-  const db = await getDb();
-  if (!db) return;
-  // Match by subscription id first, then fall back to family.
-  const existing = params.subscriptionId
-    ? await db
-        .select({ id: stripeSubscriptions.id })
-        .from(stripeSubscriptions)
-        .where(eq(stripeSubscriptions.stripeSubscriptionId, params.subscriptionId))
-        .limit(1)
-    : [];
-
-  if (existing[0]) {
-    await db
-      .update(stripeSubscriptions)
-      .set({
-        status: params.status,
-        planType: params.plan,
-        productId: params.productId,
-        currentPeriodEnd: params.currentPeriodEnd ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(stripeSubscriptions.id, existing[0].id));
-    return;
-  }
-
-  await db.insert(stripeSubscriptions).values({
-    familyId: params.familyId,
-    userId: params.userId ?? "",
-    stripeCustomerId: params.customerId ?? null,
-    stripeSubscriptionId: params.subscriptionId ?? null,
-    stripeCheckoutSessionId: params.checkoutSessionId ?? null,
-    productId: params.productId,
-    planType: params.plan,
-    status: params.status,
-    currentPeriodEnd: params.currentPeriodEnd ?? null,
-  });
-}
+import { getStripe } from "./stripe";
+import { ENV } from "./env";
+import {
+  expireCheckoutSession,
+  syncCheckoutSession,
+  syncInvoicePaid,
+  syncSubscription,
+} from "../services/stripeBilling";
 
 export function registerStripeWebhook(app: Express) {
   app.post(
@@ -85,61 +38,31 @@ export function registerStripeWebhook(app: Express) {
         return;
       }
 
+      const eventAt = new Date(event.created * 1000);
       try {
         switch (event.type) {
-          case "checkout.session.completed": {
+          case "checkout.session.completed":
+          case "checkout.session.async_payment_succeeded": {
             const session = event.data.object as import("stripe").Stripe.Checkout.Session;
-            // 未付款（例如 async payment 未完成）→ 唔啟動，等真正付款先
-            if (session.payment_status && session.payment_status === "unpaid") break;
-            const familyId = Number(session.metadata?.familyId ?? session.client_reference_id);
-            if (!familyId) break;
-            const plan = (session.metadata?.plan === "yearly" ? "yearly" : "monthly") as
-              | "monthly"
-              | "yearly";
-            const sub = session.subscription
-              ? await getStripe().subscriptions.retrieve(String(session.subscription))
-              : null;
-            const periodEndTs = sub?.items?.data?.[0]?.current_period_end;
-            const periodEnd = periodEndTs
-              ? new Date(periodEndTs * 1000)
-              : new Date(Date.now() + (plan === "yearly" ? 365 : 30) * 24 * 60 * 60 * 1000);
-            await activateFamilySubscription(familyId, plan, periodEnd);
-            await upsertSubscription({
-              familyId,
-              userId: session.metadata?.userId,
-              customerId: typeof session.customer === "string" ? session.customer : null,
-              subscriptionId: sub?.id ?? null,
-              checkoutSessionId: session.id,
-              productId: PRODUCT_ID_FOR_PLAN[plan],
-              plan,
-              status: "active",
-              currentPeriodEnd: periodEnd,
-            });
+            await syncCheckoutSession(session, { eventAt });
+            break;
+          }
+          case "checkout.session.expired":
+          case "checkout.session.async_payment_failed": {
+            const session = event.data.object as import("stripe").Stripe.Checkout.Session;
+            await expireCheckoutSession(session.id);
             break;
           }
           case "customer.subscription.updated":
           case "customer.subscription.deleted": {
             const sub = event.data.object as import("stripe").Stripe.Subscription;
-            const familyId = Number(sub.metadata?.familyId);
-            const priceId = sub.items.data[0]?.price?.id ?? "";
-            const plan = planForPriceId(priceId) ?? (sub.metadata?.plan === "yearly" ? "yearly" : "monthly");
-            const active = sub.status === "active" || sub.status === "trialing";
-            const itemPeriodEndTs = sub.items?.data?.[0]?.current_period_end;
-            const itemPeriodEnd = itemPeriodEndTs ? new Date(itemPeriodEndTs * 1000) : null;
-            if (familyId && active) {
-              const periodEnd = itemPeriodEnd ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-              await activateFamilySubscription(familyId, plan, periodEnd);
-            }
-            if (familyId) {
-              await upsertSubscription({
-                familyId,
-                subscriptionId: sub.id,
-                productId: PRODUCT_ID_FOR_PLAN[plan],
-                plan,
-                status: sub.status,
-                currentPeriodEnd: itemPeriodEnd,
-              });
-            }
+            await syncSubscription(sub, { eventAt });
+            break;
+          }
+          case "invoice.paid":
+          case "invoice.payment_failed": {
+            const invoice = event.data.object as import("stripe").Stripe.Invoice;
+            await syncInvoicePaid(invoice, eventAt);
             break;
           }
           default:

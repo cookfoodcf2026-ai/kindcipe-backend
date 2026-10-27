@@ -194,7 +194,7 @@ async function makeAppleClientSecret(): Promise<string> {
 /** Signed state carrying the nonce + optional web return URL (防 CSRF / replay)。 */
 async function makeAppleState(nonce: string, redirect?: string): Promise<string> {
   const { SignJWT } = await import("jose");
-  const secret = new TextEncoder().encode(ENV.cookieSecret || "kindcipe-apple-state-secret");
+  const secret = new TextEncoder().encode(ENV.cookieSecret);
   return await new SignJWT(redirect ? { nonce, redirect } : { nonce })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -205,7 +205,7 @@ async function makeAppleState(nonce: string, redirect?: string): Promise<string>
 async function readAppleState(state: string): Promise<{ nonce: string; redirect?: string } | null> {
   try {
     const { jwtVerify } = await import("jose");
-    const secret = new TextEncoder().encode(ENV.cookieSecret || "kindcipe-apple-state-secret");
+    const secret = new TextEncoder().encode(ENV.cookieSecret);
     const { payload } = await jwtVerify(state, secret);
     return {
       nonce: String((payload as any).nonce || ""),

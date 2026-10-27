@@ -46,6 +46,12 @@ import {
   stripeSubscriptions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { isCanceledTrial } from "./services/billingRules";
+import {
+  limitsForStatus,
+  memberGraceEndsAt as computeMemberGraceEndsAt,
+  planKeyForStatus,
+} from "./services/entitlementPolicy";
 import { normalizeIngredientCandidates } from "./utils/ingredientResolve";
 import { computeScenarioTags } from "./utils/scenario";
 import { localizeIngredientNames } from "./utils/recipeTranslations";
@@ -503,6 +509,13 @@ export async function incrementTrialCount(userId: string) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ trialCount: sql`${users.trialCount} + 1` }).where(eq(users.id, userId));
+}
+
+/** Mark a user as having consumed their one-time trial (idempotent). */
+export async function markTrialUsedForUser(userId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ trialCount: 1 }).where(eq(users.id, userId));
 }
 
 export async function addFamilyMember(data: InsertFamilyMember) {
@@ -1483,15 +1496,20 @@ export async function getFamilySubscription(familyId: number) {
 
   // Beta: everyone is Pro (full features, no trial expiry). Reversible via env.
   if (ENV.betaAllPaid) {
+    const limits = limitsForStatus("active");
     return {
       status: "active" as const,
       isPaid: true,
       multiLang: true,
-      maxMembers: 4,
-      maxImportsPerMonth: 300,
-      maxCustomRecipesPerMonth: null,
-      aiChatLimit: 300,
+      maxMembers: limits.members,
+      maxImportsPerMonth: limits.imports,
+      maxCustomRecipesPerMonth: limits.customRecipes,
+      aiChatLimit: limits.aiCredits,
       sharedLocked: false,
+      memberGraceEndsAt: null,
+      memberGraceActive: false,
+      memberCount: (await countFamilyMembers([familyId])).get(familyId) ?? 0,
+      plan: planKeyForStatus("active"),
       trialEndsAt: family.trialEndsAt,
       subscriptionExpiresAt: family.subscriptionExpiresAt,
       subscriptionPlan: family.subscriptionPlan ?? "beta",
@@ -1501,7 +1519,60 @@ export async function getFamilySubscription(familyId: number) {
   let status = family.subscriptionStatus;
   const now = new Date();
 
-  // Auto-expire trial
+  // Stripe is the source of truth for web billing. A delayed webhook must not
+  // briefly downgrade a family whose Stripe trial/paid period is still live.
+  if (
+    (status === "trial" && family.trialEndsAt && family.trialEndsAt < now) ||
+    (status === "active" && family.subscriptionExpiresAt && family.subscriptionExpiresAt < now)
+  ) {
+    const db = await getDb();
+    if (db) {
+      const [live] = await db
+        .select({
+          status: stripeSubscriptions.status,
+          currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+          trialEnd: stripeSubscriptions.trialEnd,
+        })
+        .from(stripeSubscriptions)
+        .where(
+          and(
+            eq(stripeSubscriptions.familyId, familyId),
+            inArray(stripeSubscriptions.status, ["active", "trialing", "past_due", "canceled"])
+          )
+        )
+        .orderBy(desc(stripeSubscriptions.updatedAt))
+        .limit(1);
+      const canceledTrial =
+        live?.status === "canceled" &&
+        isCanceledTrial({
+          trialEnd: live.trialEnd,
+          currentPeriodEnd: live.currentPeriodEnd,
+          now,
+        });
+      const liveUntil = canceledTrial
+        ? null
+        : live?.status === "trialing"
+          ? live?.trialEnd ?? live?.currentPeriodEnd ?? null
+          : live?.currentPeriodEnd ?? live?.trialEnd ?? null;
+      if (live && liveUntil && liveUntil > now) {
+        if (live.status === "trialing") {
+          status = "trial";
+          family.trialEndsAt = liveUntil;
+          await db.update(families)
+            .set({ subscriptionStatus: "trial", trialEndsAt: liveUntil, maxMembers: 4 })
+            .where(eq(families.id, familyId));
+        } else {
+          status = "active";
+          family.subscriptionExpiresAt = liveUntil;
+          await db.update(families)
+            .set({ subscriptionStatus: "active", subscriptionExpiresAt: liveUntil, maxMembers: 4 })
+            .where(eq(families.id, familyId));
+        }
+      }
+    }
+  }
+
+  // Auto-expire trial (only when no live Stripe trial exists).
   if (status === "trial" && family.trialEndsAt && family.trialEndsAt < now) {
     status = "free";
     const db = await getDb();
@@ -1512,7 +1583,7 @@ export async function getFamilySubscription(familyId: number) {
     }
   }
 
-  // Auto-expire paid subscription
+  // Auto-expire paid subscription (only when no live Stripe period exists).
   if (status === "active" && family.subscriptionExpiresAt && family.subscriptionExpiresAt < now) {
     status = "expired";
     const db = await getDb();
@@ -1525,16 +1596,27 @@ export async function getFamilySubscription(familyId: number) {
 
   const isPaid = status === "active" || status === "trial";
   const memberCount = (await countFamilyMembers([familyId])).get(familyId) ?? 0;
+  const limits = limitsForStatus(status);
+  const graceEndsAt = computeMemberGraceEndsAt({
+    status,
+    trialEndsAt: family.trialEndsAt,
+    subscriptionExpiresAt: family.subscriptionExpiresAt,
+    memberCount,
+  });
+  const graceActive = Boolean(graceEndsAt && graceEndsAt > now);
   return {
     status,
     isPaid,
     multiLang: isPaid,
-    maxMembers: isPaid ? 4 : 2,
-    maxImportsPerMonth: isPaid ? 300 : 20,
-    maxCustomRecipesPerMonth: isPaid ? null : 20,
-    // Free AI 對話：20/月（增值核心付費點；匯入維持 20 較寬，限制增值而非入口）
-    aiChatLimit: isPaid ? 300 : 20,
-    sharedLocked: !isPaid && memberCount > 2,
+    maxMembers: limits.members,
+    maxImportsPerMonth: limits.imports,
+    maxCustomRecipesPerMonth: limits.customRecipes,
+    aiChatLimit: limits.aiCredits,
+    sharedLocked: !isPaid && memberCount > limits.members && !graceActive,
+    memberGraceEndsAt: graceEndsAt,
+    memberGraceActive: graceActive,
+    memberCount,
+    plan: planKeyForStatus(status),
     trialEndsAt: family.trialEndsAt,
     subscriptionExpiresAt: family.subscriptionExpiresAt,
     subscriptionPlan: family.subscriptionPlan,
@@ -1778,11 +1860,11 @@ export async function getFamilyUsageHistory(familyId: number, months = 6): Promi
   const importMap = new Map(importRows.map((row) => [row.yearMonth, row.count]));
   const aiMap = new Map(aiRows.map((row) => [row.yearMonth, row.count]));
 
-  return yearMonths.map((yearMonth) => ({
-    yearMonth,
-    imports: importMap.get(yearMonth) ?? 0,
-    aiChat: aiMap.get(yearMonth) ?? 0,
-  }));
+  return yearMonths.map((yearMonth) => {
+    const imports = importMap.get(yearMonth) ?? 0;
+    const ai = aiMap.get(yearMonth) ?? 0;
+    return { yearMonth, imports, aiChat: ai + imports };
+  });
 }
 
 export async function getFamilyUsageHistoryWithMembers(familyId: number, months = 6): Promise<FamilyUsageHistoryMonthRow[]> {
@@ -1822,7 +1904,7 @@ export async function getFamilyUsageHistoryWithMembers(familyId: number, months 
       name: user.name || member.nickname || "Member",
       familyRole: member.familyRole,
       imports: monthImports.get(user.id) ?? 0,
-      aiChat: monthAi.get(user.id) ?? 0,
+      aiChat: (monthAi.get(user.id) ?? 0) + (monthImports.get(user.id) ?? 0),
     }));
 
     return {
@@ -1867,13 +1949,16 @@ export async function getFamilyUsageByMember(familyId: number): Promise<FamilyUs
     aiMap.set(row.userId, (aiMap.get(row.userId) ?? 0) + (row.count ?? 0));
   }
 
-  return members.map(({ member, user }) => ({
-    userId: user.id,
-    name: user.name || member.nickname || "Member",
-    familyRole: member.familyRole,
-    imports: importMap.get(user.id) ?? 0,
-    aiChat: aiMap.get(user.id) ?? 0,
-  }));
+  return members.map(({ member, user }) => {
+    const imports = importMap.get(user.id) ?? 0;
+    return {
+      userId: user.id,
+      name: user.name || member.nickname || "Member",
+      familyRole: member.familyRole,
+      imports,
+      aiChat: (aiMap.get(user.id) ?? 0) + imports,
+    };
+  });
 }
 
 // ─── Push Token helpers ───────────────────────────────────────────────────────

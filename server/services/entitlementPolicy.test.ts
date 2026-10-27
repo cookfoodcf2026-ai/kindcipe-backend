@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  MEMBER_GRACE_MS,
+  PLAN_LIMITS,
+  aiPlanCreditCost,
+  limitsForStatus,
+  memberGraceEndsAt,
+} from "./entitlementPolicy";
+
+test("plan limits match the locked product rules", () => {
+  assert.deepEqual(PLAN_LIMITS.free, { aiCredits: 15, imports: 5, customRecipes: 5, members: 2 });
+  assert.deepEqual(PLAN_LIMITS.trial, { aiCredits: 50, imports: 20, customRecipes: null, members: 4 });
+  assert.deepEqual(PLAN_LIMITS.pro, { aiCredits: 250, imports: 100, customRecipes: null, members: 4 });
+  assert.deepEqual(limitsForStatus("expired"), PLAN_LIMITS.free);
+  assert.deepEqual(limitsForStatus("active"), PLAN_LIMITS.pro);
+});
+
+test("member grace is only for free/expired over-limit kitchens", () => {
+  const end = new Date("2026-10-01T00:00:00.000Z");
+  assert.equal(memberGraceEndsAt({ status: "active", trialEndsAt: end, subscriptionExpiresAt: end, memberCount: 4 }), null);
+  assert.equal(memberGraceEndsAt({ status: "free", trialEndsAt: end, subscriptionExpiresAt: null, memberCount: 2 }), null);
+  const grace = memberGraceEndsAt({ status: "free", trialEndsAt: end, subscriptionExpiresAt: null, memberCount: 4 });
+  assert.equal(grace?.getTime(), end.getTime() + MEMBER_GRACE_MS);
+});
+
+test("AI plan is free for paid/trial and one credit for free", () => {
+  assert.equal(aiPlanCreditCost("active"), 0);
+  assert.equal(aiPlanCreditCost("trial"), 0);
+  assert.equal(aiPlanCreditCost("free"), 1);
+  assert.equal(aiPlanCreditCost("expired"), 1);
+});

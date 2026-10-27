@@ -8,8 +8,10 @@
  * Config (Railway env):
  *   STRIPE_SECRET_KEY      sk_live_... / sk_test_...
  *   STRIPE_WEBHOOK_SECRET  whsec_...
- *   STRIPE_PRICE_MONTHLY   price_... (HK$30/mo)
- *   STRIPE_PRICE_YEARLY    price_... (HK$288/yr)
+ *   STRIPE_PRICE_MONTHLY        price_... (regular HK$38/mo)
+ *   STRIPE_PRICE_YEARLY         price_... (regular HK$365/yr)
+ *   STRIPE_PRICE_MONTHLY_PROMO  price_... (founding HK$30/mo)
+ *   STRIPE_PRICE_YEARLY_PROMO   price_... (founding HK$288/yr)
  *   STRIPE_SUCCESS_URL     https://app.kindcipe.com/settings?billing=success
  *   STRIPE_CANCEL_URL      https://app.kindcipe.com/settings?billing=cancel
  */
@@ -19,9 +21,17 @@ import { ENV } from "./env";
 let _stripe: Stripe | null = null;
 
 export function isStripeConfigured(): boolean {
+  const webhookReady = !ENV.isProduction || Boolean(ENV.stripeWebhookSecret);
   return Boolean(
-    ENV.stripeSecretKey && ENV.stripePriceMonthly && ENV.stripePriceYearly
+    ENV.stripeSecretKey &&
+      ENV.stripePriceMonthly &&
+      ENV.stripePriceYearly &&
+      webhookReady
   );
+}
+
+export function isPromoPricingConfigured(): boolean {
+  return Boolean(ENV.stripePriceMonthlyPromo && ENV.stripePriceYearlyPromo);
 }
 
 export function getStripe(): Stripe {
@@ -35,76 +45,44 @@ export function getStripe(): Stripe {
   return _stripe;
 }
 
-export function priceIdForPlan(plan: "monthly" | "yearly"): string {
-  const id = plan === "yearly" ? ENV.stripePriceYearly : ENV.stripePriceMonthly;
-  if (!id) throw new Error(`Stripe price for ${plan} is not configured`);
+export type StripePriceTier = "regular" | "founding";
+
+export function priceIdForPlan(
+  plan: "monthly" | "yearly",
+  tier: StripePriceTier = "regular"
+): string {
+  const id =
+    tier === "founding"
+      ? plan === "yearly"
+        ? ENV.stripePriceYearlyPromo
+        : ENV.stripePriceMonthlyPromo
+      : plan === "yearly"
+        ? ENV.stripePriceYearly
+        : ENV.stripePriceMonthly;
+  if (!id) throw new Error(`Stripe ${tier} price for ${plan} is not configured`);
   return id;
 }
 
 export function planForPriceId(priceId: string): "monthly" | "yearly" | null {
-  if (priceId === ENV.stripePriceMonthly) return "monthly";
-  if (priceId === ENV.stripePriceYearly) return "yearly";
+  if (priceId === ENV.stripePriceMonthly || priceId === ENV.stripePriceMonthlyPromo) return "monthly";
+  if (priceId === ENV.stripePriceYearly || priceId === ENV.stripePriceYearlyPromo) return "yearly";
   return null;
 }
 
-/**
- * Resolve a user-entered promotion code to a Stripe promotion_code id
- * (promo_...). Returns null when unknown / inactive / expired.
- */
-export async function resolvePromotionCodeId(code: string): Promise<string | null> {
-  const trimmed = String(code ?? "").trim();
-  if (!trimmed) return null;
-  try {
-    const stripe = getStripe();
-    const list = await stripe.promotionCodes.list({ code: trimmed, active: true, limit: 1 });
-    const pc: any = list.data[0];
-    if (!pc) return null;
-    if (pc.expires_at && pc.expires_at * 1000 < Date.now()) return null;
-    return pc.id as string;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get a promotion code's coupon + discount info (for the in-app order summary).
- * Amounts are in the smallest currency unit (cents).
- */
-export async function getPromotionInfo(code: string): Promise<
-  | { promotionCodeId: string; percentOff?: number; amountOff?: number; currency?: string; couponId?: string }
-  | null
-> {
-  const trimmed = String(code ?? "").trim();
-  if (!trimmed) return null;
-  try {
-    const stripe = getStripe();
-    const list = await stripe.promotionCodes.list({
-      code: trimmed,
-      active: true,
-      limit: 1,
-      expand: ["data.coupon"],
-    });
-    const pc: any = list.data[0];
-    if (!pc) return null;
-    if (pc.expires_at && pc.expires_at * 1000 < Date.now()) return null;
-    const coupon: any = pc.coupon;
-    return {
-      promotionCodeId: pc.id as string,
-      percentOff: coupon?.percent_off ?? undefined,
-      amountOff: coupon?.amount_off ?? undefined,
-      currency: coupon?.currency ? String(coupon.currency).toUpperCase() : undefined,
-      couponId: coupon?.id,
-    };
-  } catch {
-    return null;
-  }
+export function tierForPriceId(priceId: string): StripePriceTier {
+  return priceId === ENV.stripePriceMonthlyPromo || priceId === ENV.stripePriceYearlyPromo
+    ? "founding"
+    : "regular";
 }
 
 /** Fetch a plan's configured price amount + currency (smallest unit). */
-export async function getPlanPrice(plan: "monthly" | "yearly"): Promise<{ amount: number; currency: string } | null> {
+export async function getPlanPrice(
+  plan: "monthly" | "yearly",
+  tier: StripePriceTier = "regular"
+): Promise<{ amount: number; currency: string } | null> {
   try {
     const stripe = getStripe();
-    const price = await stripe.prices.retrieve(priceIdForPlan(plan));
+    const price = await stripe.prices.retrieve(priceIdForPlan(plan, tier));
     return { amount: price.unit_amount ?? 0, currency: String(price.currency ?? "hkd").toUpperCase() };
   } catch {
     return null;
@@ -115,3 +93,7 @@ export const PRODUCT_ID_FOR_PLAN: Record<"monthly" | "yearly", string> = {
   monthly: "kindcipe_monthly_30",
   yearly: "kindcipe_yearly_288",
 };
+
+export function stripeProductId(plan: "monthly" | "yearly", tier: StripePriceTier): string {
+  return `kindcipe_stripe_${tier}_${plan}`;
+}

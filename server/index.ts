@@ -9,9 +9,12 @@ import { registerStripeWebhook } from "./_core/stripeWebhook";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { initSentry, captureException, flushSentry } from "./_core/sentry";
+import { setLlmCostSink } from "./_core/llm";
+import { recordLlmCostEvent } from "./services/llmCost";
 
 async function startServer() {
   initSentry();
+  setLlmCostSink(recordLlmCostEvent);
   const app = express();
   const server = createServer(app);
   // Railway (and most hosts) sit behind a proxy — needed for correct client IPs.
@@ -237,6 +240,26 @@ async function startServer() {
     };
     setInterval(selfHeal, SELF_HEAL_INTERVAL_MS);
     setTimeout(selfHeal, 60_000); // 首次啟動 1 分鐘後跑一次
+
+    const OPERATIONS_INTERVAL_MS = 30 * 60 * 1000;
+    const operations = async () => {
+      try {
+        const { releaseStaleUsageReservations } = await import("./services/usage");
+        const released = await releaseStaleUsageReservations();
+        if (released > 0) console.log(`[usage] released ${released} stale reservations`);
+      } catch (e) {
+        console.warn("[usage] stale cleanup failed (non-fatal):", (e as Error).message);
+      }
+      try {
+        const { runBillingReminders } = await import("./services/billingReminders");
+        const sent = await runBillingReminders();
+        if (sent > 0) console.log(`[billing] sent ${sent} reminders`);
+      } catch (e) {
+        console.warn("[billing] reminder run failed (non-fatal):", (e as Error).message);
+      }
+    };
+    setInterval(operations, OPERATIONS_INTERVAL_MS);
+    setTimeout(operations, 2 * 60 * 1000);
   });
 }
 

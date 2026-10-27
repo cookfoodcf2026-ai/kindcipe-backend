@@ -1,17 +1,39 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
-import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
-import { translateRecipeContent } from "../utils/translateContent";
+import { resolveChefIntent, lastUserText, type ChefIntent, type RequestedRole } from "../services/chefIntent";
+import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
+import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
 import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
 import { normalizeDifficulty } from "../utils/difficulty";
-import { getDb, getFamilySubscription, getAiChatUsage, incrementAiChatUsage, countCustomRecipesCreatedThisMonth, insertCustomRecipe, getTrendingRecipes } from "../db";
+import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
+import { getFamilyEntitlements } from "../services/entitlements";
+import { shouldChargeChefRequest } from "../services/aiChefPolicy";
+import { getAiChefMode, getAiChefCapMicros } from "../services/aiChefFlags";
+import {
+  LlmBudgetError,
+  finalizeLlmBudget,
+  getLlmBudgetState,
+  getNextResetAt,
+  releaseLlmBudget,
+  reserveLlmBudget,
+} from "../services/llmCost";
+import {
+  commitUsage,
+  getUsageSummary,
+  refundUsage,
+  reserveUsage,
+  runWithUsage,
+  usageLimitToTRPC,
+} from "../services/usage";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -104,21 +126,21 @@ const aiEditPersistInputSchema = z.object({
  * Layer 3: Zod validation with default values to prevent crashes
  */
 const aiRecipeCardSchema = z.object({
-  title: z.string().default("未命名食譜"),
-  name: z.string().default("未命名食譜"),
+  title: z.string().optional(),
+  name: z.string().min(2),
   nameEn: z.string().optional(),
   nameFil: z.string().optional(),
   nameId: z.string().optional(),
   ingredients: z.array(z.object({
-    name: z.string().default("未知食材"),
+    name: z.string().min(1),
     nameEn: z.string().optional(),
     nameFil: z.string().optional(),
     nameId: z.string().optional(),
     quantity: z.string().default("適量"),
     unit: z.string().default(""),
-  })).default([]),
+  })).min(2),
   instructions: z.array(z.string()).default([]),
-  steps: z.array(z.string()).default([]),
+  steps: z.array(z.string().min(1)).min(5),
   stepsEn: z.array(z.string()).optional(),
   stepsFil: z.array(z.string()).optional(),
   stepsId: z.array(z.string()).optional(),
@@ -246,6 +268,8 @@ function computeLevenshteinDistance(s1: string, s2: string): number {
   return matrix[s1Len][s2Len];
 }
 
+const AI_CHEF_NOODLE_ROLE = process.env.AI_CHEF_NOODLE_ROLE !== "0";
+const AI_CHEF_MULTI_ROLE = process.env.AI_CHEF_MULTI_ROLE !== "0";
 const AI_RECIPE_MAX_TOKENS = 2600;
 const AI_RECIPE_CONTEXT_TIMEOUT_MS = 4000;
 const AI_RECIPE_LLM_TIMEOUT_MS = 45000;
@@ -262,6 +286,8 @@ const SEEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 日
 const SEEN_CUSTOM_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 日
 type SeenEntry = { name: string; seenAt: number };
 const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
+const LIBRARY_POOL_CACHE: Map<number, { at: number; rows: Record<string, unknown>[] }> = new Map();
+const LIBRARY_POOL_TTL_MS = 60_000;
 const MAX_RECENT_PER_FAMILY = 40;
 
 async function getFamilySeenNames(familyId?: number): Promise<string[]> {
@@ -289,7 +315,7 @@ async function getFamilySeenNames(familyId?: number): Promise<string[]> {
 }
 
 /** Split recently-shown names by window: official uses 7d, custom uses 1d. */
-async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen7d: string[]; seen1d: string[] }> {
+export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen7d: string[]; seen1d: string[] }> {
   if (familyId === undefined) return { seen7d: [], seen1d: [] };
   const now = Date.now();
   try {
@@ -316,7 +342,7 @@ async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen7d: str
   };
 }
 
-async function recordFamilySeenNames(familyId: number | undefined, names: string[]): Promise<void> {
+export async function recordFamilySeenNames(familyId: number | undefined, names: string[]): Promise<void> {
   if (familyId === undefined || !names || names.length === 0) return;
   const now = Date.now();
   // memory 照樣記（fallback 用）
@@ -590,13 +616,13 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
  * Manual recipe converter - converts recipe data without strict Zod validation
  * Used as fallback when schema validation fails
  */
-function manuallyConvertRecipes(recipes: any[], replyText?: string): SuggestedRecipe[] {
+function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5): SuggestedRecipe[] {
   if (!Array.isArray(recipes)) return [];
   
   return recipes.map((r: any): SuggestedRecipe | null => {
     try {
-      const name = String(r.name ?? r.title ?? "未命名食譜");
-      if (!name || name.length < 2) return null;
+      const name = String(r.name ?? r.title ?? "").trim();
+      if (!name || name === "未命名食譜" || name.length < 2) return null;
       
       const ingredients = Array.isArray(r.ingredients) 
         ? r.ingredients.map((i: any) => ({
@@ -620,8 +646,10 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string): SuggestedRe
       const stepsFil = mapSteps(r.stepsFil);
       const stepsId = mapSteps(r.stepsId);
       
-      if (steps.length === 0) return null;
-      
+      if (steps.length < minSteps) return null;
+      const validIngredients = ingredients.filter((i: any) => i.name && i.name !== "未知食材");
+      if (validIngredients.length < 2) return null;
+
       return {
         name,
         nameEn: r.nameEn ? String(r.nameEn) : undefined,
@@ -676,7 +704,7 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
     waterVolume?: string;
   }): SuggestedRecipe | null => {
     const recipe: SuggestedRecipe = {
-      name: item.title && item.title !== "未命名食譜" ? item.title : (item.name || "未命名食譜"),
+      name: (item.title && item.title !== "未命名食譜" ? item.title : item.name || "").trim(),
       nameEn: item.nameEn,
       nameFil: item.nameFil,
       nameId: item.nameId,
@@ -705,7 +733,7 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
     const filteredIngredients = recipe.ingredients.filter((ing) => !isPlaceholderIngredientName(ing.name));
     const actualIngredients = filteredIngredients.filter((ing) => !soupBaseIngredients.includes(ing.name.trim()));
     const actualSteps = recipe.steps.filter((step) => step.trim().length > 0);
-    const isValid = recipe.name && recipe.name.length > 1 && actualSteps.length > 0 && actualIngredients.length > 0;
+    const isValid = recipe.name && recipe.name !== "未命名食譜" && recipe.name.length > 1 && actualSteps.length >= 5 && actualIngredients.length >= 2;
     if (!isValid) return null;
     return { ...recipe, ingredients: actualIngredients, steps: actualSteps };
   };
@@ -789,6 +817,55 @@ export type SuggestedRecipe = {
   dishType?: string;
 };
 
+// Avoid-list matching is intentionally conservative: allergens must never be
+// suggested just because the library result happened to look tasty.
+const AVOID_TERM_EXPANSIONS: Record<string, string[]> = {
+  花生: ["花生", "peanut", "groundnut"],
+  堅果: ["堅果", "果仁", "花生", "杏仁", "腰果", "核桃", "合桃", "榛子", "開心果", "almond", "cashew", "walnut", "pecan", "nut"],
+  海鮮: ["海鮮", "魚", "蝦", "蟹", "蜆", "蠔", "魷魚", "章魚", "帶子", "海參", "鮑魚", "seafood", "fish", "shrimp", "prawn", "crab", "squid", "oyster", "scallop"],
+  甲殼類: ["蝦", "蟹", "龍蝦", "甲殼", "shrimp", "prawn", "crab", "lobster", "crustacean"],
+  蛋: ["蛋", "雞蛋", "蛋黃", "蛋白", "egg"],
+  奶: ["奶", "牛奶", "芝士", "牛油", "忌廉", "奶油", "乳酪", "milk", "cheese", "butter", "cream", "yogurt"],
+  麩質: ["麵", "麵包", "麵粉", "意粉", "烏冬", "麥", "麩", "wheat", "flour", "bread", "pasta", "noodle", "gluten"],
+  大豆: ["大豆", "黃豆", "豆腐", "豆乾", "豆皮", "腐竹", "豉油", "生抽", "老抽", "醬油", "soy", "tofu"],
+  芝麻: ["芝麻", "sesame"],
+};
+
+function expandAvoidTerms(avoid: string[]): string[] {
+  const terms = new Set<string>();
+  for (const raw of avoid) {
+    const key = String(raw ?? "").trim();
+    if (!key) continue;
+    terms.add(key.toLowerCase());
+    for (const term of AVOID_TERM_EXPANSIONS[key] ?? []) terms.add(term.toLowerCase());
+  }
+  return [...terms];
+}
+
+function recipeText(value: { name?: unknown; description?: unknown; tags?: unknown; ingredients?: unknown; recipeCategory?: unknown }): string {
+  const ingredients = Array.isArray(value.ingredients)
+    ? value.ingredients.map((ing: any) => typeof ing === "string" ? ing : ing?.name ?? "").join(" ")
+    : "";
+  const tags = Array.isArray(value.tags) ? value.tags.join(" ") : "";
+  return [value.name, value.description, value.recipeCategory, tags, ingredients]
+    .filter(Boolean)
+    .map((part) => String(part).toLowerCase())
+    .join(" ");
+}
+
+export function recipeContainsAvoid(
+  recipe: { name?: unknown; description?: unknown; tags?: unknown; ingredients?: unknown; recipeCategory?: unknown },
+  avoid: string[],
+): boolean {
+  if (!avoid.length) return false;
+  const haystack = recipeText(recipe);
+  return expandAvoidTerms(avoid).some((term) => term.length > 0 && haystack.includes(term));
+}
+
+function rowContainsAvoid(row: Record<string, unknown>, avoid: string[]): boolean {
+  return recipeContainsAvoid(row as any, avoid);
+}
+
 // ─── Tools ─────────────────────────────────────────────────
 
 const TOOLS: Array<{
@@ -855,7 +932,7 @@ function safeParseJsonArray(value: unknown): unknown[] {
   return [];
 }
 
-async function execSearchRecipes(
+export async function execSearchRecipes(
   db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
@@ -911,7 +988,7 @@ async function execSearchRecipes(
   };
 
   const officialCols = {
-    id: officialRecipes.id, name: officialRecipes.name, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId, description: officialRecipes.description,
+    id: officialRecipes.id, name: officialRecipes.name, nameEn: officialRecipes.nameEn, nameFil: officialRecipes.nameFil, nameId: officialRecipes.nameId, description: officialRecipes.description, descriptionEn: officialRecipes.descriptionEn, descriptionFil: officialRecipes.descriptionFil, descriptionId: officialRecipes.descriptionId,
     cookTime: officialRecipes.cookTime, servings: officialRecipes.servings, difficulty: officialRecipes.difficulty,
     recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
     steps: officialRecipes.steps, stepsEn: officialRecipes.stepsEn, stepsFil: officialRecipes.stepsFil, stepsId: officialRecipes.stepsId,
@@ -919,7 +996,7 @@ async function execSearchRecipes(
     dishType: officialRecipes.dishType,
   };
   const customCols = {
-    id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description,
+    id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description, descriptionEn: customRecipes.descriptionEn, descriptionFil: customRecipes.descriptionFil, descriptionId: customRecipes.descriptionId,
     cookTime: customRecipes.cookTime, servings: customRecipes.servings, difficulty: customRecipes.difficulty,
     recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
     steps: customRecipes.steps, stepsEn: customRecipes.stepsEn, stepsFil: customRecipes.stepsFil, stepsId: customRecipes.stepsId,
@@ -954,7 +1031,8 @@ async function execSearchRecipes(
   }
 
   const mapRow = (r: Record<string, unknown>, source: "official" | "custom") => ({
-    source, id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description, cookTime: r.cookTime,
+    source, id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description,
+    descriptionEn: r.descriptionEn, descriptionFil: r.descriptionFil, descriptionId: r.descriptionId, cookTime: r.cookTime,
     servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
     ingredients: safeParseJsonArray(r.ingredients as string).slice(0, 8),
     steps: safeParseJsonArray(r.steps as string), stepsEn: safeParseJsonArray(r.stepsEn as string), stepsFil: safeParseJsonArray(r.stepsFil as string), stepsId: safeParseJsonArray(r.stepsId as string),
@@ -1302,16 +1380,19 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   if (soupType) return "soup";
 
   // 3) tags 湯/甜品/飲品（先）
-  if (/湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯|(^|[\s,、])湯($|[\s,、])/.test(tagsStr)) return "soup";
+  if (/湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯|(^|[\s,、])湯($|[\s,、])|\bsoup\b|\bbroth\b|\bbisque\b|\bchowder\b|\bconsomm[eé]\b/i.test(tagsStr)) return "soup";
   if (/涼茶|飲品|飲料|清熱|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|鮮榨|梳打/.test(tagsStr)) return "drink";
   if (/甜品|糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓/.test(tagsStr)) return "dessert";
 
   // 4) 菜名湯/甜品/飲品（優先過 tags 蛋白/蔬菜，避免「魚湯/蜆湯」被當海鮮餸，令一餐兩個湯）
-  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯/.test(name)) return "soup";
+  if (/湯$|湯水|煲湯|燉湯|老火湯|滾湯|湯品|魚湯|雞湯|排骨湯|濃湯|清湯|湯羹|羅宋湯|粟米湯|番茄湯|\b(soup|broth|bisque|chowder|consomm[eé])\b/i.test(name)) return "soup";
   if (/糖水|西米露|布甸|布丁|啫喱|慕斯|雪糕|蛋糕|蛋撻|曲奇|奶凍|糕點|甜點|芝麻糊|紅豆沙|綠豆沙|楊枝甘露|芋圓|糕$/.test(name)) return "dessert";
   if (/水$|涼茶|竹蔗茅根|茅根水|山楂水|薏米水|蘆根|羅漢果|菊花茶|檸檬茶|雪梨水|陳皮水|汽水|果汁|茶飲/.test(name)) return "drink";
   // 4b) 菜名含明確蔬菜字 → 蔬菜（優先過 tags 蛋白，避免「蠔油芥蘭」因為蠔油=蠔而被誤判海鮮）
   if (/菜心|芥蘭|通菜|菠菜|生菜|白菜|椰菜|西蘭花|時蔬|素菜|青菜|蔬菜|南瓜|蘿蔔|薯仔|番茄|茄子|青椒|洋蔥|節瓜|勝瓜|苦瓜|西洋菜|冬瓜|青瓜|黃瓜|絲瓜|豆芽|豆角|青豆|毛豆|雲耳|木耳|菇|菌|芽菜/.test(name)) return "vegetable";
+
+  // 4c) Noodle / rice dishes: carb, not "other".
+  if (dishFamily(name) === "noodle" || dishFamily(name) === "rice") return "carb";
 
   // 5) recipeCategory（菜系中含甜品/飲品/湯水）
   if (category === "甜品") return "dessert";
@@ -1331,11 +1412,32 @@ function classifyDishType(r: Record<string, unknown>): DishType {
   return "other";
 }
 
+function isDessertRecipe(recipe: SuggestedRecipe): boolean {
+  return classifyDishType({
+    name: recipe.name,
+    tags: recipe.tags,
+    dishType: recipe.dishType,
+    soupType: recipe.soupType,
+  } as unknown as Record<string, unknown>) === "dessert";
+}
+
+function isSoupRecipe(recipe: SuggestedRecipe): boolean {
+  const name = String(recipe?.name ?? "");
+  const tags = Array.isArray(recipe?.tags) ? recipe.tags.join(" ") : "";
+  const soupType = String((recipe as any)?.soupType ?? "");
+  return classifyDishType({
+    name,
+    tags: recipe.tags,
+    dishType: recipe.dishType,
+    soupType,
+  } as unknown as Record<string, unknown>) === "soup" || /湯|羹|soup|broth|bisque|chowder|consomme|consommé/i.test(`${name} ${tags} ${soupType}`);
+}
+
 // 將餸再細分「家族」（麵/飯/點心/其他），避免 3 餸 1 湯抽到兩款麵/兩款飯
 function dishFamily(name: string): string {
-  if (/麵|粉|米線|河粉|烏冬|拉麵|伊麵|意粉|通粉|粉絲|炒麵|撈麵|公仔麵/.test(name)) return "noodle";
-  if (/飯|炒飯|焗飯|糯米|煲仔飯|丼|蓋飯/.test(name)) return "rice";
-  if (/包|饅頭|餃|雲吞|點心/.test(name)) return "dumpling";
+  if (/麵|面|粉|米線|米线|河粉|烏冬|乌冬|拉麵|拉面|伊麵|意粉|通粉|粉絲|粉丝|炒麵|炒面|撈麵|公仔麵|noodle|ramen|udon|soba|pasta|laksa|pho/i.test(name)) return "noodle";
+  if (/飯|饭|炒飯|炒饭|焗飯|糯米|煲仔飯|丼|蓋飯|rice/i.test(name)) return "rice";
+  if (/包|饅頭|饅头|餃|饺|雲吞|云吞|點心|点心|dumpling/i.test(name)) return "dumpling";
   return "other";
 }
 
@@ -1343,7 +1445,7 @@ function dishFamily(name: string): string {
 // Source-aware exclusion: official uses the 7-day set, custom uses the 1-day set,
 // so a user's own recipes are not hidden for a week after being shown once.
 type ExcludeSets = { official: Set<string>; custom: Set<string> };
-const mkExcludeSets = (official: Iterable<string>, custom: Iterable<string>): ExcludeSets => ({
+export const mkExcludeSets = (official: Iterable<string>, custom: Iterable<string>): ExcludeSets => ({
   official: new Set([...official].map(normalizeName).filter(Boolean)),
   custom: new Set([...custom].map(normalizeName).filter(Boolean)),
 });
@@ -1352,7 +1454,7 @@ const isRowExcluded = (ex: ExcludeSets, r: Record<string, unknown>): boolean => 
   return set.has(normalizeName(String(r.name ?? "")));
 };
 
-function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1): SuggestedRecipe[] {
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1): SuggestedRecipe[] {
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
@@ -1548,6 +1650,8 @@ const MEAL_TYPE_LABEL: Record<string, { label: string; isSoup: boolean }> = {
   seafood: { label: "海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）", isSoup: false },
   vegetable: { label: "蔬菜/小炒", isSoup: false },
   soup: { label: "湯水", isSoup: true },
+  carb: { label: "麵食/湯麵（拉麵/烏冬/米線/意粉）", isSoup: false },
+  dessert: { label: "甜品（糖水/糕點/凍品）", isSoup: false },
 };
 
 // 由 library 揀出嚟嘅 SuggestedRecipe 判斷屬邊類（用返 classifyDishType 規則）
@@ -1560,6 +1664,10 @@ function mealTypeOf(r: SuggestedRecipe): DishType {
   } as unknown as Record<string, unknown>);
 }
 
+function dishTypeForRole(role: RequestedRole): DishType {
+  return role === "noodle" ? "carb" : (role as DishType);
+}
+
 // 由 AI 補缺（library 唔夠時）。neededTypes 指定缺失類別 → 逐類生成，確保 3餸1湯 結構。
 async function generateMissingRecipes(
   count: number,
@@ -1567,21 +1675,25 @@ async function generateMissingRecipes(
   exclude: string[],
   familyId: number | undefined,
   userId: number | undefined,
-  neededTypes?: DishType[]
+  neededTypes?: DishType[],
+  avoidIngredients: string[] = [],
 ): Promise<SuggestedRecipe[]> {
   if (count <= 0) return [];
   // 指定缺失類別 → 逐類生成（避免 AI 亂補出麵/飯/錯類）
   if (neededTypes && neededTypes.length > 0) {
     const results = await Promise.all(
       neededTypes.map(t => {
-        return generateOneType(MEAL_TYPE_LABEL[t]?.label ?? "家常菜", t, exclude);
+        return generateOneType(MEAL_TYPE_LABEL[t]?.label ?? "家常菜", t, exclude, avoidIngredients);
       })
     );
     return results.filter((r): r is SuggestedRecipe => !!r).slice(0, count);
   }
   try {
     const soupHint = needSoup ? "必須包含 1 個湯水食譜。" : "";
-    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-5 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
+    const avoidLine = avoidIngredients.length > 0
+      ? `必須完全避免以下敏感食材，任何食譜都唔可以包含：${avoidIngredients.join("、")}。`
+      : "";
+    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，5-6 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
       maxTokens: 3500 * Math.max(1, count),
@@ -1612,19 +1724,29 @@ async function generateMissingRecipes(
 async function generateOneType(
   label: string,
   expectedType: DishType,
-  exclude: string[]
+  exclude: string[],
+  avoidIngredients: string[] = [],
 ): Promise<SuggestedRecipe | null> {
   const isSoup = expectedType === "soup";
   const isVeg = expectedType === "vegetable";
+  const isDessert = expectedType === "dessert";
+  const isCarb = expectedType === "carb";
   // 由 exclude 抽「出過嘅湯」：湯位用完整清單（唔 slice-15），確保唔再出返已睇過嘅湯
   const soupExclude = exclude.filter(n => /湯|羹/.test(String(n ?? "")));
   const avoidList = isSoup ? soupExclude : exclude.slice(0, 15);
   const soupHint = isSoup
     ? `必須係湯水。唔好淨係出例湯/老火湯，試下唔同種類嘅湯（清湯/燉湯/羹/西式/素湯等），要同之前唔同。絕對唔可以再出以下出過嘅湯：${soupExclude.join("、")}。`
-    : isVeg
-      ? "呢道必須係一道蔬菜（清淡為主，唔好配肉/海鮮做主角，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬）；唔可以係湯、唔可以係麵/飯。"
-      : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
-  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。每個 ingredient 請提供 nameEn/nameFil/nameId；呢道餸本身提供 nameEn/nameFil/nameId。steps 係中文步驟（請精簡，4-5 步）；請同時提供 stepsEn/stepsFil/stepsId（每一步對應，份量/時間一致）。description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}`;
+    : isDessert
+      ? "呢道必須係甜品/甜點（例如糖水、西米露、布甸、奶凍、糕點、雪糕）；唔可以係湯、主菜、麵或飯。步驟 4–6 步即可。"
+      : isCarb
+        ? "呢道必須係一道麵食/湯麵（例如拉麵、烏冬、米線、意粉、湯麵）；唔可以係純湯、純肉或甜品。步驟 5–6 步。"
+        : isVeg
+          ? "呢道必須係一道蔬菜（清淡為主，唔好配肉/海鮮做主角，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬）；唔可以係湯、唔可以係麵/飯。"
+          : "呢道必須係一道主菜/小炒，唔可以係湯（例如湯、羹、湯麵都唔得）、唔可以係麵、唔可以係飯（主食）。";
+  const avoidLine = avoidIngredients.length > 0
+    ? `必須完全避免以下敏感食材，任何食譜都唔可以包含：${avoidIngredients.join("、")}。`
+    : "";
+  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint}${avoidLine} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。每個 ingredient 請提供 nameEn/nameFil/nameId；呢道餸本身提供 nameEn/nameFil/nameId。steps 係中文步驟（請精簡，5-6 步）；請同時提供 stepsEn/stepsFil/stepsId（每一步對應，份量/時間一致）。description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}`;
 
   const attempt = async (extra: string): Promise<SuggestedRecipe | null> => {
     try {
@@ -1643,8 +1765,10 @@ async function generateOneType(
         console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
         return null;
       }
-      const converted = manuallyConvertRecipes([extracted], undefined);
-      return converted[0] ?? null;
+      const converted = manuallyConvertRecipes([extracted], undefined, (isDessert || isSoup) ? 4 : 5);
+      const recipe = converted[0] ?? null;
+      if (recipe && !recipe.dishType) recipe.dishType = expectedType;
+      return recipe;
     } catch (e) {
       console.warn("[AI Chef] meal item failed:", e);
       return null;
@@ -1664,6 +1788,8 @@ async function generateOneType(
       return /湯|羹/.test(nm) || /湯|羹/.test(tagsStr) || !!soupTypeStr;
     }
     if (isVeg) return t === "vegetable";
+    if (isDessert) return t === "dessert";
+    if (isCarb) return t === "carb" || String(rec.name || "").match(/麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i) !== null;
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
 
@@ -1943,6 +2069,7 @@ function parseMealCount(text: string, defDish = 3, defSoup = 1): { dishCount: nu
 }
 
 // 綜合意圖：回傳 { isMeal, dishCount, soupCount }。isMeal = 用戶想要一餐（湯水/N餸N湯/今晚食咩）。
+
 function parseMealIntent(messages: Message[]): { isMeal: boolean; dishCount: number; soupCount: number } {
   const last = [...messages].reverse().find((m) => m.role === "user");
   const text = last ? (typeof last.content === "string" ? last.content : last.content.filter((b) => b.type === "text").map((b) => b.text).join(" ")) : "";
@@ -2426,7 +2553,8 @@ async function runToolsLoop(
   familyId?: number,
   userId?: number,
   enableSearch?: boolean,
-  forceJson = false
+  forceJson = false,
+  opts: { maxTokens?: number; timeoutMs?: number } = {}
 ): Promise<{ finalContent: string; allMessages: Message[] }> {
   const db = await getDb();
   const MAX_ITER = 3;
@@ -2436,9 +2564,9 @@ async function runToolsLoop(
     try {
       llmResp = await invokeLLM({
         messages,
-        maxTokens: AI_RECIPE_MAX_TOKENS,
+        maxTokens: opts.maxTokens ?? AI_RECIPE_MAX_TOKENS,
         temperature: 0.5,
-        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+        timeoutMs: opts.timeoutMs ?? AI_RECIPE_LLM_TIMEOUT_MS,
         enableSearch: enableSearch ?? true,
         tools: enableSearch && i === 0 ? TOOLS as any : undefined,
         responseFormat: forceJson ? { type: "json_object" } : undefined,
@@ -2518,21 +2646,37 @@ async function resolveImageUrls(input: Array<{ role: string; content: string | A
  * Fill en/fil/id for a SuggestedRecipe (name/description/steps/ingredients)
  * when missing — dictionary-first for ingredients, LLM for the rest. Never throws.
  */
+const containsCjk = (value: unknown): boolean => /[\u3400-\u9FFF\uF900-\uFAFF]/.test(String(value ?? ""));
+const hasTargetText = (value: unknown): boolean => {
+  const text = String(value ?? "").trim();
+  return text.length > 0 && !containsCjk(text);
+};
+const hasTargetSteps = (steps: unknown): boolean =>
+  Array.isArray(steps) && steps.length > 0 && steps.every((step) => hasTargetText(step));
+
 async function localizeSuggestedRecipe(rec: SuggestedRecipe): Promise<SuggestedRecipe> {
   if (!rec) return rec;
   try {
-    const needName = !rec.nameEn || !rec.nameFil || !rec.nameId;
+    const needName = !hasTargetText(rec.nameEn) || !hasTargetText(rec.nameFil) || !hasTargetText(rec.nameId);
     const steps = Array.isArray(rec.steps) ? rec.steps : [];
-    const needSteps = steps.length > 0 && (!rec.stepsEn?.length || !rec.stepsFil?.length || !rec.stepsId?.length);
-    const needDesc = !!rec.description && (!rec.descriptionEn || !rec.descriptionFil || !rec.descriptionId);
+    const needSteps = steps.length > 0 && (!hasTargetSteps(rec.stepsEn) || !hasTargetSteps(rec.stepsFil) || !hasTargetSteps(rec.stepsId));
+    const needDesc = !!rec.description && (!hasTargetText(rec.descriptionEn) || !hasTargetText(rec.descriptionFil) || !hasTargetText(rec.descriptionId));
     if (needName || needSteps || needDesc) {
       const tr = await translateRecipeContent(rec.name || "", steps, rec.description || "");
-      if (needName) { rec.nameEn = rec.nameEn || tr.nameEn; rec.nameFil = rec.nameFil || tr.nameFil; rec.nameId = rec.nameId || tr.nameId; }
-      if (needDesc) { rec.descriptionEn = rec.descriptionEn || tr.descriptionEn; rec.descriptionFil = rec.descriptionFil || tr.descriptionFil; rec.descriptionId = rec.descriptionId || tr.descriptionId; }
+      if (needName) {
+        if (!hasTargetText(rec.nameEn)) rec.nameEn = tr.nameEn;
+        if (!hasTargetText(rec.nameFil)) rec.nameFil = tr.nameFil;
+        if (!hasTargetText(rec.nameId)) rec.nameId = tr.nameId;
+      }
+      if (needDesc) {
+        if (!hasTargetText(rec.descriptionEn)) rec.descriptionEn = tr.descriptionEn;
+        if (!hasTargetText(rec.descriptionFil)) rec.descriptionFil = tr.descriptionFil;
+        if (!hasTargetText(rec.descriptionId)) rec.descriptionId = tr.descriptionId;
+      }
       if (needSteps) {
-        rec.stepsEn = rec.stepsEn?.length ? rec.stepsEn : tr.stepsEn;
-        rec.stepsFil = rec.stepsFil?.length ? rec.stepsFil : tr.stepsFil;
-        rec.stepsId = rec.stepsId?.length ? rec.stepsId : tr.stepsId;
+        if (!hasTargetSteps(rec.stepsEn)) rec.stepsEn = tr.stepsEn;
+        if (!hasTargetSteps(rec.stepsFil)) rec.stepsFil = tr.stepsFil;
+        if (!hasTargetSteps(rec.stepsId)) rec.stepsId = tr.stepsId;
       }
     }
     const ings = Array.isArray(rec.ingredients) ? rec.ingredients : [];
@@ -2546,6 +2690,132 @@ async function localizeSuggestedRecipe(rec: SuggestedRecipe): Promise<SuggestedR
   return rec;
 }
 
+/**
+ * Batch version of localizeSuggestedRecipe for a multi-recipe AI response.
+ * Recipe name/description/steps still need one translation call per recipe, but
+ * ingredient names are deduped and translated in ONE call across the whole meal.
+ */
+async function localizeSuggestedRecipes(
+  recipes: SuggestedRecipe[],
+  lang?: string
+): Promise<SuggestedRecipe[]> {
+  if (!recipes || recipes.length === 0) return recipes;
+  const localizeStartedAt = Date.now();
+  const target = lang?.startsWith("en") ? "en" : lang?.startsWith("fil") ? "fil" : lang?.startsWith("id") ? "id" : null;
+
+  if (target) {
+    const missing: Array<{ index: number; name: string; description?: string; steps: string[] }> = [];
+    for (let i = 0; i < recipes.length; i++) {
+      const rec = recipes[i];
+      if (!rec) continue;
+      const steps = Array.isArray(rec.steps) ? rec.steps : [];
+      const hasName = target === "en" ? hasTargetText(rec.nameEn) : target === "fil" ? hasTargetText(rec.nameFil) : hasTargetText(rec.nameId);
+      const hasSteps = target === "en" ? hasTargetSteps(rec.stepsEn) : target === "fil" ? hasTargetSteps(rec.stepsFil) : hasTargetSteps(rec.stepsId);
+      if (hasName && hasSteps) continue;
+      missing.push({ index: i, name: rec.name || "", description: rec.description, steps });
+    }
+    if (missing.length > 0) {
+      const translated = await translateRecipesForLang(missing, target);
+      for (let j = 0; j < missing.length; j++) {
+        const rec = recipes[missing[j].index];
+        const tr = translated[j];
+        if (!rec || !tr) continue;
+        if (target === "en") {
+          if (!hasTargetText(rec.nameEn) && hasTargetText(tr.name)) rec.nameEn = tr.name;
+          if (!hasTargetText(rec.descriptionEn) && hasTargetText(tr.description)) rec.descriptionEn = tr.description;
+          if (!hasTargetSteps(rec.stepsEn) && tr.steps?.every((x) => hasTargetText(x))) rec.stepsEn = tr.steps;
+        } else if (target === "fil") {
+          if (!hasTargetText(rec.nameFil) && hasTargetText(tr.name)) rec.nameFil = tr.name;
+          if (!hasTargetText(rec.descriptionFil) && hasTargetText(tr.description)) rec.descriptionFil = tr.description;
+          if (!hasTargetSteps(rec.stepsFil) && tr.steps?.every((x) => hasTargetText(x))) rec.stepsFil = tr.steps;
+        } else {
+          if (!hasTargetText(rec.nameId) && hasTargetText(tr.name)) rec.nameId = tr.name;
+          if (!hasTargetText(rec.descriptionId) && hasTargetText(tr.description)) rec.descriptionId = tr.description;
+          if (!hasTargetSteps(rec.stepsId) && tr.steps?.every((x) => hasTargetText(x))) rec.stepsId = tr.steps;
+        }
+      }
+    }
+  } else {
+    await Promise.all(recipes.map(async (rec) => {
+      if (!rec) return;
+      try {
+        const needName = !hasTargetText(rec.nameEn) || !hasTargetText(rec.nameFil) || !hasTargetText(rec.nameId);
+        const steps = Array.isArray(rec.steps) ? rec.steps : [];
+        const needSteps = steps.length > 0 && (!hasTargetSteps(rec.stepsEn) || !hasTargetSteps(rec.stepsFil) || !hasTargetSteps(rec.stepsId));
+        const needDesc = !!rec.description && (!hasTargetText(rec.descriptionEn) || !hasTargetText(rec.descriptionFil) || !hasTargetText(rec.descriptionId));
+        if (!needName && !needSteps && !needDesc) return;
+        const tr = await translateRecipeContent(rec.name || "", steps, rec.description || "");
+        if (needName) { rec.nameEn = rec.nameEn || tr.nameEn; rec.nameFil = rec.nameFil || tr.nameFil; rec.nameId = rec.nameId || tr.nameId; }
+        if (needDesc) {
+          rec.descriptionEn = rec.descriptionEn || tr.descriptionEn;
+          rec.descriptionFil = rec.descriptionFil || tr.descriptionFil;
+          rec.descriptionId = rec.descriptionId || tr.descriptionId;
+        }
+        if (needSteps) {
+          rec.stepsEn = rec.stepsEn?.length ? rec.stepsEn : tr.stepsEn;
+          rec.stepsFil = rec.stepsFil?.length ? rec.stepsFil : tr.stepsFil;
+          rec.stepsId = rec.stepsId?.length ? rec.stepsId : tr.stepsId;
+        }
+      } catch (e) {
+        console.warn("[localizeSuggestedRecipes] recipe translation failed:", (e as Error)?.message);
+      }
+    }));
+  }
+
+  const recipeTranslationMs = Date.now() - localizeStartedAt;
+  const ingredientStartedAt = Date.now();
+  const unique = new Map<string, { name: string }>();
+  for (const rec of recipes) {
+    for (const ing of (Array.isArray(rec.ingredients) ? rec.ingredients : []) as any[]) {
+      const name = String(ing?.name ?? "").trim();
+      if (!name || (ing.nameEn && ing.nameFil && ing.nameId)) continue;
+      unique.set(name.toLowerCase(), { name });
+    }
+  }
+  if (unique.size > 0) {
+    try {
+      const localized = await localizeIngredientNames([...unique.values()]);
+      if (localized) {
+        const byName = new Map(localized.map((ing: any) => [String(ing?.name ?? "").trim().toLowerCase(), ing]));
+        for (const rec of recipes) {
+          if (!Array.isArray(rec.ingredients)) continue;
+          rec.ingredients = rec.ingredients.map((ing: any) => {
+            const hit = byName.get(String(ing?.name ?? "").trim().toLowerCase());
+            if (!hit) return ing;
+            return {
+              ...ing,
+              nameEn: ing.nameEn || hit.nameEn,
+              nameFil: ing.nameFil || hit.nameFil,
+              nameId: ing.nameId || hit.nameId,
+            };
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[localizeSuggestedRecipes] ingredient translation failed:", (e as Error)?.message);
+    }
+  }
+  console.log(`[AI Chef] localize recipesMs=${recipeTranslationMs} ingredientMs=${Date.now() - ingredientStartedAt} recipes=${recipes.length}`);
+  return recipes;
+}
+
+const SMALL_TALK_RE = /^(hi|hello|hey|how are (you|u)|how r u|i am (so )?sad|i'?m (so )?sad|feeling sad|thanks|thank you|thx|ok|okay|多謝|謝謝|唔該|你好|您好|早晨|晚安|好|好的|得|收到)[.!?。！？\s]*$/i;
+const AMBIGUOUS_FOOD_RE = /(我唔知|唔知|隨便|求其|你話事|食咩好|煮咩好|有咩好|i don'?t know|not sure|surprise me|help me decide)/i;
+
+function smallTalkReply(lang: string): string {
+  if (lang.startsWith("en")) return "I'm here. Tell me what ingredients you have, or what kind of meal you want, and I'll help.";
+  if (lang.startsWith("fil")) return "Narito ako. Sabihin mo kung anong ingredients ang meron ka, o anong klaseng ulam ang gusto mo.";
+  if (lang.startsWith("id")) return "Saya di sini. Beri tahu bahan yang ada atau jenis masakan yang Anda inginkan.";
+  return "我喺度。可以話我知你有咩食材，或者想食邊類型嘅菜，我幫你諗。";
+}
+
+function clarifyFoodReply(lang: string): string {
+  if (lang.startsWith("en")) return "Sure — do you want Chinese, Western, quick, or light? And how many people?";
+  if (lang.startsWith("fil")) return "Sige — gusto mo ba ng Chinese, Western, mabilis, o light? Ilang tao?";
+  if (lang.startsWith("id")) return "Boleh — mau Chinese, Western, cepat, atau ringan? Untuk berapa orang?";
+  return "好呀 — 你想中式、西式、快煮，定清淡？幾多人食？";
+}
+
 export async function processAIChefChat(
   inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
   familyId?: number,
@@ -2553,10 +2823,15 @@ export async function processAIChefChat(
   mode: "chat" | "ai" | "library" = "chat",
   excludeNames: string[] = [],
   search?: { query?: string; tags?: string[]; cookTimeMax?: number; category?: string; count?: number; rank?: "shortestTime" | "default"; excludeCategories?: string[]; scenario?: string },
-  lang: string = "zh-TW"
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean }> {
+  lang: string = "zh-TW",
+  avoidIngredients: string[] = [],
+  forceText: boolean = false,
+): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[] }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
+  // Actual role shortfall from the assembler (router uses this instead of
+  // guessing by slicing the requested roles).
+  let resultMissingRoles: RequestedRole[] | null = null;
   // Fix2: 合併後端自己記住嘅已推薦名單（唔靠前端 state），確保去重一定生效
   const seenSplit = await getFamilySeenNamesSplit(familyId);
   const fusedOfficial = [...new Set([...excludeNames, ...seenSplit.seen7d])];
@@ -2589,28 +2864,38 @@ export async function processAIChefChat(
         : "";
   const lastUserMsg = inputMessages.filter(m => m.role === "user").pop();
   const lastUserText = textOf(lastUserMsg).trim();
-  const lastUserLower = lastUserText.toLowerCase();
   // 淨係睇「最後一條 user 訊息」有冇圖片（唔睇成個 history，避免影相後所有 call 都被誤判）
   const hasImage = Array.isArray(lastUserMsg?.content) && lastUserMsg.content.some((c: any) => c.type === "image_url");
 
-  const greetingPattern = /^(hi|hello|hey|yo|你好|您好|早安|早晨|午安|晚安|多謝|謝謝|唔該|thanks|thank you|thx|hihi|早晨好|早晨！|hello!|hi!|嗨)$/i;
-  const isGreeting = greetingPattern.test(lastUserLower);
-  // 技巧／知識題：純文字答，唔出食譜卡
-  const isTechnique = !isGreeting && lastUserText.length < 80 &&
-    /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|點先|點至|how\s*(long|to|many)|temperature|煮幾耐|蒸幾耐|焗幾耐|煎幾耐|煲幾耐)/i.test(lastUserText);
-  const isPlain = isGreeting || isTechnique; // 純對話/技巧題：文字答，唔出卡
-  const forceNoCards = isPlain || hasImage;  // 圖片辨識：只返回文字（前端自己拆食材）
+  // Single source of truth for free-text intent. `forceText` is legacy and no
+  // longer allowed to override a clear food request.
+  const chefIntent: ChefIntent = resolveChefIntent(lastUserText, { hasImage, mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE });
+  const requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
+  const forceNoCards = hasImage || !chefIntent.wantsCards;
+  const isPlain = !chefIntent.wantsCards;
+  const wantCards = !forceNoCards;
+  const smallTalk = !hasImage && SMALL_TALK_RE.test(lastUserText.trim());
+  const ambiguousFood = !hasImage && !smallTalk && AMBIGUOUS_FOOD_RE.test(lastUserText.trim());
+  if (smallTalk) {
+    return { content: smallTalkReply(lang), recipes: [], llmUsed: false };
+  }
+  if (ambiguousFood) {
+    return { content: clarifyFoodReply(lang), recipes: [], llmUsed: false };
+  }
 
   const db = await getDb();
 
   // ── 本機 helpers ─────────────────────────────────────────────
   const trySearch = async (query: string, limit = 24, cookTimeMax?: number): Promise<Record<string, unknown>[]> => {
     if (!db) return [];
+    const startedAt = Date.now();
     try {
       const res = await withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax }, familyId), 8000, "lib search");
-      return (res.recipes || []) as Record<string, unknown>[];
+      const rows = (res.recipes || []) as Record<string, unknown>[];
+      console.log(`[AI Chef] lib search query="${query}" limit=${limit} rows=${rows.length} time=${Date.now() - startedAt}ms`);
+      return rows;
     } catch (e) {
-      console.warn("[AI Chef] lib search failed:", e);
+      console.warn(`[AI Chef] lib search failed after ${Date.now() - startedAt}ms:`, e);
       return [];
     }
   };
@@ -2651,6 +2936,9 @@ export async function processAIChefChat(
         nameFil: str(r?.nameFil),
         nameId: str(r?.nameId),
         description: String(r?.description ?? "").trim(),
+        descriptionEn: str(r?.descriptionEn),
+        descriptionFil: str(r?.descriptionFil),
+        descriptionId: str(r?.descriptionId),
         cookTime: Number(r?.cookTime ?? 30) || 30,
         servings: Number(r?.servings ?? 4) || 4,
         difficulty: (String(r?.difficulty ?? "medium")) as "easy" | "medium" | "hard",
@@ -2695,12 +2983,127 @@ export async function processAIChefChat(
     return q.length >= 2 ? q : "";
   };
 
+  // ══════════ Free-text multi-card requests：library by role → AI fill missing ══════════
+  // This is the server-owned path for requests such as「一肉一甜品」/「3餸1湯」.
+  // It never returns after a single library hit; partial results are explicit.
+  if (mode === "chat" && wantCards && db && chefIntent.requested.total > 1) {
+    const requested = chefIntent.requested;
+    let poolPromise: Promise<Record<string, unknown>[]> | null = null;
+    const getPool = () => {
+      if (!poolPromise) {
+        const cacheKey = familyId ?? 0;
+        const cached = LIBRARY_POOL_CACHE.get(cacheKey);
+        const base = cached && Date.now() - cached.at < LIBRARY_POOL_TTL_MS
+          ? Promise.resolve(cached.rows)
+          : trySearch("", 1000).then((rows) => {
+              LIBRARY_POOL_CACHE.set(cacheKey, { at: Date.now(), rows });
+              return rows;
+            });
+        poolPromise = base.then((rows) => avoidIngredients.length > 0
+          ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+          : rows);
+      }
+      return poolPromise;
+    };
+    const isCarbRow = (row: Record<string, unknown>) => {
+      const family = dishFamily(String(row?.name ?? ""));
+      return family === "noodle" || family === "rice";
+    };
+    const pickLibrary = async (role: RequestedRole, count: number, used: string[]): Promise<RecipeCandidate<SuggestedRecipe>[]> => {
+      const rows = await getPool();
+      const usedSet = new Set(used.map((n) => normalizeName(n).toLowerCase()));
+      const filtered = rows.filter((row) => {
+        const key = normalizeName(String(row?.name ?? "")).toLowerCase();
+        if (!key || usedSet.has(key)) return false;
+        const type = classifyDishType(row);
+        if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink" && !isCarbRow(row);
+        if (role === "noodle") return type === "carb" || dishFamily(String(row?.name ?? "")) === "noodle";
+        return type === role;
+      });
+      const recipes = rowsToSuggested(filtered, excludeSets, count);
+      return recipes
+        .filter((recipe) => {
+          const key = normalizeName(recipe.name).toLowerCase();
+          return key && !usedSet.has(key);
+        })
+        .map((recipe) => ({ recipe, role, source: "library" as const }));
+    };
+    const generateRole = async (role: RequestedRole, count: number, used: string[]): Promise<RecipeCandidate<SuggestedRecipe>[]> => {
+      const expected = role === "any" ? "other" : dishTypeForRole(role);
+      const label = role === "any" ? "家常菜" : (MEAL_TYPE_LABEL[expected]?.label ?? "家常菜");
+      const recipe = await generateOneType(label, expected, [...mergedExclude, ...used], avoidIngredients);
+      if (!recipe) return [];
+      llmUsed = true;
+      return [{ recipe, role, source: "ai" as const }];
+    };
+    const validateRole = (recipe: SuggestedRecipe, role: RequestedRole): boolean => {
+      const name = String(recipe?.name ?? "").trim();
+      if (!name || name === "未命名食譜" || name.length < 2) return false;
+      if (!Array.isArray(recipe.ingredients) || recipe.ingredients.filter((i) => String(i?.name ?? "").trim()).length < 2) return false;
+      const isLibrary = recipe.source === "official" || recipe.source === "custom";
+      const minSteps = isLibrary ? 1 : (role === "dessert" || role === "soup") ? 4 : 5;
+      if (!Array.isArray(recipe.steps) || recipe.steps.filter((s) => String(s ?? "").trim()).length < minSteps) return false;
+      const type = classifyDishType({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
+      if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
+      if (role === "meat") return isLibrary ? type === "meat" : type === "meat" || type === "other";
+      if (role === "seafood") return isLibrary ? type === "seafood" : type === "seafood" || type === "other";
+      if (role === "vegetable") return type === "vegetable";
+      if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
+      if (role === "dessert") return type === "dessert";
+      if (role === "soup") return type === "soup" || /湯|羹/.test(name);
+      return true;
+    };
+    const assembled = await assembleRecipeSet<SuggestedRecipe>(requested, {
+      pickLibrary,
+      generate: generateRole,
+      validate: validateRole,
+      nameOf: (recipe) => recipe.name,
+      maxRounds: 2,
+    });
+    if (assembled.cards.length > 0) {
+      const people = extractPeopleCount(lastUserText);
+      const applyServings = (arr: SuggestedRecipe[]) => people && people > 0
+        ? arr.map((r) => ({ ...r, servings: people }))
+        : arr;
+      const soupCount = requested.roles.filter((r) => r === "soup").length;
+      const dishCount = Math.max(0, requested.total - soupCount);
+      const dishSetLabel = dishLabel(dishCount, soupCount, lang);
+      const content = assembled.missingRoles.length > 0
+        ? aiReply(lang, "partialSet", { served: assembled.served, total: assembled.requested })
+        : assembled.sources.ai > 0
+          ? aiReply(lang, "libPlusAi", { lib: assembled.sources.library, ai: assembled.sources.ai })
+          : aiReply(lang, "libMealSet", { dish: dishSetLabel });
+      const cards = applyServings(assembled.cards);
+      resultMissingRoles = assembled.missingRoles;
+      await recordFamilySeenNames(familyId, cards.map((r) => r.name));
+      console.log(`[AI Chef] role assembler: requested=${assembled.requested} served=${assembled.served} lib=${assembled.sources.library} ai=${assembled.sources.ai} missing=${assembled.missingRoles.join(",") || "none"}`);
+      return { content, recipes: cards, llmUsed };
+    }
+    console.warn(`[AI Chef] role assembler produced 0 cards for roles=${requested.roles.join(",")}`);
+    return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
+  }
+
   // ══════════ mode === "library"：快路徑（3餸1湯 → 1湯3餸 + AI補；一般 → 1 個）══════════
   if (mode === "library") {
     const libMealIntent = parseMealIntent(inputMessages as Message[]);
     const reqCount = search?.count && search.count > 1 ? search.count : 0;
     const isMealLib = libMealIntent.isMeal || reqCount > 0 || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
-    const rows = await trySearch("", 1000);
+    const cacheKey = familyId ?? 0;
+    const cachedPool = LIBRARY_POOL_CACHE.get(cacheKey);
+    let rows: Record<string, unknown>[];
+    if (cachedPool && Date.now() - cachedPool.at < LIBRARY_POOL_TTL_MS) {
+      rows = cachedPool.rows;
+      console.log(`[AI Chef] library pool cache hit (${rows.length})`);
+    } else {
+      const poolStartedAt = Date.now();
+      rows = await trySearch("", 400);
+      LIBRARY_POOL_CACHE.set(cacheKey, { at: Date.now(), rows });
+      console.log(`[AI Chef] library pool fetch ${rows.length} rows in ${Date.now() - poolStartedAt}ms`);
+    }
+
+    const safeRows = avoidIngredients.length > 0
+      ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+      : rows;
 
     if (isMealLib) {
       // 尊重前端指定嘅總卡數（例如「辛辣3餸1湯」= 4），否則用 intent；再否則 fallback 3餸1湯
@@ -2713,7 +3116,7 @@ export async function processAIChefChat(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
-      const libPicked = pickSoupMeal(rows, excludeSets, libCount.dishCount, libCount.soupCount);
+      const libPicked = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
       // 問卷「N人」→ 覆蓋卡片 servings（library 卡 DB 預設 4 人，要跟用戶答嘅人數）
@@ -2727,7 +3130,7 @@ export async function processAIChefChat(
         const haveTypes = new Set(libPicked.map(mealTypeOf));
         // 用戶唔要湯（soupCount=0）→ 唔補湯
         const neededTypes = ((["soup", "meat", "seafood", "vegetable", "other"] as DishType[]).filter(t => !haveTypes.has(t) && (libCount.soupCount > 0 || t !== "soup"))).slice(0, missing);
-        const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes);
+        const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes, avoidIngredients);
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
         const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
@@ -2779,7 +3182,7 @@ export async function processAIChefChat(
         return { content, recipes: picked, llmUsed };
       }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
-      const filteredRows = applySearchFilters(rows, search);
+      const filteredRows = applySearchFilters(safeRows, search);
       picked = rowsToSuggested(filteredRows, excludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
@@ -2790,7 +3193,7 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOne"), recipes: picked, llmUsed };
       }
     } else if (swapQuery) {
-      const singleRows = await trySearch(swapQuery, 30);
+      const singleRows = (await trySearch(swapQuery, 30)).filter((row) => !rowContainsAvoid(row, avoidIngredients));
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
       const swapSets = mkExcludeSets(excludeNames, excludeNames);
@@ -2817,7 +3220,7 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
       }
     } else {
-      picked = rowsToSuggested(rows, excludeSets, 1);
+      picked = rowsToSuggested(safeRows, excludeSets, 1);
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
@@ -2830,12 +3233,15 @@ export async function processAIChefChat(
   // ══════════ chat 非圖片：先試食譜庫（library-first）══════════
   const keyword = cleanFoodQuery(lastUserText);
   const isVague = !keyword; // 抽唔到關鍵字 = 模糊想食
-  if (mode === "chat" && !isPlain && !hasImage) {
+  if (mode === "chat" && !forceNoCards && (requestedCount === null || requestedCount <= 1)) {
     // 打字「N分鐘」都尊重時間：由 raw text 抽 cookTimeMax（cleanFoodQuery 會剷走數字，所以要喺 raw 度抽）
     const chatTimeMatch = lastUserText.match(/(\d{1,3})\s*分鐘/);
     const chatCookTimeMax = chatTimeMatch ? parseInt(chatTimeMatch[1], 10) : undefined;
     const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
-    const picked = rowsToSuggested(rows, excludeSets, 1);
+    const safeRows = avoidIngredients.length > 0
+      ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+      : rows;
+    const picked = rowsToSuggested(safeRows, excludeSets, 1);
     if (picked.length > 0) {
       console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
       await recordFamilySeenNames(familyId, picked.map(r => r.name));
@@ -2886,9 +3292,17 @@ export async function processAIChefChat(
   }
 
   let systemPrompt = buildSystemPrompt(libSummary, soupIntent, lang);
+  if (requestedCount && requestedCount > 1) {
+    systemPrompt += `\n\n【本輪卡數】請提供 ${requestedCount} 個食譜，數量必須符合用戶要求。`;
+  }
   if (popularHint) systemPrompt += `\n\n${popularHint}`;
+  if (avoidIngredients.length > 0) {
+    systemPrompt += `\n\n⛔ 安全限制：以下食材係用戶敏感/必須避免，任何食譜都完全唔可以包含（包括醬汁、裝飾、替代食材）：${avoidIngredients.join("、")}。輸出前請逐個檢查 ingredients。`;
+  }
   // 純對話（greeting/technique/圖片）-> 強調唔好出食譜 JSON
-  if (isPlain) {
+  if (forceNoCards) {
+    systemPrompt += "\n\n（本輪只回答用戶問題：請用正常文字回覆，不要輸出 JSON，也不要推薦或附上食譜卡。）";
+  } else if (isPlain) {
     systemPrompt += "\n\n（本輪為純對話/技巧查詢：請用正常文字親切回覆，不要輸出 JSON，也不要附食譜。）";
   } else if (mergedExclude.length > 0) {
     systemPrompt += `\n\n⚠️ 絕對唔可以推薦以下用戶最近睇過嘅菜式，諗一啲全新嘅：${mergedExclude.slice(0, 10).join("、")}`;
@@ -2921,7 +3335,6 @@ export async function processAIChefChat(
 
   const enableSearch = false; // 一律唔行 tools loop / web search：單輪 LLM，快靚正（library-first 已做查庫）
   // JSON mode：想食譜（非純對話/非圖片）→ 強制 LLM 輸出 JSON，避免 flash 出純文字導致 0 卡
-  const wantCards = !isPlain && !hasImage;
   let finalContent = AI_RECIPE_FALLBACK_CONTENT;
   let allMessages = msgs;
 
@@ -2929,8 +3342,8 @@ export async function processAIChefChat(
     llmUsed = true; // 有叫 LLM 就標記（即使 timeout 都計，因為有 call 過）
     try {
       ({ finalContent, allMessages } = await withTimeout(
-        runToolsLoop(msgs, familyId, userId, enableSearch, wantCards),
-        mode === "ai" ? 35000 : AI_RECIPE_CHAT_TIMEOUT_MS,
+        runToolsLoop(msgs, familyId, userId, enableSearch, wantCards, wantCards ? {} : { maxTokens: 600, timeoutMs: 12000 }),
+        mode === "ai" ? 35000 : wantCards ? AI_RECIPE_CHAT_TIMEOUT_MS : 15000,
         "ai chef chat",
       ));
       return true;
@@ -2947,14 +3360,17 @@ export async function processAIChefChat(
   let parallelRecipes: SuggestedRecipe[] = [];
   // 由「最後一條用戶訊息」抽數量：一送一湯 -> {1,1}；兩個餸 -> {2,0}；唔要湯 -> {N,0}；冇寫 -> default {3,1}
   const mealCount = { dishCount: mealIntent.dishCount, soupCount: mealIntent.soupCount };
-  const totalWanted = Math.max(mealCount.dishCount + mealCount.soupCount, 1);
+  const totalWanted = Math.max(requestedCount ?? mealCount.dishCount + mealCount.soupCount, 1);
   const dishSetLabel = dishLabel(mealCount.dishCount, mealCount.soupCount, lang);
   // 打字「N送M湯/兩個餸」（mode=chat + meal intent）：先搵食譜庫，庫唔夠先 AI 補缺
   // （同「食譜庫」button 一致；唔會淨係 AI 生成）
   if (mealIntent.isMeal && mode === "chat" && wantCards && db) {
     try {
       const libRows = await trySearch("", 1000);
-      const libMeal = pickSoupMeal(libRows, excludeSets, mealCount.dishCount, mealCount.soupCount);
+      const safeLibRows = avoidIngredients.length > 0
+        ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+        : libRows;
+      const libMeal = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount);
       if (libMeal.length > 0) {
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);
@@ -2969,7 +3385,7 @@ export async function processAIChefChat(
           const haveTypes = new Set(libMeal.map(mealTypeOf));
           const neededTypes = (["soup", "meat", "seafood", "vegetable", "other"] as DishType[]).filter(t => !haveTypes.has(t) && (mealCount.soupCount > 0 || t !== "soup"));
           const aiPicked = neededTypes.length > 0
-            ? await generateMissingRecipes(totalWanted - libMeal.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes.slice(0, totalWanted - libMeal.length))
+            ? await generateMissingRecipes(totalWanted - libMeal.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes.slice(0, totalWanted - libMeal.length), avoidIngredients)
             : [];
           if (aiPicked.length > 0) llmUsed = true;
           await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
@@ -2985,20 +3401,93 @@ export async function processAIChefChat(
       console.warn("[AI Chef] chat meal library-first failed:", e);
     }
   }
-  if (soupIntent && mode === "ai" && wantCards) {
-    const mealRecipes = await generateMealRecipesParallel(mergedExclude, familyId, userId, mealCount.dishCount, mealCount.soupCount);
-    if (mealRecipes.length > 0) {
-      usedParallel = true;
-      llmUsed = true; // 並行 meal 每個 item 都係 LLM call
-      parallelContent = aiReply(lang, "madeTonight", { dish: dishSetLabel });
-      parallelRecipes = mealRecipes;
-      console.log(`[AI Chef] Parallel meal generated: ${mealRecipes.length} recipes`);
-    } else {
-      // 並行失敗 → 落返單輪 LLM
-      if (!(await callLLM())) {
-      return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
+  if (mode === "ai" && wantCards && (AI_CHEF_MULTI_ROLE ? chefIntent.requested.total > 1 : soupIntent)) {
+    // AI-first meal: generate one card per requested role, validate each role,
+    // then use A (library soup) only as a last-resort fallback for a missing soup.
+    const roles = chefIntent.requested.total > 0
+      ? chefIntent.requested.roles
+      : (["meat", "seafood", "vegetable", "soup"] as RequestedRole[]);
+    const requested = { total: Math.max(requestedCount ?? roles.length, 1), roles };
+    const generateAI = async (role: RequestedRole, count: number, used: string[]): Promise<RecipeCandidate<SuggestedRecipe>[]> => {
+      const expected = role === "any" ? "other" : dishTypeForRole(role);
+      const label = role === "any" ? "家常菜" : (MEAL_TYPE_LABEL[expected]?.label ?? "家常菜");
+      llmUsed = true; // this path is explicitly AI-first
+      const recipe = await generateOneType(label, expected, [...mergedExclude, ...used], avoidIngredients);
+      if (!recipe) return [];
+      return [{ recipe, role, source: "ai" as const }];
+    };
+    const validateAI = (recipe: SuggestedRecipe, role: RequestedRole): boolean => {
+      const name = String(recipe?.name ?? "").trim();
+      if (!name || name === "未命名食譜" || name.length < 2) return false;
+      if (!Array.isArray(recipe.ingredients) || recipe.ingredients.filter((i) => String(i?.name ?? "").trim()).length < 2) return false;
+      const minSteps = (role === "soup" || role === "dessert") ? 4 : 5;
+      if (!Array.isArray(recipe.steps) || recipe.steps.filter((x) => String(x ?? "").trim()).length < minSteps) return false;
+      const type = classifyDishType({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
+      if (role === "soup") return type === "soup" || isSoupRecipe(recipe);
+      if (role === "dessert") return type === "dessert";
+      if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
+      if (role === "meat") return type === "meat" || type === "other";
+      if (role === "seafood") return type === "seafood" || type === "other";
+      if (role === "vegetable") return type === "vegetable";
+      if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
+      return true;
+    };
+    const assembled = await assembleRecipeSet<SuggestedRecipe>(requested, {
+      pickLibrary: async () => [],
+      generate: generateAI,
+      validate: validateAI,
+      nameOf: (recipe) => recipe.name,
+      maxRounds: 2,
+    });
+    let cards = assembled.cards;
+    let missing = assembled.missingRoles;
+    const roleSoupCount = requested.roles.filter((r) => r === "soup").length;
+    const roleDishLabel = dishLabel(Math.max(0, requested.total - roleSoupCount), roleSoupCount, lang);
+
+    // A: last-resort library fill for missing roles (soup is the common case,
+    // but a failed vegetable/seafood slot should not silently turn 4 into 3).
+    for (const role of [...missing]) {
+      if (cards.length >= requested.total) break;
+      const query = role === "soup" ? "湯" : role === "vegetable" ? "蔬菜" : role === "meat" ? "肉" : role === "seafood" ? "海鮮" : role === "noodle" ? "麵" : role === "dessert" ? "甜品" : "";
+      try {
+        const rows = await trySearch(query, 80);
+        const safeRows = avoidIngredients.length > 0
+          ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+          : rows;
+        const expectedType = role === "any" ? "other" : dishTypeForRole(role);
+        const roleRows = safeRows.filter((row) => {
+          const type = classifyDishType(row);
+          const nm = String(row?.name ?? "");
+          if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
+          if (role === "soup") return type === "soup" || isSoupRecipe({ name: nm, tags: Array.isArray(row?.tags) ? row.tags.map(String) : [], source: "official" } as SuggestedRecipe);
+          if (role === "noodle") return type === "carb" || dishFamily(nm) === "noodle";
+          return type === expectedType || (role !== "vegetable" && type === "other");
+        });
+        const pick = rowsToSuggested(roleRows, excludeSets, 1).filter((recipe) => !cards.some((c) => normalizeName(c.name) === normalizeName(recipe.name)));
+        if (pick.length > 0) {
+          cards = [...cards, ...pick];
+          missing = missing.filter((r) => r !== role);
+          console.log(`[AI Chef] AI meal library fallback role=${role}: ${pick[0].name}`);
+        }
+      } catch (e) {
+        console.warn(`[AI Chef] AI meal library fallback role=${role} failed:`, e);
       }
     }
+
+    usedParallel = true;
+    parallelFromLibrary = true; // cards are already role-assembled; skip pickDiverseMeal
+    parallelRecipes = cards;
+    if (cards.length > 0 && missing.length === 0) {
+      parallelContent = cards.some((r) => r.source === "official" || r.source === "custom")
+        ? aiReply(lang, "libPlusAi", { lib: cards.filter((r) => r.source === "official" || r.source === "custom").length, ai: cards.filter((r) => r.source === "ai").length })
+        : aiReply(lang, "madeTonight", { dish: roleDishLabel });
+    } else if (cards.length > 0) {
+      parallelContent = aiReply(lang, "partialSet", { served: cards.length, total: requested.total });
+    } else {
+      parallelContent = aiReply(lang, "cantRecommend");
+    }
+    resultMissingRoles = missing;
+    console.log(`[AI Chef] AI role assembler: requested=${requested.total} served=${cards.length} missing=${missing.join(",") || "none"} lib=${cards.filter((r) => r.source === "official" || r.source === "custom").length} ai=${cards.filter((r) => r.source === "ai").length}`);
   } else {
     if (!(await callLLM())) {
           return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
@@ -3011,7 +3500,7 @@ export async function processAIChefChat(
   let recipes = parsed.recipes;
 
   // 並行 3餸1湯：直接採用並行結果（唔再經 parse，避免 SuggestedRecipe 唔合 schema 導致 0 卡再 retry）
-  if (usedParallel && parallelRecipes.length > 0) {
+  if (usedParallel) {
     content = parallelContent;
     recipes = parallelRecipes;
   } else if (wantCards && recipes.length === 0) {
@@ -3048,7 +3537,7 @@ export async function processAIChefChat(
     if (soupIntent && usedParallel && !parallelFromLibrary) {
       recipes = pickDiverseMeal(recipes, mergedExclude);
       console.log(`[AI Chef] Parallel candidates picked diverse: ${recipes.length}`);
-    } else if (mergedExclude.length > 0 && recipes.length > 0) {
+    } else if (!usedParallel && mergedExclude.length > 0 && recipes.length > 0) {
       // 其他（單菜 AI / chat）：保留 hard mergedExclude filter
       const excluded = mergedExclude.map(normalizeName).filter(Boolean);
       recipes = recipes.filter(r => {
@@ -3096,7 +3585,7 @@ export async function processAIChefChat(
 
     // 3餸1湯：hard filter 之後少過 target 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
     // 速度優先：只補一輪（最多 1 次 LLM），補唔夠就靠下面食譜庫 pool 兜底（快，唔等 LLM）
-    if (soupIntent && recipes.length > 0 && recipes.length < totalWanted) {
+    if (soupIntent && !usedParallel && recipes.length > 0 && recipes.length < totalWanted) {
       if (recipes.length < totalWanted) {
         const haveTypes = new Set(recipes.map(mealTypeOf));
         const neededTypes = (["soup", "meat", "seafood", "vegetable", "other"] as DishType[]).filter(t => !haveTypes.has(t) && (mealCount.soupCount > 0 || t !== "soup"));
@@ -3107,7 +3596,8 @@ export async function processAIChefChat(
             [...mergedExclude, ...recipes.map(r => r.name)],
             familyId,
             userId,
-            neededTypes.slice(0, totalWanted - recipes.length)
+            neededTypes.slice(0, totalWanted - recipes.length),
+            avoidIngredients
           );
           if (aiPicked.length > 0) {
             llmUsed = true;
@@ -3127,7 +3617,7 @@ export async function processAIChefChat(
     if (wantsFallbackCards) {
       // 明確撳「AI 生成」（mode=ai，非模糊）：先叫 AI 重新諗一個全新菜（避免「AI 生成」跌去食譜庫）
       if (mode === "ai" && !isVague) {
-        const freshAi = await generateMissingRecipes(1, false, mergedExclude, familyId, userId);
+        const freshAi = await generateMissingRecipes(1, false, mergedExclude, familyId, userId, undefined, avoidIngredients);
         if (freshAi.length > 0) {
           llmUsed = true;
           freshAi.forEach(r => { if (!r.source || r.source === "ai") r.source = "ai"; });
@@ -3157,13 +3647,32 @@ export async function processAIChefChat(
     }
   }
 
+  if (!forceNoCards) {
+    recipes = recipes.filter((recipe) => {
+      const isLibraryRecipe = Boolean(recipe.officialId || recipe.customId || recipe.source === "official" || recipe.source === "custom");
+      const hasName = Boolean(recipe.name && recipe.name !== "未命名食譜" && recipe.name.trim().length >= 2);
+      const hasIngredients = Array.isArray(recipe.ingredients) && recipe.ingredients.length >= 2;
+      const minSteps = isLibraryRecipe ? 1 : (isDessertRecipe(recipe) || isSoupRecipe(recipe)) ? 4 : 5;
+      const hasSteps = Array.isArray(recipe.steps) && recipe.steps.length >= minSteps;
+      return hasName && hasIngredients && hasSteps;
+    });
+  }
+
+  if (!forceNoCards && recipes.length === 0) {
+    content = aiReply(lang, "cantRecommend");
+  } else if (!forceNoCards && (mealIntent.isMeal || requestedCount !== null) && recipes.length < totalWanted) {
+    content = lang.startsWith("en")
+      ? `I found ${recipes.length} recipe(s), but could not complete the requested ${totalWanted}.`
+      : `我只搵到 ${recipes.length} 道食譜，未能完成你要求嘅 ${totalWanted} 道。`;
+  }
+
   if (recipes.length > 0) {
     console.log(`[AI Chef] Returning ${recipes.length} recipes`);
     // Fix2: 記低今次出咗嘅卡，之後自動排除（唔靠前端 state）
     await recordFamilySeenNames(familyId, recipes.map(r => r.name));
   }
 
-  return { content, recipes, llmUsed };
+  return { content, recipes, llmUsed, missingRoles: resultMissingRoles ?? undefined };
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──
@@ -3460,7 +3969,7 @@ async function generateFromHintLLM(hint: string): Promise<SuggestedRecipe | null
   try {
     const prompt = `請根據以下線索生成 1 個家常菜食譜（AI 創作，用繁體中文）：${hint}
 烹飪邏輯（務必合理）：嫩肉（牛／豬／雞）唔好長時間煮；炒／快煮類肉類最後落；海鮮唔好過熟；蔬菜保持爽脆；醬汁要配主材料；唔好亂組合。
-包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（4-5 步）。
+包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（5-6 步）。
 每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。
 回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
     const resp = await invokeLLM({
@@ -3576,17 +4085,35 @@ export const aiRecipeRouter = router({
     .input(z.object({ hint: z.string().min(1).max(200) }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
-      const sub = await getFamilySubscription(ctx.activeFamilyId);
-      const limit = sub?.aiChatLimit ?? 20;
-      const used = await getAiChatUsage(ctx.activeFamilyId);
-      if (used >= limit) {
-        throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+      startLlmMeter({ familyId, userId, route: "ai_hint", requestId: randomUUID() });
+
+      try {
+        const recipe = await runWithUsage(
+          {
+            familyId,
+            userId,
+            kind: "ai_generate",
+            limits: ent.limits,
+            idempotencyKey: `ai_hint:${familyId}:${userId}:${randomUUID()}`,
+            cost: { credits: 2 },
+          },
+          async () => {
+            const generated = await generateFromHintLLM(input.hint);
+            if (!generated) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
+            return generated;
+          }
+        );
+        try { await incrementAiChatUsage(familyId, userId, 2); } catch { /* history */ }
+        const localized = await localizeSuggestedRecipe(recipe);
+        return { recipe: localized };
+      } catch (error) {
+        usageLimitToTRPC(error);
       }
-      const recipe = await generateFromHintLLM(input.hint);
-      if (!recipe) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
-      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
-      const localized = await localizeSuggestedRecipe(recipe);
-      return { recipe: localized };
     }),
 
   // C6：由食物相（vision）AI 生成 1 個相似食譜（明確 AI 創作，Pro）
@@ -3594,25 +4121,42 @@ export const aiRecipeRouter = router({
     .input(z.object({ storageKeys: z.array(z.string()).min(1).max(5) }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
-      const sub = await getFamilySubscription(ctx.activeFamilyId);
-      if (!sub?.isPaid) throw new TRPCError({ code: "FORBIDDEN", message: "AI 生成相片食譜係 Pro 功能。" });
-      const limit = sub.aiChatLimit ?? 20;
-      const used = await getAiChatUsage(ctx.activeFamilyId);
-      if (used >= limit) {
-        throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
-      }
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (!ent.isPaid) throw new TRPCError({ code: "FORBIDDEN", message: "AI 生成相片食譜係 Pro 功能。" });
+      if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+      startLlmMeter({ familyId, userId, route: "ai_image", requestId: randomUUID() });
       // 安全：只可讀自己家庭嘅截圖（防 IDOR）
       for (const k of input.storageKeys) {
-        if (!k.startsWith(`recipe-screenshots/f${ctx.activeFamilyId}/`)) {
+        if (!k.startsWith(`recipe-screenshots/f${familyId}/`)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
         }
       }
-      const urls = await Promise.all(input.storageKeys.map((k) => storageGetSignedUrl(k)));
-      const recipe = await generateFromImageLLM(urls);
-      if (!recipe) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
-      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
-      const localized = await localizeSuggestedRecipe(recipe);
-      return { recipe: localized };
+      try {
+        const recipe = await runWithUsage(
+          {
+            familyId,
+            userId,
+            kind: "ai_image",
+            limits: ent.limits,
+            idempotencyKey: `ai_image:${familyId}:${userId}:${randomUUID()}`,
+            cost: { credits: 2 },
+          },
+          async () => {
+            const urls = await Promise.all(input.storageKeys.map((k) => storageGetSignedUrl(k)));
+            const generated = await generateFromImageLLM(urls);
+            if (!generated) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
+            return generated;
+          }
+        );
+        try { await incrementAiChatUsage(familyId, userId, 2); } catch { /* history */ }
+        const localized = await localizeSuggestedRecipe(recipe);
+        return { recipe: localized };
+      } catch (error) {
+        usageLimitToTRPC(error);
+      }
     }),
 
   // AI 補齊：保留原材料，只補缺失做法（有據、標示 AI）
@@ -3625,19 +4169,36 @@ export const aiRecipeRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
-      const sub = await getFamilySubscription(ctx.activeFamilyId);
-      const limit = sub?.aiChatLimit ?? 20;
-      const used = await getAiChatUsage(ctx.activeFamilyId);
-      if (used >= limit) {
-        throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${used}/${limit}），升級方案可解鎖更多。` });
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+      startLlmMeter({ familyId, userId, route: "ai_fill", requestId: randomUUID() });
+      try {
+        const recipe = await runWithUsage(
+          {
+            familyId,
+            userId,
+            kind: "ai_edit",
+            limits: ent.limits,
+            idempotencyKey: `ai_fill:${familyId}:${userId}:${randomUUID()}`,
+            cost: { credits: 1 },
+          },
+          async () => {
+            const generated = await fillStepsLLM(input);
+            if (!generated || !Array.isArray(generated.steps) || generated.steps.length === 0) {
+              throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補齊失敗，請再試。" });
+            }
+            return generated;
+          }
+        );
+        try { await incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
+        const localized = await localizeSuggestedRecipe(recipe);
+        return { recipe: localized };
+      } catch (error) {
+        usageLimitToTRPC(error);
       }
-      const recipe = await fillStepsLLM(input);
-      if (!recipe || !Array.isArray(recipe.steps) || recipe.steps.length === 0) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補齊失敗，請再試。" });
-      }
-      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 2); } catch { /* 唔阻塞 */ }
-      const localized = await localizeSuggestedRecipe(recipe);
-      return { recipe: localized };
     }),
 
   previewEdit: familyWriteProcedure
@@ -3647,32 +4208,31 @@ export const aiRecipeRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
 
-      const sub = await getFamilySubscription(ctx.activeFamilyId);
-      if (sub && !sub.isPaid) {
-        const createdThisMonth = await countCustomRecipesCreatedThisMonth(ctx.activeFamilyId);
-        if (createdThisMonth >= 20) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `免費版每月最多建立 20 條自訂食譜（已用 ${createdThisMonth}/20），升級家庭版可無限建立`,
-          });
-        }
-      }
-
-      // AI Edit 都係 LLM call → 計入 AI 月額度並硬擋
-      {
-        const aiLimit = sub?.aiChatLimit ?? 20;
-        const aiUsage = await getAiChatUsage(ctx.activeFamilyId);
-        if (aiUsage >= aiLimit) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `已達到本月 AI 用量上限（${aiUsage}/${aiLimit}），升級方案可解鎖更多。`,
-          });
-        }
-      }
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
 
       assertSupportedEditLanguage(input.editPrompt);
-      const parsed = await runAiEdit(input, ctx.activeFamilyId, ctx.user.id);
-      try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 1); } catch { /* 唔阻塞 */ }
+      startLlmMeter({ familyId, userId, route: "ai_edit", requestId: randomUUID() });
+      let parsed: Awaited<ReturnType<typeof runAiEdit>>;
+      try {
+        parsed = await runWithUsage(
+          {
+            familyId,
+            userId,
+            kind: "ai_edit",
+            limits: ent.limits,
+            idempotencyKey: `ai_edit:${familyId}:${userId}:${randomUUID()}`,
+            cost: { credits: 1 },
+          },
+          () => runAiEdit(input, familyId, userId)
+        );
+        try { await incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
+      } catch (error) {
+        usageLimitToTRPC(error);
+      }
 
       // 補齊食材翻譯（schema 放寬後模型可能省略 nameEn/Fil/Id）→ 菲/印用戶唔會見到中文
       let ingredients = parsed.ingredients.length > 0 ? parsed.ingredients : input.recipe.ingredients;
@@ -3723,20 +4283,12 @@ export const aiRecipeRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
 
-      const sub = await getFamilySubscription(ctx.activeFamilyId);
-      if (sub && !sub.isPaid) {
-        const createdThisMonth = await countCustomRecipesCreatedThisMonth(ctx.activeFamilyId);
-        if (createdThisMonth >= 20) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `免費版每月最多建立 20 條自訂食譜（已用 ${createdThisMonth}/20），升級家庭版可無限建立`,
-          });
-        }
-      }
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
 
-      // NOTE: intentionally NO LLM call and NO quota increment here.
-      // previewEdit() already performed the single LLM call and counted it;
-      // this procedure merely persists the previewed payload verbatim.
       assertSupportedEditLanguage(input.editPrompt);
 
       const parsed = input.recipe;
@@ -3745,9 +4297,20 @@ export const aiRecipeRouter = router({
         "AI 生成",
       ]));
 
-      const saved = await insertCustomRecipe({
-        familyId: ctx.activeFamilyId,
-        createdByUserId: String(ctx.user.id),
+      let saved: Awaited<ReturnType<typeof insertCustomRecipe>>;
+      try {
+        saved = await runWithUsage(
+          {
+            familyId,
+            userId,
+            kind: "custom_recipe",
+            limits: ent.limits,
+            idempotencyKey: `ai_save:${familyId}:${userId}:${randomUUID()}`,
+            cost: { customRecipes: 1 },
+          },
+          () => insertCustomRecipe({
+        familyId,
+        createdByUserId: userId,
         name: parsed.name,
         nameEn: parsed.nameEn,
         nameFil: parsed.nameFil,
@@ -3772,16 +4335,64 @@ export const aiRecipeRouter = router({
         sourceType: "manual",
         sourceAuthor: undefined,
         isAiGenerated: true,
-      });
+          })
+        );
+      } catch (error) {
+        usageLimitToTRPC(error);
+      }
 
       return { success: true, id: saved.id, name: saved.name };
     }),
+
+  status: protectedProcedure.query(async ({ ctx }) => {
+    const familyId = ctx.activeFamilyId ?? undefined;
+    const userIdNum = ctx.user?.id ? Number(ctx.user.id) : undefined;
+    if (!familyId || !userIdNum) {
+      return {
+        credits: { used: 0, limit: 0, resetAt: getNextResetAt() },
+        canGenerate: false,
+        reason: "unauthenticated" as const,
+        mode: "normal" as const,
+      };
+    }
+    const userId = String(ctx.user.id);
+    const ent = await getFamilyEntitlements(familyId, userId);
+    const summary = await getUsageSummary(familyId);
+    const flagState = await getAiChefMode(familyId);
+    const cap = await getAiChefCapMicros(familyId, userId);
+    const budget = await getLlmBudgetState(familyId, userId);
+    const creditsFull = summary.aiCredits >= (ent?.limits.aiCredits ?? 0);
+    const capHit = flagState.flags.ai_chef_hard_cap !== false && (
+      budget.familyActual + budget.familyReserved >= cap.family ||
+      budget.memberActual + budget.memberReserved >= cap.member
+    );
+    const blockedBySafeMode = flagState.mode !== "normal";
+    const blockedByFreeFlag = flagState.flags.ai_chef_free_no_ai === true && ent?.status === "free";
+    const canGenerate = !creditsFull && !capHit && !blockedBySafeMode && !blockedByFreeFlag && !ent?.readOnly;
+    const reason = blockedBySafeMode ? "safe_mode"
+      : capHit ? "internal_cap"
+        : creditsFull ? "credits"
+          : blockedByFreeFlag ? "free_ai_off"
+            : "ok";
+    return {
+      credits: {
+        used: summary.aiCredits,
+        limit: ent?.limits.aiCredits ?? 0,
+        resetAt: getNextResetAt(),
+      },
+      canGenerate,
+      reason,
+      mode: flagState.mode,
+    };
+  }),
 
   chat: protectedProcedure
     .input(z.object({
       messages: z.array(messageSchema).min(1),
       mode: z.enum(["chat", "ai", "library"]).optional(),
       excludeNames: z.array(z.string()).optional(),
+      avoidIngredients: z.array(z.string().max(40)).max(20).optional(),
+      forceText: z.boolean().optional(),
       lang: z.string().optional(),
       search: z.object({
         query: z.string().optional(),
@@ -3797,52 +4408,198 @@ export const aiRecipeRouter = router({
     .mutation(async ({ input, ctx }) => {
       const familyId = ctx.activeFamilyId ?? undefined;
       const userId = ctx.user?.id ? Number(ctx.user.id) : undefined;
+      const requestId = randomUUID();
+      const meter = startLlmMeter({
+        familyId,
+        userId: userId ? String(userId) : undefined,
+        route: "ai_recipe_chat",
+        requestId,
+      });
       const mode = input.mode ?? "chat";
       const excludeNames = input.excludeNames ?? [];
-
-      // AI Chef chat quota（硬擋：超額只准用免費食譜庫 library mode；chat/ai 一律拒絕）
-      let quota: { limit: number; used: number; nearLimit: boolean } | undefined;
-      if (familyId) {
-        const aiSub = await getFamilySubscription(familyId);
-        const aiLimit = aiSub?.aiChatLimit ?? 20;
-        const aiUsage = await getAiChatUsage(familyId);
-        quota = { limit: aiLimit, used: aiUsage, nearLimit: aiUsage >= aiLimit };
-        if (aiUsage >= aiLimit && mode !== "library") {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `已達到本月 AI 用量上限（${aiUsage}/${aiLimit}），升級方案可解鎖更多。`,
-          });
-        }
-      }
-
-      const result = await processAIChefChat(
-        input.messages.map(m => ({ role: m.role, content: m.content })),
-        familyId,
-        userId,
+      const avoidIngredients = input.avoidIngredients ?? [];
+      const hasMedia = input.messages.some((m) => {
+        if (typeof m.content === "string") return /(https?:\/\/|data:image)/i.test(m.content);
+        return m.content.some((c) => c.type === "image_url");
+      });
+      const intent = resolveChefIntent(lastUserText(input.messages), {
+        hasImage: hasMedia,
         mode,
-        excludeNames,
-        input.search,
-        input.lang,
-      );
+        forceText: input.forceText,
+        noodleRole: AI_CHEF_NOODLE_ROLE,
+      });
+      const requestedCredits = hasMedia ? 2 : 1;
+      let quota: { limit: number; used: number; nearLimit: boolean } | undefined;
+      let reservationId: number | undefined;
+      let budgetReservationId: number | undefined;
+      let effectiveMode: "chat" | "ai" | "library" = mode;
 
-      // 真用咗 LLM 先扣 quota（library mode / library-first 命中 / 換卡 = 免費）
-      if (familyId && result.llmUsed) {
-        const hasMedia = input.messages.some(m => {
-          if (typeof m.content === "string") return /(https?:\/\/|data:image)/i.test(m.content);
-          return m.content.some(c => c.type === "image_url");
-        });
-        await incrementAiChatUsage(familyId, String(ctx.user.id), hasMedia ? 2 : 1);
-        if (quota) {
-          quota.used += hasMedia ? 2 : 1;
-          quota.nearLimit = quota.used >= quota.limit;
+      if (familyId) {
+        const userIdStr = String(ctx.user.id);
+        const ent = await getFamilyEntitlements(familyId, userIdStr);
+        if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+        const summary = await getUsageSummary(familyId);
+        quota = {
+          limit: ent.limits.aiCredits,
+          used: summary.aiCredits,
+          nearLimit: summary.aiCredits >= ent.limits.aiCredits,
+        };
+
+        const flagState = await getAiChefMode(familyId);
+        if (flagState.mode !== "normal" || (flagState.flags.ai_chef_free_no_ai === true && ent.status === "free")) {
+          effectiveMode = "library";
+        } else if (!ent.readOnly && effectiveMode !== "library" && flagState.flags.ai_chef_hard_cap !== false) {
+          const cap = await getAiChefCapMicros(familyId, userIdStr);
+          const estimateMicros = intent.requested.total > 1 ? 25_000 : 6_000;
+          try {
+            budgetReservationId = await reserveLlmBudget({
+              familyId,
+              userId: userIdStr,
+              estimateMicros,
+              familyCapMicros: cap.family,
+              memberCapMicros: cap.member,
+            });
+          } catch (error) {
+            if (error instanceof LlmBudgetError) {
+              effectiveMode = "library";
+              console.warn(`[AI Chef] budget layer1 ${error.reason} family=${familyId}`);
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        if (effectiveMode !== "library") {
+          if (ent.readOnly) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+          }
+          try {
+            const reservation = await reserveUsage({
+              familyId,
+              userId: userIdStr,
+              kind: hasMedia ? "ai_image" : "ai_chat",
+              limits: ent.limits,
+              idempotencyKey: `ai_chat:${familyId}:${userIdStr}:${randomUUID()}`,
+              cost: { credits: requestedCredits },
+            });
+            reservationId = reservation.eventId;
+            quota.used += requestedCredits;
+            quota.nearLimit = quota.used >= quota.limit;
+          } catch (error) {
+            if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
+            usageLimitToTRPC(error);
+          }
         }
       }
 
-      // Ensure every returned recipe carries en/fil/id (name/description/steps/
-      // ingredients). AI output often omits translations, and the client now hides
-      // raw CJK for non-zh locales — a missing translation would render blank.
-      result.recipes = await Promise.all((result.recipes ?? []).map(localizeSuggestedRecipe));
+      const reqStartedAt = Date.now();
+      let result: Awaited<ReturnType<typeof processAIChefChat>>;
+      try {
+        result = await processAIChefChat(
+          input.messages.map(m => ({ role: m.role, content: m.content })),
+          familyId,
+          userId,
+          effectiveMode,
+          excludeNames,
+          input.search,
+          input.lang,
+          avoidIngredients,
+          input.forceText === true,
+        );
+      } catch (error) {
+        if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
+        if (reservationId) await refundUsage(reservationId).catch(() => {});
+        throw error;
+      }
+      const generateMs = Date.now() - reqStartedAt;
+      if (avoidIngredients.length > 0) {
+        const safeRecipes = result.recipes.filter((recipe) => !recipeContainsAvoid(recipe, avoidIngredients));
+        if (safeRecipes.length !== result.recipes.length) {
+          console.warn(`[AI Chef] removed ${result.recipes.length - safeRecipes.length} recipe(s) containing avoid ingredients`);
+          result.recipes = safeRecipes;
+        }
+      }
 
-      return { ...result, quota };
+      const served = result.recipes?.length ?? 0;
+      const requested = intent.requested.total;
+      const incompleteSet = requested > 0 && served < requested;
+      const shouldCharge = shouldChargeChefRequest({
+        llmUsed: result.llmUsed,
+        requested,
+        served,
+      });
+
+      if (reservationId) {
+        if (shouldCharge) {
+          await commitUsage(reservationId);
+          try { await incrementAiChatUsage(familyId!, String(ctx.user.id), requestedCredits); } catch { /* history */ }
+        } else {
+          // Partial / zero-card recipe sets are not charged. A text answer
+          // (requested=0) still follows the normal LLM charge path.
+          await refundUsage(reservationId);
+          if (incompleteSet) {
+            console.log(`[AI Chef] refund partial set requested=${requested} served=${served} credits=${requestedCredits}`);
+          }
+        }
+      }
+      if (familyId) {
+        const summary = await getUsageSummary(familyId);
+        const limit = quota?.limit ?? 0;
+        quota = {
+          limit,
+          used: summary.aiCredits,
+          nearLimit: summary.aiCredits >= limit,
+        };
+      }
+
+      // Chinese UI already renders the canonical Chinese recipe. Skipping
+      // translation here avoids slow per-recipe LLM calls on the common path.
+      const responseLang = input.lang ?? "zh-TW";
+      let localizeMs = 0;
+      if (!responseLang.startsWith("zh")) {
+        const localizeStartedAt = Date.now();
+        result.recipes = await localizeSuggestedRecipes(result.recipes ?? [], responseLang);
+        localizeMs = Date.now() - localizeStartedAt;
+      }
+      if (budgetReservationId) {
+        if (result.llmUsed) {
+          await finalizeLlmBudget(budgetReservationId).catch((e) => {
+            console.warn("[AI Chef] finalize budget failed:", (e as Error)?.message || e);
+          });
+        } else {
+          await releaseLlmBudget(budgetReservationId).catch(() => {});
+        }
+      }
+      const creditsCharged = shouldCharge ? requestedCredits : 0;
+      console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
+      console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
+
+      const missingRoles = (result.missingRoles && result.missingRoles.length > 0)
+        ? result.missingRoles
+        : requested > served
+          ? intent.requested.roles.slice(served)
+          : [];
+      const sources = (result.recipes ?? []).reduce(
+        (acc, recipe) => {
+          if (recipe.source === "official" || recipe.source === "custom") acc.library += 1;
+          else acc.ai += 1;
+          return acc;
+        },
+        { library: 0, ai: 0 },
+      );
+      const resolved = requested === 0 || served >= requested;
+      console.log(`[AI Chef][metric] request=${requestId} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
+
+      return {
+        ...result,
+        quota,
+        requestId,
+        intent,
+        requested: intent.requested,
+        served,
+        missingRoles,
+        sources,
+        warnings: missingRoles.length > 0 ? ["incomplete_set", "credits_refunded"] : [],
+      };
     }),
 });

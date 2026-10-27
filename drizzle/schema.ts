@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   integer,
@@ -106,8 +107,15 @@ export const promoCodes = pgTable("promo_codes", {
   usedCount: integer("used_count").default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   expiresAt: timestamp("expires_at"),
+  /** C9D codes are bound to the family that redeemed the trial. */
+  assignedFamilyId: integer("assigned_family_id"),
+  /** True for C9D automatically generated at trial redemption. */
+  autoIssued: boolean("auto_issued").default(false).notNull(),
+  note: text("note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  assignedFamilyIdx: uniqueIndex("promo_codes_assigned_family_unique").on(table.assignedFamilyId),
+}));
 
 export const promoCodeRedemptions = pgTable("promo_code_redemptions", {
   id: serial("id").primaryKey(),
@@ -117,6 +125,7 @@ export const promoCodeRedemptions = pgTable("promo_code_redemptions", {
   redeemedAt: timestamp("redeemed_at").defaultNow().notNull(),
 }, (table) => ({
   familyUniqueIdx: uniqueIndex("promo_code_redemptions_family_unique").on(table.familyId),
+  userUniqueIdx: uniqueIndex("promo_code_redemptions_user_unique").on(table.userId),
 }));
 
 // ─── Families ─────────────────────────────────────────────────────────────────
@@ -548,8 +557,8 @@ export type IapTransaction = typeof iapTransactions.$inferSelect;
 export type InsertIapTransaction = typeof iapTransactions.$inferInsert;
 
 // ─── Stripe Subscriptions (web billing) ───────────────────────────────────────
-// Web/Android pay via Stripe; iOS keeps Apple IAP. Both activate the same
-// family subscription (families.subscriptionStatus), so Pro state is unified.
+// Web pays via Stripe; iOS keeps Apple IAP; Android stays free until Play
+// Billing lands. Both channels activate the same family subscription.
 export const stripeSubscriptions = pgTable("stripe_subscriptions", {
   id: serial("id").primaryKey(),
   familyId: integer("family_id").notNull(),
@@ -561,12 +570,52 @@ export const stripeSubscriptions = pgTable("stripe_subscriptions", {
   planType: varchar("plan_type", { length: 16 }).notNull().default("monthly"),
   status: varchar("status", { length: 32 }).notNull().default("pending"),
   currentPeriodEnd: timestamp("current_period_end"),
+  /** Pending checkout reservation expiry (Stripe session max is 24h). */
+  checkoutExpiresAt: timestamp("checkout_expires_at"),
+  /** Auto-applied C9D audit reference; never returned to clients. */
+  promoCode: varchar("promo_code", { length: 24 }),
+  /** regular | founding */
+  priceTier: varchar("price_tier", { length: 16 }).notNull().default("regular"),
+  /** Stripe trial end, mirrors subscription.trial_end. */
+  trialEnd: timestamp("trial_end"),
+  /** Time of the last Stripe event applied, used to drop out-of-order events. */
+  stripeEventAt: timestamp("stripe_event_at"),
+  /** Stripe subscription.created, used to ignore events for superseded subs. */
+  stripeCreatedAt: timestamp("stripe_created_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
   subUniq: uniqueIndex("stripe_subscriptions_sub_id_unique").on(t.stripeSubscriptionId),
+  checkoutUniq: uniqueIndex("stripe_subscriptions_checkout_id_unique").on(t.stripeCheckoutSessionId),
   customerIdx: index("stripe_subscriptions_customer_idx").on(t.stripeCustomerId),
   familyIdx: index("stripe_subscriptions_family_idx").on(t.familyId),
+  pendingIdx: index("stripe_subscriptions_pending_idx").on(t.status, t.checkoutExpiresAt),
+  pendingFamilyUniq: uniqueIndex("stripe_subscriptions_pending_family_unique")
+    .on(t.familyId)
+    .where(sql`${t.status} = 'pending'`),
+}));
+
+// ─── Early-bird founding members (first 100 paid families) ────────────────────
+// A row is created when a founding checkout/reservation is made. `reserved`
+// rows hold a slot; `paid` rows own it permanently. `released` frees the slot
+// only before the first successful payment.
+export const earlybirdRedemptions = pgTable("earlybird_redemptions", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 128 }),
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 128 }),
+  status: varchar("status", { length: 16 }).notNull().default("reserved"),
+  reservedAt: timestamp("reserved_at").defaultNow().notNull(),
+  paidAt: timestamp("paid_at"),
+  releasedAt: timestamp("released_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyUniq: uniqueIndex("earlybird_redemptions_family_unique").on(t.familyId),
+  subscriptionUniq: uniqueIndex("earlybird_redemptions_subscription_unique").on(t.stripeSubscriptionId),
+  checkoutUniq: uniqueIndex("earlybird_redemptions_checkout_unique").on(t.stripeCheckoutSessionId),
+  statusIdx: index("earlybird_redemptions_status_idx").on(t.status),
 }));
 
 export type StripeSubscription = typeof stripeSubscriptions.$inferSelect;
@@ -586,6 +635,66 @@ export const aiChatUsage = pgTable("ai_chat_usage", {
 
 export type AiChatUsage = typeof aiChatUsage.$inferSelect;
 export type InsertAiChatUsage = typeof aiChatUsage.$inferInsert;
+
+// ─── Family Usage Ledger ──────────────────────────────────────────────────────
+export const familyUsageMonthly = pgTable("family_usage_monthly", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  yearMonth: varchar("year_month", { length: 7 }).notNull(),
+  aiCredits: integer("ai_credits").default(0).notNull(),
+  imports: integer("imports").default(0).notNull(),
+  customRecipes: integer("custom_recipes").default(0).notNull(),
+  estimatedCostMicros: integer("estimated_cost_micros").default(0).notNull(),
+  llmReservedMicros: integer("llm_reserved_micros").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyMonthUniq: uniqueIndex("family_usage_monthly_family_month_unique").on(t.familyId, t.yearMonth),
+}));
+
+export const usageEvents = pgTable("usage_events", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  yearMonth: varchar("year_month", { length: 7 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull(),
+  credits: integer("credits").default(0).notNull(),
+  imports: integer("imports").default(0).notNull(),
+  customRecipes: integer("custom_recipes").default(0).notNull(),
+  estimatedCostMicros: integer("estimated_cost_micros").default(0).notNull(),
+  status: varchar("status", { length: 16 }).default("reserved").notNull(),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
+  reservedUntil: timestamp("reserved_until"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyIdempotencyUniq: uniqueIndex("usage_events_family_idempotency_unique").on(t.familyId, t.idempotencyKey),
+  familyMonthIdx: index("usage_events_family_month_idx").on(t.familyId, t.yearMonth),
+  statusIdx: index("usage_events_status_idx").on(t.status, t.reservedUntil),
+}));
+
+export const billingReminders = pgTable("billing_reminders", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  channel: varchar("channel", { length: 16 }).default("email").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  familyKindPeriodUniq: uniqueIndex("billing_reminders_family_kind_period_unique").on(
+    t.familyId,
+    t.kind,
+    t.periodEnd
+  ),
+}));
+
+export type BillingReminder = typeof billingReminders.$inferSelect;
+
+export type FamilyUsageMonthly = typeof familyUsageMonthly.$inferSelect;
+export type InsertFamilyUsageMonthly = typeof familyUsageMonthly.$inferInsert;
+export type UsageEvent = typeof usageEvents.$inferSelect;
+export type InsertUsageEvent = typeof usageEvents.$inferInsert;
 
 // ─── AI Chef Seen Recipes (per-kitchen 7-day dedup, DB-persisted) ──────────────
 export const aiChefSeenRecipes = pgTable("ai_chef_seen_recipes", {
@@ -668,3 +777,62 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
 }));
 export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
 export type InsertAdminAuditLog = typeof adminAuditLogs.$inferInsert;
+
+// ─── AI Chef Cost / Safety (PR1-B; additive only) ──────────────────────────────
+export const llmCostEvents = pgTable("llm_cost_events", {
+  id: serial("id").primaryKey(),
+  requestId: varchar("request_id", { length: 64 }),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  route: varchar("route", { length: 48 }).notNull(),
+  model: varchar("model", { length: 64 }).notNull(),
+  inputTokens: integer("input_tokens").default(0).notNull(),
+  outputTokens: integer("output_tokens").default(0).notNull(),
+  costMicros: integer("cost_micros").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  familyMonthIdx: index("llm_cost_events_family_created_idx").on(t.familyId, t.createdAt),
+  requestIdx: index("llm_cost_events_request_idx").on(t.requestId),
+}));
+
+export const llmCostMonthly = pgTable("llm_cost_monthly", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  yearMonth: varchar("year_month", { length: 7 }).notNull(),
+  actualCostMicros: integer("actual_cost_micros").default(0).notNull(),
+  reservedCostMicros: integer("reserved_cost_micros").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyUserMonthUniq: uniqueIndex("llm_cost_monthly_family_user_month_unique").on(t.familyId, t.userId, t.yearMonth),
+  familyMonthIdx: index("llm_cost_monthly_family_month_idx").on(t.familyId, t.yearMonth),
+}));
+
+export const llmBudgetReservations = pgTable("llm_budget_reservations", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  yearMonth: varchar("year_month", { length: 7 }).notNull(),
+  estimateMicros: integer("estimate_micros").notNull(),
+  status: varchar("status", { length: 16 }).default("reserved").notNull(),
+  reservedUntil: timestamp("reserved_until"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  familyIdx: index("llm_budget_reservations_family_idx").on(t.familyId, t.status),
+}));
+
+export const aiChefFlags = pgTable("ai_chef_flags", {
+  id: serial("id").primaryKey(),
+  scope: varchar("scope", { length: 16 }).notNull(), // global | family
+  familyId: integer("family_id").default(0).notNull(),
+  mode: varchar("mode", { length: 16 }).default("normal").notNull(), // normal | library_only | disabled
+  flags: jsonb("flags").default({}).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  scopeFamilyUniq: uniqueIndex("ai_chef_flags_scope_family_unique").on(t.scope, t.familyId),
+}));
+
+export type LlmCostEvent = typeof llmCostEvents.$inferSelect;
+export type LlmCostMonthly = typeof llmCostMonthly.$inferSelect;
+export type LlmBudgetReservation = typeof llmBudgetReservations.$inferSelect;
+export type AiChefFlag = typeof aiChefFlags.$inferSelect;

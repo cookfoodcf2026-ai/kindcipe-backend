@@ -100,3 +100,36 @@ export async function sendVerificationEmail(params: { email: string; name?: stri
     throw new Error(`Failed to send verification email: ${response.status} ${detail}`);
   }
 }
+
+export async function sendTransactionalEmail(params: {
+  email: string;
+  subject: string;
+  text: string;
+  html?: string;
+}) {
+  if (!ENV.resendApiKey) {
+    if (!ENV.isProduction) {
+      console.log("[TransactionalEmail][DEV]", params.email, params.subject);
+      return;
+    }
+    throw new Error("RESEND_API_KEY is not configured");
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ENV.resendApiKey}`,
+    },
+    body: JSON.stringify({
+      from: ENV.resendFromEmail,
+      to: params.email,
+      subject: params.subject,
+      text: params.text,
+      ...(params.html ? { html: params.html } : {}),
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to send email: ${response.status} ${detail}`);
+  }
+}

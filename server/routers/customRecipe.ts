@@ -2,6 +2,7 @@
  * customRecipe router — CRUD for user-created recipes stored in the database.
  * All procedures are protected (require login + family membership).
  */
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
@@ -10,16 +11,15 @@ import {
   insertCustomRecipe,
   updateCustomRecipeById,
   deleteCustomRecipeById,
-  getFamilySubscription,
-  getImportUsage,
   incrementImportUsage,
-  countCustomRecipesCreatedThisMonth,
   getPushTokensByFamily,
   getFamilyLanguage,
 } from "../db";
 import { msg } from "../_core/msg";
 import { sendPushNotifications } from "../pushNotification";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
+import { getFamilyEntitlements } from "../services/entitlements";
+import { runWithUsage, usageLimitToTRPC } from "../services/usage";
 
 export const customRecipeRouter = router({
   /** List all custom recipes for the current user's family */
@@ -54,63 +54,66 @@ export const customRecipeRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
 
-      // Check import limits for non-paid families
-      const sub = await getFamilySubscription(ctx.activeFamilyId);
-      if (sub && !sub.isPaid) {
-        const usage = await getImportUsage(ctx.activeFamilyId);
-        if (usage >= sub.maxImportsPerMonth) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `免費版每月最多匯入 ${usage}/${sub.maxImportsPerMonth} 條食譜，升級家庭版可匯入 300 條`,
-          });
-        }
-
-        // 免費版每月最多建立 20 條自訂食譜（含匯入）
-        const createdThisMonth = await countCustomRecipesCreatedThisMonth(ctx.activeFamilyId);
-        if (createdThisMonth >= 20) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: `免費版每月最多建立 20 條自訂食譜（已用 ${createdThisMonth}/20），升級家庭版可無限建立`,
-          });
-        }
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      if (ent.readOnly) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
       }
 
-      // Only count as "import" if it came from an external source
-      const isImport = input.sourceType && input.sourceType !== "manual";
-      if (isImport) {
-        await incrementImportUsage(ctx.user.id, ctx.activeFamilyId);
-      }
+      const isImport = Boolean(input.sourceType && input.sourceType !== "manual");
+      const cost = isImport ? { credits: 1, imports: 1 } : { customRecipes: 1 };
 
-      // 匯入/建立時，將 ingredients 拆開「一欄多樣」+ 重新分類（避免入庫後購物車 3 樣同行 / 類別全部其他）
-      let normalizedIngredients = input.ingredients;
-      if (input.ingredients) {
-        try {
-          const parsed = JSON.parse(input.ingredients);
-          if (Array.isArray(parsed)) {
-            normalizedIngredients = JSON.stringify(normalizeRecipeIngredients(parsed));
+      try {
+        return await runWithUsage(
+          {
+            familyId,
+            userId,
+            kind: isImport ? "import" : "custom_recipe",
+            limits: ent.limits,
+            idempotencyKey: `custom:${ctx.activeFamilyId}:${ctx.user.id}:${randomUUID()}`,
+            cost,
+            metadata: { name: input.name, sourceType: input.sourceType ?? "manual" },
+          },
+          async () => {
+            let normalizedIngredients = input.ingredients;
+            if (input.ingredients) {
+              try {
+                const parsed = JSON.parse(input.ingredients);
+                if (Array.isArray(parsed)) {
+                  normalizedIngredients = JSON.stringify(normalizeRecipeIngredients(parsed));
+                }
+              } catch { /* keep as-is */ }
+            }
+
+            const recipe = await insertCustomRecipe({
+              ...input,
+              ingredients: normalizedIngredients,
+              familyId,
+              createdByUserId: userId,
+            });
+
+            if (isImport) {
+              try { await incrementImportUsage(userId, familyId); } catch { /* history only */ }
+            }
+
+            if (isImport) {
+              const tokens = await getPushTokensByFamily(familyId);
+              const lang = await getFamilyLanguage(familyId);
+              sendPushNotifications(tokens, {
+                title: msg(lang, "push.newRecipe.title"),
+                body: msg(lang, "push.newRecipe.body", { name: input.name }),
+                data: { type: "recipe_imported", recipeId: String(recipe?.id ?? "") },
+              }).catch(() => {});
+            }
+
+            return recipe;
           }
-        } catch { /* keep as-is */ }
+        );
+      } catch (error) {
+        usageLimitToTRPC(error);
       }
-
-      const recipe = await insertCustomRecipe({
-        ...input,
-        ingredients: normalizedIngredients,
-        familyId: ctx.activeFamilyId,
-        createdByUserId: String(ctx.user.id),
-      });
-      // Push notification to all family members when a recipe is imported
-      if (isImport && ctx.activeFamilyId) {
-        const tokens = await getPushTokensByFamily(ctx.activeFamilyId);
-        const importerName = ctx.user.name || "Member";
-        const lang = await getFamilyLanguage(ctx.activeFamilyId);
-        sendPushNotifications(tokens, {
-          title: msg(lang, "push.newRecipe.title"),
-          body: msg(lang, "push.newRecipe.body", { name: input.name }),
-          data: { type: "recipe_imported", recipeId: String(recipe?.id ?? "") },
-        }).catch(() => {});
-      }
-
-      return recipe;
     }),
 
   /** Update an existing custom recipe (must belong to same family) */

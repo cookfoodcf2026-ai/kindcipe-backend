@@ -1,9 +1,12 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
-import { getDb, getFamilySubscription, addMealPlanBatch, getAiChatUsage, incrementAiChatUsage } from "../db";
+import { getDb, getFamilySubscription, addMealPlanBatch } from "../db";
+import { getFamilyEntitlements } from "../services/entitlements";
+import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
 import { weeklyMenu, officialRecipes, mealPlans, customRecipes } from "../../drizzle/schema";
-import { protectedProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
+import { randomUUID } from "node:crypto";
+import { familyWriteProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON } from "../_core/llm";
 
 type SlotType = "meat" | "seafood" | "veg" | "soup";
@@ -434,7 +437,7 @@ export const weeklyMenuRouter = router({
     }),
 
   /** AI / 規則式 weekly dinner suggestion — 4 dishes per day, ONLY from DB recipes */
-  aiSuggest: protectedProcedure
+  aiSuggest: familyWriteProcedure
     .input(z.object({
       city: z.string().default("香港"),
       writeToMealPlans: z.boolean().default(true),
@@ -595,16 +598,29 @@ export const weeklyMenuRouter = router({
         };
       }
 
+      let reservationId: number | undefined;
       if (!parsed && ctx.activeFamilyId) {
-        // AI 智能排程係 LLM call → 硬擋 + 計數（免費版行規則式，唔經呢度）
-        const aiLimit = sub?.aiChatLimit ?? 20;
-        const aiUsage = await getAiChatUsage(ctx.activeFamilyId);
-        if (aiUsage >= aiLimit) {
-          throw new TRPCError({ code: "FORBIDDEN", message: `已達到本月 AI 用量上限（${aiUsage}/${aiLimit}），升級方案可解鎖更多。` });
+        const familyId = ctx.activeFamilyId;
+        const userId = String(ctx.user.id);
+        const ent = await getFamilyEntitlements(familyId, userId);
+        if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+        try {
+          const reservation = await reserveUsage({
+            familyId,
+            userId,
+            kind: "ai_plan",
+            limits: ent.limits,
+            idempotencyKey: `weekly_menu:${familyId}:${userId}:${randomUUID()}`,
+            cost: { credits: 1 },
+          });
+          reservationId = reservation.eventId;
+        } catch (error) {
+          usageLimitToTRPC(error);
         }
       }
 
       if (!parsed) {
+        try {
         // 7. Build AI prompt — only IDs from DB, AI picks from the list
         const systemPrompt = `你是「煮飯啦 Cookfood」的 AI 家庭晚餐規劃助手。
 每天晚餐固定為四道菜：
@@ -717,12 +733,16 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
 
       try {
         parsed = extractJSON(content);
-        if (ctx.activeFamilyId) {
-          try { await incrementAiChatUsage(ctx.activeFamilyId, String(ctx.user.id), 1); } catch { /* 唔阻塞 */ }
-        }
-      } catch {
+        if (reservationId) await commitUsage(reservationId);
+      } catch (error) {
+        if (reservationId) await refundUsage(reservationId).catch(() => {});
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 返回格式錯誤" });
       }
+        } catch (error) {
+          if (reservationId) await refundUsage(reservationId).catch(() => {});
+          usageLimitToTRPC(error);
+        }
       }
 
       if (!parsed) {

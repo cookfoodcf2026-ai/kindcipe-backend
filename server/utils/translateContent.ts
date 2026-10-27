@@ -1,5 +1,31 @@
 import { invokeLLM, extractJSON } from "../_core/llm";
 
+// Small in-process caches. AI Chef often reuses the same dish across a meal /
+// chat session; without this, every non-Chinese request re-translates it.
+const RECIPE_CACHE = new Map<string, Record<string, unknown>>();
+const RECIPE_CACHE_MAX = 400;
+const INGREDIENT_CACHE = new Map<string, Array<{ en?: string; fil?: string; id?: string }>>();
+const INGREDIENT_CACHE_MAX = 600;
+
+function cacheGet<T>(map: Map<string, T>, key: string): T | undefined {
+  const hit = map.get(key);
+  if (hit === undefined) return undefined;
+  // LRU refresh
+  map.delete(key);
+  map.set(key, hit);
+  return hit;
+}
+
+function cacheSet<T>(map: Map<string, T>, key: string, value: T, max: number) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > max) {
+    const first = map.keys().next().value;
+    if (first === undefined) break;
+    map.delete(first);
+  }
+}
+
 /**
  * Translate a recipe (name + steps + description + ingredient names) from ANY
  * source language into Traditional Chinese (the app's canonical base).
@@ -63,6 +89,9 @@ export async function translateRecipeContent(
   stepsFil?: string[];
   stepsId?: string[];
 }> {
+  const cacheKey = JSON.stringify([name, steps, description ?? ""]);
+  const cached = cacheGet(RECIPE_CACHE, cacheKey);
+  if (cached) return cached as any;
   try {
     const hasDesc = typeof description === "string" && description.trim().length > 0;
     const prompt = `Translate this recipe content into (1) English, (2) Filipino, (3) Indonesian.
@@ -81,7 +110,7 @@ Steps: ${JSON.stringify(steps)}`;
     const p: any = extractJSON(raw);
     const arr = (v: any) => (Array.isArray(v) ? v.map((x: any) => String(x)) : undefined);
     const str = (v: any) => (v ? String(v) : undefined);
-    return {
+    const out = {
       nameEn: str(p?.nameEn),
       nameFil: str(p?.nameFil),
       nameId: str(p?.nameId),
@@ -92,6 +121,8 @@ Steps: ${JSON.stringify(steps)}`;
       stepsFil: arr(p?.stepsFil),
       stepsId: arr(p?.stepsId),
     };
+    if (Object.values(out).some((v) => v !== undefined)) cacheSet(RECIPE_CACHE, cacheKey, out, RECIPE_CACHE_MAX);
+    return out;
   } catch (e) {
     console.warn("[translateRecipeContent] failed:", (e as Error)?.message);
     return {};
@@ -108,6 +139,9 @@ export async function translateIngredientNames(
 ): Promise<Array<{ en?: string; fil?: string; id?: string }>> {
   const clean = names.map((n) => String(n ?? "").trim());
   if (clean.length === 0) return [];
+  const cacheKey = JSON.stringify(clean);
+  const cached = cacheGet(INGREDIENT_CACHE, cacheKey);
+  if (cached) return cached;
   try {
     const prompt = `Translate each ingredient name into English, Filipino, and Indonesian.
 Return ONLY JSON of the exact shape {"items":[{"en":"...","fil":"...","id":"..."}]} with the SAME number and order as the input array.
@@ -124,12 +158,78 @@ Input: ${JSON.stringify(clean)}`;
     const p: any = extractJSON(raw);
     const items: any[] = Array.isArray(p?.items) ? p.items : [];
     const str = (v: any) => (v ? String(v) : undefined);
-    return clean.map((_, i) => {
+    const out = clean.map((_, i) => {
       const it = items[i] || {};
       return { en: str(it.en), fil: str(it.fil), id: str(it.id) };
     });
+    if (out.some((x) => x.en || x.fil || x.id)) cacheSet(INGREDIENT_CACHE, cacheKey, out, INGREDIENT_CACHE_MAX);
+    return out;
   } catch (e) {
     console.warn("[translateIngredientNames] failed:", (e as Error)?.message);
     return [];
   }
+}
+
+const TARGET_LANG_NAMES: Record<string, string> = {
+  en: "English",
+  fil: "Filipino",
+  id: "Indonesian",
+};
+const TARGET_RECIPE_CACHE = new Map<string, { name?: string; description?: string; steps?: string[] }>();
+const TARGET_RECIPE_CACHE_MAX = 600;
+
+export async function translateRecipesForLang(
+  recipes: Array<{ name: string; description?: string; steps: string[] }>,
+  lang: "en" | "fil" | "id"
+): Promise<Array<{ name?: string; description?: string; steps?: string[] }>> {
+  if (recipes.length === 0) return [];
+  const out: Array<{ name?: string; description?: string; steps?: string[] }> = new Array(recipes.length);
+  const missing: Array<{ index: number; name: string; description?: string; steps: string[]; key: string }> = [];
+  for (let i = 0; i < recipes.length; i++) {
+    const rec = recipes[i];
+    const key = JSON.stringify([lang, rec.name, rec.description ?? "", rec.steps]);
+    const cached = cacheGet(TARGET_RECIPE_CACHE, key);
+    if (cached) out[i] = cached;
+    else missing.push({ index: i, ...rec, key });
+  }
+  if (missing.length === 0) return out;
+
+  try {
+    const target = TARGET_LANG_NAMES[lang];
+    const payload = missing.map((m) => ({
+      name: m.name,
+      ...(m.description ? { description: m.description } : {}),
+      steps: m.steps,
+    }));
+    const prompt = `Translate each recipe into ${target}. Return ONLY JSON exactly {"items":[{"name":"...","description":"...","steps":["..."]}]} with the SAME number and order as the input. Keep quantities/times. If an input has no description, omit description. Do not add any other language.
+Input: ${JSON.stringify(payload)}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 3200,
+      temperature: 0.1,
+      timeoutMs: 20000,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "{}";
+    const parsed: any = extractJSON(raw);
+    const items: any[] = Array.isArray(parsed?.items) ? parsed.items : [];
+    for (let i = 0; i < missing.length; i++) {
+      const m = missing[i];
+      const item = items[i];
+      if (!item || typeof item !== "object") continue;
+      const steps = Array.isArray(item.steps) ? item.steps.map((s: any) => String(s)) : undefined;
+      const value = {
+        name: item.name ? String(item.name) : undefined,
+        description: item.description ? String(item.description) : undefined,
+        steps,
+      };
+      out[m.index] = value;
+      if (value.name || value.description || value.steps?.length) {
+        cacheSet(TARGET_RECIPE_CACHE, m.key, value, TARGET_RECIPE_CACHE_MAX);
+      }
+    }
+  } catch (e) {
+    console.warn("[translateRecipesForLang] failed:", (e as Error)?.message);
+  }
+  return out;
 }

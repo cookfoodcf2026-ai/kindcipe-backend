@@ -2,8 +2,9 @@ import type { CreateExpressContextOptions } from "@trpc/server/adapters/express"
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 import { getDb, setDefaultFamily } from "../db";
-import { and, eq, sql } from "drizzle-orm";
-import { families, familyMembers } from "../../drizzle/schema";
+import { and, eq } from "drizzle-orm";
+import { familyMembers } from "../../drizzle/schema";
+import { getFamilyEntitlements } from "../services/entitlements";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -11,11 +12,9 @@ export type TrpcContext = {
   user: User | null;
   activeFamilyId: number | null;
   activeFamilyRole: "owner" | "admin" | "helper" | "member" | null;
-  /**
-   * 廚房試用到期／免費身份，但成員人數 > 1（爺嫲保留期）。
-   * 成員只能檢視共用資料，不能寫入；owner 仍可管理。
-   */
   sharedLocked: boolean;
+  readOnly: boolean;
+  clientPlatform: "web" | "native";
 };
 
 export async function createContext(
@@ -32,6 +31,9 @@ export async function createContext(
   let activeFamilyId: number | null = null;
   let activeFamilyRole: "owner" | "admin" | "helper" | "member" | null = null;
   let sharedLocked = false;
+  let readOnly = false;
+  const rawPlatform = opts.req.headers["x-client-platform"];
+  const clientPlatform = (Array.isArray(rawPlatform) ? rawPlatform[0] : rawPlatform) === "web" ? "web" : "native";
 
   if (user) {
     const headerFamilyId = opts.req.headers["x-family-id"];
@@ -77,28 +79,10 @@ export async function createContext(
       }
     }
 
-    // Shared lock: 免費/到期 且 成員 >1，非 owner/admin 成員只可檢視
-    if (activeFamilyId && activeFamilyRole && activeFamilyRole !== "owner" && activeFamilyRole !== "admin" && db) {
-      const [fam] = await db
-        .select({
-          subscriptionStatus: families.subscriptionStatus,
-          subscriptionExpiresAt: families.subscriptionExpiresAt,
-          trialEndsAt: families.trialEndsAt,
-        })
-        .from(families)
-        .where(eq(families.id, activeFamilyId))
-        .limit(1);
-      if (fam) {
-        const now = new Date();
-        let status = fam.subscriptionStatus ?? "free";
-        if (status === "trial" && fam.trialEndsAt && fam.trialEndsAt < now) status = "free";
-        if (status === "active" && fam.subscriptionExpiresAt && fam.subscriptionExpiresAt < now) status = "expired";
-        const [cnt] = await db
-          .select({ c: sql`count(*)::int` })
-          .from(familyMembers)
-          .where(eq(familyMembers.familyId, activeFamilyId));
-        sharedLocked = (status === "free" || status === "expired") && Number(cnt?.c ?? 0) > 2;
-      }
+    if (activeFamilyId) {
+      const entitlements = await getFamilyEntitlements(activeFamilyId, String(user.id));
+      readOnly = Boolean(entitlements?.readOnly);
+      sharedLocked = readOnly;
     }
   }
 
@@ -109,5 +93,7 @@ export async function createContext(
     activeFamilyId,
     activeFamilyRole,
     sharedLocked,
+    readOnly,
+    clientPlatform,
   };
 }

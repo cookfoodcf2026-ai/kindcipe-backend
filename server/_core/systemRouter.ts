@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { nanoid } from "nanoid";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 import { createPromoCode, getPromoCode } from "../db";
+import { generatePromoCode } from "../services/promo";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -38,7 +38,7 @@ export const systemRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const code = nanoid(6).toUpperCase();
+      const code = generatePromoCode("C9T");
       await createPromoCode({ code, maxUses: input.maxUses, expiresAt: new Date(Date.now() + input.validDays * 24 * 60 * 60 * 1000) });
       const row = await getPromoCode(code);
       return {

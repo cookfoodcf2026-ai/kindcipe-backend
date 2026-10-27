@@ -90,6 +90,12 @@ const DICT: Record<string, Dict> = {
     fil: "Nakagawa ako ng bagong ulam:",
     id: "Saya membuat hidangan baru:",
   },
+  partialSet: {
+    "zh-TW": "我搵到 {{served}} 個，但未能完成你要求嘅 {{total}} 個：",
+    en: "I found {{served}} of the {{total}} recipes you requested:",
+    fil: "Nakahanap ako ng {{served}} sa {{total}} recipe na hiniling mo:",
+    id: "Saya menemukan {{served}} dari {{total}} resep yang Anda minta:",
+  },
 };
 
 export type AiReplyKey = keyof typeof DICT;

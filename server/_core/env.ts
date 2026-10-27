@@ -1,7 +1,17 @@
+function positiveInt(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+const cookieSecret = process.env.JWT_SECRET ?? "";
+if (process.env.NODE_ENV === "production" && cookieSecret.length < 32) {
+  throw new Error("JWT_SECRET must be at least 32 characters in production");
+}
+
 export const ENV = {
   // App
   appId: process.env.APP_ID ?? "kindcipe",
-  cookieSecret: process.env.JWT_SECRET ?? "",
+  cookieSecret,
   isProduction: process.env.NODE_ENV === "production",
 
   // Database (Supabase PostgreSQL)
@@ -47,8 +57,15 @@ export const ENV = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
   stripePriceMonthly: process.env.STRIPE_PRICE_MONTHLY ?? "",
   stripePriceYearly: process.env.STRIPE_PRICE_YEARLY ?? "",
+  stripePriceMonthlyPromo: process.env.STRIPE_PRICE_MONTHLY_PROMO ?? "",
+  stripePriceYearlyPromo: process.env.STRIPE_PRICE_YEARLY_PROMO ?? "",
   stripeSuccessUrl: process.env.STRIPE_SUCCESS_URL ?? "",
   stripeCancelUrl: process.env.STRIPE_CANCEL_URL ?? "",
+
+  // Trial-first Instagram promo (C9T) + first-100 founding members.
+  earlybirdPromoActive: process.env.EARLYBIRD_PROMO_ACTIVE === "true",
+  earlybirdCap: positiveInt(process.env.EARLYBIRD_CAP, 100),
+  earlybirdWindowDays: positiveInt(process.env.EARLYBIRD_WINDOW_DAYS, 7),
 
   // CORS
   allowedOrigins: process.env.ALLOWED_ORIGINS ?? "",
