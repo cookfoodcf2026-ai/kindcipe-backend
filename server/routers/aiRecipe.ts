@@ -4346,8 +4346,8 @@ export const aiRecipeRouter = router({
 
   status: protectedProcedure.query(async ({ ctx }) => {
     const familyId = ctx.activeFamilyId ?? undefined;
-    const userIdNum = ctx.user?.id ? Number(ctx.user.id) : undefined;
-    if (!familyId || !userIdNum) {
+    const userIdStr = ctx.user?.id ? String(ctx.user.id) : undefined;
+    if (!familyId || !userIdStr) {
       return {
         credits: { used: 0, limit: 0, resetAt: getNextResetAt() },
         canGenerate: false,
@@ -4355,7 +4355,7 @@ export const aiRecipeRouter = router({
         mode: "normal" as const,
       };
     }
-    const userId = String(ctx.user.id);
+    const userId = userIdStr;
     const ent = await getFamilyEntitlements(familyId, userId);
     const summary = await getUsageSummary(familyId);
     const flagState = await getAiChefMode(familyId);
@@ -4408,10 +4408,11 @@ export const aiRecipeRouter = router({
     .mutation(async ({ input, ctx }) => {
       const familyId = ctx.activeFamilyId ?? undefined;
       const userId = ctx.user?.id ? Number(ctx.user.id) : undefined;
+      const userIdStr = ctx.user?.id ? String(ctx.user.id) : undefined;
       const requestId = randomUUID();
       const meter = startLlmMeter({
         familyId,
-        userId: userId ? String(userId) : undefined,
+        userId: userIdStr,
         route: "ai_recipe_chat",
         requestId,
       });
