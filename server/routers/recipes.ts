@@ -473,6 +473,87 @@ function detectSourceType(url: string): "instagram" | "youtube" | "xiaohongshu" 
   );
 }
 
+export const FACEBOOK_USER_AGENTS = [
+  { label: "iphone", value: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" },
+  { label: "chrome", value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+  { label: "facebookexternalhit", value: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" },
+] as const;
+
+function decodeFacebookEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+function facebookOgMatch(html: string, prop: string): string {
+  return html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']*)["']`, "i"))?.[1]
+    ?? html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:${prop}["']`, "i"))?.[1]
+    ?? "";
+}
+
+export type FacebookMeta = {
+  title: string;
+  description: string;
+  image: string;
+  siteName: string;
+  url: string;
+};
+
+export function parseFacebookMeta(html: string): FacebookMeta {
+  return {
+    title: decodeFacebookEntities(facebookOgMatch(html, "title")),
+    description: decodeFacebookEntities(facebookOgMatch(html, "description")),
+    image: decodeFacebookEntities(facebookOgMatch(html, "image")),
+    siteName: decodeFacebookEntities(facebookOgMatch(html, "site_name")),
+    url: decodeFacebookEntities(facebookOgMatch(html, "url")),
+  };
+}
+
+export function resolveFacebookCanonicalUrl(raw: string, base: string): string {
+  try {
+    const u = new URL(raw, base);
+    if (!isFacebookUrl(u.toString())) return "";
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    return u.toString();
+  } catch {
+    return "";
+  }
+}
+
+function facebookCaption(meta: FacebookMeta): { caption: string; cleanTitle: string; titleSegments: string[] } {
+  const titleSegments = meta.title.split("|").map((s) => s.trim()).filter(Boolean);
+  const cleanTitle = titleSegments.length > 2
+    ? titleSegments.slice(1, -1).join(" | ").trim()
+    : meta.title.replace(/^[^|]*\|\s*/, "").trim();
+  const captionParts = [meta.description, cleanTitle || meta.title]
+    .map((s) => (s || "").trim())
+    .filter((s, i, a) => s && a.indexOf(s) === i);
+  return { caption: captionParts.join("\n").trim(), cleanTitle, titleSegments };
+}
+
+function facebookAuthor(html: string, meta: FacebookMeta, originalUrl: string, titleSegments: string[]): string {
+  const unescapeJson = (s: string) =>
+    s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\\//g, "/")
+      .replace(/\\"/g, '"');
+  const ownerM = html.match(/"(?:owner|actor|page|uploader)"\s*:\s*\{[^{}]{0,200}?"name"\s*:\s*"([^"]{1,80})"/i);
+  const jsonAuthor = ownerM ? unescapeJson(ownerM[1]).trim() : "";
+  const handleM = (meta.url || originalUrl).match(/facebook\.com\/([A-Za-z0-9._-]{2,50})\/(?:videos|posts|photos|reels)\//i);
+  const urlAuthor = handleM && !/^\d+$/.test(handleM[1]) && !["reel", "watch", "share"].includes(handleM[1].toLowerCase())
+    ? handleM[1]
+    : "";
+  const titleAuthor = titleSegments.length >= 2 ? titleSegments[titleSegments.length - 1] : "";
+  const siteIsGeneric = !meta.siteName || /^facebook$/i.test(meta.siteName);
+  return jsonAuthor || urlAuthor || titleAuthor || (siteIsGeneric ? "" : meta.siteName);
+}
+
 // ─── parseText helper ───────────────────────────────────────────────────────
 
 /** IG 會對伺服器 IP 回傳「毒 host」（*.cdn.instagram.com / cdn-instagram.com，DNS 唔存在）。
@@ -933,7 +1014,7 @@ function decodeHtmlEntities(s: string): string {
     .trim();
 }
 
-async function fetchPageContent(url: string): Promise<{ text: string; thumbnail: string }> {
+export async function fetchPageContent(url: string): Promise<{ text: string; thumbnail: string }> {
   try {
   const sourceType = detectSourceType(url);
   // SSRF 防護：用戶提供嘅 URL 一律先驗證（擋私網/loopback/非 http(s)）
@@ -1363,73 +1444,50 @@ async function fetchPageContent(url: string): Promise<{ text: string; thumbnail:
       let fbCaption = "";
       let fbAuthor = "";
       let fbThumbnail = "";
+      let canonicalUrl = resolveFacebookCanonicalUrl(url, url) || url;
+      let chosenHtml = "";
+      let chosenMeta: FacebookMeta | null = null;
 
-      const decodeEntities = (s: string) =>
-        s
-          .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-          .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-          .replace(/&quot;/g, '"')
-          .replace(/&#0?39;|&apos;/g, "'")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&nbsp;/g, " ")
-          .replace(/&amp;/g, "&")
-          .trim();
-
-      const ogMatch = (html: string, prop: string) =>
-        html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']*)["']`, "i"))?.[1] ??
-        html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:${prop}["']`, "i"))?.[1] ??
-        "";
-
-      // Facebook 官方 oEmbed plugin 已 deprecated，oEmbed（免 token）唔再可靠。
-      // 主要方法：用 crawler UA 抓公開頁面嘅 og meta（Reels / Watch / 貼文都適用）。
-      try {
-        const htmlResp = await fetch(url, {
-          redirect: "follow",
-          headers: {
-            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-          },
-          signal: AbortSignal.timeout(12000),
-        });
-        if (htmlResp.ok) {
-          const html = await htmlResp.text();
-          const ogTitle = decodeEntities(ogMatch(html, "title"));
-          const ogDesc = decodeEntities(ogMatch(html, "description"));
-          const ogImage = decodeEntities(ogMatch(html, "image"));
-          const ogSite = decodeEntities(ogMatch(html, "site_name"));
-          const ogUrl = decodeEntities(ogMatch(html, "url"));
-
-          // og:title 通常係「<數字>次觀看 · <讚好> | <caption> | <Page>」→ 清走前綴統計數字同尾段 Page 名
-          const titleSegments = ogTitle.split("|").map((s) => s.trim()).filter(Boolean);
-          const cleanTitle = titleSegments.length > 2
-            ? titleSegments.slice(1, -1).join(" | ").trim()
-            : ogTitle.replace(/^[^|]*\|\s*/, "").trim();
-
-          const captionParts = [ogDesc, cleanTitle || ogTitle]
-            .map((s) => (s || "").trim())
-            .filter((s, i, a) => s && a.indexOf(s) === i);
-          fbCaption = captionParts.join("\n").trim();
-          fbThumbnail = ogImage;
-
-          // 作者 best-effort（Reels 無可靠 oEmbed）：
-          // HTML 內嵌 JSON owner/actor.name > URL profile handle > og:title 尾段 Page 名 > og:site_name（非泛用時）
-          const unescapeJson = (s: string) =>
-            s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-              .replace(/\\\//g, "/")
-              .replace(/\\"/g, '"');
-          const ownerM = html.match(/"(?:owner|actor|page|uploader)"\s*:\s*\{[^{}]{0,200}?"name"\s*:\s*"([^"]{1,80})"/i);
-          const jsonAuthor = ownerM ? unescapeJson(ownerM[1]).trim() : "";
-          const handleM = (ogUrl || url).match(/facebook\.com\/([A-Za-z0-9._-]{2,50})\/(?:videos|posts|photos|reels)\//i);
-          const urlAuthor =
-            handleM && !/^\d+$/.test(handleM[1]) && !["reel", "watch", "share"].includes(handleM[1].toLowerCase())
-              ? handleM[1]
-              : "";
-          const titleAuthor = titleSegments.length >= 2 ? titleSegments[titleSegments.length - 1] : "";
-          const siteIsGeneric = !ogSite || /^facebook$/i.test(ogSite);
-          fbAuthor = jsonAuthor || urlAuthor || titleAuthor || (siteIsGeneric ? "" : ogSite);
+      // Try browser UAs first; keep facebookexternalhit as the final fallback.
+      for (const ua of FACEBOOK_USER_AGENTS) {
+        let status = "error";
+        let finalUrl = canonicalUrl;
+        try {
+          const htmlResp = await fetch(canonicalUrl, {
+            redirect: "follow",
+            headers: {
+              "User-Agent": ua.value,
+              "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+            },
+            signal: AbortSignal.timeout(12000),
+          });
+          status = String(htmlResp.status);
+          finalUrl = htmlResp.url || canonicalUrl;
+          const html = htmlResp.ok ? await htmlResp.text() : "";
+          const meta = parseFacebookMeta(html);
+          const nextCanonical = resolveFacebookCanonicalUrl(meta.url, finalUrl)
+            || resolveFacebookCanonicalUrl(finalUrl, finalUrl)
+            || canonicalUrl;
+          const { caption } = facebookCaption(meta);
+          console.log(`[parseUrl][facebook] status=${status} finalUrl=${nextCanonical || finalUrl} pageContentLen=${caption.length} ogDescriptionLen=${meta.description.length} ua=${ua.label}`);
+          if (caption.length > 0 || meta.description.length > 0) {
+            chosenHtml = html;
+            chosenMeta = meta;
+            canonicalUrl = nextCanonical;
+            break;
+          }
+          if (nextCanonical && nextCanonical !== canonicalUrl) canonicalUrl = nextCanonical;
+        } catch {
+          console.log(`[parseUrl][facebook] status=error finalUrl=${finalUrl} pageContentLen=0 ogDescriptionLen=0 ua=${ua.label}`);
         }
-      } catch { /* continue */ }
+      }
+
+      if (chosenMeta) {
+        const { caption, titleSegments } = facebookCaption(chosenMeta);
+        fbCaption = caption;
+        fbThumbnail = chosenMeta.image;
+        fbAuthor = facebookAuthor(chosenHtml, chosenMeta, url, titleSegments);
+      }
 
       const parts: string[] = [];
       if (fbAuthor) parts.push(`Author: ${fbAuthor}`);
@@ -1696,7 +1754,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 
   // If we have text but NO recipe keywords AND no thumbnail to try Vision → return early
   // Note: For Instagram, if we have clientThumbnail (from oEmbed), continue to AI parsing even without keywords
-  if (hasRealContent && !hasRecipeKeywords && sourceType === "instagram" && !effectiveThumbnail) {
+  if (hasRealContent && !hasRecipeKeywords && (sourceType === "instagram" || sourceType === "facebook") && !effectiveThumbnail) {
     return {
       name: "帖子沒有食譜內容",
       description: `這個 Instagram 帖子只有分享文字，沒有食材清單或烹飪步驟。請嘗試：\n1. 複製帖子文字，使用「貼上文字」功能\n2. 手動新增食譜`,
