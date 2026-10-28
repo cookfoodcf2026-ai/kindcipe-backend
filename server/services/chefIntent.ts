@@ -228,7 +228,7 @@ export function resolveChefIntent(
     };
   }
 
-  const foodRequest = /(食譜|recipe|想食|想吃|煮|炒|蒸|焗|煎|湯|chicken|beef|pork|fish|shrimp|soup|noodle|pasta|curry|meat|dessert|肉|菜|魚|鱼|蝦|虾|蛋|豆腐|飯|饭|麵|面)/i.test(text);
+  const foodRequest = /(食譜|recipe|想食|想吃|煮|炒|蒸|焗|煎|湯|chicken|beef|pork|fish|shrimp|soup|noodle|pasta|curry|meat|dessert|sweet|肉|菜|魚|鱼|蝦|虾|蛋|豆腐|飯|饭|麵|面|甜品|甜點|甜点)/i.test(text);
   const hasDessert = /(甜品|甜點|甜点|dessert|sweet)/i.test(text);
   if (foodRequest || mode === "ai" || mode === "library") {
     return {

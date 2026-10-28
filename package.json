@@ -17,7 +17,8 @@
     "promote:admin": "tsx scripts/promote-admin.ts",
     "promo:codes": "tsx scripts/promo-codes.ts",
     "test:billing": "tsx --test server/services/billingRules.test.ts",
-    "test:chef": "tsx --test server/services/chefIntent.test.ts server/services/recipeSetAssembler.test.ts server/services/aiChefPolicy.test.ts server/services/llmCost.test.ts"
+    "test:chef": "tsx --test server/services/chefIntent.test.ts server/services/recipeSetAssembler.test.ts server/services/aiChefPolicy.test.ts server/services/llmCost.test.ts server/services/chefResponse.test.ts server/services/aiChefIdempotency.test.ts server/services/aiChefLifecycle.test.ts server/services/aiChefRouting.test.ts",
+    "preflight": "bash scripts/preflight-railway.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

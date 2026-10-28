@@ -80,3 +80,23 @@ test("noodle feature flag off falls back to legacy soup interpretation", () => {
   const intent = resolveChefIntent("我想食日式，湯面同甜品", { mode: "chat", noodleRole: false });
   assert.deepEqual(intent.requested.roles, ["soup", "dessert"]);
 });
+
+const DESSERT_REGEX_REGRESSION = [
+  { category: "soup", text: "一湯", total: 1, roles: ["soup"] },
+  { category: "noodle", text: "一麵", total: 1, roles: ["noodle"] },
+  { category: "rice", text: "我想食飯", total: 1, roles: ["any"] },
+  { category: "vegetable", text: "一菜", total: 1, roles: ["vegetable"] },
+  { category: "seafood", text: "一海鮮", total: 1, roles: ["seafood"] },
+  { category: "meat", text: "一肉", total: 1, roles: ["meat"] },
+  { category: "fruit", text: "我想食水果", total: 1, roles: ["any"] },
+  { category: "breakfast", text: "我想食早餐", total: 1, roles: ["any"] },
+] as const;
+
+for (const c of DESSERT_REGEX_REGRESSION) {
+  test(`dessert regex does not change ${c.category} intent`, () => {
+    const intent = resolveChefIntent(c.text, { mode: "chat" });
+    assert.equal(intent.kind, "recipe");
+    assert.equal(intent.wantsCards, true);
+    assert.deepEqual(intent.requested, { total: c.total, roles: [...c.roles] });
+  });
+}

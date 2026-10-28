@@ -836,3 +836,31 @@ export type LlmCostEvent = typeof llmCostEvents.$inferSelect;
 export type LlmCostMonthly = typeof llmCostMonthly.$inferSelect;
 export type LlmBudgetReservation = typeof llmBudgetReservations.$inferSelect;
 export type AiChefFlag = typeof aiChefFlags.$inferSelect;
+
+// ─── AI Chef request idempotency (Ship 1; additive only) ───────────────────────
+export const aiChefRequests = pgTable("ai_chef_requests", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  chatId: varchar("chat_id", { length: 64 }).default("").notNull(),
+  clientMessageId: varchar("client_message_id", { length: 128 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  status: varchar("status", { length: 24 }).notNull(),
+  requestedTotal: integer("requested_total").default(0).notNull(),
+  served: integer("served").default(0).notNull(),
+  llmCalls: integer("llm_calls").default(0).notNull(),
+  costMicros: integer("cost_micros").default(0).notNull(),
+  responseJson: jsonb("response_json"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  familyChatClientUniq: uniqueIndex("ai_chef_requests_family_chat_client_message_unique").on(
+    t.familyId,
+    t.chatId,
+    t.clientMessageId,
+  ),
+  expiresIdx: index("ai_chef_requests_expires_idx").on(t.expiresAt),
+}));
+
+export type AiChefRequest = typeof aiChefRequests.$inferSelect;
+export type InsertAiChefRequest = typeof aiChefRequests.$inferInsert;

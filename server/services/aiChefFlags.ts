@@ -31,6 +31,8 @@ export function getFeatureFlags(): Record<string, boolean> {
     ai_chef_free_no_ai: flagDefault("AI_CHEF_FREE_NO_AI", false),
     ai_chef_hard_cap: flagDefault("AI_CHEF_HARD_CAP", true),
     ai_chef_safe_mode: flagDefault("AI_CHEF_SAFE_MODE", false),
+    ai_chef_truthful_contract: flagDefault("AI_CHEF_TRUTHFUL_CONTRACT", false),
+    ai_chef_client_message_id: flagDefault("AI_CHEF_CLIENT_MESSAGE_ID", false),
   };
 }
 

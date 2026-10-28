@@ -90,6 +90,12 @@ const DICT: Record<string, Dict> = {
     fil: "Nakagawa ako ng bagong ulam:",
     id: "Saya membuat hidangan baru:",
   },
+  cardsReady: {
+    "zh-TW": "準備好以下食譜：",
+    en: "Here are the recipes I prepared:",
+    fil: "Narito ang mga recipe na inihanda ko:",
+    id: "Berikut resep yang saya siapkan:",
+  },
   partialSet: {
     "zh-TW": "我搵到 {{served}} 個，但未能完成你要求嘅 {{total}} 個：",
     en: "I found {{served}} of the {{total}} recipes you requested:",

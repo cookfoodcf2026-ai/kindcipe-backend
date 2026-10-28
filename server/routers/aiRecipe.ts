@@ -17,7 +17,10 @@ import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
-import { getAiChefMode, getAiChefCapMicros } from "../services/aiChefFlags";
+import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../services/aiChefLifecycle";
+import { validateChefReply } from "../services/chefResponse";
+import { createAiChefRequestStore } from "../services/aiChefRequestStore";
+import { getAiChefMode, getAiChefCapMicros, getFeatureFlags } from "../services/aiChefFlags";
 import {
   LlmBudgetError,
   finalizeLlmBudget,
@@ -4394,6 +4397,8 @@ export const aiRecipeRouter = router({
       avoidIngredients: z.array(z.string().max(40)).max(20).optional(),
       forceText: z.boolean().optional(),
       lang: z.string().optional(),
+      clientMessageId: z.string().min(1).max(128).optional(),
+      chatId: z.string().max(64).optional(),
       search: z.object({
         query: z.string().optional(),
         tags: z.array(z.string()).optional(),
@@ -4435,6 +4440,42 @@ export const aiRecipeRouter = router({
       let budgetReservationId: number | undefined;
       let effectiveMode: "chat" | "ai" | "library" = mode;
 
+      const flagState = familyId
+        ? await getAiChefMode(familyId)
+        : { mode: "normal" as const, flags: getFeatureFlags() };
+      const truthfulContract = flagState.flags.ai_chef_truthful_contract === true;
+      const clientMessageIdEnabled = flagState.flags.ai_chef_client_message_id === true;
+      const idempotencyKey = familyId && clientMessageIdEnabled && input.clientMessageId
+        ? { familyId, chatId: input.chatId, clientMessageId: input.clientMessageId }
+        : undefined;
+      const idempotencyStore = idempotencyKey
+        ? createAiChefRequestStore(String(ctx.user.id))
+        : undefined;
+      const payloadHash = idempotencyKey
+        ? hashChefPayload({
+            messages: input.messages,
+            mode: input.mode,
+            excludeNames: input.excludeNames,
+            avoidIngredients: input.avoidIngredients,
+            forceText: input.forceText,
+            lang: input.lang,
+            search: input.search,
+          })
+        : "";
+
+      if (idempotencyStore && idempotencyKey) {
+        const cached = await idempotencyStore.find(idempotencyKey);
+        if (cached) {
+          if (cached.payloadHash !== payloadHash) {
+            throw new TRPCError({ code: "CONFLICT", message: "呢個訊息已經用過，內容唔一致，請重新發送。" });
+          }
+          return {
+            ...(cached.response as Record<string, unknown>),
+            idempotency: { decision: "reuse", creditsCharged: 0, llmCalls: 0 },
+          };
+        }
+      }
+
       if (familyId) {
         const userIdStr = String(ctx.user.id);
         const ent = await getFamilyEntitlements(familyId, userIdStr);
@@ -4446,7 +4487,6 @@ export const aiRecipeRouter = router({
           nearLimit: summary.aiCredits >= ent.limits.aiCredits,
         };
 
-        const flagState = await getAiChefMode(familyId);
         if (flagState.mode !== "normal" || (flagState.flags.ai_chef_free_no_ai === true && ent.status === "free")) {
           effectiveMode = "library";
         } else if (!ent.readOnly && effectiveMode !== "library" && flagState.flags.ai_chef_hard_cap !== false) {
@@ -4493,6 +4533,32 @@ export const aiRecipeRouter = router({
         }
       }
 
+      let idempotencyClaimed = false;
+      if (idempotencyStore && idempotencyKey) {
+        try {
+          const claim = await idempotencyStore.claim!(idempotencyKey, payloadHash);
+          if (claim.decision === "reuse") {
+            if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
+            if (reservationId) await refundUsage(reservationId).catch(() => {});
+            return {
+              ...(claim.cached.response as Record<string, unknown>),
+              idempotency: { decision: "reuse", creditsCharged: 0, llmCalls: 0 },
+            };
+          }
+          if (claim.decision === "conflict") {
+            if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
+            if (reservationId) await refundUsage(reservationId).catch(() => {});
+            throw new TRPCError({ code: "CONFLICT", message: "呢個訊息已經處理中，請勿重複送出。" });
+          }
+          idempotencyClaimed = true;
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
+          if (reservationId) await refundUsage(reservationId).catch(() => {});
+          throw error;
+        }
+      }
+
       const reqStartedAt = Date.now();
       let result: Awaited<ReturnType<typeof processAIChefChat>>;
       try {
@@ -4508,6 +4574,9 @@ export const aiRecipeRouter = router({
           input.forceText === true,
         );
       } catch (error) {
+        if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
+          await idempotencyStore.release?.(idempotencyKey).catch(() => {});
+        }
         if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
         if (reservationId) await refundUsage(reservationId).catch(() => {});
         throw error;
@@ -4591,7 +4660,7 @@ export const aiRecipeRouter = router({
       const resolved = requested === 0 || served >= requested;
       console.log(`[AI Chef][metric] request=${requestId} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
 
-      return {
+      const legacyResponse: Record<string, unknown> = {
         ...result,
         quota,
         requestId,
@@ -4602,5 +4671,44 @@ export const aiRecipeRouter = router({
         sources,
         warnings: missingRoles.length > 0 ? ["incomplete_set", "credits_refunded"] : [],
       };
+
+      let finalResponse: Record<string, unknown> = legacyResponse;
+      if (truthfulContract) {
+        const contract = buildChefReply({
+          requestId,
+          chatId: input.chatId,
+          clientMessageId: input.clientMessageId,
+          intent,
+          lang: responseLang,
+          templateText: true,
+          result: {
+            content: result.content,
+            recipes: result.recipes,
+            llmUsed: result.llmUsed,
+            missingRoles,
+            llmCalls: meter.calls,
+          },
+        });
+        const contractErrors = validateChefReply(contract);
+        if (contractErrors.length > 0) {
+          console.error(`[AI Chef] contract validation failed: ${contractErrors.join("; ")}`);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 回覆格式異常，請再試。" });
+        }
+        finalResponse = applyTruthfulContract(legacyResponse, contract, true);
+        finalResponse.chatId = input.chatId;
+        finalResponse.clientMessageId = input.clientMessageId;
+      }
+
+      if (idempotencyStore && idempotencyKey) {
+        await idempotencyStore.save(idempotencyKey, { payloadHash, response: finalResponse });
+      }
+      if (clientMessageIdEnabled) {
+        finalResponse.idempotency = {
+          decision: "miss",
+          creditsCharged,
+          llmCalls: meter.calls,
+        };
+      }
+      return finalResponse;
     }),
 });
