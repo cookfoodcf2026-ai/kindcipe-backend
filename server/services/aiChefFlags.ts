@@ -33,6 +33,8 @@ export function getFeatureFlags(): Record<string, boolean> {
     ai_chef_safe_mode: flagDefault("AI_CHEF_SAFE_MODE", false),
     ai_chef_truthful_contract: flagDefault("AI_CHEF_TRUTHFUL_CONTRACT", false),
     ai_chef_client_message_id: flagDefault("AI_CHEF_CLIENT_MESSAGE_ID", false),
+    ai_chef_single_card_library: flagDefault("AI_CHEF_SINGLE_CARD_LIBRARY", false),
+    ai_chef_any_library_miss_offer: flagDefault("AI_CHEF_ANY_LIBRARY_MISS_OFFER", false),
   };
 }
 

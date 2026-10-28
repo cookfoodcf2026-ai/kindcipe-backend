@@ -20,6 +20,7 @@ import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../services/aiChefLifecycle";
 import { validateChefReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
+import { finalizeChefRequest } from "../services/aiChefFinalization";
 import { getAiChefMode, getAiChefCapMicros, getFeatureFlags } from "../services/aiChefFlags";
 import {
   LlmBudgetError,
@@ -1671,6 +1672,20 @@ function dishTypeForRole(role: RequestedRole): DishType {
   return role === "noodle" ? "carb" : (role as DishType);
 }
 
+const ROLE_LIBRARY_QUERY: Partial<Record<RequestedRole, string>> = {
+  dessert: "甜品",
+  soup: "湯",
+  meat: "肉",
+  seafood: "海鮮",
+  vegetable: "蔬菜",
+  noodle: "麵",
+};
+
+function matchesLibraryRole(row: Record<string, unknown>, role: RequestedRole): boolean {
+  if (role === "noodle") return dishFamily(String(row.name ?? "")) === "noodle";
+  return classifyDishType(row) === dishTypeForRole(role);
+}
+
 // 由 AI 補缺（library 唔夠時）。neededTypes 指定缺失類別 → 逐類生成，確保 3餸1湯 結構。
 async function generateMissingRecipes(
   count: number,
@@ -2829,6 +2844,11 @@ export async function processAIChefChat(
   lang: string = "zh-TW",
   avoidIngredients: string[] = [],
   forceText: boolean = false,
+  featureFlags: {
+    ai_chef_single_card_library?: boolean;
+    ai_chef_any_library_miss_offer?: boolean;
+  } = {},
+  operation: "replace" | "append" = "replace",
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[] }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -3240,22 +3260,88 @@ export async function processAIChefChat(
     // 打字「N分鐘」都尊重時間：由 raw text 抽 cookTimeMax（cleanFoodQuery 會剷走數字，所以要喺 raw 度抽）
     const chatTimeMatch = lastUserText.match(/(\d{1,3})\s*分鐘/);
     const chatCookTimeMax = chatTimeMatch ? parseInt(chatTimeMatch[1], 10) : undefined;
+    // Kill-switch: OFF must preserve the legacy auto-LLM behavior.
+    const singleCardLibrary = featureFlags.ai_chef_single_card_library === true;
+    const anyLibraryMissOffer = featureFlags.ai_chef_any_library_miss_offer === true;
+    const explicitRole = requestedCount === 1 && chefIntent.requested.roles.length === 1
+      ? chefIntent.requested.roles[0]
+      : undefined;
     const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
     const safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
     const picked = rowsToSuggested(safeRows, excludeSets, 1);
     if (picked.length > 0) {
-      console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
-      await recordFamilySeenNames(familyId, picked.map(r => r.name));
+      const pickedIsReused = singleCardLibrary
+        && operation === "append"
+        && isRowExcluded(excludeSets, picked[0] as unknown as Record<string, unknown>);
+      const wrongRole = singleCardLibrary
+        && !!explicitRole
+        && explicitRole !== "any"
+        && !matchesLibraryRole(picked[0] as unknown as Record<string, unknown>, explicitRole);
+      if (!wrongRole && !pickedIsReused) {
+        console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
+        await recordFamilySeenNames(familyId, picked.map(r => r.name));
+        return {
+          content: keyword
+            ? aiReply(lang, "libByKeyword", { kw: keyword })
+            : aiReply(lang, "libOne"),
+          recipes: picked,
+          llmUsed,
+        };
+      }
+      if (pickedIsReused) console.log(`[AI Chef] library-first keyword result is reused; append refuses it -> role fallback`);
+      else console.log(`[AI Chef] library-first keyword result wrong role=${explicitRole} -> role fallback`);
+    }
+
+    if (singleCardLibrary && explicitRole && explicitRole !== "any") {
+      // A single explicit role (e.g. 甜點) must still search the library by role
+      // before falling back to the LLM. The free-text query may be a follow-up
+      // sentence that no recipe name/category contains.
+      const roleQuery = ROLE_LIBRARY_QUERY[explicitRole];
+      if (roleQuery && roleQuery !== keyword) {
+        const rolePool = await trySearch(roleQuery, 100, chatCookTimeMax);
+        const afterAvoid = avoidIngredients.length === 0
+          ? rolePool
+          : rolePool.filter((row) => !rowContainsAvoid(row, avoidIngredients));
+        const afterExclude = afterAvoid.filter((row) => !isRowExcluded(excludeSets, row));
+        console.log(`[AI Chef] library_role_pool=${rolePool.length} after_avoid=${afterAvoid.length} after_exclude=${afterExclude.length} role=${explicitRole} query="${roleQuery}"`);
+        const roleCandidates = operation === "append" ? afterExclude : afterAvoid;
+        const roleRows = roleCandidates.filter((row) => matchesLibraryRole(row, explicitRole));
+        const rolePicked = rowsToSuggested(roleRows, excludeSets, 1);
+        if (rolePicked.length > 0) {
+          console.log(`[AI Chef] library role fallback: ${rolePicked.length} for role=${explicitRole} query="${roleQuery}"`);
+          await recordFamilySeenNames(familyId, rolePicked.map(r => r.name));
+          return {
+            content: aiReply(lang, "libByKeyword", { kw: roleQuery }),
+            recipes: rolePicked,
+            llmUsed,
+          };
+        }
+      }
+
+      // Explicit role + no library match: do not silently call the LLM. The
+      // router/UI can offer the paid AI action as an explicit next step.
+      const reason = !roleQuery ? "no_role_query" : "no_safe_role_row";
+      console.log(`[AI Chef] library role miss: role=${explicitRole} query="${keyword || "(generic)"}" reason=${reason} -> offer AI`);
       return {
-        content: keyword
-          ? aiReply(lang, "libByKeyword", { kw: keyword })
-          : aiReply(lang, "libOne"),
-        recipes: picked,
+        content: aiReply(lang, "libNone"),
+        recipes: [],
         llmUsed,
+        missingRoles: chefIntent.requested.roles,
       };
     }
+
+    if (anyLibraryMissOffer && requestedCount === 1 && chefIntent.requested.roles.length === 1 && chefIntent.requested.roles[0] === "any") {
+      console.log(`[AI Chef] any library miss: query="${keyword || "(generic)"}" -> offer AI`);
+      return {
+        content: aiReply(lang, "libNone"),
+        recipes: [],
+        llmUsed,
+        missingRoles: chefIntent.requested.roles,
+      };
+    }
+
     console.log(`[AI Chef] library-first: 0 results for "${keyword || "(generic)"}" -> LLM`);
   }
 
@@ -4399,6 +4485,7 @@ export const aiRecipeRouter = router({
       lang: z.string().optional(),
       clientMessageId: z.string().min(1).max(128).optional(),
       chatId: z.string().max(64).optional(),
+      operation: z.enum(["replace", "append"]).optional(),
       search: z.object({
         query: z.string().optional(),
         tags: z.array(z.string()).optional(),
@@ -4459,6 +4546,7 @@ export const aiRecipeRouter = router({
             avoidIngredients: input.avoidIngredients,
             forceText: input.forceText,
             lang: input.lang,
+            operation: input.operation,
             search: input.search,
           })
         : "";
@@ -4572,6 +4660,8 @@ export const aiRecipeRouter = router({
           input.lang,
           avoidIngredients,
           input.forceText === true,
+          flagState.flags,
+          input.operation ?? "replace",
         );
       } catch (error) {
         if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
@@ -4599,31 +4689,6 @@ export const aiRecipeRouter = router({
         served,
       });
 
-      if (reservationId) {
-        if (shouldCharge) {
-          await commitUsage(reservationId);
-          try { await incrementAiChatUsage(familyId!, String(ctx.user.id), requestedCredits); } catch { /* history */ }
-        } else {
-          // Partial / zero-card recipe sets are not charged. A text answer
-          // (requested=0) still follows the normal LLM charge path.
-          await refundUsage(reservationId);
-          if (incompleteSet) {
-            console.log(`[AI Chef] refund partial set requested=${requested} served=${served} credits=${requestedCredits}`);
-          }
-        }
-      }
-      if (familyId) {
-        const summary = await getUsageSummary(familyId);
-        const limit = quota?.limit ?? 0;
-        quota = {
-          limit,
-          used: summary.aiCredits,
-          nearLimit: summary.aiCredits >= limit,
-        };
-      }
-
-      // Chinese UI already renders the canonical Chinese recipe. Skipping
-      // translation here avoids slow per-recipe LLM calls on the common path.
       const responseLang = input.lang ?? "zh-TW";
       let localizeMs = 0;
       if (!responseLang.startsWith("zh")) {
@@ -4640,9 +4705,6 @@ export const aiRecipeRouter = router({
           await releaseLlmBudget(budgetReservationId).catch(() => {});
         }
       }
-      const creditsCharged = shouldCharge ? requestedCredits : 0;
-      console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
-      console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
 
       const missingRoles = (result.missingRoles && result.missingRoles.length > 0)
         ? result.missingRoles
@@ -4658,29 +4720,19 @@ export const aiRecipeRouter = router({
         { library: 0, ai: 0 },
       );
       const resolved = requested === 0 || served >= requested;
-      console.log(`[AI Chef][metric] request=${requestId} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
 
-      const legacyResponse: Record<string, unknown> = {
-        ...result,
-        quota,
-        requestId,
-        intent,
-        requested: intent.requested,
-        served,
-        missingRoles,
-        sources,
-        warnings: missingRoles.length > 0 ? ["incomplete_set", "credits_refunded"] : [],
-      };
-
-      let finalResponse: Record<string, unknown> = legacyResponse;
+      // Build and validate the contract BEFORE mutating credit. A malformed
+      // truthful response must not charge the user and then return 500.
+      let contract: ReturnType<typeof buildChefReply> | null = null;
       if (truthfulContract) {
-        const contract = buildChefReply({
+        contract = buildChefReply({
           requestId,
           chatId: input.chatId,
           clientMessageId: input.clientMessageId,
           intent,
           lang: responseLang,
           templateText: true,
+          operation: input.operation,
           result: {
             content: result.content,
             recipes: result.recipes,
@@ -4692,22 +4744,95 @@ export const aiRecipeRouter = router({
         const contractErrors = validateChefReply(contract);
         if (contractErrors.length > 0) {
           console.error(`[AI Chef] contract validation failed: ${contractErrors.join("; ")}`);
+          if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
+            await idempotencyStore.release?.(idempotencyKey).catch(() => {});
+          }
+          if (reservationId) await refundUsage(reservationId).catch(() => {});
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 回覆格式異常，請再試。" });
         }
-        finalResponse = applyTruthfulContract(legacyResponse, contract, true);
-        finalResponse.chatId = input.chatId;
-        finalResponse.clientMessageId = input.clientMessageId;
       }
 
-      if (idempotencyStore && idempotencyKey) {
-        await idempotencyStore.save(idempotencyKey, { payloadHash, response: finalResponse });
+      const finalized = await finalizeChefRequest({
+        truthful: truthfulContract,
+        shouldCharge,
+        requestedCredits,
+        reservationId,
+        buildContract: truthfulContract ? () => buildChefReply({
+          requestId,
+          chatId: input.chatId,
+          clientMessageId: input.clientMessageId,
+          intent,
+          lang: responseLang,
+          templateText: true,
+          operation: input.operation,
+          result: {
+            content: result.content,
+            recipes: result.recipes,
+            llmUsed: result.llmUsed,
+            missingRoles,
+            llmCalls: meter.calls,
+          },
+        }) : undefined,
+        validate: (contract) => {
+          const errors = validateChefReply(contract);
+          if (errors.length > 0) console.error(`[AI Chef] contract validation failed: ${errors.join("; ")}`);
+          return errors;
+        },
+        buildLegacy: async (contract) => {
+          if (familyId) {
+            const summary = await getUsageSummary(familyId);
+            const limit = quota?.limit ?? 0;
+            quota = { limit, used: summary.aiCredits, nearLimit: summary.aiCredits >= limit };
+          }
+          const legacy: Record<string, unknown> = {
+            ...result,
+            quota,
+            requestId,
+            intent,
+            requested: intent.requested,
+            served,
+            missingRoles,
+            sources,
+            warnings: missingRoles.length > 0 ? ["incomplete_set", "credits_refunded"] : [],
+          };
+          if (contract) {
+            const contractCards = contract.recipes;
+            const legacyCards = Array.isArray(legacy.recipes) ? legacy.recipes as any[] : [];
+            legacy.recipes = legacyCards.map((card, i) => ({
+              ...card,
+              ...(contractCards[i]?.cardId ? { cardId: contractCards[i].cardId } : {}),
+            }));
+          }
+          return legacy;
+        },
+        applyContract: (legacy, contract) => {
+          const applied = applyTruthfulContract(legacy, contract, true);
+          applied.chatId = input.chatId;
+          applied.clientMessageId = input.clientMessageId;
+          return applied;
+        },
+        commitUsage: async (id) => commitUsage(id),
+        refundUsage: async (id) => refundUsage(id),
+        saveIdempotency: idempotencyStore && idempotencyKey
+          ? async (response) => idempotencyStore.save(idempotencyKey, { payloadHash, response })
+          : undefined,
+        releaseIdempotency: idempotencyClaimed && idempotencyStore && idempotencyKey
+          ? async () => idempotencyStore.release?.(idempotencyKey)
+          : undefined,
+      });
+      const finalResponse = finalized.response;
+      const creditsCharged = finalized.creditsCharged;
+      if (creditsCharged > 0 && familyId) {
+        try { await incrementAiChatUsage(familyId, String(ctx.user.id), requestedCredits); } catch { /* history */ }
       }
+      if (!shouldCharge && incompleteSet) {
+        console.log(`[AI Chef] refund partial set requested=${requested} served=${served} credits=${requestedCredits}`);
+      }
+      console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
+      console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
+      console.log(`[AI Chef][metric] request=${requestId} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
       if (clientMessageIdEnabled) {
-        finalResponse.idempotency = {
-          decision: "miss",
-          creditsCharged,
-          llmCalls: meter.calls,
-        };
+        finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }
       return finalResponse;
     }),

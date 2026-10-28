@@ -57,6 +57,8 @@ export interface ChefReply {
   chatId?: string;
   clientMessageId?: string;
   status: ChefResponseStatus;
+  /** How the client should apply these cards to the current conversation. */
+  operation?: "replace" | "append";
   recipes: ChefCardSnapshot[];
   replyText: string;
   requested: { total: number; roles: RequestedRole[] };

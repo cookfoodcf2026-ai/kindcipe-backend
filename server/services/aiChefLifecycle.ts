@@ -152,6 +152,7 @@ export function buildChefReply(params: {
   result: ChefRunResult;
   lang?: string;
   templateText?: boolean;
+  operation?: "replace" | "append";
 }): ChefReply {
   const { requestId, chatId, clientMessageId, intent, result } = params;
   const lang = params.lang ?? "zh-TW";
@@ -178,12 +179,13 @@ export function buildChefReply(params: {
 
   // no_cards/clarify must never claim a recipe exists. Use a deterministic
   // template instead of trusting a model/library string.
+  const operation = params.operation ?? "replace";
   const replyText = status === "no_cards"
     ? aiReply(lang, "libNone")
     : status === "clarify"
       ? (result.content || aiReply(lang, "libNone"))
       : params.templateText && status === "cards"
-        ? aiReply(lang, "cardsReady")
+        ? aiReply(lang, operation === "append" ? "cardsAdded" : "cardsReady")
         : params.templateText && status === "partial_cards"
           ? aiReply(lang, "partialSet", { served, total: requested })
           : result.content;
@@ -199,6 +201,7 @@ export function buildChefReply(params: {
     chatId,
     clientMessageId,
     status,
+    operation,
     recipes,
     replyText,
     requested: intent.requested,
@@ -220,6 +223,7 @@ export function applyTruthfulContract<T extends Record<string, unknown>>(
     ...legacy,
     content: contract.replyText,
     status: contract.status,
+    operation: contract.operation,
     replyText: contract.replyText,
     quickReplies: contract.quickReplies,
   };

@@ -3,6 +3,8 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
+import { processAIChefChat } from "../routers/aiRecipe";
+import { startLlmMeter } from "../_core/llm";
 import type { ChefRunResult } from "./aiChefLifecycle";
 
 const card = {
@@ -24,6 +26,8 @@ test("new AI Chef flags default OFF", () => {
   const flags = getFeatureFlags();
   assert.equal(flags.ai_chef_truthful_contract, false);
   assert.equal(flags.ai_chef_client_message_id, false);
+  assert.equal(flags.ai_chef_single_card_library, false);
+  assert.equal(flags.ai_chef_any_library_miss_offer, false);
 });
 
 test("flag OFF returns the exact legacy response object", () => {
@@ -111,4 +115,59 @@ test("flag ON cards never use an LLM claim as user-visible text", () => {
   });
   assert.equal(contract.status, "cards");
   assert.doesNotMatch(contract.replyText, /here is|perfect/i);
+});
+
+test("append operation is explicit and uses added template", () => {
+  const intent = resolveChefIntent("加一個甜品", { mode: "chat" });
+  const contract = buildChefReply({
+    requestId: "req_append",
+    intent,
+    operation: "append",
+    templateText: true,
+    result: { content: "Here is a dessert", recipes: [card], llmUsed: false, llmCalls: 0 },
+  });
+  assert.equal(contract.status, "cards");
+  assert.equal(contract.operation, "append");
+  assert.match(contract.replyText, /加入以下食譜/);
+});
+
+test("explicit role library miss never calls the LLM", async () => {
+  delete process.env.DATABASE_URL;
+  const meter = startLlmMeter({ familyId: 13, route: "test" });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "咁有冇甜點" }],
+    13,
+    undefined,
+    "chat",
+    [],
+    undefined,
+    "zh-TW",
+    [],
+    false,
+    { ai_chef_single_card_library: true },
+  );
+  assert.equal(result.llmUsed, false);
+  assert.equal(meter.calls, 0);
+  assert.deepEqual(result.recipes, []);
+  assert.ok(result.missingRoles?.includes("dessert"));
+});
+
+test("any-library offer flag ON returns no cards without LLM", async () => {
+  const meter = startLlmMeter({ familyId: 13, route: "test-any" });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我想食啲清淡嘅" }],
+    13,
+    undefined,
+    "chat",
+    [],
+    undefined,
+    "zh-TW",
+    [],
+    false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: true },
+  );
+  assert.equal(result.llmUsed, false);
+  assert.equal(meter.calls, 0);
+  assert.deepEqual(result.recipes, []);
+  assert.deepEqual(result.missingRoles, ["any"]);
 });
