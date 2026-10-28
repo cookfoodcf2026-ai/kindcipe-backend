@@ -18,7 +18,8 @@
     "promo:codes": "tsx scripts/promo-codes.ts",
     "test:billing": "tsx --test server/services/billingRules.test.ts",
     "test:chef": "tsx --test server/services/chefIntent.test.ts server/services/recipeSetAssembler.test.ts server/services/aiChefPolicy.test.ts server/services/llmCost.test.ts server/services/chefResponse.test.ts server/services/aiChefIdempotency.test.ts server/services/aiChefLifecycle.test.ts server/services/aiChefRouting.test.ts server/services/aiChefFlagOff.test.ts server/services/aiChefFinalization.test.ts server/services/aiChefFlagMatrix.test.ts",
-    "test:chef:db": "tsx --test server/services/aiChefBugSpec.test.ts server/routers/aiRecipeRouter.test.ts",
+    "test:chef:db": "tsx --test server/services/aiChefBugSpec.test.ts server/routers/aiRecipeRouter.test.ts server/services/llmCostStale.test.ts",
+    "report:llm-cost": "tsx scripts/report-llm-cost.ts",
     "preflight": "bash scripts/preflight-railway.sh"
   },
   "dependencies": {

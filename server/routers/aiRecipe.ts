@@ -4693,13 +4693,23 @@ export const aiRecipeRouter = router({
       let localizeMs = 0;
       if (!responseLang.startsWith("zh")) {
         const localizeStartedAt = Date.now();
-        result.recipes = await localizeSuggestedRecipes(result.recipes ?? [], responseLang);
+        try {
+          result.recipes = await localizeSuggestedRecipes(result.recipes ?? [], responseLang);
+        } catch (error) {
+          if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
+          if (reservationId) await refundUsage(reservationId).catch(() => {});
+          if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
+            await idempotencyStore.release?.(idempotencyKey).catch(() => {});
+          }
+          throw error;
+        }
         localizeMs = Date.now() - localizeStartedAt;
       }
       if (budgetReservationId) {
         if (result.llmUsed) {
-          await finalizeLlmBudget(budgetReservationId).catch((e) => {
+          await finalizeLlmBudget(budgetReservationId).catch(async (e) => {
             console.warn("[AI Chef] finalize budget failed:", (e as Error)?.message || e);
+            await releaseLlmBudget(budgetReservationId).catch(() => {});
           });
         } else {
           await releaseLlmBudget(budgetReservationId).catch(() => {});

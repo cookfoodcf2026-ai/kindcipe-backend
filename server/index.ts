@@ -260,6 +260,23 @@ async function startServer() {
     };
     setInterval(operations, OPERATIONS_INTERVAL_MS);
     setTimeout(operations, 2 * 60 * 1000);
+
+    // LLM budget reservations expire after 5 minutes. Run frequently enough
+    // that a crashed request cannot hold a family's hard cap for the month.
+    const LLM_BUDGET_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+    const sweepLlmBudget = async () => {
+      try {
+        const { releaseStaleLlmBudgetReservations } = await import("./services/llmCost");
+        const result = await releaseStaleLlmBudgetReservations();
+        if (result.released > 0 || result.stale > 0) {
+          console.log(`[llm-budget] released ${result.released} stale reservations, marked ${result.stale} stale`);
+        }
+      } catch (e) {
+        console.warn("[llm-budget] stale cleanup failed (non-fatal):", (e as Error).message);
+      }
+    };
+    setInterval(sweepLlmBudget, LLM_BUDGET_SWEEP_INTERVAL_MS);
+    setTimeout(sweepLlmBudget, 2 * 60 * 1000);
   });
 }
 

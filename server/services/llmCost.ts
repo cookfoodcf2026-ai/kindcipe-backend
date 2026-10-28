@@ -214,3 +214,65 @@ export async function getLlmBudgetState(familyId: number, userId: string) {
     memberReserved: member?.reserved ?? 0,
   };
 }
+
+/** Release budget reservations that were never finalized/released (process crash,
+ * timeout, uncaught throw). Cross-month reservations are marked stale without
+ * mutating the closed month's ledgers. */
+export async function releaseStaleLlmBudgetReservations(): Promise<{ released: number; stale: number }> {
+  const db = await getDb();
+  if (!db) return { released: 0, stale: 0 };
+  const now = new Date();
+  const currentMonth = getYearMonthKey(now);
+  const staleResult = await db.execute(sql`
+    SELECT id FROM "llm_budget_reservations"
+    WHERE status = 'reserved' AND reserved_until < now()
+    LIMIT 100
+  `);
+  const staleRows: any[] = Array.isArray(staleResult) ? staleResult : ((staleResult as any)?.rows ?? []);
+  const stale = staleRows.map((r: any) => ({ id: Number(r.id) }));
+  let released = 0;
+  let markedStale = 0;
+  for (const row of stale) {
+    try {
+      const outcome = await db.transaction(async (tx) => {
+        const [reservation] = await tx.select().from(llmBudgetReservations)
+          .where(and(
+            eq(llmBudgetReservations.id, row.id),
+            eq(llmBudgetReservations.status, "reserved"),
+            sql`${llmBudgetReservations.reservedUntil} < now()`,
+          ))
+          .for("update")
+          .limit(1);
+        if (!reservation) {
+          return "skip" as const;
+        }
+        if (reservation.yearMonth !== currentMonth) {
+          await tx.update(llmBudgetReservations).set({ status: "stale" })
+            .where(eq(llmBudgetReservations.id, reservation.id));
+          return "stale" as const;
+        }
+        await tx.update(familyUsageMonthly).set({
+          llmReservedMicros: sql`GREATEST(0, ${familyUsageMonthly.llmReservedMicros} - ${reservation.estimateMicros})`,
+        }).where(and(
+          eq(familyUsageMonthly.familyId, reservation.familyId),
+          eq(familyUsageMonthly.yearMonth, reservation.yearMonth),
+        ));
+        await tx.update(llmCostMonthly).set({
+          reservedCostMicros: sql`GREATEST(0, ${llmCostMonthly.reservedCostMicros} - ${reservation.estimateMicros})`,
+        }).where(and(
+          eq(llmCostMonthly.familyId, reservation.familyId),
+          eq(llmCostMonthly.userId, reservation.userId),
+          eq(llmCostMonthly.yearMonth, reservation.yearMonth),
+        ));
+        await tx.update(llmBudgetReservations).set({ status: "released" })
+          .where(eq(llmBudgetReservations.id, reservation.id));
+        return "released" as const;
+      });
+      if (outcome === "released") released++;
+      if (outcome === "stale") markedStale++;
+    } catch (error) {
+      console.warn("[llm-budget] stale reservation cleanup failed", row.id, (error as Error).message);
+    }
+  }
+  return { released, stale: markedStale };
+}
