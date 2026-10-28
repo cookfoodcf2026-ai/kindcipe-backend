@@ -630,7 +630,84 @@ async function collectInstagramThumbnailCandidates(url: string): Promise<string[
   return out;
 }
 
-/** 過濾 AI 解析出嘅「偽食材」：小標題（如「蔥油醬汁材料：」）唔應該當食材。
+/** 中文數字 → 阿拉伯數字（食材份量；常見 0.5–99 寫法）。認唔到就原樣回。 */
+const CN_NUM: Record<string, number> = {
+  零: 0, 一: 1, 二: 2, 兩: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+};
+
+export function cnQuantityToArabic(raw: string): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (s === "半" || s === "一半") return "0.5";
+  const range = s.match(/^(.+?)\s*(?:至|到|~|～|-|–)\s*(.+)$/);
+  if (
+    range &&
+    /^[半零一二兩两三四五六七八九十]+$/.test(range[1]) &&
+    /^[半零一二兩两三四五六七八九十]+$/.test(range[2])
+  ) {
+    return `${cnQuantityToArabic(range[1])}-${cnQuantityToArabic(range[2])}`;
+  }
+  if (s === "十") return "10";
+  const tens = s.match(/^([一二兩两三四五六七八九])?十([一二三四五六七八九])?$/);
+  if (tens) return String((tens[1] ? CN_NUM[tens[1]] : 1) * 10 + (tens[2] ? CN_NUM[tens[2]] : 0));
+  if (CN_NUM[s] !== undefined) return String(CN_NUM[s]);
+  return s;
+}
+
+/** 中文量詞（由長到短匹配，避免「茶匙」被「匙」先吃掉） */
+const CN_UNIT_TRAIL = [
+  "公斤", "千克", "毫升", "湯匙", "大匙", "小匙", "茶匙", "克", "杯", "匙", "個", "隻", "條",
+  "片", "塊", "包", "袋", "粒", "顆", "瓣", "棵", "根", "把", "支", "扎", "束", "碗", "碟", "份",
+  "斤", "撮", "滴", "罐", "盒", "節", "圈", "磚", "卷",
+].sort((a, b) => b.length - a.length);
+
+/**
+ * 食材份量正規化 — 中文唔准漏入非中文介面（前端只本地化 unit，quantity 原樣照出）。
+ * "3塊"(塊) → {"3","塊"}｜"半茶匙"(茶匙) → {"0.5","茶匙"}｜"半至一隻"(隻) → {"0.5-1","隻"}
+ * "約10" → {"10",""}｜"依個人喜好" → {"","適量"}｜"2.5湯匙" → {"2.5","湯匙"}
+ */
+export function normalizeIngredientAmount(quantityRaw: any, unitRaw: any): { quantity: string; unit: string } {
+  let q = String(quantityRaw ?? "").trim();
+  let u = String(unitRaw ?? "").trim();
+  if (!q && !u) return { quantity: "", unit: "" };
+  // 描述型量詞（無論落喺 quantity 定 name）→ 交 unit，前端會本地化
+  if (/喜好|隨意|随意|酌量|適量|适量|少許|少许|少量/.test(q) && !/\d/.test(q)) {
+    return { quantity: "", unit: u || "適量" };
+  }
+  q = q.replace(/^(約|大约|大約|大概|約莫|about|approx\.?|~)\s*/i, "").trim();
+  // 尾巴中文單位搬入 unit（unit 已有值就唔覆蓋）
+  for (const cand of CN_UNIT_TRAIL) {
+    if (q.length > cand.length && q.endsWith(cand)) {
+      const head = q.slice(0, -cand.length).trim();
+      if (head) {
+        q = head;
+        if (!u) u = cand;
+        break;
+      }
+    }
+  }
+  q = cnQuantityToArabic(q);
+  return { quantity: q, unit: u };
+}
+
+/** 來源有冇明確寫份量（人/位/份、serves N、for N people、pax） */
+const SERVINGS_HINT_RE =
+  /(?:\d+\s*(?:人份|人|位|份))|(?:[一二兩两三四五六七八九十半]+\s*(?:人份|人|位))|(?:serves?|servings?|serving)\s*[:：]?\s*\d+|for\s+\d+\s*(?:people|persons|servings)|\bpax\b/i;
+
+/**
+ * 份量護欄（防 AI 老作）：來源冇寫份量 → 一律 2 人，唔准由 model 自創 1。
+ * 來源有寫 → 用 model 值（合理範圍 1–30），唔合理就 fallback 2。
+ */
+export function guardServings(servingsRaw: any, sourceText: string): { servings: number; defaulted: boolean } {
+  const n = Number(servingsRaw);
+  const valid = Number.isFinite(n) && n >= 1 && n <= 30 ? Math.round(n) : NaN;
+  const hasHint = SERVINGS_HINT_RE.test(String(sourceText ?? ""));
+  if (hasHint && Number.isFinite(valid)) return { servings: valid, defaulted: false };
+  return { servings: 2, defaulted: true };
+}
+
+/**
+ * 過濾 AI 解析出嘅「偽食材」：小標題（如「蔥油醬汁材料：」）唔應該當食材。
  *  規則：名稱以「：或:」結尾，或屬「…材料」類標題且冇數量 → 丢弃。 */
 function sanitizeParsedIngredients(list: any[]): any[] {
   if (!Array.isArray(list)) return [];
@@ -658,6 +735,10 @@ function sanitizeParsedIngredients(list: any[]): any[] {
       out.name = desc.name || name;
       if (!String(out.unit ?? "").trim()) { out.unit = desc.descriptor; out.quantity = ""; }
     }
+    // 中文數字／中文單位唔准留在 quantity（非中文介面只本地化 unit）
+    const amount = normalizeIngredientAmount(out.quantity, out.unit);
+    out.quantity = amount.quantity;
+    out.unit = amount.unit;
     return out;
   });
 }
@@ -831,6 +912,9 @@ async function parseTextToRecipe(text: string, userLanguage?: string): Promise<{
   - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
   - 如果內容中沒有食譜資訊（例如純聊天、問候、食評、無食材和步驟的文字），請在 name 回傳"無法解析"，並在 description 說明原因
   - 食材分類規則：肉類、海鮮/蔬菜/調味料/乾貨/其他
+  - ingredients[].quantity 只准阿拉伯數字或空字串（"3"、"0.5"、"1/3"），唔准寫單位或中文數字（唔准「3塊」「半茶匙」）；單位一律放 ingredients[].unit
+  - 描述型份量（適量／少許／依個人喜好）→ quantity 留空，unit 填「適量」或「少許」
+  - servings 必須係文字明確寫出嘅人數；冇寫就填 2，唔准猜 1
   - 主要文字使用繁體中文；並同時提供英(En)/菲(Fil)/印尼(Id)譯文`;
 
   const userPrompt = `請從以下食譜文字中提取食譜資訊：
@@ -945,6 +1029,14 @@ ${TAGS_RULE}`;
   const hasContent = (result.ingredients && result.ingredients.length > 0) ||
     (result.steps && result.steps.length > 0);
   if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
+  // 份量護欄（貼文字路徑一樣要，來源冇寫份量 → 2 人）
+  {
+    const guarded = guardServings(result.servings, text);
+    if (guarded.defaulted) {
+      console.log(`[parseText] servings defaulted → ${guarded.servings} (llm returned ${result.servings})`);
+    }
+    result.servings = guarded.servings;
+  }
   result.difficulty = normalizeDifficulty(result.difficulty);
   result.parseReason = (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent)
     ? "no_recipe_content"
@@ -1776,6 +1868,9 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 重要規則：
 - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
 - 如果內容中沒有食譜資訊，請在 name 回傳"無法解析"，並在 description 說明原因
+- ingredients[].quantity 只准阿拉伯數字或空字串（例："3"、"0.5"、"1/3"、"700"），**唔准寫單位、唔准寫中文數字**（唔准寫「3塊」「半茶匙」「約10」）；單位一律放 ingredients[].unit（例："塊"、"茶匙"、"克"、"g"、"ml"、"個"）
+- 描述型份量（適量／少許／依個人喜好）→ quantity 留空，unit 填「適量」或「少許」
+- servings 必須係內容明確寫出嘅人數；內容冇寫就填 2，**唔准猜 1**
 - 食材分類：肉類/海鮮/蔬菜/調味料/乾貨/其他
 - 主要文字使用繁體中文；並同時提供英(En)/菲(Fil)/印尼(Id)譯文`;
 
@@ -1937,6 +2032,15 @@ ${TAGS_RULE}`;
   console.log(`[parseUrl] llmRawLen=${parsedContent.length} jsonClosed=${parsedContent.trim().endsWith("}")}`);
   const result: any = extractJSON(parsedContent);
   if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
+  // 份量護欄：來源冇寫份量 → 2 人（唔准 AI 自創 1 人）
+  {
+    const srcForServings = `${pageContent}\n${clientCaptionText}`;
+    const guarded = guardServings(result.servings, srcForServings);
+    if (guarded.defaulted) {
+      console.log(`[parseUrl] servings defaulted → ${guarded.servings} (llm returned ${result.servings}, source has no serving hint)`);
+    }
+    result.servings = guarded.servings;
+  }
   if (!result.thumbnailUrl && effectiveThumbnail) result.thumbnailUrl = effectiveThumbnail;
   // Re-host：逐個候選試，第一個成功就用（唔用隨機分類圖 fallback）
   const category = result.recipeCategory || "其他";
