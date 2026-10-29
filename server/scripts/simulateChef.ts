@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { processAIChefChat } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
+import { dispatchChefTurn } from "../services/chefDispatcher";
+import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 
 type Dialogue = { id: string; name: string; turns: string[] };
 
@@ -12,6 +14,8 @@ const allDialogues = readFileSync(file, "utf8")
   .filter(Boolean)
   .map((line) => JSON.parse(line) as Dialogue);
 const idFilter = process.argv.find((arg) => arg.startsWith("--id="))?.slice(5);
+const familyArg = process.argv.find((arg) => arg.startsWith("--family="))?.slice(9);
+const familyId = familyArg ? Number(familyArg) : undefined;
 const dialogues = idFilter ? allDialogues.filter((dialogue) => dialogue.id === idFilter) : allDialogues;
 
 if (!process.argv.includes("--live")) {
@@ -23,9 +27,31 @@ for (const dialogue of dialogues) {
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
   for (const turn of dialogue.turns) {
     messages.push({ role: "user", content: turn });
+    let dispatchCalls = 0;
     const started = Date.now();
     const meter = startLlmMeter({ route: "ai_chef_simulate" });
-    const result = await processAIChefChat(messages, undefined, undefined, "chat", [], undefined, "zh-TW", [], false, {});
+    const result = await processAIChefChat(
+      messages,
+      familyId,
+      undefined,
+      "chat",
+      [],
+      undefined,
+      "zh-TW",
+      [],
+      false,
+      {},
+      "replace",
+      true,
+      true,
+      undefined,
+      async (dispatchMessages) => {
+        dispatchCalls += 1;
+        return dispatchChefTurn(dispatchMessages);
+      },
+    );
+    const ai = result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length;
+    const lib = result.recipes.length - ai;
     console.log(JSON.stringify({
       id: dialogue.id,
       turn,
@@ -33,9 +59,13 @@ for (const dialogue of dialogues) {
       items: result.intentOverride?.requested.total ?? 0,
       exit: result.clarifyReason ? "ask" : result.recipes.length > 0 ? "cards" : "text",
       served: result.recipes.length,
-      credits: 0,
+      lib,
+      ai,
+      dispatchCalls,
+      credits: shouldChargeChefRequest({ served: result.recipes.length, aiCards: ai }) ? 1 : 0,
       latencyMs: Date.now() - started,
       costUsd: meter.costUsd,
+      cardNames: result.recipes.map((recipe) => recipe.name),
       replyText: result.content,
     }));
     messages.push({ role: "assistant", content: result.content });
