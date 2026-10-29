@@ -8,6 +8,7 @@ import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
+import { dispatchChefTurn, type ChefDispatch } from "../services/chefDispatcher";
 import { lookupFaqAnswer } from "../services/chefFaq";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
@@ -2926,6 +2927,14 @@ function searchFailureReply(lang: string): string {
   return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以重試、叫 AI 即場煮（1 credit），或者稍後再試。";
 }
 
+function categoryMissReply(lang: string, item: string, cards: string[]): string {
+  const names = cards.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
+  if (lang.startsWith("en")) return `I couldn't find a "${item}" match. Closest: ${names}. You can ask AI to make one (1 credit).`;
+  if (lang.startsWith("fil")) return `Wala akong makitang "${item}". Pinakamalapit: ${names}. Maaari mong hilingin sa AI (1 credit).`;
+  if (lang.startsWith("id")) return `Tidak ada padanan untuk "${item}". Terdekat: ${names}. Anda bisa meminta AI (1 credit).`;
+  return `庫存冇「${item}」嘅合適選擇。最接近：${names}。可以叫 AI 即場煮（1 credit）。`;
+}
+
 function ingredientMissReply(lang: string, item: string, cards: string[]): string {
   const names = cards.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
   if (lang.startsWith("en")) return `The library has no "${item}". Closest similar dishes: ${names}. You can also ask AI to make it now (1 credit).`;
@@ -2952,7 +2961,8 @@ export async function processAIChefChat(
   allowAiFallback: boolean = true,
   allowChatLlm: boolean = true,
   searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" }> {
+  dispatchOverride?: (messages: Array<{ role: string; content: string }>) => Promise<ChefDispatch | null>,
+): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -3172,6 +3182,138 @@ export async function processAIChefChat(
        .trim();
     return q.length >= 2 ? q : "";
   };
+
+  // Dispatcher path: free-text chat is understood by the model first; this
+  // replaces the old per-sentence rule path for normal conversation.
+  const hasDispatcherKey = Boolean(process.env.DASHSCOPE_API_KEY || process.env.GEMINI_API_KEY);
+  const dispatcherEnabled = mode === "chat"
+    && Boolean(db)
+    && allowChatLlm
+    && (hasDispatcherKey || Boolean(dispatchOverride))
+    && !hasImage
+    && !forceText
+    && !isCannedMealPrompt(lastUserText)
+    && !smallTalk
+    && !ambiguousFood;
+  if (dispatcherEnabled) {
+    const dispatcherMessages = inputMessages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === "string"
+        ? m.content
+        : m.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" "),
+    }));
+    const dispatch = dispatchOverride
+      ? await dispatchOverride(dispatcherMessages)
+      : await dispatchChefTurn(dispatcherMessages);
+    if (!dispatch) {
+      return {
+        content: lang.startsWith("en")
+          ? "I'm not sure I understood that. Tell me what you'd like to eat, or which dish you mean."
+          : "我唔係好肯定你想食咩。你可以講多少少，例如想食邊款、幾多人、或者有咩食材。",
+        recipes: [],
+        llmUsed: true,
+        clarifyReason: "ai_failed",
+      };
+    }
+    const dispatchItems = dispatch.items;
+    const dispatchTotal = Math.max(1, dispatchItems.reduce((sum, item) => sum + item.qty, 0));
+    const dispatchRoles: RequestedRole[] = [];
+    for (const item of dispatchItems) {
+      const role = item.kind === "ingredient" ? roleForFoodTerm(item.label) : "any";
+      for (let i = 0; i < item.qty; i++) dispatchRoles.push(role);
+    }
+    const dispatchIntent: ChefIntent = {
+      kind: dispatchTotal > 1 ? "meal" : dispatch.intent === "technique" ? "technique" : dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action" ? "chat" : "recipe",
+      wantsCards: dispatch.intent === "cards",
+      requested: { total: dispatch.intent === "cards" ? dispatchTotal : 0, roles: dispatch.intent === "cards" ? dispatchRoles : [] },
+      confidence: dispatch.confidence,
+      reason: "dispatcher",
+    };
+    if (dispatch.ask.needed || dispatch.confidence < 0.7) {
+      return {
+        content: dispatch.ask.question || dispatch.replyText || (lang.startsWith("en") ? "Can you tell me a bit more?" : "你可以講多少少嗎？"),
+        recipes: [],
+        llmUsed: true,
+        clarifyReason: "ambiguous_food",
+        intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+      };
+    }
+    if (dispatch.intent === "technique" || dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action") {
+      return {
+        content: dispatch.replyText || (lang.startsWith("en") ? "Tell me what you'd like to eat." : "話我知你想食咩。"),
+        recipes: [],
+        llmUsed: true,
+        intentOverride: { ...dispatchIntent, kind: dispatch.intent === "technique" ? "technique" : "chat", wantsCards: false, requested: { total: 0, roles: [] } },
+      };
+    }
+    if (dispatchItems.length === 0) {
+      return {
+        content: dispatch.replyText || (lang.startsWith("en") ? "What would you like to eat?" : "你想食咩？"),
+        recipes: [],
+        llmUsed: true,
+        clarifyReason: "ambiguous_food",
+        intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+      };
+    }
+
+    const pickedCards: SuggestedRecipe[] = [];
+    const usedNames = new Set<string>();
+    for (const item of dispatchItems) {
+      const search = await trySearch(item.label, Math.max(20, item.qty * 5));
+      if (!search.ok) {
+        return {
+          content: searchFailureReply(lang),
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "lib_search_fail",
+          intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      const normalizedLabel = normalizeName(item.label);
+      const exact = search.rows.filter((row) => normalizeName(String(row.name ?? "")) === normalizedLabel);
+      const candidates = exact.length > 0
+        ? exact
+        : search.rows.filter((row) => {
+            const rowName = normalizeName(String(row.name ?? ""));
+            return normalizedLabel.length >= 2 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
+          });
+      if (candidates.length === 0) {
+        const alternatives = search.rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3);
+        if (item.kind === "dish") {
+          return { content: libraryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "library_miss", intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+        }
+        if (item.kind === "ingredient") {
+          return { content: ingredientMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+        }
+        return { content: categoryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+      }
+      const selected = candidates
+        .filter((row) => !usedNames.has(normalizeName(String(row.name ?? ""))))
+        .slice(0, item.kind === "category" ? Math.max(1, item.qty) : 1);
+      for (const row of selected) {
+        const nameKey = normalizeName(String(row.name ?? ""));
+        if (usedNames.has(nameKey)) continue;
+        usedNames.add(nameKey);
+      }
+      pickedCards.push(...rowsToSuggested(selected, excludeSets, selected.length));
+    }
+    const cards = pickedCards.slice(0, Math.max(dispatchItems.reduce((n, item) => n + item.qty, 0), 1));
+    if (cards.length === 0) {
+      return {
+        content: dispatch.replyText || (lang.startsWith("en") ? "I couldn't find a suitable card." : "我搵唔到合適嘅食譜卡。"),
+        recipes: [],
+        llmUsed: true,
+        clarifyReason: "library_miss",
+        intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+      };
+    }
+    return {
+      content: dispatch.replyText || aiReply(lang, "libMealSet", { dish: dishLabel(cards.length, 0, lang) }),
+      recipes: cards,
+      llmUsed: true,
+      intentOverride: dispatchIntent,
+    };
+  }
 
   // Layer 2: if deterministic intent rules miss, search the raw request text
   // against recipe name/tags/ingredients before falling back to chat. This is
@@ -5116,12 +5258,13 @@ export const aiRecipeRouter = router({
         }
       }
 
+      const effectiveIntent = result.intentOverride ?? intent;
       const served = result.recipes?.length ?? 0;
-      const requested = intent.requested.total;
+      const requested = effectiveIntent.requested.total;
       const incompleteSet = requested > 0 && served < requested;
       // Any food/card request that served zero cards is a failed request, not a
       // normal text answer. Do not charge it, and never claim cards were prepared.
-      const zeroCardFood = served === 0 && intent.wantsCards === true && !result.clarifyReason;
+      const zeroCardFood = served === 0 && effectiveIntent.wantsCards === true && !result.clarifyReason;
       // Also catch a prose answer that explicitly promises cards even if intent
       // was misclassified (the existing narrow guard).
       const cardClaim = served === 0 && claimsRecipeCards(String(result.content ?? ""));
@@ -5164,7 +5307,7 @@ export const aiRecipeRouter = router({
       const missingRoles = (result.missingRoles && result.missingRoles.length > 0)
         ? result.missingRoles
         : requested > served
-          ? intent.requested.roles.slice(served)
+          ? effectiveIntent.requested.roles.slice(served)
           : [];
       const sources = (result.recipes ?? []).reduce(
         (acc, recipe) => {
@@ -5184,7 +5327,7 @@ export const aiRecipeRouter = router({
           requestId,
           chatId: input.chatId,
           clientMessageId: input.clientMessageId,
-          intent,
+          intent: effectiveIntent,
           lang: responseLang,
           templateText: true,
           operation: input.operation,
@@ -5216,7 +5359,7 @@ export const aiRecipeRouter = router({
           requestId,
           chatId: input.chatId,
           clientMessageId: input.clientMessageId,
-          intent,
+          intent: effectiveIntent,
           lang: responseLang,
           templateText: true,
           operation: input.operation,
@@ -5243,8 +5386,8 @@ export const aiRecipeRouter = router({
             ...result,
             quota,
             requestId,
-            intent,
-            requested: intent.requested,
+            intent: effectiveIntent,
+            requested: effectiveIntent.requested,
             served,
             missingRoles,
             sources,
@@ -5289,7 +5432,7 @@ export const aiRecipeRouter = router({
         : "user";
       console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
       console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
-      console.log(`[AI Chef][metric] request=${requestId} path=${metricPath} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
+      console.log(`[AI Chef][metric] request=${requestId} path=${metricPath} kind=${effectiveIntent.kind} roles=${effectiveIntent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
       if (clientMessageIdEnabled) {
         finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }

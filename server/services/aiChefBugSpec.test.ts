@@ -457,3 +457,59 @@ test("clarify does not consume chat quota", async () => {
   assert.equal(after.monthlyUsed, before.monthlyUsed);
   assert.equal(after.monthlyCostMicros, before.monthlyCostMicros);
 });
+
+test("dispatcher inventory path returns library cards from model items", async () => {
+  await insertOfficial({
+    name: `${prefix}黑椒牛柳`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "牛肉",
+    createdAt: new Date(),
+  });
+  await insertOfficial({
+    name: `${prefix}蒜蓉炒菜心`,
+    category: "家常",
+    dishType: "vegetable",
+    ingredientName: "菜心",
+    createdAt: new Date(),
+  });
+  const dispatch = {
+    intent: "cards" as const,
+    items: [
+      { label: `${prefix}黑椒牛柳`, kind: "dish" as const, qty: 1 },
+      { label: `${prefix}蒜蓉炒菜心`, kind: "dish" as const, qty: 1 },
+    ],
+    confidence: 0.92,
+    ask: { needed: false, question: "" },
+    replyText: "搵到兩道啱你要求嘅菜。",
+  };
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我想食牛柳同菜" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true, undefined, async () => dispatch,
+  );
+  assert.equal(result.recipes.length, 2);
+  assert.equal(result.llmUsed, true);
+  assert.equal(result.recipes.every((recipe) => recipe.source === "official"), true);
+  assert.match(result.content, /兩道|牛柳|菜/);
+});
+
+test("dispatcher library miss asks instead of guessing", async () => {
+  const dispatch = {
+    intent: "cards" as const,
+    items: [{ label: "魚湯粉", kind: "dish" as const, qty: 1 }],
+    confidence: 0.9,
+    ask: { needed: false, question: "" },
+    replyText: "搵到魚湯粉。",
+  };
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我想食魚湯粉" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true, undefined, async () => dispatch,
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "library_miss");
+  assert.match(result.content, /匯入|最接近|AI/);
+});
