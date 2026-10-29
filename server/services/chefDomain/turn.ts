@@ -257,13 +257,25 @@ export function runChefTurn(
     }, withAsk(next, "library_miss"), "library_miss");
   }
 
-  if (state.pendingAsk && state.pendingAsk.askedCount >= state.pendingAsk.maxAskCount
-    && queryPlan.dishTypes.length === 0 && queryPlan.scenarios.length === 0) {
-    // Preserve the target of the ask; only use the generic basket when there is
-    // no prior miss/target to carry.
-    const carried = state.lastMiss?.alternatives?.length
-      ? repo.byNames(state.lastMiss.alternatives.slice(0, 3), familyId)
-      : [];
+  if (state.pendingAsk && state.pendingAsk.askedCount >= state.pendingAsk.maxAskCount) {
+    // The user may answer an ask with one exact dish/ingredient. Name match wins
+    // before carrying an older lastMiss or using the generic basket.
+    const namedAnswer = repo.byNames([text.trim()], familyId);
+    if (namedAnswer.length > 0) {
+      return result("cards", "收到，幫你搵到呢個。", namedAnswer.slice(0, 3), {
+        kind: "recipe",
+        shape: { dishes: namedAnswer.length, soups: 0 },
+      }, withMeal(state, { dishes: namedAnswer.length, soups: 0 }, namedAnswer.map((card) => card.name)), null);
+    }
+    if (queryPlan.dishTypes.length > 0 || queryPlan.scenarios.length > 0) {
+      // A concrete new category/scenario answer should continue through the
+      // normal target path, not the generic fallback.
+    } else {
+      // Preserve the target of the ask; only use the generic basket when there is
+      // no prior miss/target to carry.
+      const carried = state.lastMiss?.alternatives?.length
+        ? repo.byNames(state.lastMiss.alternatives.slice(0, 3), familyId)
+        : [];
     const fallback = carried.length > 0
       ? carried
       : repo.search(buildDomainQueryPlan("家常"), familyId).slice(0, 3);
@@ -272,6 +284,7 @@ export function runChefTurn(
         kind: "meal",
         shape: { dishes: fallback.length, soups: 0 },
       }, withMeal(state, { dishes: fallback.length, soups: 0 }, fallback.map((card) => card.name)), null);
+    }
     }
   }
 
