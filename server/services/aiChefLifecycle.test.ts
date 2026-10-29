@@ -161,7 +161,7 @@ test("double-click with same clientMessageId reuses and charges only once", asyn
     refundCredit: ledger.refund,
     run: async (): Promise<ChefRunResult> => {
       ledger.runCalls += 1;
-      return { content: "AI recipe", recipes: [dessert], llmUsed: true, missingRoles: [], llmCalls: 1 };
+      return { content: "AI recipe", recipes: [{ ...dessert, source: "ai", officialId: undefined }], llmUsed: true, missingRoles: [], llmCalls: 1 };
     },
   };
 
@@ -222,7 +222,7 @@ test("same clientMessageId with different payload conflicts before charging", as
     refundCredit: ledger.refund,
     run: async (): Promise<ChefRunResult> => {
       ledger.runCalls += 1;
-      return { content: "AI recipe", recipes: [dessert], llmUsed: true, missingRoles: [], llmCalls: 1 };
+      return { content: "AI recipe", recipes: [{ ...dessert, source: "ai", officialId: undefined }], llmUsed: true, missingRoles: [], llmCalls: 1 };
     },
   };
   await runChefLifecycle({ ...base, payload: { messages: [{ role: "user", content: "我想食甜品" }] } });

@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import type { ChefRunResult } from "./aiChefLifecycle";
 
@@ -211,4 +211,36 @@ test("zero-card food copy is deterministic and never claims cards exist", () => 
   assert.doesNotMatch(zh, /已準備|已提供|準備好以下/);
   assert.match(en, /No credit was charged/);
   assert.doesNotMatch(en, /prepared|provided/i);
+});
+
+test("light chat prompt has no recipe JSON schema and uses 400 tokens", () => {
+  assert.equal(LIGHT_CHAT_MAX_TOKENS, 400);
+  assert.ok(LIGHT_CHAT_SYSTEM_PROMPT.length < 1200);
+  assert.doesNotMatch(LIGHT_CHAT_SYSTEM_PROMPT, /"recipes"|JSON 格式|recipes array/i);
+});
+
+test("FAQ answer bypasses the LLM", async () => {
+  delete process.env.DATABASE_URL;
+  const result = await processAIChefChat(
+    [{ role: "user", content: "煎牛扒幾耐？" }],
+    13, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true,
+  );
+  assert.equal(result.llmUsed, false);
+  assert.equal(result.recipes.length, 0);
+  assert.match(result.content, /牛扒/);
+});
+
+test("chat quota exhaustion returns deterministic fallback without LLM", async () => {
+  delete process.env.DATABASE_URL;
+  const result = await processAIChefChat(
+    [{ role: "user", content: "你今日點呀？" }],
+    13, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, false,
+  );
+  assert.equal(result.llmUsed, false);
+  assert.equal(result.recipes.length, 0);
+  assert.match(result.content, /食譜庫|FAQ/);
 });
