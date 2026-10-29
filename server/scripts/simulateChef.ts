@@ -73,7 +73,8 @@ for (const dialogue of dialogues) {
           ? "ask"
           : "text";
     if (familyId) {
-      const requestItems = extractMealIngredients(turn);
+      const requestItems = extractMealIngredients(turn)
+        .filter((term) => !/^(?:i|want|and|the|a|an|some|please|with|for|to|my)$/i.test(term));
       const roles = result.intentOverride?.requested.roles ?? [];
       const soupCount = roles.filter((role) => role === "soup").length;
       const requestedTotal = result.intentOverride?.requested.total ?? 0;

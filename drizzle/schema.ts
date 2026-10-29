@@ -715,6 +715,11 @@ export const aiChefMealState = pgTable("ai_chef_meal_state", {
   userId: text("user_id").notNull(),
   shape: jsonb("shape").$type<{ dishes: number; soups: number }>().notNull(),
   cardNames: jsonb("card_names").$type<string[]>().notNull(),
+  avoid: jsonb("avoid").$type<string[]>().default([]).notNull(),
+  scenarios: jsonb("scenarios").$type<string[]>().default([]).notNull(),
+  attributes: jsonb("attributes").$type<Record<string, unknown>>().default({}).notNull(),
+  lastMiss: jsonb("last_miss").$type<{ label: string; kind: string; alternatives: string[] } | null>(),
+  pendingAsk: jsonb("pending_ask").$type<{ key: string; askedCount: number; maxAskCount: number } | null>(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
   familyUserUniq: uniqueIndex("ai_chef_meal_state_family_user_unique").on(t.familyId, t.userId),

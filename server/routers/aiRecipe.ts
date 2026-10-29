@@ -3295,6 +3295,40 @@ export async function processAIChefChat(
     return q.length >= 2 ? q : "";
   };
 
+  // If the previous assistant turn was a question and the user replies with a
+  // short modifier, do not ask the same thing again. Use a labelled default set
+  // as the safety net; this remains a library-only, zero-credit response.
+  const priorAssistant = [...inputMessages].reverse().find((message) => message.role === "assistant");
+  const priorAssistantText = priorAssistant
+    ? (typeof priorAssistant.content === "string"
+        ? priorAssistant.content
+        : priorAssistant.content.filter((block) => block.type === "text").map((block: any) => block.text).join(" "))
+    : "";
+  const shortAnswerToAsk = !plannedTurn
+    && /[?？]/.test(priorAssistantText)
+    && /^(?:要|想|唔要|不要|清淡|快|快啲|辣|七成熟|五成熟|全熟|多|少|配菜|唔好)/i.test(lastUserText.trim())
+    && !/最接近|AI|安全/i.test(lastUserText);
+  if (shortAnswerToAsk) {
+    const rows = await trySearch("家常", 20);
+    const cards = rows.ok ? rowsToSuggested(rows.rows, excludeSets, 3) : [];
+    if (cards.length > 0) {
+      return {
+        content: lang.startsWith("en")
+          ? "I'll make a default pick so we can move on. Tell me if it's not right."
+          : "我先幫你揀 3 張預設；唔啱話我知，再幫你換。",
+        recipes: cards,
+        llmUsed: false,
+        intentOverride: {
+          kind: "meal",
+          wantsCards: true,
+          requested: { total: cards.length, roles: cards.map(() => "any" as RequestedRole) },
+          confidence: 0.7,
+          reason: "default_after_ask",
+        },
+      };
+    }
+  }
+
   // Dispatcher path: free-text chat is understood by the model first; this
   // replaces the old per-sentence rule path for normal conversation.
   const hasDispatcherKey = Boolean(process.env.DASHSCOPE_API_KEY || process.env.GEMINI_API_KEY);
@@ -5577,7 +5611,8 @@ export const aiRecipeRouter = router({
       const requested = effectiveIntent.requested.total;
       if (familyId) {
         const lastText = lastUserText(input.messages);
-        const requestTerms = extractMealIngredients(lastText);
+        const requestTerms = extractMealIngredients(lastText)
+          .filter((term) => !/^(?:i|want|and|the|a|an|some|please|with|for|to|my)$/i.test(term));
         const requestedRoles = effectiveIntent.requested.roles;
         const soupCount = requestedRoles.filter((role) => role === "soup").length;
         const stateShape = requested > 1
