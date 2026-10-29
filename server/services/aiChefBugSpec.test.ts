@@ -520,6 +520,18 @@ test("meal follow-up bypasses dispatcher", async () => {
   assert.notEqual(result.clarifyReason, "ai_failed");
 });
 
+test("safety query fails closed before search/AI", async () => {
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我海鮮敏感，想食魚" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.equal(result.clarifyReason, "safety");
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.llmUsed, false);
+  assert.match(result.content, /敏感|安全/);
+});
+
 test("AI action without target asks instead of promising text", async () => {
   const result = await processAIChefChat(
     [{ role: "user", content: "我要 AI 煮" }],
@@ -537,6 +549,24 @@ test("AI action without target asks instead of promising text", async () => {
   assert.equal(result.recipes.length, 0);
   assert.equal(result.clarifyReason, "ambiguous_food");
   assert.match(result.content, /邊款|菜名|食材/);
+});
+
+test("false AI action does not leak the exclude fallback", async () => {
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要湯麵" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true, undefined, async () => ({
+      intent: "action" as const,
+      items: [{ label: "湯麵", kind: "dish" as const, qty: 1 }],
+      confidence: 0.9,
+      ask: { needed: false, question: "" },
+      action: { kind: "ai_cook" as const, target: "湯麵" },
+      replyText: "即刻為你生成。",
+    }),
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.doesNotMatch(result.content, /排除呢樣|exclude that item/);
 });
 
 test("AI action with target and no AI capacity returns clarify, no card", async () => {

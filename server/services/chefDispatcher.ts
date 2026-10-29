@@ -91,12 +91,13 @@ export function categoryRolesForDispatch(label: string, qty: number): Array<"mea
   const count = Math.max(1, Math.min(10, Math.round(qty)));
   if (/湯|soup/i.test(raw)) return Array.from({ length: count }, () => "soup");
   if (/海鮮|海鲜|魚|鱼|蝦|虾|蟹|seafood|fish|shrimp/i.test(raw)) return Array.from({ length: count }, () => "seafood");
+  if (/蔬菜|veg/i.test(raw)) return Array.from({ length: count }, () => "vegetable");
   if (/餸|dish/i.test(raw)) {
     const base: Array<"meat" | "seafood" | "vegetable"> = ["meat", "seafood", "vegetable"];
     return Array.from({ length: count }, (_, i) => base[i % base.length]);
   }
+  if (/菜|蔬/i.test(raw)) return Array.from({ length: count }, () => "vegetable");
   if (/肉|meat|protein/i.test(raw)) return Array.from({ length: count }, () => "meat");
-  if (/菜|蔬|veg/i.test(raw)) return Array.from({ length: count }, () => "vegetable");
   if (/麵|面|粉|noodle|pasta/i.test(raw)) return Array.from({ length: count }, () => "noodle");
   return null;
 }

@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm";
+import { eq, and, or, ilike, desc, lte, gt, sql, notInArray, inArray, not } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
+import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
+import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
@@ -987,16 +989,18 @@ function safeParseJsonArray(value: unknown): unknown[] {
 }
 
 export async function execSearchRecipes(
-  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string }, familyId?: number
+  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
+  const plan = args.plan;
+  const queryText = plan ? plan.text : args.query;
 
   // 時間約束：單獨抽「N 分鐘」→ cookTime ≤ N；其餘字詞照常 AND 搜尋
   // 時間命中（cookTime 合符）可獨立命中，唔受關鍵字完全吻合限制（例如「30分鐘快煮」搵 30 分鐘食譜）
   const timeMatch = args.query.trim().toLowerCase().match(/(\d{1,3})\s*分鐘/);
   const minutes = timeMatch ? parseInt(timeMatch[1], 10) : undefined;
-  const rawQuery = minutes && minutes > 0 ? args.query.replace(/(\d{1,3})\s*分鐘/g, " ") : args.query;
-  const cookTimeMax = args.cookTimeMax ?? minutes;
+  const rawQuery = minutes && minutes > 0 ? queryText.replace(/(\d{1,3})\s*分鐘/g, " ") : queryText;
+  const cookTimeMax = plan?.cookTimeMax ?? args.cookTimeMax ?? minutes;
 
   // 與食譜搜尋一致：外文 → 中文 → 繁簡歸一 → 分詞。
   // 注意：外文（菲/印/英）經 resolveForeignToChinese 只會「部分」翻譯，故：
@@ -1016,7 +1020,7 @@ export async function execSearchRecipes(
     // Scenario (hotkey) is the primary selector: when present, do NOT also AND the
     // fuzzy text/tag conditions (that over-narrows, e.g. healthy = scenario AND text
     // "清淡"). Time (quick) still applies.
-    const scenarioPrimary = !!args.scenario;
+    const scenarioPrimary = !!args.scenario || (plan?.scenarios?.length ?? 0) > 0;
     const textCond = !scenarioPrimary && keywords.length > 0
       ? (mode === "and" ? and : or)(
           ...keywords.map(kw => {
@@ -1025,14 +1029,27 @@ export async function execSearchRecipes(
             return or(...[
               table.name, table.description, table.tags, table.ingredients,
               table.nameEn, table.nameFil, table.nameId, table.recipeCategory,
+              table.dishType,
             ].flatMap(f => variants.map(v => ilike(f, `%${v}%`))));
           }),
         )
       : undefined;
     const timeCond = cookTimeMax && cookTimeMax > 0 ? lte(table.cookTime, cookTimeMax) : undefined;
-    const tagConds = !scenarioPrimary ? (args.tags ?? []).map(tag => ilike(table.tags, `%"${tag}"%`)) : [];
+    const dishTypeCond = plan?.dishTypes?.length ? inArray(table.dishType, plan.dishTypes) : undefined;
+    const scenarioNames = [...new Set([...(args.scenario ? [args.scenario] : []), ...(plan?.scenarios ?? [])])];
+    const scenarioCond = scenarioNames.length > 0
+      ? or(...scenarioNames.map(scenario => ilike(table.scenarioTags, `%"${scenario}"%`)))
+      : undefined;
+    const tagConds = !scenarioPrimary
+      ? [...(args.tags ?? []), ...(plan?.tags ?? [])].map(tag => ilike(table.tags, `%"${tag}"%`))
+      : [];
     const tagCond = tagConds.length > 0 ? and(...tagConds) : undefined;
-    const combined = [textCond, tagCond].filter(Boolean) as any[];
+    const avoidConds = (plan?.avoid ?? []).map(term => not(or(
+      ilike(table.name, `%${term}%`),
+      ilike(table.tags, `%${term}%`),
+      ilike(table.ingredients, `%${term}%`),
+    )!));
+    const combined = [textCond, tagCond, dishTypeCond, scenarioCond, ...avoidConds].filter(Boolean) as any[];
     const mainCond = combined.length > 0 ? and(...combined) : undefined;
     const where = and(
       mainCond && timeCond ? or(mainCond, timeCond) : (mainCond ?? timeCond),
@@ -1397,7 +1414,7 @@ async function getMixedRecipes(
 }
 
 // ─── 3餸1湯 library helper（1 湯 + 3 餸，唔夠就由 AI 補）──────────────────
-type DishType = "soup" | "meat" | "seafood" | "vegetable" | "carb" | "appetizer" | "dessert" | "drink" | "other";
+export type DishType = "soup" | "meat" | "seafood" | "vegetable" | "carb" | "appetizer" | "dessert" | "drink" | "other";
 
 const DISH_TYPE_MAP: Record<string, DishType> = {
   "湯": "soup", "湯水": "soup", "湯品": "soup", "煲湯": "soup", "老火湯": "soup", "燉湯": "soup", "滾湯": "soup",
@@ -2899,6 +2916,31 @@ function smallTalkReply(lang: string): string {
   return "我喺度。可以話我知你有咩食材，或者想食邊類型嘅菜，我幫你諗。";
 }
 
+function normalizeQuestion(text: string): string {
+  return String(text ?? "").replace(/[\s？?，,。！!]/g, "").slice(0, 120);
+}
+
+function previousAssistantQuestion(
+  messages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
+): string {
+  const previous = [...messages].reverse().find((message) => message.role === "assistant");
+  if (!previous) return "";
+  return typeof previous.content === "string"
+    ? previous.content
+    : previous.content.filter((block) => block.type === "text").map((block: any) => block.text).join(" ");
+}
+
+function avoidRepeatedQuestion(
+  content: string,
+  messages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
+  lang: string,
+): string {
+  const previous = normalizeQuestion(previousAssistantQuestion(messages));
+  if (!previous || previous !== normalizeQuestion(content)) return content;
+  if (lang.startsWith("en")) return "We've already covered that. I'll pick a quick set for you — how many people?";
+  return "我哋已經問過同一個問題。咁我先幫你揀快煮，幾多人食？";
+}
+
 function clarifyFoodReply(lang: string): string {
   if (lang.startsWith("en")) return "Sure — do you want Chinese, Western, quick, or light? And how many people?";
   if (lang.startsWith("fil")) return "Sige — gusto mo ba ng Chinese, Western, mabilis, o light? Ilang tao?";
@@ -2966,7 +3008,7 @@ export async function processAIChefChat(
   searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
   dispatchOverride?: (messages: Array<{ role: string; content: string }>) => Promise<ChefDispatch | null>,
   stateUserId?: string,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail"; intentOverride?: ChefIntent }> {
+): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -2981,6 +3023,16 @@ export async function processAIChefChat(
     : Array.isArray(earlyUserMsg?.content)
       ? earlyUserMsg.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" ").trim()
       : "";
+  const safetyIntent = detectSafetyIntent(earlyUserText);
+  if (safetyIntent) {
+    console.log(`[AI Chef] safety fail-closed kind=${safetyIntent.kind}`);
+    return {
+      content: safetyQuestion(lang, safetyIntent),
+      recipes: [],
+      llmUsed: false,
+      clarifyReason: "safety",
+    };
+  }
   const requestItemLog = extractMealIngredients(earlyUserText).join("|") || "none";
   console.log(`[AI Chef] req mode=${mode} lang=${lang} items=${requestItemLog}`);
   if (earlyUserText) {
@@ -3087,7 +3139,7 @@ export async function processAIChefChat(
     | { ok: true; rows: Record<string, unknown>[] }
     | { ok: false; reason: "timeout" | "throw" };
   let searchFailed = false;
-  const trySearch = async (query: string, limit = 24, cookTimeMax?: number): Promise<RecipeSearchResult> => {
+  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan): Promise<RecipeSearchResult> => {
     if (searchOverride) {
       try {
         const rows = await searchOverride(query, limit, cookTimeMax);
@@ -3101,7 +3153,7 @@ export async function processAIChefChat(
     // Real transient DB failures/timeouts still return ok:false.
     if (!db) return { ok: true, rows: [] };
     const startedAt = Date.now();
-    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax }, familyId), 8000, "lib search");
+    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
     try {
       const res = await run();
       const rows = (res.recipes || []) as Record<string, unknown>[];
@@ -3201,6 +3253,36 @@ export async function processAIChefChat(
     return [...shuffleArr(fresh), ...shuffleArr(reused)].slice(0, count);
   };
 
+  // Pantry-first: when the user lists what is in the fridge, return one
+  // concrete library card instead of asking "what do you want to cook?".
+  const pantryTerms = extractMealIngredients(lastUserText);
+  const pantryRequest = !plannedTurn && mode === "chat" && Boolean(db)
+    && /雪櫃|冰箱|pantry|剩|得/i.test(lastUserText)
+    && pantryTerms.length >= 2;
+  if (pantryRequest) {
+    for (const term of pantryTerms.slice(0, 4)) {
+      const search = await trySearch(term, 20);
+      if (!search.ok) break;
+      const cards = rowsToSuggested(search.rows, excludeSets, 1);
+      if (cards.length > 0) {
+        return {
+          content: lang.startsWith("en")
+            ? `Using what you have, try this:`
+            : `用你雪櫃有嘅食材，可以先試呢個：`,
+          recipes: cards,
+          llmUsed: false,
+          intentOverride: {
+            kind: "recipe",
+            wantsCards: true,
+            requested: { total: 1, roles: ["any"] },
+            confidence: 0.82,
+            reason: "pantry_first",
+          },
+        };
+      }
+    }
+  }
+
 // 由句子抽 keyword（剷走口語填充字＋數字）；抽唔到 → 空 = 用 generic 池
   const cleanFoodQuery = (raw: string): string => {
     const q = raw
@@ -3286,7 +3368,11 @@ export async function processAIChefChat(
     };
     if (dispatch.ask.needed || dispatch.confidence < 0.7) {
       return {
-        content: dispatch.ask.question || dispatch.replyText || (lang.startsWith("en") ? "Can you tell me a bit more?" : "你可以講多少少嗎？"),
+        content: avoidRepeatedQuestion(
+          dispatch.ask.question || dispatch.replyText || (lang.startsWith("en") ? "Can you tell me a bit more?" : "你可以講多少少嗎？"),
+          inputMessages,
+          lang,
+        ),
         recipes: [],
         llmUsed: true,
         clarifyReason: "ambiguous_food",
@@ -3310,13 +3396,22 @@ export async function processAIChefChat(
           intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
         };
       }
-      let search = await trySearch(target, 30);
+      let search = await trySearch(target, 30, undefined, buildQueryPlan(target));
       if (!search.ok) {
         return { content: searchFailureReply(lang), recipes: [], llmUsed: true, clarifyReason: "lib_search_fail" };
       }
-      if (search.rows.length === 0 && /麵|面|粉|飯|飯/i.test(target)) {
-        for (const fallbackQuery of ["麵", "粉", "飯"]) {
-          const fallback = await trySearch(fallbackQuery, 30);
+      if (search.rows.length === 0) {
+        const fallbackQueries = /麵|面|粉|飯/i.test(target)
+          ? ["麵", "粉", "飯"]
+          : /菜|蔬/i.test(target)
+            ? ["菜", "蔬菜"]
+            : /魚|蝦|蟹|海鮮/i.test(target)
+              ? ["海鮮", "魚"]
+              : /肉|雞|牛|豬/i.test(target)
+                ? ["肉"]
+                : ["家常"];
+        for (const fallbackQuery of fallbackQueries) {
+          const fallback = await trySearch(fallbackQuery, 30, undefined, buildQueryPlan(fallbackQuery));
           if (fallback.ok && fallback.rows.length > 0) {
             search = fallback;
             break;
@@ -3351,8 +3446,11 @@ export async function processAIChefChat(
     if (dispatch.intent === "action" && dispatch.action?.kind === "ai_cook") {
       const explicitAiRequest = /(?:^|[\s，,])ai(?:\s|$|煮|生成)|ai\s*煮|用\s*ai/i.test(lastUserText);
       if (!explicitAiRequest) {
+        const exclusionIntent = /^(?:唔要|不要|走|唔飲|no|without)/i.test(lastUserText.trim());
         return {
-          content: lang.startsWith("en") ? "Do you want me to exclude that, or ask AI to cook it?" : "你想我排除呢樣，定係叫 AI 即場煮？",
+          content: exclusionIntent
+            ? (lang.startsWith("en") ? "Do you want me to exclude that item, or ask AI to cook it?" : "你想我排除呢樣，定係叫 AI 即場煮？")
+            : (lang.startsWith("en") ? "Which dish should I find or cook for you?" : "你想我幫你搵或煮邊款？"),
           recipes: [],
           llmUsed: true,
           clarifyReason: "ambiguous_food",
@@ -3413,8 +3511,16 @@ export async function processAIChefChat(
       };
     }
     if (dispatch.intent === "technique" || dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action") {
+      const clearlyNonFood = dispatch.intent === "non_food"
+        || /訂機票|订机票|機票|机票|flight|酒店|email|電郵|email/i.test(lastUserText);
       return {
-        content: dispatch.replyText || (lang.startsWith("en") ? "Tell me what you'd like to eat." : "話我知你想食咩。"),
+        content: avoidRepeatedQuestion(
+          clearlyNonFood
+            ? (lang.startsWith("en") ? "I'm a cooking assistant; I can help with recipes and cooking only." : "我係煮食助手，只可以幫你搵食譜同煮食；其他嘢幫唔到。")
+            : (dispatch.replyText || (lang.startsWith("en") ? "Tell me what you'd like to eat." : "話我知你想食咩。")),
+          inputMessages,
+          lang,
+        ),
         recipes: [],
         llmUsed: true,
         intentOverride: { ...finalDispatchIntent, kind: dispatch.intent === "technique" ? "technique" : "chat", wantsCards: false, requested: { total: 0, roles: [] } },
@@ -3433,7 +3539,7 @@ export async function processAIChefChat(
     const pickedCards: SuggestedRecipe[] = [];
     const usedNames = new Set<string>();
     for (const item of dispatchItems) {
-      const search = await trySearch(item.label, Math.max(20, item.qty * 5));
+      const search = await trySearch(item.label, Math.max(20, item.qty * 5), undefined, buildQueryPlan(item.label));
       if (!search.ok) {
         return {
           content: searchFailureReply(lang),
@@ -3445,12 +3551,14 @@ export async function processAIChefChat(
       }
       const normalizedLabel = normalizeName(item.label);
       const exact = search.rows.filter((row) => normalizeName(String(row.name ?? "")) === normalizedLabel);
-      const candidates = exact.length > 0
-        ? exact
-        : search.rows.filter((row) => {
-            const rowName = normalizeName(String(row.name ?? ""));
-            return normalizedLabel.length >= 2 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
-          });
+      const candidates = item.kind === "category"
+        ? search.rows
+        : exact.length > 0
+          ? exact
+          : search.rows.filter((row) => {
+              const rowName = normalizeName(String(row.name ?? ""));
+              return normalizedLabel.length >= 2 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
+            });
       if (candidates.length === 0) {
         const alternatives = search.rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3);
         if (item.kind === "dish") {

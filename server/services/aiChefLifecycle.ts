@@ -39,7 +39,7 @@ export type ChefRunResult = {
   recipes: ChefRecipeLike[];
   llmUsed: boolean;
   missingRoles?: RequestedRole[];
-  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail";
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety";
   llmCalls?: number;
 };
 
@@ -202,7 +202,11 @@ export function buildChefReply(params: {
         { actionId: "accept_partial" as const, labelKey: "aiChef.acceptPartial" },
       ]
     : status === "clarify"
-      ? clarifyReason === "ingredient_miss"
+      ? clarifyReason === "safety"
+        ? [
+            { actionId: "restart" as const, labelKey: "aiChef.quickRestart" },
+          ]
+        : clarifyReason === "ingredient_miss"
         ? [
             { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
             { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },

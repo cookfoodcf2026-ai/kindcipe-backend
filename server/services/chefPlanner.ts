@@ -3,7 +3,8 @@ import type { RequestedRole } from "./chefIntent";
 export type MealShape = { dishes: number; soups: number };
 export type PlannerModifier =
   | { op: "remove"; kind: "soup" }
-  | { op: "add"; kind: "dish" };
+  | { op: "add"; kind: "dish" }
+  | { op: "remove"; kind: "ingredient" };
 
 export type ChefTurnCommand = {
   kind: "meal" | "recipe";
@@ -12,7 +13,7 @@ export type ChefTurnCommand = {
   modifiers: PlannerModifier[];
   followUp: boolean;
   confidence: number;
-  reason: "explicit_meal" | "meal_followup" | "remove_soup" | "add_dish";
+  reason: "explicit_meal" | "meal_followup" | "remove_soup" | "add_dish" | "context_modifier";
 };
 
 const CN_NUM: Record<string, number> = {
@@ -65,6 +66,12 @@ function isAddDish(text: string): boolean {
   return /^(?:加|多)\s*(?:多|一|1|兩|两|2|幾|几)?\s*(?:個|个|道|款|樣|样|份)?\s*(?:菜|餸|dish)/i.test(String(text ?? "").trim());
 }
 
+function isContextModifier(text: string): boolean {
+  const raw = String(text ?? "").trim();
+  return /^(?:快|快啲|快手|清淡|健康|辣|辣啲|小辣|少辣|多辣|唔好整|不要整|四個人|4個人|四人|4人|兩個人|2人)/i.test(raw)
+    || /\bquick\b|快啲|辣啲|清淡|四個人|4個人|4人/i.test(raw);
+}
+
 function rolesForShape(shape: MealShape): RequestedRole[] {
   const dishes = Math.max(0, shape.dishes);
   const base: RequestedRole[] = dishes >= 3
@@ -105,6 +112,10 @@ export function planChefTurn(
   const explicit = parseMealShape(raw);
   if (explicit) return command(explicit, [], false, "explicit_meal", 0.98);
 
+  const peopleMeal = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个)?人/.test(raw)
+    && !/(?:牛|豬|猪|雞|鸡|魚|鱼|蝦|虾|蟹|菜|豆腐|蛋|麵|面|飯|饭|湯|汤)/i.test(raw);
+  if (peopleMeal) return command({ dishes: 3, soups: 0 }, [], false, "explicit_meal", 0.86);
+
   const previous = opts.previousMeal
     ?? (opts.previousText ? parseMealShape(opts.previousText) : null)
     ?? [...(opts.previousTexts ?? [])].reverse().map((item) => parseMealShape(item)).find(Boolean)
@@ -120,10 +131,13 @@ export function planChefTurn(
   if (isMealFollowUp(raw)) {
     return command(previous, [], true, "meal_followup", 0.95);
   }
+  if (isContextModifier(raw)) {
+    return command(previous, [], true, "context_modifier", 0.88);
+  }
   return null;
 }
 
 export function isStructuralShortFollowUp(text: string): boolean {
   const raw = String(text ?? "").trim();
-  return raw.length <= 12 && (isMealFollowUp(raw) || isRemoveSoup(raw) || isAddDish(raw));
+  return raw.length <= 24 && (isMealFollowUp(raw) || isRemoveSoup(raw) || isAddDish(raw) || isContextModifier(raw));
 }
