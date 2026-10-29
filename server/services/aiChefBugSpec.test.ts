@@ -3,6 +3,7 @@ import test from "node:test";
 import postgres from "postgres";
 import { execSearchRecipes, processAIChefChat } from "../routers/aiRecipe";
 import { getDb } from "../db";
+import { getChatQuotaState } from "./chatQuota";
 import { buildChefReply } from "./aiChefLifecycle";
 import { resolveChefIntent } from "./chefIntent";
 
@@ -438,4 +439,21 @@ test("P34: 魚面 library miss is clarify, never a prose-matched library card", 
   assert.equal(result.llmUsed, false);
   assert.equal(result.clarifyReason, "library_miss");
   assert.doesNotMatch(result.content, /乾炒牛河/);
+});
+
+test("clarify does not consume chat quota", async () => {
+  const before = await getChatQuotaState(familyId, "clarify-quota-user", "pro");
+  for (let i = 0; i < 10; i++) {
+    const result = await processAIChefChat(
+      [{ role: "user", content: "魚面" }],
+      familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+      { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    );
+    assert.equal(result.llmUsed, false);
+    assert.equal(result.clarifyReason, "library_miss");
+  }
+  const after = await getChatQuotaState(familyId, "clarify-quota-user", "pro");
+  assert.equal(after.dailyUsed, before.dailyUsed);
+  assert.equal(after.monthlyUsed, before.monthlyUsed);
+  assert.equal(after.monthlyCostMicros, before.monthlyCostMicros);
 });

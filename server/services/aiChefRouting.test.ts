@@ -5,6 +5,7 @@ import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
 import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
+import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
 
 const card = {
@@ -334,4 +335,47 @@ test("mode=ai prose result cannot become a card", () => {
   });
   assert.equal(reply.served, 0);
   assert.notEqual(reply.status, "cards");
+});
+
+test("mode=ai bypasses library-miss clarify guard", async () => {
+  delete process.env.DATABASE_URL;
+  const result = await processAIChefChat(
+    [{ role: "user", content: "蝦子麵" }],
+    13, undefined, "ai", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.notEqual(result.clarifyReason, "library_miss");
+});
+
+test("clarify quick replies are reason-specific", () => {
+  const cases: Array<[any, string[]]> = [
+    ["library_miss", ["import_recipe", "closest_library", "ai_generate"]],
+    ["ingredient_miss", ["closest_library", "ai_generate"]],
+    ["lib_search_fail", ["retry_search", "ai_generate", "retry_later"]],
+    ["ai_partial", ["complete_cards", "swap_cards", "accept_partial"]],
+  ];
+  for (const [reason, expected] of cases) {
+    const intent = resolveChefIntent("我想食魚湯粉同菜", { mode: "chat" });
+    const reply = buildChefReply({
+      requestId: `req_${reason}`,
+      intent,
+      result: {
+        content: "reason test",
+        recipes: reason === "ai_partial" ? [{ ...card, source: "ai", officialId: undefined }] : [],
+        llmUsed: reason === "ai_partial",
+        missingRoles: reason === "ai_partial" ? ["any"] : intent.requested.roles,
+        clarifyReason: reason,
+      },
+    });
+    assert.deepEqual(reply.quickReplies.map((q) => q.actionId), expected, reason);
+  }
+});
+
+test("fixed library-miss copy has three exits in four languages", () => {
+  for (const lang of ["zh-TW", "en", "fil", "id"]) {
+    const text = aiReply(lang, "libNone");
+    assert.doesNotMatch(text, /喺 chat 貼上|paste in chat/i, lang);
+    assert.match(text, /1\)|1\.|1\)/);
+    assert.match(text, /AI/i);
+  }
 });
