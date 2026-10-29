@@ -8,9 +8,11 @@ import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { extractMealIngredients } from "../services/chefIntent";
 import { saveLastMealState } from "../services/chefMealState";
 
-type Dialogue = { id: string; name: string; turns: string[] };
+type Expect = { exit?: string; served?: number; ai?: number; credits?: number; dispatchCalls?: number; clarifyReason?: string | null };
+type Dialogue = { id: string; name: string; turns: string[]; expect?: Record<string, Expect> };
 
-const file = resolve(process.cwd(), "server/fixtures/aiChef/dialogues.jsonl");
+const fileArg = process.argv.find((arg) => arg.startsWith("--file="))?.slice(7);
+const file = fileArg ? resolve(process.cwd(), fileArg) : resolve(process.cwd(), "server/fixtures/aiChef/dialogues.jsonl");
 const allDialogues = readFileSync(file, "utf8")
   .split(/\n+/)
   .filter(Boolean)
@@ -59,6 +61,8 @@ for (const dialogue of dialogues) {
       },
       `sim-${dialogue.id}`,
     );
+    const turnIndex = messages.filter((message) => message.role === "user").length;
+    const expected = dialogue.expect?.[`t${turnIndex}`];
     const ai = result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length;
     const lib = result.recipes.length - ai;
     const exit = result.clarifyReason
@@ -92,6 +96,16 @@ for (const dialogue of dialogues) {
       lib,
       ai,
       dispatchCalls,
+      clarifyReason: result.clarifyReason ?? null,
+      expect: expected ?? null,
+      expectPass: expected ? (
+        (expected.exit == null || expected.exit === exit)
+        && (expected.served == null || expected.served === result.recipes.length)
+        && (expected.ai == null || expected.ai === ai)
+        && (expected.credits == null || expected.credits === (shouldChargeChefRequest({ served: result.recipes.length, aiCards: ai }) ? 1 : 0))
+        && (expected.dispatchCalls == null || expected.dispatchCalls === dispatchCalls)
+        && (expected.clarifyReason == null || expected.clarifyReason === (result.clarifyReason ?? null))
+      ) : null,
       credits: shouldChargeChefRequest({ served: result.recipes.length, aiCards: ai }) ? 1 : 0,
       latencyMs: Date.now() - started,
       dispatchMs,
