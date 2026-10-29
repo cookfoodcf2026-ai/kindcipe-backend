@@ -222,7 +222,10 @@ export function runChefTurn(
       }, withMeal(state, planned.shape, cards.map((card) => card.name)), null);
     }
     const firstLabel = queryPlan.text || text;
-    const alternatives = repo.search({ ...queryPlan, text: "", dishTypes: [] }, familyId)
+    const targetFacetList = targetFacets(text);
+    const alternatives = (targetFacetList.length > 0
+      ? repo.byFacets(targetFacetList, familyId)
+      : repo.search({ ...queryPlan, text: queryPlan.text, dishTypes: [] }, familyId))
       .slice(0, 3).map((card) => card.name);
     const next = withMiss(state, { label: firstLabel, kind: "meal", alternatives });
     return result("ask", `庫存未夠「${firstLabel}」嘅食譜；最接近：${alternatives.join("、") || "暫時冇"}。`, [], {
