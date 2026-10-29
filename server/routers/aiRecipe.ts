@@ -3344,7 +3344,14 @@ export async function processAIChefChat(
     const safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
-    const picked = rowsToSuggested(safeRows, excludeSets, 1);
+    // For a specific protein, prefer its closest family label (牛扒 -> 牛排)
+    // over a broader family result (牛柳), even if the DB row is newer.
+    const preferredRow = findFoodTerm(keyword) === keyword
+      ? fallbackQueriesForFoodTerm(keyword)
+        .map((query) => safeRows.find((row) => String(row.name ?? "").includes(query)))
+        .find(Boolean)
+      : undefined;
+    const picked = rowsToSuggested(preferredRow ? [preferredRow] : safeRows, excludeSets, 1);
     if (picked.length > 0) {
       const pickedIsReused = singleCardLibrary
         && operation === "append"
