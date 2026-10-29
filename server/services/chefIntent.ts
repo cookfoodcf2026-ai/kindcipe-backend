@@ -33,6 +33,8 @@ export type ResolveChefIntentOptions = {
   forceText?: boolean;
   /** Feature flag: classify 湯麵/拉麵/烏冬 as noodle instead of soup. */
   noodleRole?: boolean;
+  /** Previous user message, used to inherit a meal request on follow-ups. */
+  previousUserText?: string;
 };
 
 const CN_NUM: Record<string, number> = {
@@ -44,6 +46,9 @@ const SMALL_TALK_RE = /^(hi|hello|hey|how are (you|u)|how r u|i am (so )?sad|i'?
 const AMBIGUOUS_FOOD_RE = /(我唔知|唔知|隨便|求其|你話事|食咩好|煮咩好|有咩好|i don'?t know|not sure|surprise me|help me decide)/i;
 const TECHNIQUE_RE = /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|點先|點至|how\s*(long|to|many)|temperature|煮幾耐|蒸幾耐|焗幾耐|煎幾耐|煲幾耐)/i;
 const NOODLE_RE = /(?:湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|河粉|米粉|noodle|ramen|udon|soba|pasta|laksa|pho)/i;
+// A short follow-up such as「比另一set我」only makes sense in the context of
+// the preceding meal request. Do not treat it as small talk.
+const MEAL_FOLLOW_UP_RE = /^(?:再|換|唔同|另一|第二|another|next|different)(?:\s|$|，|,|。|！|!|\?|？)|(?:再|另一|換|唔同|第二|另一個|另一組|再嚟|再來|different|another|next)\s*.{0,10}(?:set|組|餐|批|款|round|one|meal)|\b(?:give me|i want|show me)\s+(?:another|a different)\b|比另一\s*set/i;
 
 function toNumber(raw: string | undefined): number | null {
   if (!raw) return null;
@@ -61,8 +66,18 @@ function roleList(total: number, role: RequestedRole): RequestedRole[] {
   return Array.from({ length: Math.max(0, total) }, () => role);
 }
 
-function dishRoles(total: number): RequestedRole[] {
+function dishRoles(total: number, text = ""): RequestedRole[] {
   if (total <= 0) return [];
+  // Prefer roles the user actually mentioned (e.g. 雞髀 + 菜 = meat + vegetable).
+  // Only fall back to the generic meat/seafood/vegetable shape when the request
+  // gives no role hints at all; never invent seafood for a chicken+veg meal.
+  const mentioned = (explicitMixedRoles(text) ?? []).filter((r) => r !== "soup" && r !== "noodle" && r !== "dessert");
+  if (mentioned.length > 0) {
+    const roles = [...new Set(mentioned)];
+    if (total === 1) return [roles[0] ?? "any"];
+    while (roles.length < total) roles.push("any");
+    return roles.slice(0, total);
+  }
   if (total === 1) return ["any"];
   if (total === 2) return ["meat", "any"];
   const roles: RequestedRole[] = ["meat", "seafood", "vegetable"];
@@ -85,7 +100,7 @@ function explicitDessertMeat(text: string): ChefRequested | null {
 }
 
 function explicitMixedRoles(text: string, noodleRole = true): RequestedRole[] | null {
-  const hasMeat = /(肉|肉類|肉类|主菜|\bmeat\b|\bprotein\b)/i.test(text);
+  const hasMeat = /(肉|肉類|肉类|主菜|雞(?!蛋)|鸡(?!蛋)|牛|豬|猪|羊|鴨|鸭|鵝|鹅|排骨|雞翼|雞翅|雞腿|雞髀|\bmeat\b|\bprotein\b|\bchicken\b|\bbeef\b|\bpork\b|\blamb\b)/i.test(text);
   const hasSeafood = /(海鮮|海鲜|魚|鱼|蝦|虾|蟹|豆腐|\bseafood\b|\bfish\b|\bshrimp\b|\btofu\b)/i.test(text);
   const hasVeg = /(菜|蔬菜|青菜|時蔬|时蔬|\bveg(e|gie|etable)?\b)/i.test(text);
   const hasNoodle = noodleRole && NOODLE_RE.test(text);
@@ -111,7 +126,7 @@ function explicitDishSoup(text: string): ChefRequested | null {
     if (dishes === null) return null;
     const soups = m[2] ? clampCount(toNumber(m[2]), 1, 5) : 1;
     if (soups === null) return null;
-    return { total: dishes + soups, roles: [...dishRoles(dishes), ...roleList(soups, "soup")] };
+    return { total: dishes + soups, roles: [...dishRoles(dishes, text), ...roleList(soups, "soup")] };
   }
   const en = text.match(/(\d+|one|two|three|four|five)\s*(?:dishes?|recipes?)\s*(?:and|\+|,)?\s*(\d+|one|two|three|four|five)\s*(?:soups?|soup)/i);
   if (en) {
@@ -119,7 +134,7 @@ function explicitDishSoup(text: string): ChefRequested | null {
     const dishes = clampCount(/^\d+$/.test(en[1]) ? Number(en[1]) : word[en[1].toLowerCase()], 0, 10);
     const soups = clampCount(/^\d+$/.test(en[2]) ? Number(en[2]) : word[en[2].toLowerCase()], 1, 5);
     if (dishes !== null && soups !== null) {
-      return { total: dishes + soups, roles: [...dishRoles(dishes), ...roleList(soups, "soup")] };
+      return { total: dishes + soups, roles: [...dishRoles(dishes, text), ...roleList(soups, "soup")] };
     }
   }
   return null;
@@ -195,6 +210,17 @@ export function resolveChefIntent(
     return { kind: "technique", wantsCards: false, requested: empty, confidence: 0.9, reason: "technique" };
   }
 
+  if (opts.previousUserText && isMealFollowUp(text)) {
+    const prior = resolveChefIntent(opts.previousUserText, { ...opts, previousUserText: "" });
+    if (prior.kind === "meal" && prior.requested.total > 0) {
+      return {
+        ...prior,
+        confidence: 0.9,
+        reason: "meal_followup",
+      };
+    }
+  }
+
   const explicit = explicitDessertMeat(text) ?? explicitDishSoup(text) ?? explicitRoleCount(text, noodleRole);
   if (explicit && explicit.total > 0) {
     return {
@@ -219,10 +245,19 @@ export function resolveChefIntent(
 
   const hasSoup = /(湯水|老火湯|滾湯|燉湯|煲湯|湯品|soup|tonic|今晚食咩|晚餐推薦|設計晚餐)/i.test(text);
   if (hasSoup) {
+    const mentioned = (explicitMixedRoles(text, noodleRole) ?? []).filter((r) => r !== "soup" && r !== "noodle" && r !== "dessert");
+    let roles: RequestedRole[];
+    if (mentioned.length > 0) {
+      roles = [...new Set(mentioned)];
+      while (roles.length < 4) roles.push(roles.length === 3 ? "soup" : "any");
+      roles = roles.slice(0, 4);
+    } else {
+      roles = ["meat", "seafood", "vegetable", "soup"];
+    }
     return {
       kind: "meal",
       wantsCards: true,
-      requested: { total: 4, roles: ["meat", "seafood", "vegetable", "soup"] },
+      requested: { total: 4, roles },
       confidence: 0.75,
       reason: "soup_meal",
     };
@@ -249,11 +284,27 @@ export function resolveChefIntent(
   };
 }
 
+function messageText(message: { content: string | Array<{ type: string; text?: string }> }): string {
+  if (typeof message.content === "string") return message.content.trim();
+  return message.content.filter((b) => b.type === "text" && typeof b.text === "string").map((b) => b.text!).join(" ").trim();
+}
+
 export function lastUserText(
   messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>,
 ): string {
   const last = [...messages].reverse().find((m) => m.role === "user");
-  if (!last) return "";
-  if (typeof last.content === "string") return last.content.trim();
-  return last.content.filter((b) => b.type === "text" && typeof b.text === "string").map((b) => b.text!).join(" ").trim();
+  return last ? messageText(last) : "";
+}
+
+/** Text of the user message immediately before the latest one. */
+export function previousUserText(
+  messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>,
+): string {
+  const users = messages.filter((m) => m.role === "user");
+  return users.length >= 2 ? messageText(users[users.length - 2]) : "";
+}
+
+/** True for short follow-ups that should inherit the previous meal intent. */
+export function isMealFollowUp(text: string): boolean {
+  return MEAL_FOLLOW_UP_RE.test(String(text ?? "").trim());
 }

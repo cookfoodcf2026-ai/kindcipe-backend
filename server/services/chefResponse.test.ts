@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChefCardSnapshot, ChefReply } from "./chefResponse";
-import { validateChefReply } from "./chefResponse";
+import { claimsRecipeCards, validateChefReply } from "./chefResponse";
 
 const card = (overrides: Partial<ChefCardSnapshot> = {}): ChefCardSnapshot => ({
   cardId: "official_1",
@@ -125,3 +125,32 @@ for (const phrase of NEW_CLAIM_PHRASES) {
     assert.ok(errors.some((e) => /claim/i.test(e)), `expected claim error for: ${phrase}`);
   });
 }
+
+// ── text status must not promise cards it does not serve ─────────────────────
+const CARD_PROMISES = [
+  "已為你準備好詳細食譜卡，你可以直接查看步驟。",
+  "收到！以下食譜已經準備好",
+  "Here are the recipe cards for tonight",
+];
+
+for (const phrase of CARD_PROMISES) {
+  test(`text status rejects card promise: ${phrase.slice(0, 12)}`, () => {
+    const errors = validateChefReply(reply({ status: "text", recipes: [], served: 0, replyText: phrase }));
+    assert.ok(errors.some((e) => /promis/i.test(e)), `expected promise error for: ${phrase}`);
+  });
+}
+
+test("text status allows ordinary cooking advice without cards", () => {
+  const errors = validateChefReply(reply({
+    status: "text",
+    recipes: [],
+    served: 0,
+    replyText: "煎牛扒先用大火封邊，再轉中火，兩面各一分鐘。",
+  }));
+  assert.deepEqual(errors, []);
+});
+
+test("claimsRecipeCards ignores 推介 in a card-less chat answer", () => {
+  assert.equal(claimsRecipeCards("我推介你用中火慢慢煮"), false);
+  assert.equal(claimsRecipeCards("已為你準備好食譜卡"), true);
+});

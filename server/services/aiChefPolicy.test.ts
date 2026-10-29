@@ -21,3 +21,11 @@ test("does not charge pure library results", () => {
 test("still charges a text answer", () => {
   assert.equal(shouldChargeChefRequest({ llmUsed: true, requested: 0, served: 0 }), true);
 });
+
+test("does not charge a zero-card text answer that promises cards", () => {
+  assert.equal(shouldChargeChefRequest({ llmUsed: true, requested: 0, served: 0, cardClaim: true }), false);
+});
+
+test("still charges a genuine text answer with no card promise", () => {
+  assert.equal(shouldChargeChefRequest({ llmUsed: true, requested: 0, served: 0, cardClaim: false }), true);
+});

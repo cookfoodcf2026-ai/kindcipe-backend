@@ -100,3 +100,24 @@ for (const c of DESSERT_REGEX_REGRESSION) {
     assert.deepEqual(intent.requested, { total: c.total, roles: [...c.roles] });
   });
 }
+
+test("meal follow-up inherits previous 3-dish 1-soup roles", () => {
+  const intent = resolveChefIntent("比另一set我", {
+    mode: "chat",
+    previousUserText: "今晚三餸一湯，有雞髀同菜",
+  });
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.wantsCards, true);
+  assert.equal(intent.requested.total, 4);
+  assert.deepEqual(intent.requested.roles, ["meat", "vegetable", "any", "soup"]);
+  assert.equal(intent.reason, "meal_followup");
+});
+
+test("chicken + vegetable meal does not invent a seafood role", () => {
+  const intent = resolveChefIntent("今晚三餸一湯，有雞髀同菜", { mode: "chat" });
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.requested.total, 4);
+  assert.equal(intent.requested.roles.includes("seafood"), false);
+  assert.ok(intent.requested.roles.includes("meat"));
+  assert.ok(intent.requested.roles.includes("vegetable"));
+});

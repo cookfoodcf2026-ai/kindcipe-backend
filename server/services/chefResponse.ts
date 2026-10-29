@@ -72,6 +72,19 @@ export interface ChefReply {
 const CLAIM_RE = /\b(here is|here are|here you go|i found|i've found|i recommend|try this|perfect)\b|以下係|呢個就係|推介|推薦|為你推薦|我幫你搵到|為你準備|我搵到|我找到/i;
 
 /**
+ * Narrower than CLAIM_RE: text that explicitly promises recipe *cards*.
+ * A chat answer may legitimately say 推介/推薦 without cards, but 「已為你準備好
+ * 詳細食譜卡」 with zero cards is a lie the user can see — it must never ship.
+ */
+const CARD_CLAIM_RE = /食譜卡|食谱卡|recipe card|(?:準備好|準備咗|已準備|為你準備|为你准备|以下係|以下就是).{0,10}食譜|食譜[^。\n]{0,12}(?:準備好|準備咗|已準備|整好)|here (?:is|are) (?:the|your) recipe/i;
+
+/** True when the reply text promises recipe cards. Callers use this to force
+ *  a refund / honest template when `served === 0`. */
+export function claimsRecipeCards(text: string): boolean {
+  return CARD_CLAIM_RE.test(String(text ?? ""));
+}
+
+/**
  * Ship 1 contract validator. The response is valid only when its status,
  * cards, counts, missing roles, and user-visible text agree.
  */
@@ -108,6 +121,7 @@ export function validateChefReply(reply: ChefReply): string[] {
   } else if (reply.status === "text") {
     if (cards.length > 0) errors.push("text status cannot include recipes");
     if (served !== 0) errors.push("text status requires served=0");
+    if (claimsRecipeCards(reply.replyText)) errors.push("text replyText promises recipe cards but serves none");
   } else {
     errors.push(`invalid status: ${String((reply as { status?: unknown }).status)}`);
   }

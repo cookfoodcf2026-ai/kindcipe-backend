@@ -210,3 +210,29 @@ test("flag OFF: legacy wrong-role keyword result remains unchanged", async () =>
   assert.ok(result.recipes.some((r) => /麵包/.test(r.name)), "flag OFF must keep old wrong-role behavior");
   assert.doesNotMatch(logs.join("\n"), /library_role_pool=\d+/);
 });
+
+test("BUG 6: chicken + vegetable 3-dish 1-soup uses the user's ingredient words", async () => {
+  const now = Date.now();
+  const fixtures = [
+    { name: `${prefix}醬油雞腿`, category: "家常", dishType: "meat", ingredientName: "雞腿" },
+    { name: `${prefix}氣炸鍋酥脆烤雞腿`, category: "家常", dishType: "meat", ingredientName: "雞腿" },
+    { name: `${prefix}豉油雞`, category: "家常", dishType: "meat", ingredientName: "雞" },
+    { name: `${prefix}蒜蓉炒菜心`, category: "家常", dishType: "vegetable", ingredientName: "菜心" },
+    { name: `${prefix}清炒西蘭花`, category: "家常", dishType: "vegetable", ingredientName: "西蘭花" },
+    { name: `${prefix}番茄薯仔湯`, category: "家常", dishType: "soup", ingredientName: "番茄" },
+    { name: `${prefix}紫菜蛋花湯`, category: "家常", dishType: "soup", ingredientName: "紫菜" },
+  ];
+  for (let i = 0; i < fixtures.length; i++) {
+    await insertOfficial({ ...fixtures[i], createdAt: new Date(now + i * 1000) });
+  }
+
+  const result = await processAIChefChat(
+    [{ role: "user", content: "今晚三餸一湯，有雞髀同菜" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+
+  assert.equal(result.recipes.length, 4);
+  assert.ok(result.recipes.some((r) => /雞/.test(r.name)), `expected a chicken card, got ${result.recipes.map((r) => r.name).join("、")}`);
+  assert.ok(result.recipes.some((r) => /菜/.test(r.name)), `expected a vegetable card, got ${result.recipes.map((r) => r.name).join("、")}`);
+});
