@@ -238,6 +238,19 @@ function explicitSimpleCount(text: string): ChefRequested | null {
   return { total: n, roles: dishRoles(n) };
 }
 
+export type MealShape = { dishes: number; soups: number };
+
+/** Structural meal count parser; not a per-sentence lexicon. */
+export function parseMealShape(text: string): MealShape | null {
+  const raw = String(text ?? "").trim();
+  const m = raw.match(/(\d+|[一二兩两三四五六七八九十])\s*[送餸菜]\s*(?:(\d+|[一二兩两三四五六七八九十])\s*[湯汤]|[湯汤])/);
+  if (!m) return null;
+  const dishes = toNumber(m[1]);
+  const soups = m[2] ? toNumber(m[2]) : 1;
+  if (dishes === null || soups === null) return null;
+  return { dishes: Math.max(0, Math.min(10, dishes)), soups: Math.max(1, Math.min(5, soups)) };
+}
+
 export function resolveChefIntent(
   rawText: string,
   opts: ResolveChefIntentOptions = {},

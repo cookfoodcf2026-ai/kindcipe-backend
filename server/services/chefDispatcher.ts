@@ -49,6 +49,51 @@ function clampConfidence(value: unknown): number | null {
   return n;
 }
 
+const QUESTION_RE = /[?？]|(?:嗎|呢|咩|什麼|什麽|幾多|邊款|哪一款|要唔要|想食.*(?:咩|什麼|哪)|what|which|how)\s*$/i;
+
+function hasQuestion(text: string): boolean {
+  return QUESTION_RE.test(String(text ?? "").trim());
+}
+
+/** Server-enforced contract repair; never trust the model's own wording. */
+export function normalizeDispatchContract(input: ChefDispatch): ChefDispatch {
+  const askQuestion = input.ask.question.trim();
+  if (input.ask.needed) {
+    return {
+      ...input,
+      items: [],
+      confidence: input.confidence,
+      ask: { needed: true, question: askQuestion || "可以講多少少你想食邊款、幾多人食嗎？" },
+      replyText: askQuestion || input.replyText || "可以講多少少你想食邊款、幾多人食嗎？",
+    };
+  }
+  if (input.intent === "cards") {
+    let replyText = input.replyText.trim();
+    if (hasQuestion(replyText) || input.ask.needed) {
+      replyText = replyText.split(/[?？]/)[0].trim();
+      if (/想食.*(?:咩|什麼|哪)|要唔要|邊款|哪一款/.test(replyText)) replyText = "";
+      if (!replyText) replyText = "我幫你揀咗以下食譜。";
+    }
+    return { ...input, ask: { needed: false, question: "" }, replyText };
+  }
+  return { ...input, items: [], ask: { needed: false, question: "" } };
+}
+
+export function categoryRolesForDispatch(label: string, qty: number): Array<"meat" | "seafood" | "vegetable" | "soup" | "noodle" | "any"> | null {
+  const raw = String(label ?? "").trim();
+  const count = Math.max(1, Math.min(10, Math.round(qty)));
+  if (/湯|soup/i.test(raw)) return Array.from({ length: count }, () => "soup");
+  if (/海鮮|海鲜|魚|鱼|蝦|虾|蟹|seafood|fish|shrimp/i.test(raw)) return Array.from({ length: count }, () => "seafood");
+  if (/餸|dish/i.test(raw)) {
+    const base: Array<"meat" | "seafood" | "vegetable"> = ["meat", "seafood", "vegetable"];
+    return Array.from({ length: count }, (_, i) => base[i % base.length]);
+  }
+  if (/肉|meat|protein/i.test(raw)) return Array.from({ length: count }, () => "meat");
+  if (/菜|蔬|veg/i.test(raw)) return Array.from({ length: count }, () => "vegetable");
+  if (/麵|面|粉|noodle|pasta/i.test(raw)) return Array.from({ length: count }, () => "noodle");
+  return null;
+}
+
 export function validateChefDispatch(value: unknown): ChefDispatch | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
@@ -103,7 +148,8 @@ export async function dispatchChefTurn(
     });
     const raw = response.choices?.[0]?.message?.content ?? "";
     const parsed = extractJSON<Record<string, unknown>>(raw);
-    return validateChefDispatch(parsed);
+    const validated = validateChefDispatch(parsed);
+    return validated ? normalizeDispatchContract(validated) : null;
   } catch (error) {
     console.warn("[AI Chef] dispatcher failed:", (error as Error)?.message || error);
     return null;

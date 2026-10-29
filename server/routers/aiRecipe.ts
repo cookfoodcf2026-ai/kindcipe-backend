@@ -5,10 +5,11 @@ import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm"
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
-import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
+import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, parseMealShape, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
-import { dispatchChefTurn, type ChefDispatch } from "../services/chefDispatcher";
+import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
+import { getLlmMeter } from "../_core/llm";
 import { lookupFaqAnswer } from "../services/chefFaq";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
@@ -3186,7 +3187,7 @@ export async function processAIChefChat(
   // Dispatcher path: free-text chat is understood by the model first; this
   // replaces the old per-sentence rule path for normal conversation.
   const hasDispatcherKey = Boolean(process.env.DASHSCOPE_API_KEY || process.env.GEMINI_API_KEY);
-  const dispatcherEnabled = mode === "chat"
+  const dispatcherEnabled = !parseMealShape(lastUserText) && mode === "chat"
     && Boolean(db)
     && allowChatLlm
     && (hasDispatcherKey || Boolean(dispatchOverride))
@@ -3202,9 +3203,15 @@ export async function processAIChefChat(
         ? m.content
         : m.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" "),
     }));
-    const dispatch = dispatchOverride
+    const dispatchStartedAt = Date.now();
+    const meterBefore = getLlmMeter()?.costUsd ?? 0;
+    const rawDispatch = dispatchOverride
       ? await dispatchOverride(dispatcherMessages)
       : await dispatchChefTurn(dispatcherMessages);
+    const dispatch = rawDispatch ? normalizeDispatchContract(rawDispatch) : null;
+    const dispatchLatencyMs = Date.now() - dispatchStartedAt;
+    const dispatchCostUsd = Math.max(0, (getLlmMeter()?.costUsd ?? meterBefore) - meterBefore);
+    console.log(`[AI Chef] dispatch mode=${mode} lang=${lang} intent=${dispatch?.intent ?? "invalid"} items=${dispatch?.items.map((item) => `${item.label}:${item.kind}:${item.qty}`).join("|") || "none"} conf=${dispatch?.confidence ?? 0} latencyMs=${dispatchLatencyMs} costUsd=${dispatchCostUsd.toFixed(6)}`);
     if (!dispatch) {
       return {
         content: lang.startsWith("en")
@@ -3218,16 +3225,35 @@ export async function processAIChefChat(
     const dispatchItems = dispatch.items;
     const dispatchTotal = Math.max(1, dispatchItems.reduce((sum, item) => sum + item.qty, 0));
     const dispatchRoles: RequestedRole[] = [];
-    for (const item of dispatchItems) {
-      const role = item.kind === "ingredient" ? roleForFoodTerm(item.label) : "any";
-      for (let i = 0; i < item.qty; i++) dispatchRoles.push(role);
-    }
     const dispatchIntent: ChefIntent = {
-      kind: dispatchTotal > 1 ? "meal" : dispatch.intent === "technique" ? "technique" : dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action" ? "chat" : "recipe",
+      kind: "recipe",
       wantsCards: dispatch.intent === "cards",
-      requested: { total: dispatch.intent === "cards" ? dispatchTotal : 0, roles: dispatch.intent === "cards" ? dispatchRoles : [] },
+      requested: { total: 0, roles: [] },
       confidence: dispatch.confidence,
       reason: "dispatcher",
+    };
+    for (const item of dispatchItems) {
+      if (item.kind === "category") {
+        const categoryRoles = categoryRolesForDispatch(item.label, item.qty);
+        if (!categoryRoles) {
+          return {
+            content: lang.startsWith("en") ? "Which type would you like?" : "你想食邊一款？",
+            recipes: [],
+            llmUsed: true,
+            clarifyReason: "ambiguous_food",
+            intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+          };
+        }
+        dispatchRoles.push(...categoryRoles);
+      } else {
+        const role = item.kind === "ingredient" ? roleForFoodTerm(item.label) : "any";
+        for (let i = 0; i < item.qty; i++) dispatchRoles.push(role);
+      }
+    }
+    const finalDispatchIntent: ChefIntent = {
+      ...dispatchIntent,
+      kind: dispatchTotal > 1 ? "meal" : dispatch.intent === "technique" ? "technique" : dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action" ? "chat" : "recipe",
+      requested: { total: dispatch.intent === "cards" ? dispatchTotal : 0, roles: dispatch.intent === "cards" ? dispatchRoles : [] },
     };
     if (dispatch.ask.needed || dispatch.confidence < 0.7) {
       return {
@@ -3235,7 +3261,7 @@ export async function processAIChefChat(
         recipes: [],
         llmUsed: true,
         clarifyReason: "ambiguous_food",
-        intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
       };
     }
     if (dispatch.intent === "technique" || dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action") {
@@ -3243,7 +3269,7 @@ export async function processAIChefChat(
         content: dispatch.replyText || (lang.startsWith("en") ? "Tell me what you'd like to eat." : "話我知你想食咩。"),
         recipes: [],
         llmUsed: true,
-        intentOverride: { ...dispatchIntent, kind: dispatch.intent === "technique" ? "technique" : "chat", wantsCards: false, requested: { total: 0, roles: [] } },
+        intentOverride: { ...finalDispatchIntent, kind: dispatch.intent === "technique" ? "technique" : "chat", wantsCards: false, requested: { total: 0, roles: [] } },
       };
     }
     if (dispatchItems.length === 0) {
@@ -3252,7 +3278,7 @@ export async function processAIChefChat(
         recipes: [],
         llmUsed: true,
         clarifyReason: "ambiguous_food",
-        intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
       };
     }
 
@@ -3266,7 +3292,7 @@ export async function processAIChefChat(
           recipes: [],
           llmUsed: true,
           clarifyReason: "lib_search_fail",
-          intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
         };
       }
       const normalizedLabel = normalizeName(item.label);
@@ -3280,16 +3306,38 @@ export async function processAIChefChat(
       if (candidates.length === 0) {
         const alternatives = search.rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3);
         if (item.kind === "dish") {
-          return { content: libraryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "library_miss", intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+          return { content: libraryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "library_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
         }
         if (item.kind === "ingredient") {
-          return { content: ingredientMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+          return { content: ingredientMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
         }
-        return { content: categoryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+        return { content: categoryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
       }
-      const selected = candidates
-        .filter((row) => !usedNames.has(normalizeName(String(row.name ?? ""))))
-        .slice(0, item.kind === "category" ? Math.max(1, item.qty) : 1);
+      let selected: Record<string, unknown>[];
+      if (item.kind === "category") {
+        const desiredRoles = categoryRolesForDispatch(item.label, item.qty) ?? [];
+        selected = [];
+        for (const role of desiredRoles) {
+          const match = candidates.find((row) => {
+            const key = normalizeName(String(row.name ?? ""));
+            return !usedNames.has(key) && !selected.includes(row) && classifyDishType(row) === role;
+          });
+          if (!match) {
+            return {
+              content: categoryMissReply(lang, item.label, candidates.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
+              recipes: [],
+              llmUsed: true,
+              clarifyReason: "ingredient_miss",
+              intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+            };
+          }
+          selected.push(match);
+        }
+      } else {
+        selected = candidates
+          .filter((row) => !usedNames.has(normalizeName(String(row.name ?? ""))))
+          .slice(0, 1);
+      }
       for (const row of selected) {
         const nameKey = normalizeName(String(row.name ?? ""));
         if (usedNames.has(nameKey)) continue;
@@ -3304,14 +3352,14 @@ export async function processAIChefChat(
         recipes: [],
         llmUsed: true,
         clarifyReason: "library_miss",
-        intentOverride: { ...dispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
       };
     }
     return {
       content: dispatch.replyText || aiReply(lang, "libMealSet", { dish: dishLabel(cards.length, 0, lang) }),
       recipes: cards,
       llmUsed: true,
-      intentOverride: dispatchIntent,
+      intentOverride: finalDispatchIntent,
     };
   }
 
