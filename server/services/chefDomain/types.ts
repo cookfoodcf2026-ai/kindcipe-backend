@@ -17,6 +17,7 @@ export type RecipeCard = {
   dishType: DomainDishType;
   ingredients: string[];
   tags: string[];
+  facets?: string[];
   scenarios?: string[];
   cookTime: number;
   visibility: "official" | "public" | "private";

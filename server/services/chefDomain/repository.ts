@@ -4,6 +4,7 @@ import type { DomainDishType, QueryPlan, RecipeCard } from "./types";
 export interface RecipeRepository {
   search(plan: QueryPlan, familyId: number): RecipeCard[];
   byNames(names: string[], familyId: number): RecipeCard[];
+  byFacets(facets: string[], familyId: number): RecipeCard[];
 }
 
 const TYPES: DomainDishType[] = ["meat", "seafood", "vegetable", "soup", "carb", "appetizer", "dessert", "drink", "other"];
@@ -38,6 +39,11 @@ export class FakeRepository implements RecipeRepository {
   byNames(names: string[], familyId: number): RecipeCard[] {
     const wanted = new Set(names);
     return this.cards.filter((card) => wanted.has(card.name) && (card.visibility !== "private" || card.familyId === familyId));
+  }
+
+  byFacets(facets: string[], familyId: number): RecipeCard[] {
+    return this.cards.filter((card) => (card.visibility !== "private" || card.familyId === familyId)
+      && (facets.length === 0 || facets.some((facet) => (card.facets ?? []).includes(facet))));
   }
 
   static standardCatalog(): RecipeCard[] {
