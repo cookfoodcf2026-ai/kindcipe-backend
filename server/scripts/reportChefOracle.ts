@@ -5,41 +5,48 @@ import { loadSeedCatalog } from "../services/chefDomain/catalog";
 import { emptyTurnState } from "../services/chefDomain/types";
 import type { TurnState } from "../services/chefDomain/types";
 
-type Expect = { exit?: string; served?: number; ai?: number; credits?: number; clarifyReason?: string | null };
-type Dialogue = { id: string; turns: string[]; classes?: Record<string, string>; expect?: Record<string, Expect> };
+type Expect = { exit?: string; served?: number; ai?: number; credits?: number; clarifyReason?: string | null; allowedCards?: string[]; forbiddenCards?: string[] };
+type Dialogue = { id: string; turns: string[]; expect?: Record<string, Expect>; classes?: Record<string, string> };
 const file = resolve(process.cwd(), process.argv.find((arg) => arg.startsWith("--file="))?.slice(7) ?? "server/fixtures/aiChef/dialogues.jsonl");
 const familyId = Number(process.argv.find((arg) => arg.startsWith("--family="))?.slice(9) ?? 5);
-const repo = loadSeedCatalog();
 const dialogues = readFileSync(file, "utf8").split(/\n+/).filter(Boolean).map((line) => JSON.parse(line) as Dialogue);
-let pass = 0, total = 0, safety = 0, resolved = 0, unresolved = 0, abandoned = 0, wrong = 0;
+const repo = loadSeedCatalog();
+let total = 0, pass = 0;
+let resolved = 0, unresolved = 0, abandoned = 0, safety = 0;
+const failures: string[] = [];
 for (const dialogue of dialogues) {
   let state: TurnState = emptyTurnState();
-  const results: Array<{ status: string; served: number; clarifyReason: string | null; class: string; expectPass: boolean | null }> = [];
+  const results: Array<{ status: string; names: string[]; reason: string | null; expect?: Expect }> = [];
   for (let i = 0; i < dialogue.turns.length; i++) {
     const result = runChefTurn(state, dialogue.turns[i], repo, familyId);
     state = result.state;
-    const key = `t${i + 1}`;
-    const expected = dialogue.expect?.[key];
-    const ok = !expected || (
-      (expected.exit == null || expected.exit === result.status)
-      && (expected.served == null || expected.served === result.recipes.length)
-      && (expected.ai == null || expected.ai === result.ai)
-      && (expected.credits == null || expected.credits === result.credits)
-      && (expected.clarifyReason == null || expected.clarifyReason === result.clarifyReason)
-    );
-    if (expected) { total += 1; if (ok) pass += 1; }
-    results.push({ status: result.status, served: result.recipes.length, clarifyReason: result.clarifyReason, class: dialogue.classes?.[key] ?? "unknown", expectPass: expected ? ok : null });
+    const expect = dialogue.expect?.[`t${i + 1}`];
+    results.push({ status: result.status, names: result.recipes.map((card) => card.name), reason: result.clarifyReason, expect });
+    if (!expect) continue;
+    total += 1;
+    const names = result.recipes.map((card) => card.name);
+    const allowed = expect.allowedCards?.length ? names.every((name) => expect.allowedCards!.includes(name)) : true;
+    const forbidden = expect.forbiddenCards?.length ? names.every((name) => !expect.forbiddenCards!.includes(name)) : true;
+    const ok = (expect.exit == null || expect.exit === result.status)
+      && (expect.served == null || expect.served === result.recipes.length)
+      && (expect.ai == null || expect.ai === result.ai)
+      && (expect.credits == null || expect.credits === result.credits)
+      && (expect.clarifyReason == null || expect.clarifyReason === result.clarifyReason)
+      && allowed && forbidden;
+    if (ok) pass += 1;
+    else failures.push(`${dialogue.id}/${dialogue.turns[i]} actual=${result.status}/${result.recipes.length} expected=${JSON.stringify(expect)}`);
   }
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status !== "ask") continue;
-    if (r.class === "safety" || r.clarifyReason === "safety") { safety += 1; continue; }
+    if (dialogue.classes?.[`t${i + 1}`] === "safety" || r.reason === "safety") { safety += 1; continue; }
     if (i + 1 >= results.length) { abandoned += 1; continue; }
     const next = results.slice(i + 1, i + 4);
-    if (next.some((x) => x.served > 0)) resolved += 1; else unresolved += 1;
+    const cards = next.flatMap((item) => item.names);
+    const allowed = r.expect?.allowedCards;
+    const resolvedByAllowed = cards.length > 0 && (!allowed || cards.every((name) => allowed.includes(name)));
+    if (resolvedByAllowed) resolved += 1; else unresolved += 1;
   }
 }
-console.log(JSON.stringify({
-  file, familyId, oracle: { pass, total, passRate: total ? pass / total : 0 },
-  askResolution_ux: { resolved, unresolved, abandoned, safety, rate: resolved + unresolved ? resolved / (resolved + unresolved) : 0 },
-}, null, 2));
+console.log(JSON.stringify({ pass, total, fail: total - pass, failures, askResolution_ux: { resolved, unresolved, abandoned, safety } }, null, 2));
+if (pass !== total) process.exitCode = 1;
