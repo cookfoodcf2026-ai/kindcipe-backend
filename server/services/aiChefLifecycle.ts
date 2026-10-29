@@ -311,9 +311,8 @@ export async function runChefLifecycle(input: ChefLifecycleInput): Promise<ChefL
   }
 
   const charge = shouldChargeChefRequest({
-    llmUsed: result.llmUsed,
-    requested: reply.requested.total,
     served: reply.served,
+    aiCards: result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length,
   });
   if (reservationId !== undefined) {
     if (charge) await input.commitCredit(reservationId);

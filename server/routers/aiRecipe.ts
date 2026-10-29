@@ -7,6 +7,8 @@ import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, star
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { fallbackQueriesForFoodTerm, findFoodTerm, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
+import { getChatQuotaState } from "../services/chatQuota";
+import { lookupFaqAnswer } from "../services/chefFaq";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
 import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
@@ -2053,6 +2055,21 @@ async function applyLibraryMatch(
   return false;
 }
 
+// Chat/technique should not carry the 3k-token recipe JSON schema. Keep this
+// light prompt in sync with the Version A chat-cost budget.
+export const LIGHT_CHAT_MAX_TOKENS = 400;
+export const LIGHT_CHAT_SYSTEM_PROMPT = `你係 Kindcipe 嘅 AI 廚房助手。用繁體中文簡潔回答煮食、食材、技巧同廚房問題。只提供實用步驟、時間、火候同小貼士；唔好輸出 JSON、食譜卡或長篇食譜。若問題未清楚，先問一個簡短問題。唔確定就老實講唔肯定，唔好亂作。`;
+
+function buildLightChatPrompt(lang: string): string {
+  if (lang.startsWith("en")) return `${LIGHT_CHAT_SYSTEM_PROMPT}
+Reply in English. Do not output recipe cards or JSON.`;
+  if (lang.startsWith("fil")) return `${LIGHT_CHAT_SYSTEM_PROMPT}
+Sumagot sa Filipino. Huwag mag-output ng recipe card o JSON.`;
+  if (lang.startsWith("id")) return `${LIGHT_CHAT_SYSTEM_PROMPT}
+Jawab dalam Bahasa Indonesia. Jangan keluarkan recipe card atau JSON.`;
+  return LIGHT_CHAT_SYSTEM_PROMPT;
+}
+
 // Build dynamic system prompt based on mode and library context
 function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW"): string {
   let modeSection = `\n\n你係 AI 助手，一個親切嘅烹飪對話夥伴。判斷用戶意圖：
@@ -2905,6 +2922,7 @@ export async function processAIChefChat(
   } = {},
   operation: "replace" | "append" = "replace",
   allowAiFallback: boolean = true,
+  allowChatLlm: boolean = true,
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[] }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -2962,6 +2980,14 @@ export async function processAIChefChat(
   }
   if (ambiguousFood) {
     return { content: clarifyFoodReply(lang), recipes: [], llmUsed: false };
+  }
+  // Verified FAQ answers are always free and work even when chat quota is low.
+  if (!wantCards) {
+    const faq = lookupFaqAnswer(lastUserText);
+    if (faq) {
+      console.log(`[AI Chef] faq hit query="${lastUserText}"`);
+      return { content: faq, recipes: [], llmUsed: false };
+    }
   }
 
   const db = await getDb();
@@ -3089,6 +3115,19 @@ export async function processAIChefChat(
         console.log(`[AI Chef] unmatched_terms="${rawQuery}" query_rows=0 raw_fallback=miss`);
       }
     }
+  }
+
+  // Chat budget/quota exhausted: do not call the LLM. The raw/library fallback
+  // above may already have turned this into a free library-card response.
+  if (!allowChatLlm && !wantCards) {
+    console.log(`[AI Chef] chat fallback reason=daily_or_monthly_quota_or_budget`);
+    return {
+      content: lang.startsWith("en")
+        ? "I can't use free AI chat right now, but you can still search the recipe library or ask me a cooking-time FAQ. No credit was used."
+        : "我暫時未能用免費 AI 對話，但仍然可以用食譜庫搜尋，或者問我煎牛扒／蒸魚／白灼蝦／氣炸雞翼等時間。冇扣 credit。",
+      recipes: [],
+      llmUsed: false,
+    };
   }
 
   // ══════════ Free-text multi-card requests：library by role → AI fill missing ══════════
@@ -3547,21 +3586,23 @@ export async function processAIChefChat(
     }
   }
 
-  let systemPrompt = buildSystemPrompt(libSummary, soupIntent, lang);
-  if (requestedCount && requestedCount > 1) {
-    systemPrompt += `\n\n【本輪卡數】請提供 ${requestedCount} 個食譜，數量必須符合用戶要求。`;
-  }
-  if (popularHint) systemPrompt += `\n\n${popularHint}`;
-  if (avoidIngredients.length > 0) {
-    systemPrompt += `\n\n⛔ 安全限制：以下食材係用戶敏感/必須避免，任何食譜都完全唔可以包含（包括醬汁、裝飾、替代食材）：${avoidIngredients.join("、")}。輸出前請逐個檢查 ingredients。`;
-  }
-  // 純對話（greeting/technique/圖片）-> 強調唔好出食譜 JSON
-  if (forceNoCards) {
-    systemPrompt += "\n\n（本輪只回答用戶問題：請用正常文字回覆，不要輸出 JSON，也不要推薦或附上食譜卡。）";
-  } else if (isPlain) {
-    systemPrompt += "\n\n（本輪為純對話/技巧查詢：請用正常文字親切回覆，不要輸出 JSON，也不要附食譜。）";
-  } else if (mergedExclude.length > 0) {
-    systemPrompt += `\n\n⚠️ 絕對唔可以推薦以下用戶最近睇過嘅菜式，諗一啲全新嘅：${mergedExclude.slice(0, 10).join("、")}`;
+  const useLightChatPrompt = forceNoCards && !wantCards;
+  let systemPrompt = useLightChatPrompt
+    ? buildLightChatPrompt(lang)
+    : buildSystemPrompt(libSummary, soupIntent, lang);
+  if (!useLightChatPrompt) {
+    if (requestedCount && requestedCount > 1) {
+      systemPrompt += `\n\n【本輪卡數】請提供 ${requestedCount} 個食譜，數量必須符合用戶要求。`;
+    }
+    if (popularHint) systemPrompt += `\n\n${popularHint}`;
+    if (avoidIngredients.length > 0) {
+      systemPrompt += `\n\n⛔ 安全限制：以下食材係用戶敏感/必須避免，任何食譜都完全唔可以包含（包括醬汁、裝飾、替代食材）：${avoidIngredients.join("、")}。輸出前請逐個檢查 ingredients。`;
+    }
+    if (isPlain) {
+      systemPrompt += "\n\n（本輪為純對話/技巧查詢：請用正常文字親切回覆，不要輸出 JSON，也不要附食譜。）";
+    } else if (mergedExclude.length > 0) {
+      systemPrompt += `\n\n⚠️ 絕對唔可以推薦以下用戶最近睇過嘅菜式，諗一啲全新嘅：${mergedExclude.slice(0, 10).join("、")}`;
+    }
   }
   // 單菜 AI 生成（非 3餸1湯）：明確只出 1 個，避免 LLM 浪費 tokens 喺多餘菜式（同時令生成更快）
   if (mode === "ai" && !soupIntent && !isPlain) {
@@ -3570,7 +3611,7 @@ export async function processAIChefChat(
 
   // Fix3: 將已睇過名單直接加入最後一條 user message，令 flash 直接睇到（比淨係 system prompt 更有效）
   const llmMsgsWithExclude = [...llmMsgs];
-  if (!isPlain && mergedExclude.length > 0) {
+  if (!useLightChatPrompt && !isPlain && mergedExclude.length > 0) {
     const lastIdx = llmMsgsWithExclude.length - 1;
     const last = llmMsgsWithExclude[lastIdx];
     if (last && last.role === "user") {
@@ -3584,9 +3625,11 @@ export async function processAIChefChat(
     }
   }
 
+  // Light chat gets at most the latest 2–3 rounds; card/meal keeps full context.
+  const llmMsgsForCall = useLightChatPrompt ? llmMsgs.slice(-6) : llmMsgsWithExclude;
   const msgs: Message[] = [
     { role: "system", content: systemPrompt },
-    ...llmMsgsWithExclude,
+    ...llmMsgsForCall,
   ];
 
   const enableSearch = false; // 一律唔行 tools loop / web search：單輪 LLM，快靚正（library-first 已做查庫）
@@ -3599,7 +3642,7 @@ export async function processAIChefChat(
     llmUsed = true; // 有叫 LLM 就標記（即使 timeout 都計，因為有 call 過）
     try {
       const out = await withTimeout(
-        runToolsLoop(msgs, familyId, userId, enableSearch, wantCards, wantCards ? {} : { maxTokens: 600, timeoutMs: 12000 }),
+        runToolsLoop(msgs, familyId, userId, enableSearch, wantCards, wantCards ? {} : { maxTokens: LIGHT_CHAT_MAX_TOKENS, timeoutMs: 12000 }),
         mode === "ai" ? 35000 : wantCards ? AI_RECIPE_CHAT_TIMEOUT_MS : 15000,
         "ai chef chat",
       );
@@ -4715,6 +4758,7 @@ export const aiRecipeRouter = router({
       let budgetReservationId: number | undefined;
       let effectiveMode: "chat" | "ai" | "library" = mode;
       let allowAiFallback = true;
+      let allowChatLlm = true;
 
       const flagState = familyId
         ? await getAiChefMode(familyId)
@@ -4763,6 +4807,16 @@ export const aiRecipeRouter = router({
           used: summary.aiCredits,
           nearLimit: summary.aiCredits >= ent.limits.aiCredits,
         };
+
+        if (!intent.wantsCards) {
+          const chatQuota = await getChatQuotaState(
+            familyId,
+            userIdStr,
+            ent.plan === "free" ? "free" : "pro",
+          );
+          allowChatLlm = chatQuota.allowed;
+          console.log(`[AI Chef] chat_quota_used=${chatQuota.dailyUsed}/${chatQuota.dailyLimit} monthly=${chatQuota.monthlyUsed}/${chatQuota.monthlyLimit} chat_budget=${chatQuota.monthlyCostMicros}/${chatQuota.costCapMicros} bucket=chat allowed=${chatQuota.allowed} reason=${chatQuota.reason}`);
+        }
 
         const userLibraryMode = mode === "library";
         if (flagState.mode !== "normal" || (flagState.flags.ai_chef_free_no_ai === true && ent.status === "free")) {
@@ -4865,6 +4919,7 @@ export const aiRecipeRouter = router({
           flagState.flags,
           input.operation ?? "replace",
           allowAiFallback,
+          allowChatLlm,
         );
       } catch (error) {
         if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
@@ -4895,13 +4950,8 @@ export const aiRecipeRouter = router({
       if (zeroCardFood || cardClaim) {
         console.warn(`[AI Chef] zero-card refund reason=${zeroCardFood ? "wants_cards" : "card_claim"}`);
       }
-      const shouldCharge = shouldChargeChefRequest({
-        llmUsed: result.llmUsed,
-        requested,
-        served,
-        wantsCards: intent.wantsCards,
-        cardClaim,
-      });
+      const aiCards = result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length;
+      const shouldCharge = shouldChargeChefRequest({ served, aiCards });
 
       const responseLang = input.lang ?? "zh-TW";
       if (zeroCardFood || cardClaim) {

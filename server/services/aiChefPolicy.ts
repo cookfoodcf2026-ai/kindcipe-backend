@@ -1,23 +1,15 @@
 export type ChefChargeInput = {
-  llmUsed: boolean;
-  requested: number;
+  /** Cards actually returned to the user. */
   served: number;
-  /** The user asked for cards (meal/recipe), even if intent requested.total is 0. */
-  wantsCards?: boolean;
-  /** The reply text promises recipe cards that were not served. */
-  cardClaim?: boolean;
+  /** Cards produced by the LLM (source === "ai"). */
+  aiCards: number;
 };
 
 /**
- * A partial recipe set is a failed request for the user, so it must not consume
- * a paid AI credit. Text-only answers (requested=0) keep the normal LLM charge —
- * unless the text promised cards that do not exist, which is a broken request
- * dressed up as a delivered one.
+ * Product rule: only served AI-generated cards consume a credit.
+ * Pure library cards, pure text chat, and zero-card responses are free.
+ * This decision intentionally does not depend on mode/path.
  */
-export function shouldChargeChefRequest({ llmUsed, requested, served, wantsCards, cardClaim }: ChefChargeInput): boolean {
-  if (!llmUsed) return false;
-  if (served === 0 && wantsCards === true) return false;
-  if (served === 0 && cardClaim === true) return false;
-  if (requested > 0 && served < requested) return false;
-  return true;
+export function shouldChargeChefRequest({ served, aiCards }: ChefChargeInput): boolean {
+  return served > 0 && aiCards > 0;
 }
