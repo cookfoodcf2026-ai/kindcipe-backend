@@ -9,7 +9,7 @@ import type { RecipeRepository } from "./repository";
 const TECHNIQUE_RE = /幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|蒸定|蒸籠|用鑊蒸|用鍋蒸|氣炸鍋|氣炸|air\s*fryer|how\s*(long|to|many)|temperature/i;
 const NON_FOOD_RE = /訂機票|订机票|機票|机票|flight|酒店|電郵|邮件|email|機械人|机器人|卡路里|營養|营养|medical|medicine/i;
 const POLITE_RE = /^(?:多謝|谢谢|唔該|thank\s*you|thanks|thx)[\s!！。.]*$/i;
-const CONTEXT_RE = /^(?:唔要|不要|唔好|走|清淡|健康|辣|辣啲|小辣|少辣|七成熟|五成熟|全熟|快|快啲|再|多|配菜)/i;
+const CONTEXT_RE = /^(?:唔要|不要|唔好|走|清淡|健康|辣|辣啲|小辣|少辣|我要七成熟|我要五成熟|我要全熟|七成熟|五成熟|全熟|配菜|快|快啲|再|多)/i;
 const PANTRY_RE = /雪櫃|冰箱|pantry|剩|得/i;
 const CLOSEST_RE = /最接近|有冇最接近|有邊幾款|有咩選擇|closest|nearest/i;
 
@@ -87,6 +87,14 @@ export function runChefTurn(
     return result("ask", safetyQuestion("zh-TW", safety), [], { kind: "ask", question: "safety" }, next, "safety");
   }
 
+  if (state.pendingAsk?.key.startsWith("safety") && /注意|安全|替代|點食|可以食/.test(text)) {
+    const next = withAsk(state, "safety");
+    return result("ask", "安全要緊：請先確認你嘅敏感原或身體狀況；確診前我唔會出卡。", [], {
+      kind: "ask",
+      question: "safety",
+    }, next, "safety");
+  }
+
   if (POLITE_RE.test(text)) {
     return result("text", "唔使客氣。想再搵食譜就話我知。", [], { kind: "non_food" }, clearAsk(state), "non_food");
   }
@@ -97,6 +105,13 @@ export function runChefTurn(
 
   if (TECHNIQUE_RE.test(text)) {
     return result("text", "呢個係煮食技巧問題；我會用文字答，唔出卡。", [], { kind: "technique" }, clearAsk(state), null);
+  }
+
+  if (CLOSEST_RE.test(text) && !state.lastMiss && state.cardNames.length > 0) {
+    const cards = repo.byNames(state.cardNames.slice(0, 3), familyId);
+    if (cards.length > 0) {
+      return result("cards", "以下係上一輪最接近嘅食譜。", cards, { kind: "closest" }, withMeal(state, state.shape, cards.map((card) => card.name)), null);
+    }
   }
 
   if (CLOSEST_RE.test(text) && state.lastMiss) {
@@ -118,14 +133,25 @@ export function runChefTurn(
   });
   const queryPlan = buildDomainQueryPlan(text);
 
+  if (/^我唔食/.test(text)) {
+    const next = withAsk(state, "preference");
+    return result("ask", "明白你唔食呢樣。你想食邊類？", [], {
+      kind: "ask",
+      question: "preference",
+    }, next, "ambiguous_food");
+  }
+
   if (PANTRY_RE.test(text) && !planned) {
     const terms = text.match(/[\u4e00-\u9fff]{2,}/g)?.filter((term) => !/雪櫃|冰箱|有|同|和|剩|得/.test(term)) ?? [];
     const pantryPlan = { ...queryPlan, dishTypes: [], scenarios: [], text: "", avoid: [] };
     const candidates = repo.search(pantryPlan, familyId).filter((card) =>
       terms.some((term) => card.ingredients.some((ingredient) => ingredient.includes(term))),
     );
-    if (candidates.length > 0) {
-      const cards = candidates.slice(0, 1);
+    const pantryCards = candidates.length > 0
+      ? candidates.slice(0, 1)
+      : repo.search({ ...pantryPlan, dishTypes: [], scenarios: [], text: "" }, familyId).slice(0, 1);
+    if (pantryCards.length > 0) {
+      const cards = pantryCards;
       return result("cards", "用你雪櫃有嘅食材，可以先試呢個：", cards, {
         kind: "recipe",
         shape: { dishes: cards.length, soups: 0 },
@@ -185,10 +211,13 @@ export function runChefTurn(
     }
   }
 
-  const specific = /[\u4e00-\u9fff]{4,}/.test(text)
-    && !/我要/.test(text)
+  const namedProtein = /魚|鱼|蝦|虾|牛|和牛|beef|steak|雞|鸡|pork|chicken/i.test(text)
+    && !/(?:有咩|有乜|食咩好|雪櫃|冰箱)/.test(text)
+    && !/唔食/.test(text);
+  const specific = (/[\u4e00-\u9fff]{4,}/.test(text) || namedProtein)
+    && !/^我要/.test(text)
     && !/(?:有咩|有乜|想食|想要|食咩好|有邊|款式|選擇|推薦|推介|再一套|唔要|唔食|不要|快煮|清淡|雪櫃|冰箱|多謝|唔該)/.test(text);
-  if (specific && !planned) {
+  if ((specific || namedProtein) && !planned) {
     const alternatives = repo.search({ ...queryPlan, text: "", dishTypes: [] }, familyId).slice(0, 3);
     const exact = alternatives.some((card) => normalize(card.name).includes(normalize(text)) || normalize(text).includes(normalize(card.name)));
     if (!exact) {
@@ -216,14 +245,6 @@ export function runChefTurn(
       kind: "recipe",
       shape: { dishes: cards.length, soups: 0 },
     }, next, null);
-  }
-
-  const fallback = repo.search(buildDomainQueryPlan("家常"), familyId).slice(0, 3);
-  if (fallback.length > 0) {
-    return result("cards", "我先幫你揀 3 張預設；唔啱話我知，再幫你換。", fallback, {
-      kind: "meal",
-      shape: { dishes: fallback.length, soups: 0 },
-    }, withMeal(state, { dishes: fallback.length, soups: 0 }, fallback.map((card) => card.name)), null);
   }
 
   const next = withAsk(state, "clarify");
