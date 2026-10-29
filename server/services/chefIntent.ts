@@ -1,4 +1,5 @@
 import { findFoodTerm, foodItemType, hasRequestVerb, lastFoodClause, roleForFoodTerm } from "./foodLexicon";
+import { planChefTurn } from "./chefPlanner";
 
 export type RequestedRole =
   | "meat"
@@ -37,6 +38,8 @@ export type ResolveChefIntentOptions = {
   noodleRole?: boolean;
   /** Previous user message, used to inherit a meal request on follow-ups. */
   previousUserText?: string;
+  previousTexts?: string[];
+  previousMeal?: { dishes: number; soups: number };
 };
 
 const CN_NUM: Record<string, number> = {
@@ -48,10 +51,6 @@ const SMALL_TALK_RE = /^(hi|hello|hey|how are (you|u)|how r u|i am (so )?sad|i'?
 const AMBIGUOUS_FOOD_RE = /(我唔知|唔知|隨便|求其|你話事|食咩好|煮咩好|有咩好|i don'?t know|not sure|surprise me|help me decide)/i;
 const TECHNIQUE_RE = /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|點先|點至|how\s*(long|to|many)|temperature|煮幾耐|蒸幾耐|焗幾耐|煎幾耐|煲幾耐)/i;
 const NOODLE_RE = /(?:魚面|魚麵|魚蛋麵|魚蛋面|魚片麵|魚片面|牛腩麵|牛腩面|蝦子麵|蝦子面|車仔麵|車仔面|魚湯粉|湯粉|魚蛋粉|魚片河|牛腩河|湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|河粉|米粉|noodle|ramen|udon|soba|pasta|laksa|pho)/i;
-// A short follow-up such as「比另一set我」only makes sense in the context of
-// the preceding meal request. Do not treat it as small talk.
-const MEAL_FOLLOW_UP_RE = /^(?:再|換|唔同|另一|第二|another|next|different)(?:\s|$|，|,|。|！|!|\?|？)|^(?:再|換|唔同|另一|第二)(?:一|兩|几|幾)?(?:套|組|份)|^(?:再|換|唔同|另一|第二).{0,6}嘅|(?:再|另一|換|唔同|第二|另一個|另一組|再嚟|再來|different|another|next)\s*.{0,10}(?:set|組|餐|批|款|round|one|meal)|\b(?:give me|i want|show me)\s+(?:another|a different)\b|比另一\s*set/i;
-
 // The app's meal-questionnaire sends a long canned prompt, not the user's own
 // ingredient words. Those category labels must never become library anchors.
 const CANNED_MEAL_RE = /請為我設計|總共\s*\d+\s*道菜|適合\s*\d+\s*人食用|煮食時間要求|分類如下|[（(]如[^）)]*[）)]/i;
@@ -238,19 +237,6 @@ function explicitSimpleCount(text: string): ChefRequested | null {
   return { total: n, roles: dishRoles(n) };
 }
 
-export type MealShape = { dishes: number; soups: number };
-
-/** Structural meal count parser; not a per-sentence lexicon. */
-export function parseMealShape(text: string): MealShape | null {
-  const raw = String(text ?? "").trim();
-  const m = raw.match(/(\d+|[一二兩两三四五六七八九十])\s*[送餸菜]\s*(?:(\d+|[一二兩两三四五六七八九十])\s*[湯汤]|[湯汤])/);
-  if (!m) return null;
-  const dishes = toNumber(m[1]);
-  const soups = m[2] ? toNumber(m[2]) : 1;
-  if (dishes === null || soups === null) return null;
-  return { dishes: Math.max(0, Math.min(10, dishes)), soups: Math.max(1, Math.min(5, soups)) };
-}
-
 export function resolveChefIntent(
   rawText: string,
   opts: ResolveChefIntentOptions = {},
@@ -290,15 +276,25 @@ export function resolveChefIntent(
     return { kind: "technique", wantsCards: false, requested: empty, confidence: 0.9, reason: "technique" };
   }
 
-  if (opts.previousUserText && isMealFollowUp(text)) {
-    const prior = resolveChefIntent(opts.previousUserText, { ...opts, previousUserText: "" });
-    if (prior.kind === "meal" && prior.requested.total > 0) {
-      return {
-        ...prior,
-        confidence: 0.9,
-        reason: "meal_followup",
-      };
+  const planned = planChefTurn(text, { previousText: opts.previousUserText, previousTexts: opts.previousTexts, previousMeal: opts.previousMeal });
+  if (planned) {
+    let roles = planned.requested.roles;
+    if (planned.reason === "explicit_meal") {
+      const hinted = (explicitMixedRoles(text) ?? []).filter((role) => role !== "soup" && role !== "dessert");
+      if (hinted.length > 0) {
+        const dishes = planned.shape.dishes;
+        const dishRoles = [...new Set(hinted)].slice(0, dishes);
+        while (dishRoles.length < dishes) dishRoles.push("any");
+        roles = [...dishRoles, ...Array.from({ length: planned.shape.soups }, () => "soup" as RequestedRole)];
+      }
     }
+    return {
+      kind: planned.kind,
+      wantsCards: true,
+      requested: { total: roles.length, roles },
+      confidence: planned.confidence,
+      reason: planned.reason,
+    };
   }
 
   // If there is no numeric count, the number of named items is the number of
@@ -416,9 +412,4 @@ export function previousUserText(
 ): string {
   const users = messages.filter((m) => m.role === "user");
   return users.length >= 2 ? messageText(users[users.length - 2]) : "";
-}
-
-/** True for short follow-ups that should inherit the previous meal intent. */
-export function isMealFollowUp(text: string): boolean {
-  return MEAL_FOLLOW_UP_RE.test(String(text ?? "").trim());
 }

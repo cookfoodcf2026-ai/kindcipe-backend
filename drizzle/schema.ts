@@ -709,6 +709,21 @@ export const aiChefSeenRecipes = pgTable("ai_chef_seen_recipes", {
 export type AiChefSeenRecipe = typeof aiChefSeenRecipes.$inferSelect;
 export type InsertAiChefSeenRecipe = typeof aiChefSeenRecipes.$inferInsert;
 
+// ─── AI Chef Last Meal State (chatId-less bridge for AI mode) ─────────────────
+export const aiChefMealState = pgTable("ai_chef_meal_state", {
+  familyId: integer("family_id").notNull(),
+  userId: text("user_id").notNull(),
+  shape: jsonb("shape").$type<{ dishes: number; soups: number }>().notNull(),
+  cardNames: jsonb("card_names").$type<string[]>().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyUserUniq: uniqueIndex("ai_chef_meal_state_family_user_unique").on(t.familyId, t.userId),
+  updatedAtIdx: index("ai_chef_meal_state_updated_at_idx").on(t.updatedAt),
+}));
+
+export type AiChefMealState = typeof aiChefMealState.$inferSelect;
+export type InsertAiChefMealState = typeof aiChefMealState.$inferInsert;
+
 // ─── Common Ingredients ───────────────────────────────────────────────────────
 export const commonIngredients = pgTable("common_ingredients", {
   id: serial("id").primaryKey(),

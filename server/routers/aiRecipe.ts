@@ -5,7 +5,9 @@ import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm"
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
-import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, parseMealShape, type ChefIntent, type RequestedRole } from "../services/chefIntent";
+import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
+import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
+import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
@@ -2963,6 +2965,7 @@ export async function processAIChefChat(
   allowChatLlm: boolean = true,
   searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
   dispatchOverride?: (messages: Array<{ role: string; content: string }>) => Promise<ChefDispatch | null>,
+  stateUserId?: string,
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -3026,10 +3029,27 @@ export async function processAIChefChat(
   // 淨係睇「最後一條 user 訊息」有冇圖片（唔睇成個 history，避免影相後所有 call 都被誤判）
   const hasImage = Array.isArray(lastUserMsg?.content) && lastUserMsg.content.some((c: any) => c.type === "image_url");
 
-  // Single source of truth for free-text intent. `forceText` is legacy and no
-  // longer allowed to override a clear food request. A short follow-up such as
-  // 「比另一set我」inherits the preceding meal shape.
-  let chefIntent: ChefIntent = resolveChefIntent(lastUserText, { hasImage, mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE, previousUserText: previousText });
+  // Single source of truth for free-text intent. Structural meal commands are
+  // parsed by the planner; semantic/food-name requests go to the dispatcher.
+  const previousTexts = inputMessages
+    .filter((m) => m.role === "user")
+    .slice(0, -1)
+    .map((m) => textOf(m))
+    .filter(Boolean);
+  const stateKey = stateUserId ?? (typeof userId === "number" && Number.isFinite(userId) ? String(userId) : undefined);
+  const storedMeal = mode === "ai" && familyId && stateKey && !previousText && isStructuralShortFollowUp(lastUserText)
+    ? (await getLastMealState(familyId, stateKey))?.shape
+    : undefined;
+  const plannedTurn = planChefTurn(lastUserText, { previousText, previousTexts, previousMeal: storedMeal });
+  let chefIntent: ChefIntent = resolveChefIntent(lastUserText, {
+    hasImage,
+    mode,
+    forceText,
+    noodleRole: AI_CHEF_NOODLE_ROLE,
+    previousUserText: previousText,
+    previousTexts,
+    previousMeal: storedMeal,
+  });
   let requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
   let forceNoCards = hasImage || !chefIntent.wantsCards;
   let isPlain = !chefIntent.wantsCards;
@@ -3187,11 +3207,7 @@ export async function processAIChefChat(
   // Dispatcher path: free-text chat is understood by the model first; this
   // replaces the old per-sentence rule path for normal conversation.
   const hasDispatcherKey = Boolean(process.env.DASHSCOPE_API_KEY || process.env.GEMINI_API_KEY);
-  const previousMealIntent = previousText
-    ? resolveChefIntent(previousText, { mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE })
-    : null;
-  const mealFollowUp = Boolean(previousMealIntent?.kind === "meal" && isMealFollowUp(lastUserText));
-  const dispatcherEnabled = !parseMealShape(lastUserText) && !mealFollowUp && mode === "chat"
+  const dispatcherEnabled = !plannedTurn && mode === "chat"
     && Boolean(db)
     && allowChatLlm
     && (hasDispatcherKey || Boolean(dispatchOverride))
@@ -3416,7 +3432,11 @@ export async function processAIChefChat(
 
   // A named dish/compound item that has no exact library row must not be
   // silently replaced by a generic role. Return a clarify response instead.
-  const requestItems = extractMealIngredients(lastUserText).filter((term) => !/^(?:和|同|及|跟)$/.test(term));
+  const latestMealText = [...previousTexts].reverse().find((item) => planChefTurn(item));
+  const mealRequestText = plannedTurn?.followUp && (latestMealText || previousText)
+    ? (latestMealText || previousText)
+    : lastUserText;
+  const requestItems = extractMealIngredients(mealRequestText).filter((term) => !/^(?:和|同|及|跟)$/.test(term));
   const genericMealRequest = /(是但|隨便|求其|煮個|整個|有咩好|食咩好)/.test(lastUserText);
   const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
   const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
@@ -3455,7 +3475,9 @@ export async function processAIChefChat(
     const requested = chefIntent.requested;
     // Use the user's ingredient words for this meal. On a follow-up, the
     // previous message is the meal context; otherwise use the latest message.
-    const mealContextText = isMealFollowUp(lastUserText) && previousText ? previousText : lastUserText;
+    const mealContextText = plannedTurn?.followUp && (latestMealText || previousText)
+      ? (latestMealText || previousText)
+      : lastUserText;
     const mealPath: "canned" | "user" = isCannedMealPrompt(mealContextText) ? "canned" : "user";
     // Canned questionnaire prompts are instructions, not ingredients. For real
     // user text keep only food words (no labels like 道菜/主菜/小炒).
@@ -3624,6 +3646,7 @@ export async function processAIChefChat(
         recipes: cards,
         llmUsed,
         clarifyReason: assembled.missingRoles.length > 0 && assembled.sources.ai > 0 ? "ai_partial" : undefined,
+        intentOverride: chefIntent,
       };
     }
     console.warn(`[AI Chef] role assembler produced 0 cards for roles=${requested.roles.join(",")}`);
@@ -5292,6 +5315,9 @@ export const aiRecipeRouter = router({
           input.operation ?? "replace",
           allowAiFallback,
           allowChatLlm,
+          undefined,
+          undefined,
+          userIdStr,
         );
       } catch (error) {
         if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
@@ -5313,6 +5339,15 @@ export const aiRecipeRouter = router({
       const effectiveIntent = result.intentOverride ?? intent;
       const served = result.recipes?.length ?? 0;
       const requested = effectiveIntent.requested.total;
+      if (familyId && served > 0 && requested > 1) {
+        const soupCount = effectiveIntent.requested.roles.filter((role) => role === "soup").length;
+        await saveLastMealState(
+          familyId,
+          String(ctx.user.id),
+          { dishes: Math.max(0, requested - soupCount), soups: soupCount },
+          result.recipes.map((recipe) => recipe.name).filter(Boolean),
+        );
+      }
       const incompleteSet = requested > 0 && served < requested;
       // Any food/card request that served zero cards is a failed request, not a
       // normal text answer. Do not charge it, and never claim cards were prepared.
@@ -5479,7 +5514,7 @@ export const aiRecipeRouter = router({
         console.log(`[AI Chef] refund partial set requested=${requested} served=${served} credits=${requestedCredits}`);
       }
       const metricPath = isCannedMealPrompt(lastUserText(input.messages))
-        || (isMealFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
+        || (isStructuralShortFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
         ? "canned"
         : "user";
       console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);

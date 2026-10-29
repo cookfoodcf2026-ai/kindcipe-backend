@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractMealIngredients, isCannedMealPrompt, parseMealShape, resolveChefIntent } from "./chefIntent";
+import { extractMealIngredients, isCannedMealPrompt, resolveChefIntent } from "./chefIntent";
+import { parseMealShape } from "./chefPlanner";
 
 test("one meat and dessert (zh) requests two explicit cards", () => {
   const intent = resolveChefIntent("我淨係要一個肉，同甜品", { mode: "chat" });
@@ -109,7 +110,7 @@ test("meal follow-up inherits previous 3-dish 1-soup roles", () => {
   assert.equal(intent.kind, "meal");
   assert.equal(intent.wantsCards, true);
   assert.equal(intent.requested.total, 4);
-  assert.deepEqual(intent.requested.roles, ["meat", "vegetable", "any", "soup"]);
+  assert.deepEqual(intent.requested.roles, ["meat", "seafood", "vegetable", "soup"]);
   assert.equal(intent.reason, "meal_followup");
 });
 
