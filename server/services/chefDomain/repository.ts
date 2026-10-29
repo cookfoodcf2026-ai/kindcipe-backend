@@ -42,9 +42,16 @@ export class FakeRepository implements RecipeRepository {
   }
 
   byFacets(facets: string[], familyId: number, dishTypes: DomainDishType[] = []): RecipeCard[] {
-    return this.cards.filter((card) => (card.visibility !== "private" || card.familyId === familyId)
-      && (dishTypes.length === 0 || dishTypes.includes(card.dishType))
-      && (facets.length === 0 || facets.every((facet) => (card.facets ?? []).includes(facet))));
+    const primary = facets.filter((facet) => facet !== "vegetable" && facet !== "soup");
+    const required = primary.length > 0 ? primary : facets;
+    return this.cards
+      .filter((card) => (card.visibility !== "private" || card.familyId === familyId)
+        && (dishTypes.length === 0 || dishTypes.includes(card.dishType))
+        && (required.length === 0 || required.some((facet) => (card.facets ?? []).includes(facet))))
+      .sort((a, b) => {
+        const score = (card: RecipeCard) => facets.filter((facet) => (card.facets ?? []).includes(facet)).length;
+        return score(b) - score(a) || a.id.localeCompare(b.id);
+      });
   }
 
   static standardCatalog(): RecipeCard[] {

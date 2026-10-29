@@ -259,9 +259,16 @@ export function runChefTurn(
 
   if (state.pendingAsk && state.pendingAsk.askedCount >= state.pendingAsk.maxAskCount
     && queryPlan.dishTypes.length === 0 && queryPlan.scenarios.length === 0) {
-    const fallback = repo.search(buildDomainQueryPlan("家常"), familyId).slice(0, 3);
+    // Preserve the target of the ask; only use the generic basket when there is
+    // no prior miss/target to carry.
+    const carried = state.lastMiss?.alternatives?.length
+      ? repo.byNames(state.lastMiss.alternatives.slice(0, 3), familyId)
+      : [];
+    const fallback = carried.length > 0
+      ? carried
+      : repo.search(buildDomainQueryPlan("家常"), familyId).slice(0, 3);
     if (fallback.length > 0) {
-      return result("cards", "我先幫你揀 3 張預設；唔啱話我知，再幫你換。", fallback, {
+      return result("cards", carried.length > 0 ? "我按你上一輪嘅目標再揀 3 張。" : "我先幫你揀 3 張預設；唔啱話我知，再幫你換。", fallback, {
         kind: "meal",
         shape: { dishes: fallback.length, soups: 0 },
       }, withMeal(state, { dishes: fallback.length, soups: 0 }, fallback.map((card) => card.name)), null);
