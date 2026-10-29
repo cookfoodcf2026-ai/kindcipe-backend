@@ -175,3 +175,27 @@ test("liking beef is chat, not a card request", () => {
   assert.equal(intent.kind, "chat");
   assert.equal(intent.wantsCards, false);
 });
+
+test("compound noodle items are one item, not fish + soup", () => {
+  for (const text of ["魚湯粉", "湯粉", "魚蛋粉", "魚片河", "牛腩河"]) {
+    const intent = resolveChefIntent(text, { mode: "chat" });
+    assert.equal(intent.requested.total, 1, text);
+    assert.deepEqual(intent.requested.roles, ["noodle"], text);
+  }
+});
+
+test("fish soup noodles + vegetable is two items", () => {
+  const intent = resolveChefIntent("我想食魚湯粉同菜", { mode: "chat" });
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.requested.total, 2);
+  assert.deepEqual(intent.requested.roles, ["noodle", "vegetable"]);
+  assert.ok(!intent.requested.roles.includes("seafood"));
+  assert.ok(!intent.requested.roles.includes("soup"));
+});
+
+test("Chinese quantity words 樣 / 款 count cards", () => {
+  const two = resolveChefIntent("我要2樣餸", { mode: "chat" });
+  const three = resolveChefIntent("我要3款菜", { mode: "chat" });
+  assert.equal(two.requested.total, 2);
+  assert.equal(three.requested.total, 3);
+});

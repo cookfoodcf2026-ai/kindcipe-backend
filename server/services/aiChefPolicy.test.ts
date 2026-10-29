@@ -22,3 +22,7 @@ test("zero-card responses charge zero", () => {
 test("pure text chat charges zero", () => {
   assert.equal(shouldChargeChefRequest({ served: 0, aiCards: 0 }), false);
 });
+
+test("partial cards made only from library charge zero", () => {
+  assert.equal(shouldChargeChefRequest({ served: 3, aiCards: 0 }), false);
+});

@@ -244,3 +244,39 @@ test("chat quota exhaustion returns deterministic fallback without LLM", async (
   assert.equal(result.recipes.length, 0);
   assert.match(result.content, /食譜庫|FAQ/);
 });
+
+test("library miss uses clarify status without cards", () => {
+  const intent = resolveChefIntent("我想食魚湯粉同菜", { mode: "chat" });
+  const reply = buildChefReply({
+    requestId: "req_library_miss",
+    intent,
+    result: {
+      content: "我未有你指定嘅魚湯粉",
+      recipes: [],
+      llmUsed: false,
+      missingRoles: intent.requested.roles,
+      clarifyReason: "library_miss",
+    },
+  });
+  assert.equal(reply.status, "clarify");
+  assert.equal(reply.clarifyReason, "library_miss");
+  assert.equal(reply.served, 0);
+});
+
+test("partial AI stays partial_cards with ai_partial reason", () => {
+  const intent = resolveChefIntent("我要2樣餸", { mode: "chat" });
+  const reply = buildChefReply({
+    requestId: "req_ai_partial",
+    intent,
+    result: {
+      content: "我搵到 1 個，但未完成 2 個",
+      recipes: [{ ...card, source: "ai", officialId: undefined }],
+      llmUsed: true,
+      missingRoles: ["any"],
+      clarifyReason: "ai_partial",
+    },
+  });
+  assert.equal(reply.status, "partial_cards");
+  assert.equal(reply.clarifyReason, "ai_partial");
+  assert.equal(reply.served, 1);
+});

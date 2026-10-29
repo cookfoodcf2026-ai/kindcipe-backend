@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import postgres from "postgres";
-import { processAIChefChat } from "../routers/aiRecipe";
+import { execSearchRecipes, processAIChefChat } from "../routers/aiRecipe";
+import { getDb } from "../db";
 import { buildChefReply } from "./aiChefLifecycle";
 import { resolveChefIntent } from "./chefIntent";
 
@@ -23,6 +24,7 @@ const ingredients = (name: string) => JSON.stringify([
 
 async function clear() {
   await sql`delete from official_recipes where name like ${prefix + "%"}`;
+  await sql`delete from custom_recipes where name like ${prefix + "%"}`;
 }
 
 async function insertOfficial(params: {
@@ -349,4 +351,72 @@ test("BUG 10: raw-term DB fallback finds salad before chat path", async () => {
     { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
   );
   assert.ok(mixed.recipes.some((r) => /沙律/.test(r.name)), `expected salad card, got ${mixed.recipes.map((r) => r.name).join("、")}`);
+});
+
+async function insertCustom(params: {
+  name: string;
+  familyId: number;
+  visibility: "private" | "pending_public" | "public";
+  isDraft?: boolean;
+  sourceType?: "manual" | "kol" | "import";
+}) {
+  await sql`insert into custom_recipes
+    (family_id,created_by_user_id,name,description,cook_time,servings,difficulty,recipe_category,dish_type,ingredients,steps,tags,source_type,visibility,is_draft)
+    values (${params.familyId},${"bug-spec"},${params.name},${"同類"},20,4,'easy','家常','other',${ingredients("食材")},${steps},${JSON.stringify(["家常"])},${params.sourceType ?? "manual"},${params.visibility},${params.isDraft ?? false})`;
+}
+
+test("KOL visibility: public KOL and own private recipes are visible", async () => {
+  await insertCustom({ name: `${prefix}KOL_PUBLIC`, familyId: 0, visibility: "public", sourceType: "kol" });
+  await insertCustom({ name: `${prefix}OWN_PRIVATE`, familyId, visibility: "private" });
+  const db = await getDb();
+  assert.ok(db);
+  const result = await execSearchRecipes(db, { query: `${prefix}KOL_PUBLIC`, limit: 10 }, familyId);
+  assert.ok(result.recipes.some((r) => r.name === `${prefix}KOL_PUBLIC`));
+  const own = await execSearchRecipes(db, { query: `${prefix}OWN_PRIVATE`, limit: 10 }, familyId);
+  assert.ok(own.recipes.some((r) => r.name === `${prefix}OWN_PRIVATE`));
+});
+
+test("KOL privacy: other family private, pending_public and drafts are not visible", async () => {
+  await insertCustom({ name: `${prefix}OTHER_PRIVATE`, familyId: familyId + 10, visibility: "private" });
+  await insertCustom({ name: `${prefix}PENDING_PUBLIC`, familyId: 0, visibility: "pending_public", sourceType: "kol" });
+  await insertCustom({ name: `${prefix}KOL_DRAFT`, familyId: 0, visibility: "public", sourceType: "kol", isDraft: true });
+  const db = await getDb();
+  assert.ok(db);
+  const result = await execSearchRecipes(db, { query: `${prefix}`, limit: 100 }, familyId);
+  const names = result.recipes.map((r) => r.name);
+  assert.ok(!names.includes(`${prefix}OTHER_PRIVATE`), "other family private leaked");
+  assert.ok(!names.includes(`${prefix}PENDING_PUBLIC`), "pending_public leaked");
+  assert.ok(!names.includes(`${prefix}KOL_DRAFT`), "draft KOL leaked");
+});
+
+test("library miss returns clarify with three exits and no cards", async () => {
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我想食魚湯粉同菜" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.llmUsed, false);
+  assert.equal(result.clarifyReason, "library_miss");
+  assert.match(result.content, /匯入|最接近|AI/);
+  assert.doesNotMatch(result.content, /西班牙海鮮/);
+});
+
+test("ingredient miss gives same-family alternatives with honest copy", async () => {
+  await sql`delete from official_recipes where name like ${"%和牛%"}`;
+  await insertOfficial({
+    name: `${prefix}黑椒牛柳`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "牛肉",
+    createdAt: new Date(),
+  });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要和牛" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.ok(result.recipes.length > 0);
+  assert.match(result.content, /庫存冇「和牛」/);
+  assert.equal(result.llmUsed, false);
 });
