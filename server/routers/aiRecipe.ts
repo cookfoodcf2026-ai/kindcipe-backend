@@ -386,6 +386,12 @@ export async function recordFamilySeenNames(familyId: number | undefined, names:
 }
 
 // Fix4: 自動重試一次嘅 helper（LLM 出壞 JSON 時用）
+export function zeroCardFoodReply(lang: string): string {
+  return String(lang ?? "").startsWith("zh")
+    ? "我今次整唔到食譜卡（解析失敗），冇扣你 credit。可以再試一次，或者按「食譜庫」／「AI 生成」直接攞。"
+    : "I couldn't build the recipe cards this time (parse failed). No credit was charged. Please try again, or use Library / AI generate.";
+}
+
 export function getRecipeRetryReason(input: {
   content: string;
   finishReason: string;
@@ -4899,9 +4905,7 @@ export const aiRecipeRouter = router({
 
       const responseLang = input.lang ?? "zh-TW";
       if (zeroCardFood || cardClaim) {
-        result.content = responseLang.startsWith("zh")
-          ? "我今次整唔到食譜卡（解析失敗），冇扣你 credit。可以再試一次，或者按「食譜庫」／「AI 生成」直接攞。"
-          : "I couldn't build the recipe cards this time (parse failed). No credit was charged. Please try again, or use Library / AI generate.";
+        result.content = zeroCardFoodReply(responseLang);
       }
       let localizeMs = 0;
       if (!responseLang.startsWith("zh")) {

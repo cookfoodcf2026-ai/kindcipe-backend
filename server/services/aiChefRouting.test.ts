@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce } from "../routers/aiRecipe";
+import { getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import type { ChefRunResult } from "./aiChefLifecycle";
 
@@ -202,4 +202,13 @@ test("failed retry leaves zero cards for refund path", async () => {
   assert.equal(recovered.retried, true);
   assert.equal(recovered.retrySucceeded, false);
   assert.equal(recovered.recipes.length, 0);
+});
+
+test("zero-card food copy is deterministic and never claims cards exist", () => {
+  const zh = zeroCardFoodReply("zh-TW");
+  const en = zeroCardFoodReply("en");
+  assert.match(zh, /冇扣你 credit/);
+  assert.doesNotMatch(zh, /已準備|已提供|準備好以下/);
+  assert.match(en, /No credit was charged/);
+  assert.doesNotMatch(en, /prepared|provided/i);
 });
