@@ -463,16 +463,6 @@ async function retryLLMJson(
  * 
  * Always returns a valid array of recipes, NEVER crashes or returns undefined
  */
-// 由純文字 content 抽出第一個 **菜名**（LLM 出純文字時兜底用）
-function extractBoldRecipeName(content: string): string {
-  const m = content.match(/\*\*\s*([^*\n]{2,40}?)\s*\*\*/);
-  if (!m) return "";
-  const name = m[1].trim();
-  if (!name) return "";
-  // 剷走常見描述前綴（「為你推薦一道」「今晚」「經典」等）
-  return name.replace(/^(為你推薦一道|為你推薦|今晚食|推薦一道|一道|個|嚟|呢道|為你搵到)/, "").trim();
-}
-
 // 簡單中文菜名相似度（0~1），只比字元重疊
 function recipeNameSimilarity(a: string, b: string): number {
   if (!a || !b) return 0;
@@ -2923,6 +2913,11 @@ function libraryMissReply(lang: string, item: string, alternatives: string[]): s
 3. AI 即場煮（1 credit）`;
 }
 
+function searchFailureReply(lang: string): string {
+  if (lang.startsWith("en")) return "I couldn't search the recipe library reliably just now. I won't guess. Please try again, use Import recipe (1 import quota), or ask AI to make it now (1 credit).";
+  return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以再試一次、去「匯入食譜」（扣 1 次匯入額度），或者叫 AI 即場煮（1 credit）。";
+}
+
 function ingredientMissReply(lang: string, item: string, cards: string[]): string {
   const names = cards.slice(0, 3).join("、") || "暫時冇相近庫存";
   if (lang.startsWith("en")) return `The library has no "${item}". Closest similar dishes: ${names}. You can also ask AI to make it now (1 credit).`;
@@ -2946,7 +2941,8 @@ export async function processAIChefChat(
   operation: "replace" | "append" = "replace",
   allowAiFallback: boolean = true,
   allowChatLlm: boolean = true,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" }> {
+  searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
+): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -3035,18 +3031,51 @@ export async function processAIChefChat(
   const db = await getDb();
 
   // ── 本機 helpers ─────────────────────────────────────────────
-  const trySearch = async (query: string, limit = 24, cookTimeMax?: number): Promise<Record<string, unknown>[]> => {
-    if (!db) return [];
+  type RecipeSearchResult =
+    | { ok: true; rows: Record<string, unknown>[] }
+    | { ok: false; reason: "timeout" | "throw" };
+  let searchFailed = false;
+  const trySearch = async (query: string, limit = 24, cookTimeMax?: number): Promise<RecipeSearchResult> => {
+    if (searchOverride) {
+      try {
+        const rows = await searchOverride(query, limit, cookTimeMax);
+        return { ok: true, rows };
+      } catch (error) {
+        const message = String((error as Error)?.message ?? error);
+        return { ok: false, reason: /timeout/i.test(message) ? "timeout" : "throw" };
+      }
+    }
+    // No DB is a harness/no-DB mode; preserve legacy auto-LLM behaviour there.
+    // Real transient DB failures/timeouts still return ok:false.
+    if (!db) return { ok: true, rows: [] };
     const startedAt = Date.now();
+    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax }, familyId), 8000, "lib search");
     try {
-      const res = await withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax }, familyId), 8000, "lib search");
+      const res = await run();
       const rows = (res.recipes || []) as Record<string, unknown>[];
       console.log(`[AI Chef] lib search query="${query}" limit=${limit} rows=${rows.length} time=${Date.now() - startedAt}ms`);
-      return rows;
-    } catch (e) {
-      console.warn(`[AI Chef] lib search failed after ${Date.now() - startedAt}ms:`, e);
-      return [];
+      return { ok: true, rows };
+    } catch (firstError) {
+      console.warn(`[AI Chef] lib search failed after ${Date.now() - startedAt}ms; retrying once:`, firstError);
+      try {
+        const res = await run();
+        const rows = (res.recipes || []) as Record<string, unknown>[];
+        console.log(`[AI Chef] lib search retry query="${query}" limit=${limit} rows=${rows.length} time=${Date.now() - startedAt}ms`);
+        return { ok: true, rows };
+      } catch (retryError) {
+        searchFailed = true;
+        const message = String((retryError as Error)?.message ?? retryError);
+        const reason = /timeout/i.test(message) ? "timeout" : "throw";
+        console.warn(`[AI Chef] lib search failed permanently query="${query}" reason=${reason}:`, retryError);
+        return { ok: false, reason };
+      }
     }
+  };
+  const rowsOrEmpty = (result: RecipeSearchResult, label: string): Record<string, unknown>[] => {
+    if (result.ok) return result.rows;
+    searchFailed = true;
+    console.warn(`[AI Chef] lib_search_fail label=${label} reason=${result.reason}`);
+    return [];
   };
 
   const shuffleArr = <T,>(a: T[]): T[] => {
@@ -3140,7 +3169,12 @@ export async function processAIChefChat(
     const rawQuery = cleanFoodQuery(lastUserText);
     const asksForFood = hasRequestVerb(lastUserText) || /[?？]|呢|有冇|想要|想食/.test(lastUserText);
     if (rawQuery && asksForFood) {
-      const rawRows = await trySearch(rawQuery, 30);
+      const rawSearch = await trySearch(rawQuery, 30);
+      if (!rawSearch.ok) {
+        console.log(`[AI Chef] lib_search_fail raw query="${rawQuery}" reason=${rawSearch.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      const rawRows = rawSearch.rows;
       if (rawRows.length > 0) {
         chefIntent = {
           kind: "recipe",
@@ -3177,12 +3211,18 @@ export async function processAIChefChat(
   // A named dish/compound item that has no exact library row must not be
   // silently replaced by a generic role. Return a clarify response instead.
   const requestItems = extractMealIngredients(lastUserText).filter((term) => !/^(?:和|同|及|跟)$/.test(term));
+  const genericMealRequest = /(是但|隨便|求其|煮個|整個|有咩好|食咩好)/.test(lastUserText);
   const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
   const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
   const missingIngredients: Array<{ term: string; alternatives: string[] }> = [];
-  if (db && wantCards && !rawLibraryFallback && requestItems.length > 0 && !hasExplicitRequestCount) {
+  if (db && wantCards && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
     for (const term of requestItems) {
-      const rows = await trySearch(term, 12);
+      const search = await trySearch(term, 12);
+      if (!search.ok) {
+        console.log(`[AI Chef] lib_search_fail item="${term}" reason=${search.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      const rows = search.rows;
       const exact = rows.some((row) => normalizeName(String(row.name ?? "")) === normalizeName(term));
       if (exact) continue;
       const alternatives = rows.map((row) => String(row.name ?? "").trim()).filter(Boolean).slice(0, 3);
@@ -3254,12 +3294,21 @@ export async function processAIChefChat(
       return true;
     };
     const roleRowsCache = new Map<string, Record<string, unknown>[]>();
+    let roleSearchFailed = false;
     const loadRoleRows = async (queries: string[]): Promise<Record<string, unknown>[]> => {
       const cacheKey = queries.join("|");
       const cached = roleRowsCache.get(cacheKey);
       if (cached) return cached;
       const rows: Record<string, unknown>[] = [];
-      for (const query of queries) rows.push(...await trySearch(query, 80));
+      for (const query of queries) {
+        const search = await trySearch(query, 80);
+        if (!search.ok) {
+          roleSearchFailed = true;
+          console.log(`[AI Chef] lib_search_fail role query="${query}" reason=${search.reason}`);
+          return [];
+        }
+        rows.push(...search.rows);
+      }
       const deduped = [...new Map(rows.map((row) => [String(row.source ?? "") + ":" + String(row.id ?? row.name ?? ""), row])).values()];
       roleRowsCache.set(cacheKey, deduped);
       return deduped;
@@ -3305,6 +3354,7 @@ export async function processAIChefChat(
       return result.picked;
     };
     const generateRole = async (role: RequestedRole, count: number, used: string[]): Promise<RecipeCandidate<SuggestedRecipe>[]> => {
+      if (roleSearchFailed) return [];
       if (!allowAiFallback) {
         console.log(`[AI Chef] meal role=${role} source=ai-blocked reason=no_credit_reservation_or_ai_disabled`);
         return [];
@@ -3340,6 +3390,9 @@ export async function processAIChefChat(
       nameOf: (recipe) => recipe.name,
       maxRounds: 2,
     });
+    if (roleSearchFailed) {
+      return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+    }
     if (assembled.cards.length > 0) {
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0
@@ -3392,7 +3445,12 @@ export async function processAIChefChat(
       console.log(`[AI Chef] library pool cache hit (${rows.length})`);
     } else {
       const poolStartedAt = Date.now();
-      rows = await trySearch("", 400);
+      const poolSearch = await trySearch("", 400);
+      if (!poolSearch.ok) {
+        console.log(`[AI Chef] lib_search_fail library_pool reason=${poolSearch.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      rows = poolSearch.rows;
       LIBRARY_POOL_CACHE.set(cacheKey, { at: Date.now(), rows });
       console.log(`[AI Chef] library pool fetch ${rows.length} rows in ${Date.now() - poolStartedAt}ms`);
     }
@@ -3489,7 +3547,12 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOne"), recipes: picked, llmUsed };
       }
     } else if (swapQuery) {
-      const singleRows = (await trySearch(swapQuery, 30)).filter((row) => !rowContainsAvoid(row, avoidIngredients));
+      const swapSearch = await trySearch(swapQuery, 30);
+      if (!swapSearch.ok) {
+        console.log(`[AI Chef] lib_search_fail swap query="${swapQuery}" reason=${swapSearch.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      const singleRows = swapSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients));
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
       const swapSets = mkExcludeSets(excludeNames, excludeNames);
@@ -3541,12 +3604,33 @@ export async function processAIChefChat(
     const explicitRole = requestedCount === 1 && chefIntent.requested.roles.length === 1
       ? chefIntent.requested.roles[0]
       : undefined;
-    let rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
+    const primarySearch = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
+    if (!primarySearch.ok) {
+      console.log(`[AI Chef] lib_search_fail single query="${keyword || "(generic)"}" reason=${primarySearch.reason}`);
+      return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+    }
+    let rows = primarySearch.rows;
     if (keyword && rows.length === 0 && findFoodTerm(keyword) === keyword) {
       const fallbackQueries = fallbackQueriesForFoodTerm(keyword).filter((q) => q !== keyword);
       for (const fallbackQuery of fallbackQueries) {
-        rows.push(...await trySearch(fallbackQuery, 30, chatCookTimeMax));
+        const fallbackSearch = await trySearch(fallbackQuery, 30, chatCookTimeMax);
+        if (!fallbackSearch.ok) {
+          console.log(`[AI Chef] lib_search_fail fallback="${fallbackQuery}" reason=${fallbackSearch.reason}`);
+          return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+        }
+        rows.push(...fallbackSearch.rows);
       }
+    }
+    const specificDish = !!keyword && foodItemType(keyword) === "dish" && findFoodTerm(keyword) === keyword;
+    if (!genericMealRequest && specificDish && rows.length === 0) {
+      console.log(`[AI Chef] library miss single item="${keyword}" -> clarify (no LLM)`);
+      return {
+        content: libraryMissReply(lang, keyword, []),
+        recipes: [],
+        llmUsed: false,
+        missingRoles: chefIntent.requested.roles,
+        clarifyReason: "library_miss",
+      };
     }
     const safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
@@ -3597,7 +3681,12 @@ export async function processAIChefChat(
       )];
       for (const roleQuery of roleQueries) {
         if (roleQuery === keyword) continue;
-        const rolePool = await trySearch(roleQuery, 100, chatCookTimeMax);
+        const roleSearch = await trySearch(roleQuery, 100, chatCookTimeMax);
+        if (!roleSearch.ok) {
+          console.log(`[AI Chef] lib_search_fail role=${explicitRole} query="${roleQuery}" reason=${roleSearch.reason}`);
+          return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+        }
+        const rolePool = roleSearch.rows;
         const afterAvoid = avoidIngredients.length === 0
           ? rolePool
           : rolePool.filter((row) => !rowContainsAvoid(row, avoidIngredients));
@@ -3761,7 +3850,12 @@ export async function processAIChefChat(
   // （同「食譜庫」button 一致；唔會淨係 AI 生成）
   if (mealIntent.isMeal && mode === "chat" && wantCards && db) {
     try {
-      const libRows = await trySearch("", 1000);
+      const libSearch = await trySearch("", 1000);
+      if (!libSearch.ok) {
+        console.log(`[AI Chef] lib_search_fail chat_meal reason=${libSearch.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      const libRows = libSearch.rows;
       const safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
@@ -3845,7 +3939,7 @@ export async function processAIChefChat(
       if (cards.length >= requested.total) break;
       const query = role === "soup" ? "湯" : role === "vegetable" ? "蔬菜" : role === "meat" ? "肉" : role === "seafood" ? "海鮮" : role === "noodle" ? "麵" : role === "dessert" ? "甜品" : "";
       try {
-        const rows = await trySearch(query, 80);
+        const rows = rowsOrEmpty(await trySearch(query, 80), `ai_meal:${role}`);
         const safeRows = avoidIngredients.length > 0
           ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
           : rows;
@@ -3965,34 +4059,6 @@ export async function processAIChefChat(
       console.log(`[AI Chef] Single AI forced to 1 card`);
     }
 
-    // 純文字抽卡：LLM 出咗純文字描述（冇 JSON）但內容有 **菜名** → 抽菜名去食譜庫 match，出真卡
-    if (recipes.length === 0 && db && content) {
-      const boldName = extractBoldRecipeName(content);
-      if (boldName) {
-        console.log(`[AI Chef] Extracted recipe name from text: "${boldName}"`);
-        const matchRows = await trySearch(boldName, 10);
-        let matched = rowsToSuggested(matchRows, excludeSets, 1);
-        // 揀同抽到嘅名最相近嘅（唔係 random）
-        const bySim = matchRows
-          .map((r: any) => ({ r, sim: recipeNameSimilarity(normalizeName(String(r.name ?? "")), normalizeName(boldName)) }))
-          .filter(x => x.sim >= 0.3)
-          .sort((a, b) => b.sim - a.sim);
-        if (bySim.length > 0) {
-          matched = rowsToSuggested(bySim.slice(0, 1).map(x => x.r), excludeSets, 1);
-        }
-        if (matched.length > 0) {
-          recipes = matched;
-          const _m: any = matched[0];
-          const _disp = lang === "fil" ? (_m.nameFil || _m.nameEn || _m.name)
-            : lang === "id" ? (_m.nameId || _m.nameEn || _m.name)
-            : lang === "en" ? (_m.nameEn || _m.name)
-            : _m.name;
-          content = aiReply(lang, "libByName", { name: _disp });
-          console.log(`[AI Chef] Text-card matched library: ${matched[0].name}`);
-        }
-      }
-    }
-
     // 3餸1湯：hard filter 之後少過 target 卡 → AI 補返（補嗰啲都避開已睇過；按「缺失類別」逐類補，保證結構）
     // 速度優先：只補一輪（最多 1 次 LLM），補唔夠就靠下面食譜庫 pool 兜底（快，唔等 LLM）
     if (soupIntent && !usedParallel && recipes.length > 0 && recipes.length < totalWanted) {
@@ -4042,12 +4108,19 @@ export async function processAIChefChat(
         if (mode === "ai" && !isVague) {
         return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
         }
-        let fbRows = await trySearch(isVague ? "" : keyword || "", 30);
-        let fb = rowsToSuggested(fbRows, excludeSets, 1);
+        const fbSearch = await trySearch(isVague ? "" : keyword || "", 30);
+        if (!fbSearch.ok) {
+          console.log(`[AI Chef] lib_search_fail final_fallback reason=${fbSearch.reason}`);
+          return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+        }
+        let fb = rowsToSuggested(fbSearch.rows, excludeSets, 1);
         if (fb.length === 0 && keyword) {
-          // keyword 搜唔到合適替代 → fallback 去 generic pool，保證一定有卡（排除咗已睇過）
-          const genRows = await trySearch("", 1000);
-          fb = rowsToSuggested(genRows, excludeSets, 1);
+          const genSearch = await trySearch("", 1000);
+          if (!genSearch.ok) {
+            console.log(`[AI Chef] lib_search_fail generic_fallback reason=${genSearch.reason}`);
+            return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+          }
+          fb = rowsToSuggested(genSearch.rows, excludeSets, 1);
         }
         if (fb.length > 0) {
           recipes = fb;

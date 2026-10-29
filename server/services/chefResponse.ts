@@ -12,7 +12,9 @@ export type ChefActionId =
   | "add_dessert"
   | "swap_last"
   | "restart"
-  | "ai_generate";
+  | "ai_generate"
+  | "import_recipe"
+  | "closest_library";
 
 export interface ChefCardSnapshot {
   cardId: string;
@@ -57,7 +59,7 @@ export interface ChefReply {
   chatId?: string;
   clientMessageId?: string;
   status: ChefResponseStatus;
-  clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial";
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" | "lib_search_fail";
   /** How the client should apply these cards to the current conversation. */
   operation?: "replace" | "append";
   recipes: ChefCardSnapshot[];

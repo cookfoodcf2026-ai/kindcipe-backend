@@ -39,7 +39,7 @@ export type ChefRunResult = {
   recipes: ChefRecipeLike[];
   llmUsed: boolean;
   missingRoles?: RequestedRole[];
-  clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial";
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" | "lib_search_fail";
   llmCalls?: number;
 };
 
@@ -194,12 +194,18 @@ export function buildChefReply(params: {
         : params.templateText && status === "partial_cards"
           ? aiReply(lang, "partialSet", { served, total: requested })
           : result.content;
-  const quickReplies = status === "no_cards" || status === "clarify"
+  const quickReplies = status === "clarify"
     ? [
+        { actionId: "import_recipe" as const, labelKey: "aiChef.importRecipe" },
+        { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
         { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
-        { actionId: "restart" as const, labelKey: "aiChef.quickRestart" },
       ]
-    : [];
+    : status === "no_cards"
+      ? [
+          { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+          { actionId: "restart" as const, labelKey: "aiChef.quickRestart" },
+        ]
+      : [];
 
   return {
     requestId,
