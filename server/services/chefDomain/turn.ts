@@ -65,6 +65,15 @@ function nameMatchesFacet(name: string, facet: string): boolean {
   return true;
 }
 
+function tolerantNameTarget(text: string): string {
+  let value = String(text ?? "").trim()
+    .replace(/^(?:我想食|我想|想食|我要食|我要|要食|要|請|帮|幫我|幫我搵|搵|找)\s*/u, "")
+    .replace(/[呀啦嘅啊呢囉喎呀嘛嗎？?！!。.，,\s]+$/u, "")
+    .trim();
+  if (!value || /[或者或同和及]|\band\b/i.test(value)) return "";
+  return value;
+}
+
 function rolesForShape(shape: { dishes: number; soups: number }): DomainRole[] {
   const roles: DomainRole[] = [];
   if (shape.dishes >= 3) roles.push("meat", "seafood", "vegetable");
@@ -255,6 +264,25 @@ export function runChefTurn(
       kind: "ask",
       question: "library_miss",
     }, withAsk(next, "library_miss"), "library_miss");
+  }
+
+  // A user can answer an open ask, or ask for a concrete dish, with a tolerant
+  // name match. This runs before the pendingAsk guard so it also works when the
+  // previous turn was not an ask.
+  const nameTarget = tolerantNameTarget(text);
+  if (nameTarget) {
+    const all = repo.search({ dishTypes: [], scenarios: [], tags: [], avoid: [], text: "" }, familyId);
+    const normalizedTarget = normalize(nameTarget);
+    const matched = all.filter((card) => {
+      const cardName = normalize(card.name);
+      return cardName.includes(normalizedTarget) || normalizedTarget.includes(cardName);
+    }).slice(0, 3);
+    if (matched.length > 0) {
+      return result("cards", "收到，幫你搵到呢個。", matched, {
+        kind: "recipe",
+        shape: { dishes: matched.length, soups: 0 },
+      }, withMeal(state, { dishes: matched.length, soups: 0 }, matched.map((card) => card.name)), null);
+    }
   }
 
   if (state.pendingAsk && state.pendingAsk.askedCount >= state.pendingAsk.maxAskCount) {
