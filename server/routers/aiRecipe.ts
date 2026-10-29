@@ -3027,7 +3027,7 @@ export async function processAIChefChat(
   if (safetyIntent) {
     console.log(`[AI Chef] safety fail-closed kind=${safetyIntent.kind}`);
     return {
-      content: safetyQuestion(lang, safetyIntent),
+      content: avoidRepeatedQuestion(safetyQuestion(lang, safetyIntent), inputMessages, lang),
       recipes: [],
       llmUsed: false,
       clarifyReason: "safety",
