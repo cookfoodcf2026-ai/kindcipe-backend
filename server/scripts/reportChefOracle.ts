@@ -50,7 +50,7 @@ for (const dialogue of dialogues) {
     const next = results.slice(i + 1, i + 4);
     const cards = next.flatMap((item) => item.names);
     const allowed = expected.allowedCards ?? [];
-    const resolvedByAllowed = allowed.length > 0 && cards.some((name) => allowed.includes(name));
+    const resolvedByAllowed = allowed.length > 0 && cards.length > 0 && cards.every((name) => allowed.includes(name));
     if (resolvedByAllowed) resolved += 1; else unresolved += 1;
   }
 }

@@ -42,8 +42,10 @@ export class FakeRepository implements RecipeRepository {
   }
 
   byFacets(facets: string[], familyId: number): RecipeCard[] {
+    const primary = facets.filter((facet) => facet !== "vegetable" && facet !== "soup");
+    const required = primary.length > 0 ? primary : facets;
     return this.cards.filter((card) => (card.visibility !== "private" || card.familyId === familyId)
-      && (facets.length === 0 || facets.some((facet) => (card.facets ?? []).includes(facet))));
+      && (required.length === 0 || required.some((facet) => (card.facets ?? []).includes(facet))));
   }
 
   static standardCatalog(): RecipeCard[] {
