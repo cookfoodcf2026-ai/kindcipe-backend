@@ -65,6 +65,18 @@ function nameMatchesFacet(name: string, facet: string): boolean {
   return true;
 }
 
+function avoidMatches(card: RecipeCard, terms: string[]): boolean {
+  if (terms.length === 0) return false;
+  const hay = `${card.name} ${card.ingredients.join(" ")}`;
+  return terms.some((term) => {
+    const value = term.trim();
+    if (!value) return false;
+    if (hay.includes(value)) return true;
+    if (value.length < 2) return false;
+    return [...value].every((char) => hay.includes(char));
+  });
+}
+
 function tolerantNameTarget(text: string): string {
   let value = String(text ?? "").trim()
     .replace(/^(?:我想食|我想|想食|我要食|我要|要食|要|請|帮|幫我|幫我搵|搵|找)\s*/u, "")
@@ -94,8 +106,7 @@ function pickForRoles(repo: RecipeRepository, roles: DomainRole[], plan: QueryPl
       dishTypes: type ? [type] : [],
       text: "",
     }, familyId);
-    const card = pool.find((candidate) => !used.has(candidate.name)
-      && !avoid.some((term) => `${candidate.name} ${candidate.ingredients.join(" ")}`.includes(term)));
+    const card = pool.find((candidate) => !used.has(candidate.name) && !avoidMatches(candidate, avoid));
     if (!card) return [];
     used.add(card.name);
     picked.push(card);
@@ -184,6 +195,16 @@ export function runChefTurn(
     previousMeal: state.shape.dishes + state.shape.soups > 0 ? state.shape : undefined,
   });
   const queryPlan = buildDomainQueryPlan(text);
+
+  const ambiguousModifier = !planned
+    && state.shape.dishes + state.shape.soups === 0
+    && !state.pendingAsk
+    && /(?:豐富|簡單|清淡|快|好味|特別)\s*啲?/.test(text)
+    && queryPlan.dishTypes.length === 0;
+  if (ambiguousModifier) {
+    const next = withAsk(state, "clarify");
+    return result("ask", "想食邊款？可以講食材、菜名，或者幾多人食。", [], { kind: "ask", question: "clarify" }, next, "ambiguous_food");
+  }
 
   const preference = text.match(/^我唔食(.+)/);
   if (preference) {
@@ -354,14 +375,15 @@ export function runChefTurn(
     let facetCards = repo.byFacets(targetFacetList, familyId, targetDishTypes)
       .filter((card) => targetFacetList.some((facet) => nameMatchesFacet(card.name, facet)))
       .filter((card) => cardHasTerm(card, terms))
-      .filter((card) => !state.avoid.some((term) => `${card.name} ${card.ingredients.join(" ")}`.includes(term)))
+      .filter((card) => !avoidMatches(card, state.avoid))
       .filter((card) => queryPlan.scenarios.length === 0 || queryPlan.scenarios.some((s) => (card.scenarios ?? card.tags).includes(s)));
     if (facetCards.length < 3) {
       const primary = targetFacetList.find((facet) => facet !== "vegetable" && facet !== "soup") ?? targetFacetList[0];
       if (primary && primary !== targetFacetList[0]) {
         facetCards = repo.byFacets([primary], familyId, targetDishTypes)
           .filter((card) => nameMatchesFacet(card.name, primary))
-          .filter((card) => cardHasTerm(card, terms));
+          .filter((card) => cardHasTerm(card, terms))
+          .filter((card) => !avoidMatches(card, state.avoid));
       }
     }
     // Do not replace a relevant, short result with the unfiltered seafood pool.
@@ -390,11 +412,11 @@ export function runChefTurn(
 
   const seen = new Set(state.cardNames);
   const candidates = repo.search(queryPlan, familyId)
-    .filter((card) => !seen.has(card.name) && !state.avoid.some((term) => card.ingredients.some((ingredient) => ingredient.includes(term))));
+    .filter((card) => !seen.has(card.name) && !avoidMatches(card, state.avoid));
   if (candidates.length > 0 && (queryPlan.dishTypes.length > 0 || queryPlan.scenarios.length > 0)) {
     const cards = candidates.slice(0, 3);
     let next = withMeal(state, { dishes: cards.length, soups: 0 }, cards.map((card) => card.name), {
-      avoid: queryPlan.avoid,
+      avoid: [...new Set([...state.avoid, ...queryPlan.avoid])],
       scenarios: queryPlan.scenarios,
     });
     if (queryPlan.text) {
