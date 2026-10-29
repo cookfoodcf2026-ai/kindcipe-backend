@@ -2929,6 +2929,25 @@ export async function processAIChefChat(
   // Actual role shortfall from the assembler (router uses this instead of
   // guessing by slicing the requested roles).
   let resultMissingRoles: RequestedRole[] | null = null;
+
+  // FAQ must not wait for seen/trending DB queries. Keep this before the DB
+  // warm-up so verified technique answers stay <50ms.
+  const earlyUserMsg = inputMessages.filter((m) => m.role === "user").pop();
+  const earlyUserText = typeof earlyUserMsg?.content === "string"
+    ? earlyUserMsg.content.trim()
+    : Array.isArray(earlyUserMsg?.content)
+      ? earlyUserMsg.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" ").trim()
+      : "";
+  if (earlyUserText) {
+    const earlyIntent = resolveChefIntent(earlyUserText, { mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE });
+    if (!earlyIntent.wantsCards) {
+      const faq = lookupFaqAnswer(earlyUserText);
+      if (faq) {
+        console.log(`[AI Chef] faq hit early query="${earlyUserText}"`);
+        return { content: faq, recipes: [], llmUsed: false };
+      }
+    }
+  }
   // Fix2: 合併後端自己記住嘅已推薦名單（唔靠前端 state），確保去重一定生效
   const seenSplit = await getFamilySeenNamesSplit(familyId);
   const fusedOfficial = [...new Set([...excludeNames, ...seenSplit.seen7d])];
