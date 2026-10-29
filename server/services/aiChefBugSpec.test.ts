@@ -321,3 +321,32 @@ test("BUG 9: P8 correction returns one beef card, not zero cards", async () => {
   assert.doesNotMatch(result.recipes[0].name, /雞/);
   assert.equal(result.llmUsed, false);
 });
+
+test("BUG 10: raw-term DB fallback finds salad before chat path", async () => {
+  const now = Date.now();
+  await insertOfficial({
+    name: `${prefix}凱撒沙律`,
+    description: "沙律",
+    category: "西式",
+    dishType: "vegetable",
+    ingredientName: "生菜",
+    createdAt: new Date(now + 1000),
+  });
+
+  const salad = await processAIChefChat(
+    [{ role: "user", content: "沙律呢？" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.equal(salad.recipes.length, 1);
+  assert.match(salad.recipes[0].name, /沙律/);
+  assert.equal(salad.recipes[0].source, "official");
+  assert.equal(salad.llmUsed, false);
+
+  const mixed = await processAIChefChat(
+    [{ role: "user", content: "食扒同沙律" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.ok(mixed.recipes.some((r) => /沙律/.test(r.name)), `expected salad card, got ${mixed.recipes.map((r) => r.name).join("、")}`);
+});

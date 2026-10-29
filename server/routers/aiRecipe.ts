@@ -6,7 +6,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
-import { fallbackQueriesForFoodTerm, findFoodTerm, roleForFoodTerm } from "../services/foodLexicon";
+import { fallbackQueriesForFoodTerm, findFoodTerm, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
 import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
@@ -386,16 +386,63 @@ export async function recordFamilySeenNames(familyId: number | undefined, names:
 }
 
 // Fix4: 自動重試一次嘅 helper（LLM 出壞 JSON 時用）
+export function getRecipeRetryReason(input: {
+  content: string;
+  finishReason: string;
+  recipes: SuggestedRecipe[];
+  wantCards: boolean;
+}): string {
+  if (input.recipes.length > 0) return "";
+  if (input.finishReason === "length" && (input.wantCards || input.content.includes('"recipes"'))) return "finish_reason=length";
+  if (input.content.includes('"recipes"')) return "recipes_parse_failed";
+  if (input.wantCards) return "empty_card_output";
+  return "";
+}
+
+/** Retry exactly once with a card-sized budget; testable without a live LLM. */
+export async function retryRecipeOutputOnce(
+  input: {
+    content: string;
+    finishReason: string;
+    recipes: SuggestedRecipe[];
+    wantCards: boolean;
+    lang?: string;
+  },
+  retry: () => Promise<string>,
+): Promise<{ content: string; recipes: SuggestedRecipe[]; retried: boolean; retrySucceeded: boolean; reason: string }> {
+  const reason = getRecipeRetryReason(input);
+  if (!reason) return { ...input, retried: false, retrySucceeded: false, reason };
+  const retriedContent = await retry();
+  const parsed = parseRecipeWithFallback(retriedContent, input.lang ?? "zh-TW");
+  return {
+    content: parsed.content,
+    recipes: parsed.recipes,
+    retried: true,
+    retrySucceeded: parsed.recipes.length > 0,
+    reason,
+  };
+}
+
 async function retryLLMJson(
   messages: Message[],
   familyId: number | undefined,
-  userId: number | undefined
+  userId: number | undefined,
+  reason = "parse_failure"
 ): Promise<string> {
   const retryMsg = [
     ...messages,
     { role: "user" as const, content: "上次輸出嘅 JSON 唔完整/格式錯咗，請重新輸出完整食譜，必須係完整 JSON（唔好省略任何欄位，唔好截斷）。" },
   ];
-  const { finalContent } = await runToolsLoop(retryMsg, familyId, userId, false, true);
+  console.log(`[AI Chef] retry reason=${reason} maxTokens=3500`);
+  const { finalContent, finishReason } = await runToolsLoop(
+    retryMsg,
+    familyId,
+    userId,
+    false,
+    true,
+    { maxTokens: 3500, timeoutMs: 35000 },
+  );
+  console.log(`[AI Chef] retry complete finish_reason=${finishReason} chars=${finalContent.length}`);
   return finalContent;
 }
 
@@ -2575,7 +2622,7 @@ async function runToolsLoop(
   enableSearch?: boolean,
   forceJson = false,
   opts: { maxTokens?: number; timeoutMs?: number } = {}
-): Promise<{ finalContent: string; allMessages: Message[] }> {
+): Promise<{ finalContent: string; allMessages: Message[]; finishReason: string }> {
   const db = await getDb();
   const MAX_ITER = 3;
 
@@ -2594,11 +2641,11 @@ async function runToolsLoop(
     } catch (err) {
       console.warn("[AI Chef] LLM call failed:", err);
       messages.push({ role: "assistant", content: AI_RECIPE_FALLBACK_CONTENT });
-      return { finalContent: AI_RECIPE_FALLBACK_CONTENT, allMessages: messages };
+      return { finalContent: AI_RECIPE_FALLBACK_CONTENT, allMessages: messages, finishReason: "error" };
     }
 
     const choice = llmResp.choices[0];
-    if (!choice) return { finalContent: "", allMessages: messages };
+    if (!choice) return { finalContent: "", allMessages: messages, finishReason: "empty" };
 
     if (choice.finish_reason === "tool_calls" && choice.message.tool_calls?.length) {
       messages.push({ role: "assistant", content: "", tool_calls: choice.message.tool_calls });
@@ -2618,12 +2665,12 @@ async function runToolsLoop(
     } else {
       const content = choice.message.content ?? "";
       messages.push({ role: "assistant", content });
-      return { finalContent: content, allMessages: messages };
+      return { finalContent: content, allMessages: messages, finishReason: String(choice.finish_reason ?? "stop") };
     }
   }
 
   messages.push({ role: "assistant", content: AI_RECIPE_FALLBACK_CONTENT });
-  return { finalContent: AI_RECIPE_FALLBACK_CONTENT, allMessages: messages };
+  return { finalContent: AI_RECIPE_FALLBACK_CONTENT, allMessages: messages, finishReason: "max_iterations" };
 }
 
 // ─── Helper: convert frontend messages to LLM format ─────
@@ -2897,11 +2944,11 @@ export async function processAIChefChat(
   // Single source of truth for free-text intent. `forceText` is legacy and no
   // longer allowed to override a clear food request. A short follow-up such as
   // 「比另一set我」inherits the preceding meal shape.
-  const chefIntent: ChefIntent = resolveChefIntent(lastUserText, { hasImage, mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE, previousUserText: previousText });
-  const requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
-  const forceNoCards = hasImage || !chefIntent.wantsCards;
-  const isPlain = !chefIntent.wantsCards;
-  const wantCards = !forceNoCards;
+  let chefIntent: ChefIntent = resolveChefIntent(lastUserText, { hasImage, mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE, previousUserText: previousText });
+  let requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
+  let forceNoCards = hasImage || !chefIntent.wantsCards;
+  let isPlain = !chefIntent.wantsCards;
+  let wantCards = !forceNoCards;
   const smallTalk = !hasImage && SMALL_TALK_RE.test(lastUserText.trim());
   const ambiguousFood = !hasImage && !smallTalk && AMBIGUOUS_FOOD_RE.test(lastUserText.trim());
   if (smallTalk) {
@@ -3010,6 +3057,33 @@ export async function processAIChefChat(
        .trim();
     return q.length >= 2 ? q : "";
   };
+
+  // Layer 2: if deterministic intent rules miss, search the raw request text
+  // against recipe name/tags/ingredients before falling back to chat. This is
+  // the recall bridge for words not yet in foodLexicon (e.g. 沙律/打邊爐).
+  if (db && !hasImage && !wantCards && chefIntent.kind === "chat" && !smallTalk && !ambiguousFood) {
+    const rawQuery = cleanFoodQuery(lastUserText);
+    const asksForFood = hasRequestVerb(lastUserText) || /[?？]|呢|有冇|想要|想食/.test(lastUserText);
+    if (rawQuery && asksForFood) {
+      const rawRows = await trySearch(rawQuery, 30);
+      if (rawRows.length > 0) {
+        chefIntent = {
+          kind: "recipe",
+          wantsCards: true,
+          requested: { total: 1, roles: ["any"] },
+          confidence: 0.6,
+          reason: "raw_library_fallback",
+        };
+        requestedCount = 1;
+        forceNoCards = false;
+        isPlain = false;
+        wantCards = true;
+        console.log(`[AI Chef] raw fallback query="${rawQuery}" rows=${rawRows.length} -> card path`);
+      } else {
+        console.log(`[AI Chef] unmatched_terms="${rawQuery}" query_rows=0 raw_fallback=miss`);
+      }
+    }
+  }
 
   // ══════════ Free-text multi-card requests：library by role → AI fill missing ══════════
   // This is the server-owned path for requests such as「一肉一甜品」/「3餸1湯」.
@@ -3513,15 +3587,20 @@ export async function processAIChefChat(
   // JSON mode：想食譜（非純對話/非圖片）→ 強制 LLM 輸出 JSON，避免 flash 出純文字導致 0 卡
   let finalContent = AI_RECIPE_FALLBACK_CONTENT;
   let allMessages = msgs;
+  let lastFinishReason = "";
 
   const callLLM = async (): Promise<boolean> => {
     llmUsed = true; // 有叫 LLM 就標記（即使 timeout 都計，因為有 call 過）
     try {
-      ({ finalContent, allMessages } = await withTimeout(
+      const out = await withTimeout(
         runToolsLoop(msgs, familyId, userId, enableSearch, wantCards, wantCards ? {} : { maxTokens: 600, timeoutMs: 12000 }),
         mode === "ai" ? 35000 : wantCards ? AI_RECIPE_CHAT_TIMEOUT_MS : 15000,
         "ai chef chat",
-      ));
+      );
+      finalContent = out.finalContent;
+      allMessages = out.allMessages;
+      lastFinishReason = out.finishReason;
+      console.log(`[AI Chef] llm finish_reason=${lastFinishReason}`);
       return true;
     } catch (e) {
       console.warn("[AI Chef] chat timed out or failed:", e);
@@ -3676,27 +3755,42 @@ export async function processAIChefChat(
   let recipes = parsed.recipes;
 
   // 並行 3餸1湯：直接採用並行結果（唔再經 parse，避免 SuggestedRecipe 唔合 schema 導致 0 卡再 retry）
+  let recoveredFromRetry = false;
   if (usedParallel) {
     content = parallelContent;
     recipes = parallelRecipes;
-  } else if (wantCards && recipes.length === 0) {
-    console.warn("[AI Chef] 0 recipes parsed, retrying LLM once with JSON mode...");
-    llmUsed = true; // retry 都係 LLM call
-    try {
-      const retried = await retryLLMJson(msgs, familyId, userId);
-      const retryParsed = parseRecipeWithFallback(retried, lang);
-      if (retryParsed.recipes.length > 0) {
-        content = retryParsed.content;
-        recipes = retryParsed.recipes;
-        console.log(`[AI Chef] Retry succeeded: ${recipes.length} recipes`);
+  } else {
+    const retryReason = getRecipeRetryReason({
+      content: finalContent,
+      finishReason: lastFinishReason,
+      recipes,
+      wantCards,
+    });
+    if (retryReason) {
+      console.warn(`[AI Chef] retry reason=${retryReason} finish_reason=${lastFinishReason || "unknown"}`);
+      llmUsed = true; // retry is a real LLM call
+      try {
+        const recovered = await retryRecipeOutputOnce(
+          { content: finalContent, finishReason: lastFinishReason, recipes, wantCards, lang },
+          () => retryLLMJson(msgs, familyId, userId, retryReason),
+        );
+        if (recovered.retrySucceeded) {
+          content = recovered.content;
+          recipes = recovered.recipes;
+          recoveredFromRetry = true;
+          console.log(`[AI Chef] Retry succeeded: ${recipes.length} recipes`);
+        } else {
+          console.warn("[AI Chef] Retry returned 0 recipes");
+        }
+      } catch (e) {
+        console.warn("[AI Chef] Retry failed:", e);
       }
-    } catch (e) {
-      console.warn("[AI Chef] Retry failed:", e);
     }
   }
 
-  // 純對話（greeting/technique）-> 一定唔可以有卡
-  if (forceNoCards) {
+  // 純對話（greeting/technique）-> 一定唔可以有卡；除非 retry 成功證實係
+  // 可解析嘅食譜輸出（避免靜默丟卡）。
+  if (forceNoCards && !recoveredFromRetry) {
     recipes = [];
   } else {
     // 撳 AI（mode="ai"/chat）→ 真正 AI 生成嘅先標 source="ai"；食譜庫卡（official/custom）保留原 source，
@@ -4786,11 +4880,14 @@ export const aiRecipeRouter = router({
       const served = result.recipes?.length ?? 0;
       const requested = intent.requested.total;
       const incompleteSet = requested > 0 && served < requested;
-      // Zero cards + text that promises cards = a broken request dressed up as a
-      // delivered one: the user is charged and told the cards exist. Refund it.
+      // Any food/card request that served zero cards is a failed request, not a
+      // normal text answer. Do not charge it, and never claim cards were prepared.
+      const zeroCardFood = served === 0 && intent.wantsCards === true;
+      // Also catch a prose answer that explicitly promises cards even if intent
+      // was misclassified (the existing narrow guard).
       const cardClaim = served === 0 && claimsRecipeCards(String(result.content ?? ""));
-      if (cardClaim) {
-        console.warn("[AI Chef] zero cards but replyText promises cards -> refund + honest text");
+      if (zeroCardFood || cardClaim) {
+        console.warn(`[AI Chef] zero-card refund reason=${zeroCardFood ? "wants_cards" : "card_claim"}`);
       }
       const shouldCharge = shouldChargeChefRequest({
         llmUsed: result.llmUsed,
@@ -4801,10 +4898,10 @@ export const aiRecipeRouter = router({
       });
 
       const responseLang = input.lang ?? "zh-TW";
-      if (cardClaim) {
+      if (zeroCardFood || cardClaim) {
         result.content = responseLang.startsWith("zh")
-          ? "我今次整唔到食譜卡（解析失敗）。可以再試一次，或者按「食譜庫」／「AI 生成」直接攞。"
-          : "I couldn't build the recipe cards this time (parse failed). Please try again, or use Library / AI generate.";
+          ? "我今次整唔到食譜卡（解析失敗），冇扣你 credit。可以再試一次，或者按「食譜庫」／「AI 生成」直接攞。"
+          : "I couldn't build the recipe cards this time (parse failed). No credit was charged. Please try again, or use Library / AI generate.";
       }
       let localizeMs = 0;
       if (!responseLang.startsWith("zh")) {

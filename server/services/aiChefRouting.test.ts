@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { processAIChefChat } from "../routers/aiRecipe";
+import { getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import type { ChefRunResult } from "./aiChefLifecycle";
 
@@ -170,4 +170,36 @@ test("any-library offer flag ON returns no cards without LLM", async () => {
   assert.equal(meter.calls, 0);
   assert.deepEqual(result.recipes, []);
   assert.deepEqual(result.missingRoles, ["any"]);
+});
+
+test("truncated card output retries once and recovers cards", async () => {
+  const truncated = '{"replyText":"今晚建議","recipes":[{"name":"凱撒';
+  assert.equal(getRecipeRetryReason({ content: truncated, finishReason: "length", recipes: [], wantCards: true }), "finish_reason=length");
+  const full = JSON.stringify({
+    replyText: "準備好",
+    recipes: [{
+      name: "凱撒沙律", cookTime: 10, servings: 2, difficulty: "easy",
+      ingredients: [{ name: "生菜", quantity: "1", unit: "份" }, { name: "麵包粒", quantity: "1", unit: "份" }],
+      steps: ["1", "2", "3", "4", "5"],
+    }],
+  });
+  const recovered = await retryRecipeOutputOnce(
+    { content: truncated, finishReason: "length", recipes: [], wantCards: true, lang: "zh-TW" },
+    async () => full,
+  );
+  assert.equal(recovered.retried, true);
+  assert.equal(recovered.retrySucceeded, true);
+  assert.equal(recovered.recipes.length, 1);
+  assert.equal(recovered.recipes[0].name, "凱撒沙律");
+});
+
+test("failed retry leaves zero cards for refund path", async () => {
+  const truncated = '{"replyText":"今晚建議","recipes":[{"name":"凱撒';
+  const recovered = await retryRecipeOutputOnce(
+    { content: truncated, finishReason: "length", recipes: [], wantCards: true, lang: "zh-TW" },
+    async () => truncated,
+  );
+  assert.equal(recovered.retried, true);
+  assert.equal(recovered.retrySucceeded, false);
+  assert.equal(recovered.recipes.length, 0);
 });
