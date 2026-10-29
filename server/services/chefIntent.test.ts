@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractMealIngredients, isCannedMealPrompt, resolveChefIntent } from "./chefIntent";
+import { extractMealIngredients, isCannedMealPrompt, parseMealShape, resolveChefIntent } from "./chefIntent";
 
 test("one meat and dessert (zh) requests two explicit cards", () => {
   const intent = resolveChefIntent("我淨係要一個肉，同甜品", { mode: "chat" });
@@ -206,4 +206,10 @@ test("common 麵/面 aliases are one noodle item", () => {
     assert.equal(intent.requested.total, 1, text);
     assert.deepEqual(intent.requested.roles, ["noodle"], text);
   }
+});
+
+test("typed 三送一湯 is parsed structurally", () => {
+  assert.deepEqual(parseMealShape("三送一湯"), { dishes: 3, soups: 1 });
+  assert.deepEqual(parseMealShape("3餸1湯"), { dishes: 3, soups: 1 });
+  assert.equal(parseMealShape("食牛扒同菜"), null);
 });
