@@ -324,3 +324,14 @@ test("clarify quick replies expose import, closest library, and AI actions", () 
   });
   assert.deepEqual(reply.quickReplies.map((q) => q.actionId), ["import_recipe", "closest_library", "ai_generate"]);
 });
+
+test("mode=ai prose result cannot become a card", () => {
+  const intent = resolveChefIntent("請設計一個簡單嘅家常菜食譜", { mode: "ai" });
+  const reply = buildChefReply({
+    requestId: "req_ai_prose",
+    intent,
+    result: { content: "廣式乾炒牛河，不對，是金銀蛋浸魚片…", recipes: [], llmUsed: true },
+  });
+  assert.equal(reply.served, 0);
+  assert.notEqual(reply.status, "cards");
+});

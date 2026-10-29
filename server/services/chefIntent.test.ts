@@ -199,3 +199,11 @@ test("Chinese quantity words 樣 / 款 count cards", () => {
   assert.equal(two.requested.total, 2);
   assert.equal(three.requested.total, 3);
 });
+
+test("common 麵/面 aliases are one noodle item", () => {
+  for (const text of ["魚面", "魚麵", "蝦子麵", "車仔麵"]) {
+    const intent = resolveChefIntent(text, { mode: "chat" });
+    assert.equal(intent.requested.total, 1, text);
+    assert.deepEqual(intent.requested.roles, ["noodle"], text);
+  }
+});
