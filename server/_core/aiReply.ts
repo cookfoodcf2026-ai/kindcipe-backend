@@ -55,10 +55,10 @@ const DICT: Record<string, Dict> = {
     id: "Saya menemukan resep ini dari pustaka:",
   },
   libNone: {
-    "zh-TW": "食譜庫暫時未有合適食譜，可以試吓按「AI 生成」幫你創作新菜式。",
-    en: "No suitable recipe in the library yet — tap \"AI generate\" to create a new dish.",
-    fil: "Wala pang angkop na recipe sa library — pindutin ang \"AI generate\" para gumawa ng bagong ulam.",
-    id: "Belum ada resep yang cocok di pustaka — ketuk \"AI generate\" untuk membuat hidangan baru.",
+    "zh-TW": "我未有你指定嘅食譜。你可以：\n1. 去「匯入食譜」（會扣 1 次匯入額度）\n2. 睇最接近嘅庫存\n3. AI 即場煮（1 credit）",
+    en: "I couldn't find that recipe. You can: 1) use Import recipe (1 import quota), 2) check the closest library items, or 3) ask AI to make it now (1 credit).",
+    fil: "Hindi ko mahanap ang recipe na iyon. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) tingnan ang pinakamalapit na library, o 3) hilingin sa AI na gawin ito ngayon (1 credit).",
+    id: "Saya tidak menemukan resep itu. Anda bisa: 1) memakai Import resep (1 kuota import), 2) melihat resep pustaka terdekat, atau 3) meminta AI membuatnya sekarang (1 credit).",
   },
   libByKeyword: {
     "zh-TW": "我喺食譜庫搵到呢個「{{kw}}」相關食譜：",

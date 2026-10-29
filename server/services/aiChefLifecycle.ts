@@ -39,7 +39,7 @@ export type ChefRunResult = {
   recipes: ChefRecipeLike[];
   llmUsed: boolean;
   missingRoles?: RequestedRole[];
-  clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" | "lib_search_fail";
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail";
   llmCalls?: number;
 };
 
@@ -194,18 +194,36 @@ export function buildChefReply(params: {
         : params.templateText && status === "partial_cards"
           ? aiReply(lang, "partialSet", { served, total: requested })
           : result.content;
-  const quickReplies = status === "clarify"
+  const clarifyReason = result.clarifyReason;
+  const quickReplies = status === "partial_cards" && clarifyReason === "ai_partial"
     ? [
-        { actionId: "import_recipe" as const, labelKey: "aiChef.importRecipe" },
-        { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
-        { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+        { actionId: "complete_cards" as const, labelKey: "aiChef.completeCards" },
+        { actionId: "swap_cards" as const, labelKey: "aiChef.swapCards" },
+        { actionId: "accept_partial" as const, labelKey: "aiChef.acceptPartial" },
       ]
-    : status === "no_cards"
-      ? [
-          { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
-          { actionId: "restart" as const, labelKey: "aiChef.quickRestart" },
-        ]
-      : [];
+    : status === "clarify"
+      ? clarifyReason === "ingredient_miss"
+        ? [
+            { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
+            { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+          ]
+        : clarifyReason === "lib_search_fail"
+          ? [
+              { actionId: "retry_search" as const, labelKey: "aiChef.retrySearch" },
+              { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+              { actionId: "retry_later" as const, labelKey: "aiChef.retryLater" },
+            ]
+          : [
+              { actionId: "import_recipe" as const, labelKey: "aiChef.importRecipe" },
+              { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
+              { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+            ]
+      : status === "no_cards"
+        ? [
+            { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+            { actionId: "restart" as const, labelKey: "aiChef.quickRestart" },
+          ]
+        : [];
 
   return {
     requestId,

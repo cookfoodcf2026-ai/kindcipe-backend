@@ -2903,9 +2903,15 @@ function clarifyFoodReply(lang: string): string {
 }
 
 function libraryMissReply(lang: string, item: string, alternatives: string[]): string {
-  const alt = alternatives.length > 0 ? alternatives.slice(0, 3).join("、") : "暫時冇相近庫存";
+  const alt = alternatives.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
   if (lang.startsWith("en")) {
     return `I couldn't find "${item}" in the library. You can: 1) use Import recipe (uses 1 import quota), 2) look at the closest library items: ${alt}, or 3) ask AI to make it now (1 credit).`;
+  }
+  if (lang.startsWith("fil")) {
+    return `Wala sa library ang "${item}". Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) tingnan ang pinakamalapit na library: ${alt}, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
+  }
+  if (lang.startsWith("id")) {
+    return `Tidak ada "${item}" di pustaka. Anda bisa: 1) memakai Import resep (1 kuota import), 2) melihat resep pustaka terdekat: ${alt}, atau 3) meminta AI membuatnya sekarang (1 credit).`;
   }
   return `我未有你指定嘅「${item}」食譜。你可以：
 1. 去「匯入食譜」（會扣 1 次匯入額度）
@@ -2914,13 +2920,17 @@ function libraryMissReply(lang: string, item: string, alternatives: string[]): s
 }
 
 function searchFailureReply(lang: string): string {
-  if (lang.startsWith("en")) return "I couldn't search the recipe library reliably just now. I won't guess. Please try again, use Import recipe (1 import quota), or ask AI to make it now (1 credit).";
-  return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以再試一次、去「匯入食譜」（扣 1 次匯入額度），或者叫 AI 即場煮（1 credit）。";
+  if (lang.startsWith("en")) return "The recipe library search failed just now. I won't guess. You can retry, ask AI to make it now (1 credit), or try again later.";
+  if (lang.startsWith("fil")) return "Nabigo ang paghahanap sa library. Huwag akong manghula. Maaari mong subukan muli, hilingin sa AI na gawin ito ngayon (1 credit), o bumalik mamaya.";
+  if (lang.startsWith("id")) return "Pencarian pustaka gagal. Saya tidak akan menebak. Anda bisa mencoba lagi, meminta AI membuatnya sekarang (1 credit), atau mencoba lagi nanti.";
+  return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以重試、叫 AI 即場煮（1 credit），或者稍後再試。";
 }
 
 function ingredientMissReply(lang: string, item: string, cards: string[]): string {
-  const names = cards.slice(0, 3).join("、") || "暫時冇相近庫存";
+  const names = cards.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
   if (lang.startsWith("en")) return `The library has no "${item}". Closest similar dishes: ${names}. You can also ask AI to make it now (1 credit).`;
+  if (lang.startsWith("fil")) return `Wala sa library ang "${item}". Pinakamalapit: ${names}. Maaari mo ring hilingin sa AI na gawin ito ngayon (1 credit).`;
+  if (lang.startsWith("id")) return `Tidak ada "${item}" di pustaka. Yang terdekat: ${names}. Anda juga bisa meminta AI membuatnya sekarang (1 credit).`;
   return `庫存冇「${item}」，以下係同類食譜：${names}。亦可以叫 AI 即場煮（1 credit）。`;
 }
 
@@ -2942,7 +2952,7 @@ export async function processAIChefChat(
   allowAiFallback: boolean = true,
   allowChatLlm: boolean = true,
   searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" }> {
+): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -2957,6 +2967,8 @@ export async function processAIChefChat(
     : Array.isArray(earlyUserMsg?.content)
       ? earlyUserMsg.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" ").trim()
       : "";
+  const requestItemLog = extractMealIngredients(earlyUserText).join("|") || "none";
+  console.log(`[AI Chef] req mode=${mode} lang=${lang} items=${requestItemLog}`);
   if (earlyUserText) {
     const earlyIntent = resolveChefIntent(earlyUserText, { mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE });
     if (!earlyIntent.wantsCards) {
@@ -3215,7 +3227,7 @@ export async function processAIChefChat(
   const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
   const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
   const missingIngredients: Array<{ term: string; alternatives: string[] }> = [];
-  if (db && wantCards && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
+  if (db && wantCards && mode !== "ai" && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
     for (const term of requestItems) {
       const search = await trySearch(term, 12);
       if (!search.ok) {
@@ -3426,7 +3438,7 @@ export async function processAIChefChat(
         content: ingredientMissReply(lang, missingIngredients[0].term, missingIngredients[0].alternatives),
         recipes: [],
         llmUsed,
-        clarifyReason: "library_miss",
+        clarifyReason: "ingredient_miss",
       };
     }
     return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
@@ -3586,7 +3598,7 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOneFrom"), recipes: picked, llmUsed };
       }
     }
-    return { content: aiReply(lang, "libNone"), recipes: [], llmUsed };
+    return { content: aiReply(lang, "libNone"), recipes: [], llmUsed, clarifyReason: "library_miss" };
   }
 
   // ══════════ chat 非圖片：先試食譜庫（library-first）══════════
@@ -3625,7 +3637,7 @@ export async function processAIChefChat(
     if (!genericMealRequest && specificDish && rows.length === 0) {
       console.log(`[AI Chef] library miss single item="${keyword}" -> clarify (no LLM)`);
       return {
-        content: libraryMissReply(lang, keyword, []),
+        content: libraryMissReply(lang, keyword, rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
         recipes: [],
         llmUsed: false,
         missingRoles: chefIntent.requested.roles,
@@ -3715,6 +3727,7 @@ export async function processAIChefChat(
         recipes: [],
         llmUsed,
         missingRoles: chefIntent.requested.roles,
+        clarifyReason: "library_miss",
       };
     }
 
@@ -3725,6 +3738,7 @@ export async function processAIChefChat(
         recipes: [],
         llmUsed,
         missingRoles: chefIntent.requested.roles,
+        clarifyReason: "library_miss",
       };
     }
 
