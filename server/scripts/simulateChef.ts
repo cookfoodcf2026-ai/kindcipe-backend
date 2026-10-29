@@ -2,6 +2,7 @@ import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { processAIChefChat } from "../routers/aiRecipe";
+import { startLlmMeter } from "../_core/llm";
 
 type Dialogue = { id: string; name: string; turns: string[] };
 
@@ -21,6 +22,7 @@ for (const dialogue of dialogues) {
   for (const turn of dialogue.turns) {
     messages.push({ role: "user", content: turn });
     const started = Date.now();
+    const meter = startLlmMeter({ route: "ai_chef_simulate" });
     const result = await processAIChefChat(messages, undefined, undefined, "chat", [], undefined, "zh-TW", [], false, {});
     console.log(JSON.stringify({
       id: dialogue.id,
@@ -31,6 +33,7 @@ for (const dialogue of dialogues) {
       served: result.recipes.length,
       credits: 0,
       latencyMs: Date.now() - started,
+      costUsd: meter.costUsd,
       replyText: result.content,
     }));
     messages.push({ role: "assistant", content: result.content });

@@ -1,30 +1,30 @@
-{"id": "c01", "name": "三送一湯", "turns": ["三送一湯"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c02", "name": "魚面", "turns": ["魚面"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c03", "name": "蝦子麵", "turns": ["蝦子麵"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c04", "name": "魚湯粉 + 菜", "turns": ["我想食魚湯粉同菜"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c05", "name": "湯麵呢？", "turns": ["湯麵"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c06", "name": "牛扒煎幾耐", "turns": ["牛扒煎幾耐？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c07", "name": "牛扒 + 菜", "turns": ["我想食牛扒同菜"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c08", "name": "和牛", "turns": ["我要和牛"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c09", "name": "素食", "turns": ["我食素，有咩好介紹？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c10", "name": "預算半小時", "turns": ["今晚得半個鐘，想食快啲"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c11", "name": "小朋友", "turns": ["有小朋友，想食清淡啲"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c12", "name": "追問再一套", "turns": ["三餸一湯", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c13", "name": "追問改湯麵", "turns": ["三餸一湯", "我要湯麵"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c14", "name": "投訴", "turns": ["你出雞？我要牛扒"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c15", "name": "英文", "turns": ["I want beef steak and salad"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c16", "name": "中英夾雜", "turns": ["我想要 salad 同魚"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c17", "name": "含糊", "turns": ["隨便"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c18", "name": "非食物", "turns": ["你係機械人？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c19", "name": "醫療", "turns": ["我懷孕可唔可以食呢個？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c20", "name": "卡路里", "turns": ["100g 凱撒沙律有幾多卡路里？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c21", "name": "雪櫃清倉", "turns": ["雪櫃得雞蛋同菜"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c22", "name": "宗教", "turns": ["我唔食豬肉"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c23", "name": "海鮮敏感", "turns": ["我海鮮敏感，想食魚"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c24", "name": "英文追問", "turns": ["I want chicken", "another set"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c25", "name": "省略", "turns": ["有咩快煮？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c26", "name": "錯字", "turns": ["三送一湯"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c27", "name": "數量", "turns": ["我要2樣餸"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c28", "name": "數量中文", "turns": ["我要3款菜"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c29", "name": "非食物 2", "turns": ["幫我寫電郵"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
-{"id": "c30", "name": "晚餐", "turns": ["今晚食咩好？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c01", "name": "三送一湯追問", "turns": ["三送一湯", "再一套", "唔要湯"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c02", "name": "魚面", "turns": ["我想食魚面", "最接近係咩？", "我要 AI 煮"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c03", "name": "蝦子麵", "turns": ["蝦子麵", "有冇最接近？", "要 AI"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c04", "name": "魚湯粉同菜", "turns": ["我想食魚湯粉同菜", "有冇最接近？", "我要 AI 煮"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c05", "name": "湯麵", "turns": ["湯麵", "想要清淡啲", "有邊幾款？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c06", "name": "牛扒時間", "turns": ["牛扒煎幾耐？", "如果用氣炸鍋？", "多謝"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c07", "name": "牛扒同菜", "turns": ["我想食牛扒同菜", "再一套", "唔要海鮮"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c08", "name": "和牛", "turns": ["我要和牛", "最接近係咩？", "要 AI"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c09", "name": "素食", "turns": ["我食素，有咩好介紹？", "唔要蠔油", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c10", "name": "半小時", "turns": ["今晚得半個鐘，想食快啲", "有咩快煮？", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c11", "name": "小朋友", "turns": ["有小朋友，想食清淡啲", "唔要辣", "有咩湯？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c12", "name": "再一套", "turns": ["三餸一湯", "再一套", "唔同嘅"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c13", "name": "改湯麵", "turns": ["三餸一湯", "我要湯麵", "唔要湯"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c14", "name": "投訴", "turns": ["你出雞？我要牛扒", "我要七成熟", "配菜呢？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c15", "name": "英文", "turns": ["I want beef steak and salad", "another set", "no soup"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c16", "name": "中英夾雜", "turns": ["我想要 salad 同魚", "要清淡", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c17", "name": "含糊", "turns": ["隨便", "想要快", "有咩選擇？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c18", "name": "非食物", "turns": ["你係機械人？", "幫我寫電郵", "唔該"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c19", "name": "醫療", "turns": ["我懷孕可唔可以食呢個？", "有咩要注意？", "Thanks"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c20", "name": "卡路里", "turns": ["100g 凱撒沙律有幾多卡路里？", "唔要營養數字", "咁有咩替代？"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c21", "name": "雪櫃清倉", "turns": ["雪櫃得雞蛋同菜", "有咩快煮？", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c22", "name": "宗教", "turns": ["我唔食豬肉", "有咩雞肉？", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c23", "name": "海鮮敏感", "turns": ["我海鮮敏感，想食魚", "咁有咩安全選擇？", "多謝"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c24", "name": "英文追問", "turns": ["I want chicken", "another set", "no salad"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c25", "name": "省略", "turns": ["有咩快煮？", "唔要辣", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c26", "name": "錯字", "turns": ["三送一湯", "三送一湯", "唔要湯"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c27", "name": "數量", "turns": ["我要2樣餸", "再一套", "唔要重複"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c28", "name": "數量中文", "turns": ["我要3款菜", "要清淡", "再一套"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c29", "name": "非食物2", "turns": ["幫我寫電郵", "你係機械人？", "多謝"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
+{"id": "c30", "name": "晚餐", "turns": ["今晚食咩好？", "要快", "唔要湯"], "scores": {"understand": null, "natural": null, "ask": null, "coherent": null}}
