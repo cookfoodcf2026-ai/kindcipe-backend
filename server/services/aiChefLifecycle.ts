@@ -39,6 +39,7 @@ export type ChefRunResult = {
   recipes: ChefRecipeLike[];
   llmUsed: boolean;
   missingRoles?: RequestedRole[];
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial";
   llmCalls?: number;
 };
 
@@ -96,10 +97,14 @@ export function hashChefPayload(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
 
-function statusFor(intent: ChefIntent, recipes: ChefRecipeLike[]): ChefResponseStatus {
+function statusFor(
+  intent: ChefIntent,
+  recipes: ChefRecipeLike[],
+  clarifyReason?: ChefRunResult["clarifyReason"],
+): ChefResponseStatus {
   const requested = intent.requested.total;
   if (recipes.length === 0) {
-    if (intent.kind === "clarify") return "clarify";
+    if (clarifyReason || intent.kind === "clarify") return "clarify";
     if (requested > 0) return "no_cards";
     return "text";
   }
@@ -156,7 +161,7 @@ export function buildChefReply(params: {
 }): ChefReply {
   const { requestId, chatId, clientMessageId, intent, result } = params;
   const lang = params.lang ?? "zh-TW";
-  const status = statusFor(intent, result.recipes);
+  const status = statusFor(intent, result.recipes, result.clarifyReason);
   const recipes = result.recipes.map((recipe, i) =>
     toCard(recipe, intent.requested.roles[i] ?? "any", i),
   );
@@ -201,6 +206,7 @@ export function buildChefReply(params: {
     chatId,
     clientMessageId,
     status,
+    clarifyReason: result.clarifyReason,
     operation,
     recipes,
     replyText,

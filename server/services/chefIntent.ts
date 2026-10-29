@@ -1,4 +1,4 @@
-import { findFoodTerm, hasRequestVerb, lastFoodClause, roleForFoodTerm } from "./foodLexicon";
+import { findFoodTerm, foodItemType, hasRequestVerb, lastFoodClause, roleForFoodTerm } from "./foodLexicon";
 
 export type RequestedRole =
   | "meat"
@@ -47,7 +47,7 @@ const CN_NUM: Record<string, number> = {
 const SMALL_TALK_RE = /^(hi|hello|hey|how are (you|u)|how r u|i am (so )?sad|i'?m (so )?sad|feeling sad|thanks|thank you|thx|ok|okay|多謝|謝謝|唔該|你好|您好|早晨|晚安|好|好的|得|收到)[.!?。！？\s]*$/i;
 const AMBIGUOUS_FOOD_RE = /(我唔知|唔知|隨便|求其|你話事|食咩好|煮咩好|有咩好|i don'?t know|not sure|surprise me|help me decide)/i;
 const TECHNIQUE_RE = /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|點先|點至|how\s*(long|to|many)|temperature|煮幾耐|蒸幾耐|焗幾耐|煎幾耐|煲幾耐)/i;
-const NOODLE_RE = /(?:湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|河粉|米粉|noodle|ramen|udon|soba|pasta|laksa|pho)/i;
+const NOODLE_RE = /(?:魚湯粉|湯粉|魚蛋粉|魚片河|牛腩河|湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|河粉|米粉|noodle|ramen|udon|soba|pasta|laksa|pho)/i;
 // A short follow-up such as「比另一set我」only makes sense in the context of
 // the preceding meal request. Do not treat it as small talk.
 const MEAL_FOLLOW_UP_RE = /^(?:再|換|唔同|另一|第二|another|next|different)(?:\s|$|，|,|。|！|!|\?|？)|(?:再|另一|換|唔同|第二|另一個|另一組|再嚟|再來|different|another|next)\s*.{0,10}(?:set|組|餐|批|款|round|one|meal)|\b(?:give me|i want|show me)\s+(?:another|a different)\b|比另一\s*set/i;
@@ -80,7 +80,7 @@ export function extractMealIngredients(text: string): string[] {
     .replace(/[，,、;；:：。！？!?\n\r\t/\\]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const pieces = cleaned.split(/\s+|同埋|同|和|有|加|要|想食|想煮|用/giu);
+  const pieces = cleaned.split(/\s+|同埋|同|和(?!牛)|有|加|要|想食|想煮|用/giu);
   const terms: string[] = [];
   for (const piece of pieces) {
     let term = piece.trim();
@@ -152,7 +152,10 @@ function explicitDessertMeat(text: string): ChefRequested | null {
 
 function explicitMixedRoles(text: string, noodleRole = true): RequestedRole[] | null {
   const hasMeat = /(肉|肉類|肉类|主菜|雞(?!蛋)|鸡(?!蛋)|牛|豬|猪|羊|鴨|鸭|鵝|鹅|排骨|雞翼|雞翅|雞腿|雞髀|\bmeat\b|\bprotein\b|\bchicken\b|\bbeef\b|\bpork\b|\blamb\b)/i.test(text);
-  const hasSeafood = /(海鮮|海鲜|魚|鱼|蝦|虾|蟹|豆腐|\bseafood\b|\bfish\b|\bshrimp\b|\btofu\b)/i.test(text);
+  // Remove compound noodle/dish phrases before looking for 魚/湯. Otherwise
+  // 「魚湯粉」would be counted as seafood + soup.
+  const proteinText = noodleRole ? text.replace(new RegExp(NOODLE_RE.source, "gi"), " ") : text;
+  const hasSeafood = /(海鮮|海鲜|魚|鱼|蝦|虾|蟹|豆腐|\bseafood\b|\bfish\b|\bshrimp\b|\btofu\b)/i.test(proteinText);
   const hasVeg = /(菜|蔬菜|青菜|時蔬|时蔬|\bveg(e|gie|etable)?\b)/i.test(text);
   const hasNoodle = noodleRole && NOODLE_RE.test(text);
   // "湯麵" is one noodle dish, not a soup + a noodle. Remove the noodle phrase
@@ -228,7 +231,7 @@ function explicitRoleCount(text: string, noodleRole = true): ChefRequested | nul
 }
 
 function explicitSimpleCount(text: string): ChefRequested | null {
-  const m = text.match(/(\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟)?\s*(?:餸|菜|送|recipes?|cards?|dishes?)/i);
+  const m = text.match(/(\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样)?\s*(?:餸|菜|送|recipes?|cards?|dishes?)/i);
   if (!m) return null;
   const n = clampCount(toNumber(m[1]), 1, 10);
   if (n === null) return null;
@@ -283,6 +286,26 @@ export function resolveChefIntent(
         reason: "meal_followup",
       };
     }
+  }
+
+  // If there is no numeric count, the number of named items is the number of
+  // cards. This handles「豬扒同沙律」、「魚湯粉同菜」and compound noodle items
+  // without letting role detection inflate the count.
+  const explicitQuantity = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|甜品|dish|recipe|card)/i.test(text);
+  const itemTerms = extractMealIngredients(text);
+  const meaningfulItems = itemTerms.filter((term) => roleForFoodTerm(term) !== "any" || foodItemType(term) === "dish");
+  if (!explicitQuantity && (meaningfulItems.length > 1 || (meaningfulItems.length === 1 && foodItemType(meaningfulItems[0]) === "dish"))) {
+    const itemRoles = meaningfulItems.map((term) => {
+      const role = roleForFoodTerm(term);
+      return !noodleRole && role === "noodle" ? "soup" : role;
+    });
+    return {
+      kind: meaningfulItems.length > 1 ? "meal" : "recipe",
+      wantsCards: true,
+      requested: { total: meaningfulItems.length, roles: itemRoles },
+      confidence: 0.88,
+      reason: "explicit_items",
+    };
   }
 
   const explicit = explicitDessertMeat(text) ?? explicitDishSoup(text) ?? explicitRoleCount(text, noodleRole);

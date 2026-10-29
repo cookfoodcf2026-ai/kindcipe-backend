@@ -6,7 +6,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
-import { fallbackQueriesForFoodTerm, findFoodTerm, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
+import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { lookupFaqAnswer } from "../services/chefFaq";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
@@ -1078,7 +1078,13 @@ export async function execSearchRecipes(
   let customRows: Record<string, unknown>[] = [];
   if (familyId) {
     const customWhere = [
-      eq(customRecipes.familyId, familyId),
+      or(
+        eq(customRecipes.familyId, familyId),
+        and(
+          eq(customRecipes.familyId, 0),
+          eq(customRecipes.visibility, "public"),
+        ),
+      ),
       eq(customRecipes.isDraft, false),
       args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
       args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
@@ -2906,6 +2912,23 @@ function clarifyFoodReply(lang: string): string {
   return "好呀 — 你想中式、西式、快煮，定清淡？幾多人食？";
 }
 
+function libraryMissReply(lang: string, item: string, alternatives: string[]): string {
+  const alt = alternatives.length > 0 ? alternatives.slice(0, 3).join("、") : "暫時冇相近庫存";
+  if (lang.startsWith("en")) {
+    return `I couldn't find "${item}" in the library. You can: 1) use Import recipe (uses 1 import quota), 2) look at the closest library items: ${alt}, or 3) ask AI to make it now (1 credit).`;
+  }
+  return `我未有你指定嘅「${item}」食譜。你可以：
+1. 去「匯入食譜」（會扣 1 次匯入額度）
+2. 睇最接近嘅庫存：${alt}
+3. AI 即場煮（1 credit）`;
+}
+
+function ingredientMissReply(lang: string, item: string, cards: string[]): string {
+  const names = cards.slice(0, 3).join("、") || "暫時冇相近庫存";
+  if (lang.startsWith("en")) return `The library has no "${item}". Closest similar dishes: ${names}. You can also ask AI to make it now (1 credit).`;
+  return `庫存冇「${item}」，以下係同類食譜：${names}。亦可以叫 AI 即場煮（1 credit）。`;
+}
+
 export async function processAIChefChat(
   inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
   familyId?: number,
@@ -2923,7 +2946,7 @@ export async function processAIChefChat(
   operation: "replace" | "append" = "replace",
   allowAiFallback: boolean = true,
   allowChatLlm: boolean = true,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[] }> {
+): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ai_failed" | "ai_partial" }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -3149,6 +3172,34 @@ export async function processAIChefChat(
     };
   }
 
+  // A named dish/compound item that has no exact library row must not be
+  // silently replaced by a generic role. Return a clarify response instead.
+  const requestItems = extractMealIngredients(lastUserText).filter((term) => !/^(?:和|同|及|跟)$/.test(term));
+  const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
+  const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
+  const missingIngredients: Array<{ term: string; alternatives: string[] }> = [];
+  if (db && wantCards && requestItems.length > 0 && !hasExplicitRequestCount) {
+    for (const term of requestItems) {
+      const rows = await trySearch(term, 12);
+      const exact = rows.some((row) => normalizeName(String(row.name ?? "")) === normalizeName(term));
+      if (exact) continue;
+      const alternatives = rows.map((row) => String(row.name ?? "").trim()).filter(Boolean).slice(0, 3);
+      if (foodItemType(term) === "dish") missingDishes.push({ term, alternatives });
+      else missingIngredients.push({ term, alternatives });
+    }
+  }
+  if (missingDishes.length > 0) {
+    const first = missingDishes[0];
+    console.log(`[AI Chef] library miss item="${first.term}" alternatives=${first.alternatives.join("|") || "none"} -> clarify`);
+    return {
+      content: libraryMissReply(lang, first.term, first.alternatives),
+      recipes: [],
+      llmUsed: false,
+      missingRoles: chefIntent.requested.roles,
+      clarifyReason: "library_miss",
+    };
+  }
+
   // ══════════ Free-text multi-card requests：library by role → AI fill missing ══════════
   // This is the server-owned path for requests such as「一肉一甜品」/「3餸1湯」.
   // It never returns after a single library hit; partial results are explicit.
@@ -3295,18 +3346,34 @@ export async function processAIChefChat(
       const soupCount = requested.roles.filter((r) => r === "soup").length;
       const dishCount = Math.max(0, requested.total - soupCount);
       const dishSetLabel = dishLabel(dishCount, soupCount, lang);
+      const cards = applyServings(assembled.cards);
+      const missingIngredient = missingIngredients[0];
       const content = assembled.missingRoles.length > 0
         ? aiReply(lang, "partialSet", { served: assembled.served, total: assembled.requested })
-        : assembled.sources.ai > 0
-          ? aiReply(lang, "libPlusAi", { lib: assembled.sources.library, ai: assembled.sources.ai })
-          : aiReply(lang, "libMealSet", { dish: dishSetLabel });
-      const cards = applyServings(assembled.cards);
+        : missingIngredient && assembled.sources.ai === 0
+          ? ingredientMissReply(lang, missingIngredient.term, cards.map((recipe) => recipe.name))
+          : assembled.sources.ai > 0
+            ? aiReply(lang, "libPlusAi", { lib: assembled.sources.library, ai: assembled.sources.ai })
+            : aiReply(lang, "libMealSet", { dish: dishSetLabel });
       resultMissingRoles = assembled.missingRoles;
       await recordFamilySeenNames(familyId, cards.map((r) => r.name));
       console.log(`[AI Chef] role assembler: requested=${assembled.requested} served=${assembled.served} lib=${assembled.sources.library} ai=${assembled.sources.ai} missing=${assembled.missingRoles.join(",") || "none"}`);
-      return { content, recipes: cards, llmUsed };
+      return {
+        content,
+        recipes: cards,
+        llmUsed,
+        clarifyReason: assembled.missingRoles.length > 0 && assembled.sources.ai > 0 ? "ai_partial" : undefined,
+      };
     }
     console.warn(`[AI Chef] role assembler produced 0 cards for roles=${requested.roles.join(",")}`);
+    if (missingIngredients.length > 0) {
+      return {
+        content: ingredientMissReply(lang, missingIngredients[0].term, missingIngredients[0].alternatives),
+        recipes: [],
+        llmUsed,
+        clarifyReason: "library_miss",
+      };
+    }
     return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed };
   }
 
@@ -3501,10 +3568,13 @@ export async function processAIChefChat(
       if (!wrongRole && !pickedIsReused) {
         console.log(`[AI Chef] library-first: ${picked.length} for "${keyword || "(generic)"}"`);
         await recordFamilySeenNames(familyId, picked.map(r => r.name));
+        const missingIngredient = missingIngredients[0];
         return {
-          content: keyword
-            ? aiReply(lang, "libByKeyword", { kw: keyword })
-            : aiReply(lang, "libOne"),
+          content: missingIngredient
+            ? ingredientMissReply(lang, missingIngredient.term, picked.map((recipe) => recipe.name))
+            : keyword
+              ? aiReply(lang, "libByKeyword", { kw: keyword })
+              : aiReply(lang, "libOne"),
           recipes: picked,
           llmUsed,
         };
@@ -4962,7 +5032,7 @@ export const aiRecipeRouter = router({
       const incompleteSet = requested > 0 && served < requested;
       // Any food/card request that served zero cards is a failed request, not a
       // normal text answer. Do not charge it, and never claim cards were prepared.
-      const zeroCardFood = served === 0 && intent.wantsCards === true;
+      const zeroCardFood = served === 0 && intent.wantsCards === true && !result.clarifyReason;
       // Also catch a prose answer that explicitly promises cards even if intent
       // was misclassified (the existing narrow guard).
       const cardClaim = served === 0 && claimsRecipeCards(String(result.content ?? ""));

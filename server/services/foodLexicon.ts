@@ -15,27 +15,27 @@ type ProteinFamilySpec = {
 export const PROTEIN_FAMILIES: Record<ProteinFamily, ProteinFamilySpec> = {
   beef: {
     role: "meat",
-    aliases: ["牛扒", "牛排", "牛柳", "牛肉", "牛腩", "牛肩", "牛肋", "牛小排", "和牛", "西冷"],
+    aliases: ["牛扒", "牛排", "牛柳", "牛肉", "牛腩", "牛肩", "牛肋", "牛小排", "和牛", "西冷", "牛"],
     fallbackQueries: ["牛扒", "牛排", "牛柳", "牛"],
   },
   chicken: {
     role: "meat",
-    aliases: ["雞扒", "雞排", "雞腿", "雞髀", "雞翼", "雞翅", "雞胸", "雞肉"],
+    aliases: ["雞扒", "雞排", "雞腿", "雞髀", "雞翼", "雞翅", "雞胸", "雞肉", "雞"],
     fallbackQueries: ["雞扒", "雞腿", "雞髀", "雞"],
   },
   pork: {
     role: "meat",
-    aliases: ["豬扒", "豬排", "豬肉", "豬腩", "豬手", "豬腳", "排骨", "叉燒", "燒肉"],
+    aliases: ["豬扒", "豬排", "豬肉", "豬腩", "豬手", "豬腳", "排骨", "叉燒", "燒肉", "豬"],
     fallbackQueries: ["豬扒", "豬排", "豬肉", "豬"],
   },
   lamb: {
     role: "meat",
-    aliases: ["羊扒", "羊排", "羊肉", "羊架", "羊腩"],
+    aliases: ["羊扒", "羊排", "羊肉", "羊架", "羊腩", "羊"],
     fallbackQueries: ["羊扒", "羊排", "羊肉", "羊"],
   },
   seafood: {
     role: "seafood",
-    aliases: ["海鮮", "魚扒", "魚柳", "三文魚", "鱸魚", "石斑", "蝦", "蟹", "蜆", "蠔", "魷魚", "帶子"],
+    aliases: ["海鮮", "魚扒", "魚柳", "三文魚", "鱸魚", "石斑", "蝦", "蟹", "蜆", "蠔", "魷魚", "帶子", "魚"],
     fallbackQueries: ["海鮮", "魚", "蝦"],
   },
   egg_tofu: {
@@ -47,11 +47,15 @@ export const PROTEIN_FAMILIES: Record<ProteinFamily, ProteinFamilySpec> = {
 
 const VEGETABLE_TERMS = [
   "菜心", "芥蘭", "通菜", "菠菜", "生菜", "白菜", "椰菜", "西蘭花", "時蔬", "蔬菜", "青菜", "菜",
-  "南瓜", "蘿蔔", "薯仔", "番茄", "茄子", "青椒", "洋蔥", "節瓜", "勝瓜", "苦瓜", "冬瓜", "青瓜",
+  "南瓜", "蘿蔔", "薯仔", "番茄", "茄子", "青椒", "洋蔥", "節瓜", "勝瓜", "苦瓜", "冬瓜", "青瓜", "沙律",
   "黃瓜", "絲瓜", "豆苗", "豆芽", "豆角", "青豆", "毛豆", "雲耳", "木耳", "菇", "菌", "筍",
 ];
 const SOUP_TERMS = ["湯水", "老火湯", "燉湯", "煲湯", "滾湯", "湯羹", "湯", "soup"];
-const NOODLE_TERMS = ["湯麵", "拉麵", "烏冬", "米線", "意粉", "河粉", "米粉", "麵", "noodle", "ramen", "udon", "pasta"];
+const NOODLE_TERMS = [
+  "魚湯粉", "湯粉", "魚蛋粉", "魚片河", "牛腩河", "湯麵", "湯面", "拉麵", "烏冬", "米線", "意粉", "河粉", "米粉", "麵",
+  "noodle", "ramen", "udon", "pasta",
+];
+const DISH_COOKING_RE = /(?:湯粉|魚蛋粉|魚片河|牛腩河|炒|煎|煮|蒸|焗|燉|煲|烤|炸|涼拌|滷|炆)/u;
 const DESSERT_TERMS = ["甜品", "甜點", "糖水", "布甸", "蛋糕", "雪糕", "dessert"];
 
 const ALL_FOOD_TERMS = [...new Set([
@@ -94,21 +98,30 @@ export function hasRequestVerb(text: string): boolean {
 
 export function roleForFoodTerm(term: string): RequestedRole {
   const raw = String(term ?? "").trim();
+  // Compound noodle/dish terms win over the individual 魚/湯 words inside them.
+  if (NOODLE_TERMS.some((t) => raw.includes(t))) return "noodle";
   const family = proteinFamilyForTerm(raw);
   if (family) return PROTEIN_FAMILIES[family].role;
   if (SOUP_TERMS.some((t) => raw.includes(t))) return "soup";
-  if (NOODLE_TERMS.some((t) => raw.includes(t))) return "noodle";
   if (DESSERT_TERMS.some((t) => raw.includes(t))) return "dessert";
   if (VEGETABLE_TERMS.some((t) => raw.includes(t))) return "vegetable";
   return "any";
 }
 
+/** A named dish/compound item vs a bare ingredient/category. */
+export function foodItemType(term: string): "dish" | "ingredient" {
+  const raw = String(term ?? "").trim();
+  if (!raw) return "ingredient";
+  if (NOODLE_TERMS.some((t) => raw.includes(t)) || DISH_COOKING_RE.test(raw)) return "dish";
+  return "ingredient";
+}
+
 export function fallbackQueriesForFoodTerm(term: string): string[] {
   const raw = String(term ?? "").trim();
+  if (NOODLE_TERMS.some((t) => raw.includes(t))) return ["麵", "粉"];
   const family = proteinFamilyForTerm(raw);
   if (family) return [...PROTEIN_FAMILIES[family].fallbackQueries];
   if (SOUP_TERMS.some((t) => raw.includes(t))) return ["湯"];
-  if (NOODLE_TERMS.some((t) => raw.includes(t))) return ["麵"];
   if (DESSERT_TERMS.some((t) => raw.includes(t))) return ["甜品"];
   if (VEGETABLE_TERMS.some((t) => raw.includes(t))) return ["菜", "蔬菜"];
   return [];
