@@ -10,11 +10,14 @@ type Dialogue = { id: string; turns: string[]; expect?: Record<string, Expect>; 
 const file = resolve(process.cwd(), process.argv.find((arg) => arg.startsWith("--file="))?.slice(7) ?? "server/fixtures/aiChef/dialogues.jsonl");
 const familyId = Number(process.argv.find((arg) => arg.startsWith("--family="))?.slice(9) ?? 5);
 const extraArg = process.argv.find((arg) => arg.startsWith("--extra="))?.slice(8);
-const extras = extraArg ? resolve(process.cwd(), extraArg) : resolve(process.cwd(), "server/fixtures/aiChef/ask_resolve_ours.jsonl");
+const extraPaths = [resolve(process.cwd(), "server/fixtures/aiChef/ask_resolve_ours.jsonl")];
+if (extraArg) extraPaths.push(resolve(process.cwd(), extraArg));
 const dialogues = readFileSync(file, "utf8").split(/\n+/).filter(Boolean).map((line) => JSON.parse(line) as Dialogue);
-try {
-  dialogues.push(...readFileSync(extras, "utf8").split(/\n+/).filter(Boolean).map((line) => JSON.parse(line) as Dialogue));
-} catch { /* extras are optional */ }
+for (const extraPath of extraPaths) {
+  try {
+    dialogues.push(...readFileSync(extraPath, "utf8").split(/\n+/).filter(Boolean).map((line) => JSON.parse(line) as Dialogue));
+  } catch { /* optional */ }
+}
 const repo = loadSeedCatalog();
 let total = 0, pass = 0;
 let resolved = 0, unresolved = 0, abandoned = 0, safety = 0;
