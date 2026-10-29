@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveChefIntent } from "./chefIntent";
+import { extractMealIngredients, isCannedMealPrompt, resolveChefIntent } from "./chefIntent";
 
 test("one meat and dessert (zh) requests two explicit cards", () => {
   const intent = resolveChefIntent("我淨係要一個肉，同甜品", { mode: "chat" });
@@ -120,4 +120,31 @@ test("chicken + vegetable meal does not invent a seafood role", () => {
   assert.equal(intent.requested.roles.includes("seafood"), false);
   assert.ok(intent.requested.roles.includes("meat"));
   assert.ok(intent.requested.roles.includes("vegetable"));
+});
+
+const CANNED_MEAL_PROMPT = `請為我設計今晚「3 餸 1 湯」晚餐，總共 4 道菜，適合4人食用。
+煮食時間要求：普通約 1 小時。
+食材欄每行只寫一種食材，唔好加入功效、備註、口味描述。
+請提供完整 4 個食譜，分類如下：
+1. 肉類主菜（如豬/牛/雞）
+2. 海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）
+3. 蔬菜/小炒
+4. 湯水（老火湯）`;
+
+test("canned meal prompt has no ingredient anchors", () => {
+  assert.equal(isCannedMealPrompt(CANNED_MEAL_PROMPT), true);
+  assert.deepEqual(extractMealIngredients(CANNED_MEAL_PROMPT), []);
+});
+
+test("canned meal prompt is a four-card meal intent", () => {
+  const intent = resolveChefIntent(CANNED_MEAL_PROMPT, { mode: "library" });
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.wantsCards, true);
+  assert.equal(intent.requested.total, 4);
+  assert.deepEqual(intent.requested.roles, ["meat", "seafood", "vegetable", "soup"]);
+  assert.equal(intent.reason, "canned_meal");
+});
+
+test("real user ingredients still extract chicken and vegetable", () => {
+  assert.deepEqual(extractMealIngredients("今晚三餸一湯，有雞髀同菜"), ["雞髀", "菜"]);
 });

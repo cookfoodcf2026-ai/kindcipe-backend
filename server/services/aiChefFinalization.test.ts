@@ -62,3 +62,19 @@ test("happy path commits and saves once", async () => {
   assert.equal(out.creditsCharged, 1);
   assert.deepEqual(d.calls, ["commit", "save"]);
 });
+
+test("AI-generated cards with a reservation commit a credit", async () => {
+  const aiReply = {
+    ...reply,
+    sources: { library: 0, ai: 2 },
+    served: 2,
+    requested: { total: 2, roles: ["meat", "vegetable"] as const },
+  };
+  const d = deps({
+    buildContract: () => ({ ...aiReply, requested: { total: 2, roles: ["meat", "vegetable"] } }),
+    shouldCharge: true,
+  });
+  const out = await finalizeChefRequest(d.value);
+  assert.equal(out.creditsCharged, 1);
+  assert.deepEqual(d.calls, ["commit", "save"]);
+});

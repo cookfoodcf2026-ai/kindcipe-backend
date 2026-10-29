@@ -5,7 +5,7 @@ import { eq, and, or, ilike, desc, lte, gt, sql, notInArray } from "drizzle-orm"
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
-import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, type ChefIntent, type RequestedRole } from "../services/chefIntent";
+import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
 import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
@@ -1678,7 +1678,7 @@ const ROLE_LIBRARY_QUERY: Partial<Record<RequestedRole, string>> = {
   soup: "湯",
   meat: "肉",
   seafood: "海鮮",
-  vegetable: "蔬菜",
+  vegetable: "菜",
   noodle: "麵",
 };
 
@@ -2850,6 +2850,7 @@ export async function processAIChefChat(
     ai_chef_any_library_miss_offer?: boolean;
   } = {},
   operation: "replace" | "append" = "replace",
+  allowAiFallback: boolean = true,
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[] }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -3017,13 +3018,12 @@ export async function processAIChefChat(
     // Use the user's ingredient words for this meal. On a follow-up, the
     // previous message is the meal context; otherwise use the latest message.
     const mealContextText = isMealFollowUp(lastUserText) && previousText ? previousText : lastUserText;
-    const mealSearchTerms = cleanFoodQuery(mealContextText)
-      .split(/\s+/)
-      .map((t) => t.replace(/^(?:有|加|要|想食|食)/, "").trim())
-      .filter((t) => t.length > 0
-        && !/[0-9一二兩三四五六七八九十]+\s*[餸菜送]/.test(t)
-        && !/^(?:[0-9一二兩三四五六七八九十]*湯|湯水|set|meal|dinner|lunch|breakfast)$/i.test(t));
-    console.log(`[AI Chef] meal context="${mealContextText}" terms=${mealSearchTerms.join("|") || "none"}`);
+    const mealPath: "canned" | "user" = isCannedMealPrompt(mealContextText) ? "canned" : "user";
+    // Canned questionnaire prompts are instructions, not ingredients. For real
+    // user text keep only food words (no labels like 道菜/主菜/小炒).
+    const mealSearchTerms = mealPath === "canned" ? [] : extractMealIngredients(mealContextText);
+    const roleQueryFor = (role: RequestedRole): string => role === "any" ? "家常" : (ROLE_LIBRARY_QUERY[role] ?? "家常");
+    console.log(`[AI Chef] meal path=${mealPath} context="${mealContextText}" terms=${mealSearchTerms.join("|") || "none"}`);
     const roleForTerm = (term: string): RequestedRole => {
       if (/湯|soup/i.test(term)) return "soup";
       if (/魚|鱼|蝦|虾|蟹|蜆|蚬|蠔|蚝|海鮮|海鲜|豆腐|蛋|魚|seafood|fish|shrimp|prawn|crab|tofu|egg/i.test(term)) return "seafood";
@@ -3032,55 +3032,91 @@ export async function processAIChefChat(
       return "any";
     };
     const termsForRole = (role: RequestedRole): string[] => {
+      if (mealPath === "canned") return [];
       const direct = mealSearchTerms.filter((term) => roleForTerm(term) === role);
       if (direct.length > 0) return direct;
       // The flexible "any" slot should still be anchored to the user's words,
       // not a random generic pool pick (e.g. don't drop tofu into a chicken meal).
       if (role === "any") return mealSearchTerms;
-      return [ROLE_LIBRARY_QUERY[role] ?? ""].filter(Boolean);
+      return [];
+    };
+    const isTofuOrEgg = (text: string) => /豆腐|豆卜|豆干|豆乾|腐皮|腐竹|雞蛋|鸡蛋|蛋|蒸蛋|炒蛋|皮蛋|鹹蛋|咸蛋|tofu|egg/i.test(text);
+    const hasMeatMarker = (text: string) => /豬|猪|牛|雞|鸡|羊|鴨|鸭|鵝|鹅|肉|排骨|腩|雞翼|雞翅|雞腿|雞髀|火腿|叉燒|烧肉|烧肉|肉丸|pork|beef|chicken|lamb|meat/i.test(text);
+    const hasVegMarker = (text: string) => /菜|蔬|瓜|豆苗|豆芽|菇|菌|筍|笋|番茄|茄子|青椒|洋蔥|洋葱|薯|蘿蔔|萝卜|西蘭花|西兰花|菠菜|生菜|白菜|椰菜|芥蘭|芥兰|通菜|時蔬|时蔬|木耳|雲耳|云耳|veg|vegetable|broccoli|spinach|mushroom|tomato|potato|onion/i.test(text);
+    const roleCandidate = (row: Record<string, unknown>, role: RequestedRole): boolean => {
+      const name = String(row.name ?? "");
+      const tags = Array.isArray(row.tags) ? row.tags.map(String).join(" ") : "";
+      const text = `${name} ${tags}`;
+      const type = classifyDishType(row);
+      if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink" && type !== "carb";
+      if (role === "meat") {
+        // DB dishType can be wrong (e.g. 椒鹽豆腐 marked meat). Name/tags win.
+        if (isTofuOrEgg(text) && !hasMeatMarker(name)) return false;
+        return type === "meat" && hasMeatMarker(text);
+      }
+      if (role === "vegetable") return type === "vegetable" && hasVegMarker(name) && !isTofuOrEgg(name);
+      if (role === "seafood") return type === "seafood";
+      if (role === "soup") return type === "soup";
+      if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
+      if (role === "dessert") return type === "dessert";
+      return true;
     };
     const roleRowsCache = new Map<string, Record<string, unknown>[]>();
-    const getRoleRows = async (role: RequestedRole): Promise<Record<string, unknown>[]> => {
-      const queries = termsForRole(role);
-      const effectiveQueries = queries.length > 0 ? queries : ["家常"];
-      const cacheKey = `${role}:${effectiveQueries.join("|")}`;
+    const loadRoleRows = async (queries: string[]): Promise<Record<string, unknown>[]> => {
+      const cacheKey = queries.join("|");
       const cached = roleRowsCache.get(cacheKey);
       if (cached) return cached;
       const rows: Record<string, unknown>[] = [];
-      for (const query of effectiveQueries) {
-        rows.push(...await trySearch(query, 80));
-      }
-      const deduped = [...new Map(rows.map((row) => [String(row.id ?? row.name ?? ""), row])).values()];
+      for (const query of queries) rows.push(...await trySearch(query, 80));
+      const deduped = [...new Map(rows.map((row) => [String(row.source ?? "") + ":" + String(row.id ?? row.name ?? ""), row])).values()];
       roleRowsCache.set(cacheKey, deduped);
       return deduped;
     };
-    const isCarbRow = (row: Record<string, unknown>) => {
-      const family = dishFamily(String(row?.name ?? ""));
-      return family === "noodle" || family === "rice";
-    };
     const pickLibrary = async (role: RequestedRole, count: number, used: string[]): Promise<RecipeCandidate<SuggestedRecipe>[]> => {
-      const rows = (await getRoleRows(role)).filter((row) => avoidIngredients.length === 0 || !rowContainsAvoid(row, avoidIngredients));
       const usedSet = new Set(used.map((n) => normalizeName(n).toLowerCase()));
-      const filtered = rows.filter((row) => {
-        const key = normalizeName(String(row?.name ?? "")).toLowerCase();
-        if (!key || usedSet.has(key)) return false;
-        const type = classifyDishType(row);
-        if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink" && !isCarbRow(row);
-        if (role === "noodle") return type === "carb" || dishFamily(String(row?.name ?? "")) === "noodle";
-        return type === role;
-      });
-      const recipes = rowsToSuggested(filtered, excludeSets, count);
-      const picked = recipes
-        .filter((recipe) => {
-          const key = normalizeName(recipe.name).toLowerCase();
-          return key && !usedSet.has(key);
-        })
-        .map((recipe) => ({ recipe, role, source: "library" as const }));
-      const queryLabel = (termsForRole(role).length > 0 ? termsForRole(role) : [role === "any" ? "家常" : ROLE_LIBRARY_QUERY[role] ?? "家常"]).join("、");
-      console.log(`[AI Chef] meal role=${role} source=${picked.length > 0 ? "lib" : "ai-fallback"} query="${queryLabel}" rows=${rows.length} candidates=${filtered.length} picked=${picked.length}`);
-      return picked;
+      const pickFrom = (rows: Record<string, unknown>[]) => {
+        const safe = avoidIngredients.length === 0 ? rows : rows.filter((row) => !rowContainsAvoid(row, avoidIngredients));
+        const filtered = safe.filter((row) => {
+          const key = normalizeName(String(row?.name ?? "")).toLowerCase();
+          return key && !usedSet.has(key) && roleCandidate(row, role);
+        });
+        const recipes = rowsToSuggested(filtered, excludeSets, count);
+        const picked = recipes
+          .filter((recipe) => {
+            const key = normalizeName(recipe.name).toLowerCase();
+            return key && !usedSet.has(key);
+          })
+          .map((recipe) => ({ recipe, role, source: "library" as const }));
+        return { filtered, picked };
+      };
+
+      const userTerms = termsForRole(role);
+      let source: "lib" | "lib-role" = userTerms.length > 0 ? "lib" : "lib-role";
+      let queries = userTerms.length > 0 ? userTerms : [roleQueryFor(role)];
+      let rows = await loadRoleRows(queries);
+      let result = pickFrom(rows);
+
+      // User term had zero valid role hits -> try the deterministic role query
+      // before touching the LLM. This is the "0 hit" fallback required by E.
+      if (result.picked.length === 0 && userTerms.length > 0) {
+        const fallbackQuery = roleQueryFor(role);
+        if (!queries.includes(fallbackQuery)) {
+          queries = [fallbackQuery];
+          source = "lib-role";
+          rows = await loadRoleRows(queries);
+          result = pickFrom(rows);
+        }
+      }
+
+      const queryLabel = queries.join("、");
+      console.log(`[AI Chef] meal role=${role} source=${result.picked.length > 0 ? source : "ai"} query="${queryLabel}" rows=${rows.length} candidates=${result.filtered.length} picked=${result.picked.length}`);
+      return result.picked;
     };
     const generateRole = async (role: RequestedRole, count: number, used: string[]): Promise<RecipeCandidate<SuggestedRecipe>[]> => {
+      if (!allowAiFallback) {
+        console.log(`[AI Chef] meal role=${role} source=ai-blocked reason=no_credit_reservation_or_ai_disabled`);
+        return [];
+      }
       const expected = role === "any" ? "other" : dishTypeForRole(role);
       const ingredientTerms = termsForRole(role);
       const baseLabel = role === "any" ? "家常菜" : (MEAL_TYPE_LABEL[expected]?.label ?? "家常菜");
@@ -3098,15 +3134,12 @@ export async function processAIChefChat(
       const isLibrary = recipe.source === "official" || recipe.source === "custom";
       const minSteps = isLibrary ? 1 : (role === "dessert" || role === "soup") ? 4 : 5;
       if (!Array.isArray(recipe.steps) || recipe.steps.filter((s) => String(s ?? "").trim()).length < minSteps) return false;
-      const type = classifyDishType({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
-      if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
-      if (role === "meat") return isLibrary ? type === "meat" : type === "meat" || type === "other";
-      if (role === "seafood") return isLibrary ? type === "seafood" : type === "seafood" || type === "other";
-      if (role === "vegetable") return type === "vegetable";
-      if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
-      if (role === "dessert") return type === "dessert";
-      if (role === "soup") return type === "soup" || /湯|羹/.test(name);
-      return true;
+      return roleCandidate({
+        name: recipe.name,
+        tags: recipe.tags,
+        dishType: recipe.dishType,
+        soupType: recipe.soupType,
+      } as unknown as Record<string, unknown>, role);
     };
     const assembled = await assembleRecipeSet<SuggestedRecipe>(requested, {
       pickLibrary,
@@ -4559,6 +4592,7 @@ export const aiRecipeRouter = router({
       let reservationId: number | undefined;
       let budgetReservationId: number | undefined;
       let effectiveMode: "chat" | "ai" | "library" = mode;
+      let allowAiFallback = true;
 
       const flagState = familyId
         ? await getAiChefMode(familyId)
@@ -4608,9 +4642,11 @@ export const aiRecipeRouter = router({
           nearLimit: summary.aiCredits >= ent.limits.aiCredits,
         };
 
+        const userLibraryMode = mode === "library";
         if (flagState.mode !== "normal" || (flagState.flags.ai_chef_free_no_ai === true && ent.status === "free")) {
           effectiveMode = "library";
-        } else if (!ent.readOnly && effectiveMode !== "library" && flagState.flags.ai_chef_hard_cap !== false) {
+          allowAiFallback = false;
+        } else if (!ent.readOnly && (effectiveMode !== "library" || userLibraryMode) && flagState.flags.ai_chef_hard_cap !== false) {
           const cap = await getAiChefCapMicros(familyId, userIdStr);
           const estimateMicros = intent.requested.total > 1 ? 25_000 : 6_000;
           try {
@@ -4624,6 +4660,7 @@ export const aiRecipeRouter = router({
           } catch (error) {
             if (error instanceof LlmBudgetError) {
               effectiveMode = "library";
+              allowAiFallback = false;
               console.warn(`[AI Chef] budget layer1 ${error.reason} family=${familyId}`);
             } else {
               throw error;
@@ -4631,10 +4668,15 @@ export const aiRecipeRouter = router({
           }
         }
 
-        if (effectiveMode !== "library") {
-          if (ent.readOnly) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
-          }
+        if (ent.readOnly && effectiveMode !== "library") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+        }
+        if (ent.readOnly) allowAiFallback = false;
+
+        // Library mode can still use AI as a last resort for missing roles. Reserve
+        // exactly like chat so an AI-produced card cannot be free; pure-library
+        // responses release this reservation in finalizeChefRequest.
+        if (effectiveMode !== "library" || (userLibraryMode && allowAiFallback)) {
           try {
             const reservation = await reserveUsage({
               familyId,
@@ -4649,7 +4691,12 @@ export const aiRecipeRouter = router({
             quota.nearLimit = quota.used >= quota.limit;
           } catch (error) {
             if (budgetReservationId) await releaseLlmBudget(budgetReservationId).catch(() => {});
-            usageLimitToTRPC(error);
+            if (userLibraryMode) {
+              allowAiFallback = false;
+              console.warn("[AI Chef] library mode credit reservation unavailable -> pure library only");
+            } else {
+              usageLimitToTRPC(error);
+            }
           }
         }
       }
@@ -4695,6 +4742,7 @@ export const aiRecipeRouter = router({
           input.forceText === true,
           flagState.flags,
           input.operation ?? "replace",
+          allowAiFallback,
         );
       } catch (error) {
         if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
@@ -4883,9 +4931,13 @@ export const aiRecipeRouter = router({
       if (!shouldCharge && incompleteSet) {
         console.log(`[AI Chef] refund partial set requested=${requested} served=${served} credits=${requestedCredits}`);
       }
+      const metricPath = isCannedMealPrompt(lastUserText(input.messages))
+        || (isMealFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
+        ? "canned"
+        : "user";
       console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
       console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
-      console.log(`[AI Chef][metric] request=${requestId} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
+      console.log(`[AI Chef][metric] request=${requestId} path=${metricPath} kind=${intent.kind} roles=${intent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
       if (clientMessageIdEnabled) {
         finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }

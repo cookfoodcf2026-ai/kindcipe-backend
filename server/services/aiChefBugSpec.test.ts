@@ -236,3 +236,38 @@ test("BUG 6: chicken + vegetable 3-dish 1-soup uses the user's ingredient words"
   assert.ok(result.recipes.some((r) => /雞/.test(r.name)), `expected a chicken card, got ${result.recipes.map((r) => r.name).join("、")}`);
   assert.ok(result.recipes.some((r) => /菜/.test(r.name)), `expected a vegetable card, got ${result.recipes.map((r) => r.name).join("、")}`);
 });
+
+const CANNED_MEAL_PROMPT = `請為我設計今晚「3 餸 1 湯」晚餐，總共 4 道菜，適合4人食用。
+煮食時間要求：普通約 1 小時。
+食材欄每行只寫一種食材，唔好加入功效、備註、口味描述。
+請提供完整 4 個食譜，分類如下：
+1. 肉類主菜（如豬/牛/雞）
+2. 海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）
+3. 蔬菜/小炒
+4. 湯水（老火湯）`;
+
+test("BUG 7: canned 3-dish-1-soup prompt is all library and never uses tofu as meat", async () => {
+  const now = Date.now();
+  const fixtures = [
+    { name: `${prefix}咕嚕肉`, category: "家常", dishType: "meat", ingredientName: "豬肉" },
+    { name: `${prefix}椒鹽豆腐`, category: "家常", dishType: "meat", ingredientName: "肉" },
+    { name: `${prefix}海鮮豆腐煲`, category: "家常", dishType: "seafood", ingredientName: "海鮮" },
+    { name: `${prefix}清炒蔬菜`, category: "家常", dishType: "vegetable", ingredientName: "蔬菜" },
+    { name: `${prefix}紫菜蛋花湯`, category: "家常", dishType: "soup", ingredientName: "湯" },
+  ];
+  for (let i = 0; i < fixtures.length; i++) {
+    await insertOfficial({ ...fixtures[i], createdAt: new Date(now + i * 1000) });
+  }
+
+  const result = await processAIChefChat(
+    [{ role: "user", content: CANNED_MEAL_PROMPT }],
+    familyId, undefined, "library", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+
+  assert.equal(result.recipes.length, 4);
+  assert.equal(result.llmUsed, false);
+  assert.ok(result.recipes.every((r) => r.source === "official" || r.source === "custom"), `non-library card: ${result.recipes.map((r) => `${r.name}:${r.source}`).join("、")}`);
+  assert.ok(result.recipes.some((r) => /肉/.test(r.name)), `expected meat card, got ${result.recipes.map((r) => r.name).join("、")}`);
+  assert.ok(result.recipes.every((r) => !/椒鹽豆腐/.test(r.name)), `tofu leaked into meat: ${result.recipes.map((r) => r.name).join("、")}`);
+});

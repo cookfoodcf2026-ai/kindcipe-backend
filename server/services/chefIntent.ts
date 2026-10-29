@@ -50,6 +50,46 @@ const NOODLE_RE = /(?:湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意�
 // the preceding meal request. Do not treat it as small talk.
 const MEAL_FOLLOW_UP_RE = /^(?:再|換|唔同|另一|第二|another|next|different)(?:\s|$|，|,|。|！|!|\?|？)|(?:再|另一|換|唔同|第二|另一個|另一組|再嚟|再來|different|another|next)\s*.{0,10}(?:set|組|餐|批|款|round|one|meal)|\b(?:give me|i want|show me)\s+(?:another|a different)\b|比另一\s*set/i;
 
+// The app's meal-questionnaire sends a long canned prompt, not the user's own
+// ingredient words. Those category labels must never become library anchors.
+const CANNED_MEAL_RE = /請為我設計|總共\s*\d+\s*道菜|適合\s*\d+\s*人食用|煮食時間要求|分類如下|[（(]如[^）)]*[）)]/i;
+const MEAL_SCAFFOLD_RE = /請為我設計|總共\s*[0-9一二兩三四五六七八九十]+\s*道菜|適合\s*[0-9一二兩三四五六七八九十]+\s*人食用|煮食時間要求|分類如下|食材欄|每行只寫|請提供|唔好加入|每個食譜|完整|名稱|簡短描述|煮食時間|難度|份量|食材清單|語言|繁體中文|口味要求|避免食材|有小朋友|有老人家|功效|備註|口味描述|晚餐|午餐|早餐/gi;
+const MEAL_LABEL_RE = /^(?:道菜|主菜|小炒|蔬菜類|湯水|肉類|肉類主菜|海鮮|海鮮類|其他蛋白|蛋白|分類|如下|食譜|食譜卡|材料|配料|調味|湯|餸|set|meal|dish|recipe|cards?|people|person|servings?)$/i;
+
+/** True for the app's built-in 3-dish-1-soup questionnaire prompt. */
+export function isCannedMealPrompt(text: string): boolean {
+  return CANNED_MEAL_RE.test(String(text ?? ""));
+}
+
+/**
+ * Extract only real ingredient words from a meal request. Canned prompts return
+ * an empty list so callers use role queries instead of category labels.
+ */
+export function extractMealIngredients(text: string): string[] {
+  const raw = String(text ?? "").trim();
+  if (!raw || isCannedMealPrompt(raw)) return [];
+  const cleaned = raw
+    .replace(/[（(][^）)]*[）)]/g, " ")
+    .replace(MEAL_SCAFFOLD_RE, " ")
+    .replace(/[「」『』【】\[\]]/g, " ")
+    .replace(/[0-9]+/g, " ")
+    .replace(/[，,、;；:：。！？!?\n\r\t/\\]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const pieces = cleaned.split(/\s+|同埋|同|和|有|加|要|想食|想煮|用/giu);
+  const terms: string[] = [];
+  for (const piece of pieces) {
+    const term = piece.replace(/^(?:有|用|加|要|想食|想煮)/, "").trim();
+    if (!term || term.length > 20) continue;
+    if (/[0-9一二兩三四五六七八九十]+\s*[餸菜送]/.test(term)) continue;
+    if (/^(?:[0-9一二兩三四五六七八九十]*湯|湯水|set|meal|dinner|lunch|breakfast)$/i.test(term)) continue;
+    if (MEAL_LABEL_RE.test(term)) continue;
+    if (!/[\p{Script=Han}A-Za-z]/u.test(term)) continue;
+    if (!terms.includes(term)) terms.push(term);
+  }
+  return terms;
+}
+
 function toNumber(raw: string | undefined): number | null {
   if (!raw) return null;
   const token = raw.trim();
@@ -199,6 +239,19 @@ export function resolveChefIntent(
   }
   if (!text) {
     return { kind: "chat", wantsCards: false, requested: empty, confidence: 0.99, reason: "empty" };
+  }
+  if (isCannedMealPrompt(text)) {
+    const parsed = explicitDishSoup(text);
+    const total = Math.max(1, parsed?.total ?? 4);
+    const base: RequestedRole[] = total >= 4 ? ["meat", "seafood", "vegetable"] : dishRoles(Math.max(0, total - 1));
+    const roles = [...base, ...roleList(total - base.length, "soup")].slice(0, total);
+    return {
+      kind: "meal",
+      wantsCards: true,
+      requested: { total, roles },
+      confidence: 0.98,
+      reason: "canned_meal",
+    };
   }
   if (SMALL_TALK_RE.test(text)) {
     return { kind: "chat", wantsCards: false, requested: empty, confidence: 0.99, reason: "small_talk" };
