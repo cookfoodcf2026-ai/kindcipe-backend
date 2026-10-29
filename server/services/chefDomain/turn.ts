@@ -199,7 +199,10 @@ export function runChefTurn(
   const ambiguousModifier = !planned
     && state.shape.dishes + state.shape.soups === 0
     && !state.pendingAsk
-    && /(?:豐富|簡單|清淡|快|好味|特別)\s*啲?/.test(text)
+    && /(?:豐富|簡單|清淡)\s*(?:啲|啲啦|點)/.test(text)
+    && !/(?:小朋友|半個鐘|快煮|有咩|食材|人食)/.test(text)
+    && !queryPlan.scenarios.includes("quick")
+    && !queryPlan.scenarios.includes("kids")
     && queryPlan.dishTypes.length === 0;
   if (ambiguousModifier) {
     const next = withAsk(state, "clarify");
