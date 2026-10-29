@@ -3037,8 +3037,17 @@ export async function processAIChefChat(
     .map((m) => textOf(m))
     .filter(Boolean);
   const stateKey = stateUserId ?? (typeof userId === "number" && Number.isFinite(userId) ? String(userId) : undefined);
-  const storedMeal = mode === "ai" && familyId && stateKey && !previousText && isStructuralShortFollowUp(lastUserText)
-    ? (await getLastMealState(familyId, stateKey))?.shape
+  const historyHasMealShape = Boolean(
+    (previousText && planChefTurn(previousText)?.shape)
+    || previousTexts.some((text) => planChefTurn(text)?.shape),
+  );
+  const canUseState = Boolean(
+    familyId && stateKey && !historyHasMealShape
+    && isStructuralShortFollowUp(lastUserText)
+    && (mode === "chat" || mode === "ai"),
+  );
+  const storedMeal = canUseState
+    ? (await getLastMealState(familyId as number, stateKey as string))?.shape
     : undefined;
   const plannedTurn = planChefTurn(lastUserText, { previousText, previousTexts, previousMeal: storedMeal });
   let chefIntent: ChefIntent = resolveChefIntent(lastUserText, {
@@ -3282,6 +3291,125 @@ export async function processAIChefChat(
         llmUsed: true,
         clarifyReason: "ambiguous_food",
         intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+      };
+    }
+    if (dispatch.intent === "action" && dispatch.action?.kind === "closest") {
+      const previousFood = [...inputMessages]
+        .filter((m) => m.role === "user")
+        .map((m) => typeof m.content === "string" ? m.content : m.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" "))
+        .reverse()
+        .flatMap((text) => extractMealIngredients(text))[0];
+      const rawTarget = (dispatch.action.target || dispatchItems[0]?.label || previousFood || "").trim();
+      const target = /^(?:ai|ai煮|煮|生成|煮嘢)$/i.test(rawTarget) ? "" : rawTarget;
+      if (!target) {
+        return {
+          content: lang.startsWith("en") ? "Which dish should I find the closest recipes for?" : "你想搵邊款菜嘅最接近食譜？",
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "ambiguous_food",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      let search = await trySearch(target, 30);
+      if (!search.ok) {
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: true, clarifyReason: "lib_search_fail" };
+      }
+      if (search.rows.length === 0 && /麵|面|粉|飯|飯/i.test(target)) {
+        for (const fallbackQuery of ["麵", "粉", "飯"]) {
+          const fallback = await trySearch(fallbackQuery, 30);
+          if (fallback.ok && fallback.rows.length > 0) {
+            search = fallback;
+            break;
+          }
+        }
+      }
+      const cards = rowsToSuggested(search.rows, excludeSets, 3);
+      if (cards.length === 0) {
+        return {
+          content: lang.startsWith("en") ? `No library recipe is close to "${target}". Want me to cook it with AI?` : `庫存冇「${target}」，暫時亦冇夠接近嘅食譜。想我叫 AI 即場煮？`,
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "library_miss",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      return {
+        content: lang.startsWith("en")
+          ? `No exact "${target}" in the library. These are the closest:`
+          : `庫存冇「${target}」，以下係最接近嘅食譜。想 AI 即場煮就話我知。`,
+        recipes: cards,
+        llmUsed: true,
+        intentOverride: {
+          kind: "recipe",
+          wantsCards: true,
+          requested: { total: cards.length, roles: cards.map(() => "any" as RequestedRole) },
+          confidence: dispatch.confidence,
+          reason: "closest_library",
+        },
+      };
+    }
+    if (dispatch.intent === "action" && dispatch.action?.kind === "ai_cook") {
+      const explicitAiRequest = /(?:^|[\s，,])ai(?:\s|$|煮|生成)|ai\s*煮|用\s*ai/i.test(lastUserText);
+      if (!explicitAiRequest) {
+        return {
+          content: lang.startsWith("en") ? "Do you want me to exclude that, or ask AI to cook it?" : "你想我排除呢樣，定係叫 AI 即場煮？",
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "ambiguous_food",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      const previousFood = [...inputMessages]
+        .filter((m) => m.role === "user")
+        .map((m) => typeof m.content === "string" ? m.content : m.content.filter((b) => b.type === "text").map((b: any) => b.text).join(" "))
+        .reverse()
+        .flatMap((text) => extractMealIngredients(text))[0];
+      const rawTarget = (dispatch.action.target || dispatchItems[0]?.label || previousFood || "").trim();
+      const target = /^(?:ai|ai煮|煮|生成|煮嘢)$/i.test(rawTarget) ? "" : rawTarget;
+      if (!target) {
+        return {
+          content: lang.startsWith("en") ? "What should I cook with AI? Tell me the dish or ingredient." : "想 AI 即場煮邊款？話我知菜名或者食材。",
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "ambiguous_food",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      if (!allowAiFallback) {
+        return {
+          content: lang.startsWith("en") ? "AI cooking is unavailable right now. No credit was used." : "AI 即場煮暫時用唔到，冇扣 credit。你可以再試，或者去匯入食譜。",
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "ai_failed",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      const targetRole = roleForFoodTerm(target);
+      const expected = targetRole === "any" ? "other" : dishTypeForRole(targetRole);
+      const generated = await generateOneType(target, expected, [...mergedExclude], avoidIngredients);
+      if (!generated) {
+        return {
+          content: lang.startsWith("en") ? "I couldn't generate that recipe. No credit was used." : "我今次生成唔到呢個食譜，冇扣 credit。你可以再試或者講多少少要求。",
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "ai_failed",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      generated.source = "ai";
+      delete generated.officialId;
+      delete generated.customId;
+      return {
+        content: aiReply(lang, "madeNew"),
+        recipes: [generated],
+        llmUsed: true,
+        intentOverride: {
+          kind: "recipe",
+          wantsCards: true,
+          requested: { total: 1, roles: [targetRole] },
+          confidence: dispatch.confidence,
+          reason: "ai_action",
+        },
       };
     }
     if (dispatch.intent === "technique" || dispatch.intent === "chat" || dispatch.intent === "non_food" || dispatch.intent === "action") {
@@ -5339,14 +5467,24 @@ export const aiRecipeRouter = router({
       const effectiveIntent = result.intentOverride ?? intent;
       const served = result.recipes?.length ?? 0;
       const requested = effectiveIntent.requested.total;
-      if (familyId && served > 0 && requested > 1) {
-        const soupCount = effectiveIntent.requested.roles.filter((role) => role === "soup").length;
-        await saveLastMealState(
-          familyId,
-          String(ctx.user.id),
-          { dishes: Math.max(0, requested - soupCount), soups: soupCount },
-          result.recipes.map((recipe) => recipe.name).filter(Boolean),
-        );
+      if (familyId) {
+        const lastText = lastUserText(input.messages);
+        const requestTerms = extractMealIngredients(lastText);
+        const requestedRoles = effectiveIntent.requested.roles;
+        const soupCount = requestedRoles.filter((role) => role === "soup").length;
+        const stateShape = requested > 1
+          ? { dishes: Math.max(0, requested - soupCount), soups: soupCount }
+          : served === 0 && effectiveIntent.kind === "clarify" && requestTerms.length > 1
+            ? { dishes: requestTerms.length, soups: /湯/.test(lastText) ? 1 : 0 }
+            : null;
+        if (stateShape) {
+          await saveLastMealState(
+            familyId,
+            String(ctx.user.id),
+            stateShape,
+            result.recipes.map((recipe) => recipe.name).filter(Boolean),
+          );
+        }
       }
       const incompleteSet = requested > 0 && served < requested;
       // Any food/card request that served zero cards is a failed request, not a

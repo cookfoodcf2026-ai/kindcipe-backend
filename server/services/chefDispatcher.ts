@@ -3,6 +3,9 @@ import { invokeLLM, extractJSON, type Message } from "../_core/llm";
 export type DispatcherItemKind = "dish" | "category" | "ingredient";
 export type DispatcherIntent = "cards" | "technique" | "chat" | "action" | "non_food";
 
+export type DispatcherAction =
+  | { kind: "ai_cook"; target?: string }
+  | { kind: "closest"; target?: string };
 export type DispatcherItem = {
   label: string;
   kind: DispatcherItemKind;
@@ -14,6 +17,7 @@ export type ChefDispatch = {
   items: DispatcherItem[];
   confidence: number;
   ask: { needed: boolean; question: string };
+  action?: DispatcherAction;
   replyText: string;
 };
 
@@ -25,6 +29,7 @@ export const DISPATCHER_PROMPT = `你係 Kindcipe 香港家庭煮食助手。你
   "items": [{"label": string, "kind": "dish"|"category"|"ingredient", "qty": number}],
   "confidence": number,
   "ask": {"needed": boolean, "question": string},
+  "action": {"kind": "ai_cook" | "closest", "target": string} | null,
   "replyText": string
 }
 
@@ -41,7 +46,9 @@ export const DISPATCHER_PROMPT = `你係 Kindcipe 香港家庭煮食助手。你
 7. 非食物／醫療／營養 → intent=non_food 或 chat，唔准亂答。
 8. replyText 要自然、簡短（最多 3 句），跟用戶語言。
 9. 冇卡時唔准講「已準備／已提供／撳上面卡片」。
-10. 唔准發明菜名、價錢、營養數字或庫存。`;
+10. 唔准發明菜名、價錢、營養數字或庫存。
+11. 用戶明確要求 AI 即場煮（例如「我要 AI 煮」「要 AI」「用 AI 生成」）→ intent=action，action={"kind":"ai_cook","target":從上下文抽到的菜名}；唔准只回「即刻生成」而冇 action。
+12. 用戶問「最接近係咩／有冇最接近」→ intent=action，action={"kind":"closest","target":上一輪搵唔到嘅菜名}；由 server 直接出最多 3 張庫存卡，唔好再問一次。`;
 
 function clampConfidence(value: unknown): number | null {
   const n = Number(value);
@@ -115,6 +122,12 @@ export function validateChefDispatch(value: unknown): ChefDispatch | null {
   const confidence = clampConfidence(v.confidence);
   if (confidence === null) return null;
   const askRaw = (v.ask ?? {}) as Record<string, unknown>;
+  const actionRaw = (v.action ?? null) as Record<string, unknown> | null;
+  let action: DispatcherAction | undefined;
+  if (actionRaw && (actionRaw.kind === "ai_cook" || actionRaw.kind === "closest")) {
+    const target = String(actionRaw.target ?? "").trim().slice(0, 80);
+    action = { kind: actionRaw.kind, ...(target ? { target } : {}) };
+  }
   const replyText = String(v.replyText ?? "").trim();
   if (replyText.length > 500) return null;
   return {
@@ -125,6 +138,7 @@ export function validateChefDispatch(value: unknown): ChefDispatch | null {
       needed: askRaw.needed === true,
       question: String(askRaw.question ?? "").trim().slice(0, 240),
     },
+    ...(action ? { action } : {}),
     replyText,
   };
 }

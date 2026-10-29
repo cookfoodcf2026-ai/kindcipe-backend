@@ -520,6 +520,44 @@ test("meal follow-up bypasses dispatcher", async () => {
   assert.notEqual(result.clarifyReason, "ai_failed");
 });
 
+test("AI action without target asks instead of promising text", async () => {
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要 AI 煮" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true, undefined, async () => ({
+      intent: "action" as const,
+      items: [],
+      confidence: 0.9,
+      ask: { needed: false, question: "" },
+      action: { kind: "ai_cook" as const },
+      replyText: "即刻為你生成。",
+    }),
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "ambiguous_food");
+  assert.match(result.content, /邊款|菜名|食材/);
+});
+
+test("AI action with target and no AI capacity returns clarify, no card", async () => {
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要 AI 煮" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", false, true, undefined, async () => ({
+      intent: "action" as const,
+      items: [{ label: "魚麵", kind: "dish" as const, qty: 1 }],
+      confidence: 0.9,
+      ask: { needed: false, question: "" },
+      action: { kind: "ai_cook" as const, target: "魚麵" },
+      replyText: "即刻為你生成。",
+    }),
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "ai_failed");
+  assert.match(result.content, /冇扣 credit/);
+});
+
 test("dispatcher library miss asks instead of guessing", async () => {
   const dispatch = {
     intent: "cards" as const,
