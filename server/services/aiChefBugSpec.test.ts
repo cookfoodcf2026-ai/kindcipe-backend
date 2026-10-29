@@ -420,3 +420,22 @@ test("ingredient miss gives same-family alternatives with honest copy", async ()
   assert.match(result.content, /庫存冇「和牛」/);
   assert.equal(result.llmUsed, false);
 });
+
+test("P34: 魚面 library miss is clarify, never a prose-matched library card", async () => {
+  await insertOfficial({
+    name: `${prefix}乾炒牛河`,
+    category: "家常",
+    dishType: "carb",
+    ingredientName: "河粉",
+    createdAt: new Date(),
+  });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "魚面" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.llmUsed, false);
+  assert.equal(result.clarifyReason, "library_miss");
+  assert.doesNotMatch(result.content, /乾炒牛河/);
+});

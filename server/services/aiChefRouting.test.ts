@@ -280,3 +280,47 @@ test("partial AI stays partial_cards with ai_partial reason", () => {
   assert.equal(reply.clarifyReason, "ai_partial");
   assert.equal(reply.served, 1);
 });
+
+test("search failure returns clarify without calling the LLM", async () => {
+  delete process.env.DATABASE_URL;
+  const result = await processAIChefChat(
+    [{ role: "user", content: "魚面" }],
+    13, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true,
+    async () => { throw new Error("lib search timeout"); },
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.llmUsed, false);
+  assert.equal(result.clarifyReason, "lib_search_fail");
+  assert.match(result.content, /匯入|AI/);
+});
+
+test("canned search failure returns clarify instead of AI cards", async () => {
+  delete process.env.DATABASE_URL;
+  const result = await processAIChefChat(
+    [{ role: "user", content: "請為我設計今晚「3 餸 1 湯」晚餐，總共 4 道菜，適合4人食用。請提供完整食譜，分類如下：" }],
+    13, undefined, "library", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true,
+    async () => { throw new Error("lib search throw"); },
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.llmUsed, false);
+  assert.equal(result.clarifyReason, "lib_search_fail");
+});
+
+test("clarify quick replies expose import, closest library, and AI actions", () => {
+  const intent = resolveChefIntent("魚面", { mode: "chat" });
+  const reply = buildChefReply({
+    requestId: "req_quick_replies",
+    intent,
+    result: {
+      content: "我未有你指定嘅魚面",
+      recipes: [],
+      llmUsed: false,
+      clarifyReason: "library_miss",
+    },
+  });
+  assert.deepEqual(reply.quickReplies.map((q) => q.actionId), ["import_recipe", "closest_library", "ai_generate"]);
+});
