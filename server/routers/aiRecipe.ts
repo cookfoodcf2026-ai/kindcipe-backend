@@ -3135,6 +3135,7 @@ export async function processAIChefChat(
   // Layer 2: if deterministic intent rules miss, search the raw request text
   // against recipe name/tags/ingredients before falling back to chat. This is
   // the recall bridge for words not yet in foodLexicon (e.g. 沙律/打邊爐).
+  let rawLibraryFallback = false;
   if (db && !hasImage && !wantCards && chefIntent.kind === "chat" && !smallTalk && !ambiguousFood) {
     const rawQuery = cleanFoodQuery(lastUserText);
     const asksForFood = hasRequestVerb(lastUserText) || /[?？]|呢|有冇|想要|想食/.test(lastUserText);
@@ -3152,6 +3153,7 @@ export async function processAIChefChat(
         forceNoCards = false;
         isPlain = false;
         wantCards = true;
+        rawLibraryFallback = true;
         console.log(`[AI Chef] raw fallback query="${rawQuery}" rows=${rawRows.length} -> card path`);
       } else {
         console.log(`[AI Chef] unmatched_terms="${rawQuery}" query_rows=0 raw_fallback=miss`);
@@ -3178,7 +3180,7 @@ export async function processAIChefChat(
   const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
   const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
   const missingIngredients: Array<{ term: string; alternatives: string[] }> = [];
-  if (db && wantCards && requestItems.length > 0 && !hasExplicitRequestCount) {
+  if (db && wantCards && !rawLibraryFallback && requestItems.length > 0 && !hasExplicitRequestCount) {
     for (const term of requestItems) {
       const rows = await trySearch(term, 12);
       const exact = rows.some((row) => normalizeName(String(row.name ?? "")) === normalizeName(term));
