@@ -4,10 +4,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runChefTurn } from "./turn";
 import { FakeRepository } from "./repository";
+import { loadSeedCatalog } from "./catalog";
 import { emptyTurnState } from "./types";
 import type { TurnState } from "./types";
 
-const repo = new FakeRepository(FakeRepository.standardCatalog());
+const repo = loadSeedCatalog();
 
 function runDialogue(turns: string[], familyId = 5) {
   let state: TurnState = emptyTurnState();
@@ -44,10 +45,11 @@ test("safety, non-food, and private family isolation", () => {
   assert.equal(booking.credits, 0);
   assert.doesNotMatch(booking.text, /卡片|已準備|已出卡/);
 
-  const familyB = repo.search({ dishTypes: [], scenarios: [], tags: [], avoid: [], text: "" }, 6);
-  assert.equal(familyB.some((card) => card.id === "private-a"), false);
   const familyA = repo.search({ dishTypes: [], scenarios: [], tags: [], avoid: [], text: "" }, 5);
-  assert.equal(familyA.some((card) => card.id === "private-a"), true);
+  const privateIds = familyA.filter((card) => card.visibility === "private").map((card) => card.id);
+  assert.ok(privateIds.length > 0);
+  const familyB = repo.search({ dishTypes: [], scenarios: [], tags: [], avoid: [], text: "" }, 6);
+  assert.equal(familyB.some((card) => privateIds.includes(card.id)), false);
 });
 
 test("avoid filter prevents excluded ingredients", () => {

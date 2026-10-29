@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { DomainDishType, QueryPlan, RecipeCard } from "./types";
 
 export interface RecipeRepository {
@@ -18,7 +19,7 @@ export class FakeRepository implements RecipeRepository {
     return this.cards.filter((card) => {
       if (card.visibility === "private" && card.familyId !== familyId) return false;
       if (plan.dishTypes.length > 0 && !plan.dishTypes.includes(card.dishType)) return false;
-      if (plan.scenarios.length > 0 && !plan.scenarios.some((scenario) => card.tags.includes(scenario))) return false;
+      if (plan.scenarios.length > 0 && !plan.scenarios.some((scenario) => (card.scenarios ?? card.tags).includes(scenario))) return false;
       if (plan.cookTimeMax && card.cookTime > plan.cookTimeMax) return false;
       if (plan.avoid.some((term) => card.ingredients.some((ingredient) => ingredient.includes(term)))) return false;
       if (plan.text && !`${card.name} ${card.tags.join(" ")} ${card.ingredients.join(" ")}`.includes(plan.text)) {
@@ -27,6 +28,11 @@ export class FakeRepository implements RecipeRepository {
       }
       return true;
     });
+  }
+
+  static fromFile(file: string): FakeRepository {
+    const rows = JSON.parse(readFileSync(file, "utf8")) as RecipeCard[];
+    return new FakeRepository(rows);
   }
 
   byNames(names: string[], familyId: number): RecipeCard[] {

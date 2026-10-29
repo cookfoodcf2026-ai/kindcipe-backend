@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { processAIChefChat } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
@@ -20,19 +20,31 @@ const allDialogues = readFileSync(file, "utf8")
 const idFilter = process.argv.find((arg) => arg.startsWith("--id="))?.slice(5);
 const familyArg = process.argv.find((arg) => arg.startsWith("--family="))?.slice(9);
 const familyId = familyArg ? Number(familyArg) : undefined;
+const recordArg = process.argv.find((arg) => arg.startsWith("--record="))?.slice(9);
+const replayArg = process.argv.find((arg) => arg.startsWith("--replay="))?.slice(9);
 const dialogues = idFilter ? allDialogues.filter((dialogue) => dialogue.id === idFilter) : allDialogues;
+
+if (replayArg) {
+  const replayFile = resolve(process.cwd(), replayArg);
+  for (const line of readFileSync(replayFile, "utf8").split("\n")) {
+    if (line.trim()) process.stdout.write(`${line}\n`);
+  }
+  process.exit(0);
+}
 
 if (!process.argv.includes("--live")) {
   console.log(JSON.stringify({ mode: "dry", dialogues: dialogues.length, turns: dialogues.reduce((n, d) => n + d.turns.length, 0) }));
   process.exit(0);
 }
 
+const records: string[] = [];
 for (const dialogue of dialogues) {
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
   for (const turn of dialogue.turns) {
     messages.push({ role: "user", content: turn });
     let dispatchCalls = 0;
     let dispatchMs = 0;
+    const dispatches: unknown[] = [];
     const started = Date.now();
     const meter = startLlmMeter({ route: "ai_chef_simulate" });
     const result = await processAIChefChat(
@@ -54,7 +66,9 @@ for (const dialogue of dialogues) {
         dispatchCalls += 1;
         const dispatchStarted = Date.now();
         try {
-          return await dispatchChefTurn(dispatchMessages);
+          const raw = await dispatchChefTurn(dispatchMessages);
+          dispatches.push(raw);
+          return raw;
         } finally {
           dispatchMs += Date.now() - dispatchStarted;
         }
@@ -87,7 +101,7 @@ for (const dialogue of dialogues) {
         await saveLastMealState(familyId, `sim-${dialogue.id}`, shape, result.recipes.map((recipe) => recipe.name));
       }
     }
-    console.log(JSON.stringify({
+    const output = JSON.stringify({
       id: dialogue.id,
       turn,
       intent: result.intentOverride?.kind ?? "unknown",
@@ -113,8 +127,14 @@ for (const dialogue of dialogues) {
       costUsd: meter.costUsd,
       cardNames: result.recipes.map((recipe) => recipe.name),
       replyText: result.content,
-    }));
+      ...(recordArg ? { dispatches } : {}),
+    });
+    records.push(output);
+    console.log(output);
     messages.push({ role: "assistant", content: result.content });
   }
+}
+if (recordArg) {
+  writeFileSync(resolve(process.cwd(), recordArg), `${records.join("\n")}\n`);
 }
 process.exit(0);

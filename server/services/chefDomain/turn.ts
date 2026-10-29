@@ -6,9 +6,16 @@ import { emptyTurnState } from "./types";
 import type { DomainDishType, DomainRole, QueryPlan, RecipeCard, TurnCommand, TurnResult, TurnState } from "./types";
 import type { RecipeRepository } from "./repository";
 
-const TECHNIQUE_RE = /幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|how\s*(long|to|many)|temperature/i;
+const TECHNIQUE_RE = /幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|蒸定|蒸籠|用鑊蒸|用鍋蒸|氣炸鍋|氣炸|air\s*fryer|how\s*(long|to|many)|temperature/i;
 const NON_FOOD_RE = /訂機票|订机票|機票|机票|flight|酒店|電郵|邮件|email|機械人|机器人|卡路里|營養|营养|medical|medicine/i;
-const CLOSEST_RE = /最接近|有冇最接近|closest|nearest/i;
+const POLITE_RE = /^(?:多謝|谢谢|唔該|thank\s*you|thanks|thx)[\s!！。.]*$/i;
+const CONTEXT_RE = /^(?:唔要|不要|唔好|走|清淡|健康|辣|辣啲|小辣|少辣|七成熟|五成熟|全熟|快|快啲|再|多|配菜)/i;
+const PANTRY_RE = /雪櫃|冰箱|pantry|剩|得/i;
+const CLOSEST_RE = /最接近|有冇最接近|有邊幾款|有咩選擇|closest|nearest/i;
+
+function normalize(value: string): string {
+  return String(value ?? "").replace(/[\s，,。！？!?]/g, "").toLowerCase();
+}
 
 function typeForRole(role: DomainRole): DomainDishType | null {
   if (role === "any") return null;
@@ -33,8 +40,8 @@ function pickForRoles(repo: RecipeRepository, roles: DomainRole[], plan: QueryPl
     const type = typeForRole(role);
     const pool = repo.search({
       ...plan,
-      dishTypes: type ? [type] : plan.dishTypes,
-      text: plan.text,
+      dishTypes: type ? [type] : [],
+      text: "",
     }, familyId);
     const card = pool.find((candidate) => !used.has(candidate.name));
     if (!card) return [];
@@ -80,6 +87,10 @@ export function runChefTurn(
     return result("ask", safetyQuestion("zh-TW", safety), [], { kind: "ask", question: "safety" }, next, "safety");
   }
 
+  if (POLITE_RE.test(text)) {
+    return result("text", "唔使客氣。想再搵食譜就話我知。", [], { kind: "non_food" }, clearAsk(state), "non_food");
+  }
+
   if (NON_FOOD_RE.test(text)) {
     return result("text", "我係煮食助手，只可以幫你搵食譜同煮食；其他嘢幫唔到。", [], { kind: "non_food" }, clearAsk(state), "non_food");
   }
@@ -106,6 +117,21 @@ export function runChefTurn(
     previousMeal: state.shape.dishes + state.shape.soups > 0 ? state.shape : undefined,
   });
   const queryPlan = buildDomainQueryPlan(text);
+
+  if (PANTRY_RE.test(text) && !planned) {
+    const terms = text.match(/[\u4e00-\u9fff]{2,}/g)?.filter((term) => !/雪櫃|冰箱|有|同|和|剩|得/.test(term)) ?? [];
+    const pantryPlan = { ...queryPlan, dishTypes: [], scenarios: [], text: "", avoid: [] };
+    const candidates = repo.search(pantryPlan, familyId).filter((card) =>
+      terms.some((term) => card.ingredients.some((ingredient) => ingredient.includes(term))),
+    );
+    if (candidates.length > 0) {
+      const cards = candidates.slice(0, 1);
+      return result("cards", "用你雪櫃有嘅食材，可以先試呢個：", cards, {
+        kind: "recipe",
+        shape: { dishes: cards.length, soups: 0 },
+      }, withMeal(state, { dishes: cards.length, soups: 0 }, cards.map((card) => card.name)), null);
+    }
+  }
 
   if (planned && planned.kind === "meal") {
     const roles = planned.requested.roles as DomainRole[];
@@ -138,18 +164,66 @@ export function runChefTurn(
     }
   }
 
+  if (state.shape.dishes + state.shape.soups > 0 && CONTEXT_RE.test(text)) {
+    const roles = rolesForShape(state.shape);
+    const contextPlan = {
+      ...queryPlan,
+      avoid: [...new Set([...state.avoid, ...queryPlan.avoid])],
+    };
+    const cards = pickForRoles(repo, roles, contextPlan, familyId);
+    if (cards.length === roles.length) {
+      let next = withMeal(state, state.shape, cards.map((card) => card.name), {
+        avoid: contextPlan.avoid,
+        scenarios: queryPlan.scenarios,
+      });
+      if (state.lastMiss) next = withMiss(next, state.lastMiss);
+      return result("cards", "我按你今次嘅要求重新揀咗以下食譜。", cards, {
+        kind: "meal",
+        shape: state.shape,
+        roles,
+      }, next, null);
+    }
+  }
+
+  const specific = /[\u4e00-\u9fff]{4,}/.test(text)
+    && !/我要/.test(text)
+    && !/(?:有咩|有乜|想食|想要|食咩好|有邊|款式|選擇|推薦|推介|再一套|唔要|唔食|不要|快煮|清淡|雪櫃|冰箱|多謝|唔該)/.test(text);
+  if (specific && !planned) {
+    const alternatives = repo.search({ ...queryPlan, text: "", dishTypes: [] }, familyId).slice(0, 3);
+    const exact = alternatives.some((card) => normalize(card.name).includes(normalize(text)) || normalize(text).includes(normalize(card.name)));
+    if (!exact) {
+      const next = withMiss(state, { label: text, kind: "dish", alternatives: alternatives.map((card) => card.name) });
+      return result("ask", `庫存冇「${text}」，以下係最接近嘅食譜：${alternatives.map((card) => card.name).join("、") || "暫時冇"}。`, [], {
+        kind: "ask",
+        question: "library_miss",
+      }, withAsk(next, "library_miss"), "library_miss");
+    }
+  }
+
   const seen = new Set(state.cardNames);
   const candidates = repo.search(queryPlan, familyId)
     .filter((card) => !seen.has(card.name) && !state.avoid.some((term) => card.ingredients.some((ingredient) => ingredient.includes(term))));
   if (candidates.length > 0 && (queryPlan.dishTypes.length > 0 || queryPlan.scenarios.length > 0)) {
     const cards = candidates.slice(0, 3);
+    let next = withMeal(state, { dishes: cards.length, soups: 0 }, cards.map((card) => card.name), {
+      avoid: queryPlan.avoid,
+      scenarios: queryPlan.scenarios,
+    });
+    if (queryPlan.text) {
+      next = withMiss(next, { label: queryPlan.text, kind: "dish", alternatives: candidates.slice(0, 3).map((card) => card.name) });
+    }
     return result("cards", "我幫你搵到以下食譜。", cards, {
       kind: "recipe",
       shape: { dishes: cards.length, soups: 0 },
-    }, withMeal(state, { dishes: cards.length, soups: 0 }, cards.map((card) => card.name), {
-      avoid: queryPlan.avoid,
-      scenarios: queryPlan.scenarios,
-    }), null);
+    }, next, null);
+  }
+
+  const fallback = repo.search(buildDomainQueryPlan("家常"), familyId).slice(0, 3);
+  if (fallback.length > 0) {
+    return result("cards", "我先幫你揀 3 張預設；唔啱話我知，再幫你換。", fallback, {
+      kind: "meal",
+      shape: { dishes: fallback.length, soups: 0 },
+    }, withMeal(state, { dishes: fallback.length, soups: 0 }, fallback.map((card) => card.name)), null);
   }
 
   const next = withAsk(state, "clarify");

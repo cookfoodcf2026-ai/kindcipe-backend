@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runChefTurn } from "../services/chefDomain/turn";
 import { FakeRepository } from "../services/chefDomain/repository";
+import { loadSeedCatalog } from "../services/chefDomain/catalog";
 import { emptyTurnState } from "../services/chefDomain/types";
 import type { TurnState } from "../services/chefDomain/types";
 
@@ -10,7 +11,7 @@ type Dialogue = { id: string; turns: string[]; expect?: Record<string, Expect> }
 const fileArg = process.argv.find((arg) => arg.startsWith("--file="))?.slice(7);
 const file = resolve(process.cwd(), fileArg ?? "server/fixtures/aiChef/dialogues.jsonl");
 const familyId = Number(process.argv.find((arg) => arg.startsWith("--family="))?.slice(9) ?? 5);
-const repo = new FakeRepository(FakeRepository.standardCatalog());
+const repo = loadSeedCatalog();
 const dialogues = readFileSync(file, "utf8").split(/\n+/).filter(Boolean).map((line) => JSON.parse(line) as Dialogue);
 for (const dialogue of dialogues) {
   let state: TurnState = emptyTurnState();
