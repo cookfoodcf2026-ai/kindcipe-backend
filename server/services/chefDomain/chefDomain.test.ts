@@ -36,10 +36,13 @@ test("safety, non-food, and private family isolation", () => {
   assert.equal(allergy.recipes.length, 0);
   assert.equal(allergy.clarifyReason, "safety");
   assert.equal(allergy.credits, 0);
+  assert.equal(allergy.recipes.length, 0);
 
   const booking = runChefTurn(emptyTurnState(), "幫我訂機票去東京", repo, 5);
   assert.equal(booking.status, "text");
   assert.equal(booking.recipes.length, 0);
+  assert.equal(booking.credits, 0);
+  assert.doesNotMatch(booking.text, /卡片|已準備|已出卡/);
 
   const familyB = repo.search({ dishTypes: [], scenarios: [], tags: [], avoid: [], text: "" }, 6);
   assert.equal(familyB.some((card) => card.id === "private-a"), false);
