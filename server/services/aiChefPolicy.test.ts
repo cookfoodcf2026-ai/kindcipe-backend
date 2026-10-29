@@ -29,3 +29,11 @@ test("does not charge a zero-card text answer that promises cards", () => {
 test("still charges a genuine text answer with no card promise", () => {
   assert.equal(shouldChargeChefRequest({ llmUsed: true, requested: 0, served: 0, cardClaim: false }), true);
 });
+
+test("does not charge a wantsCards request that served zero cards", () => {
+  assert.equal(shouldChargeChefRequest({ llmUsed: true, requested: 0, served: 0, wantsCards: true }), false);
+});
+
+test("plain text chat still charges", () => {
+  assert.equal(shouldChargeChefRequest({ llmUsed: true, requested: 0, served: 0, wantsCards: false }), true);
+});

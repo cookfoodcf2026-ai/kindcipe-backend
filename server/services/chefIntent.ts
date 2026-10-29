@@ -1,3 +1,5 @@
+import { findFoodTerm, hasRequestVerb, lastFoodClause, roleForFoodTerm } from "./foodLexicon";
+
 export type RequestedRole =
   | "meat"
   | "seafood"
@@ -66,8 +68,10 @@ export function isCannedMealPrompt(text: string): boolean {
  * an empty list so callers use role queries instead of category labels.
  */
 export function extractMealIngredients(text: string): string[] {
-  const raw = String(text ?? "").trim();
-  if (!raw || isCannedMealPrompt(raw)) return [];
+  const rawText = String(text ?? "").trim();
+  if (!rawText || isCannedMealPrompt(rawText)) return [];
+  // A correction such as「你出雞？我要牛扒」must use the last food clause.
+  const raw = lastFoodClause(rawText);
   const cleaned = raw
     .replace(/[（(][^）)]*[）)]/g, " ")
     .replace(MEAL_SCAFFOLD_RE, " ")
@@ -79,7 +83,14 @@ export function extractMealIngredients(text: string): string[] {
   const pieces = cleaned.split(/\s+|同埋|同|和|有|加|要|想食|想煮|用/giu);
   const terms: string[] = [];
   for (const piece of pieces) {
-    const term = piece.replace(/^(?:有|用|加|要|想食|想煮)/, "").trim();
+    let term = piece.trim();
+    // Strip leading instructions/pronouns repeatedly: 我要牛扒 -> 牛扒,
+    // 食牛扒 -> 牛扒, 你出雞 -> 出雞 (but the last clause handles P8).
+    for (let i = 0; i < 4; i++) {
+      const next = term.replace(/^(?:我|你|佢|請|幫我|想食|想吃|想煮|想整|想|要食|要煮|要整|要|食|吃|煮|整|煎|烤|焗|炒|用|加|有)/u, "").trim();
+      if (next === term) break;
+      term = next;
+    }
     if (!term || term.length > 20) continue;
     if (/[0-9一二兩三四五六七八九十]+\s*[餸菜送]/.test(term)) continue;
     if (/^(?:[0-9一二兩三四五六七八九十]*湯|湯水|set|meal|dinner|lunch|breakfast)$/i.test(term)) continue;
@@ -293,6 +304,20 @@ export function resolveChefIntent(
       requested: simple,
       confidence: 0.85,
       reason: "explicit_count",
+    };
+  }
+
+  // Explicit one-dish correction/request, e.g.「你出雞？我要牛扒」or「我想食牛扒」.
+  // Technique questions are handled above, and «我鍾意牛扒» has no request verb.
+  const requestClause = lastFoodClause(text);
+  const requestFoodTerm = findFoodTerm(requestClause);
+  if (requestFoodTerm && hasRequestVerb(requestClause)) {
+    return {
+      kind: "recipe",
+      wantsCards: true,
+      requested: { total: 1, roles: [roleForFoodTerm(requestFoodTerm)] },
+      confidence: 0.86,
+      reason: "explicit_food_request",
     };
   }
 

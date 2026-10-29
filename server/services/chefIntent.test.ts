@@ -148,3 +148,30 @@ test("canned meal prompt is a four-card meal intent", () => {
 test("real user ingredients still extract chicken and vegetable", () => {
   assert.deepEqual(extractMealIngredients("今晚三餸一湯，有雞髀同菜"), ["雞髀", "菜"]);
 });
+
+test("beef + vegetable extracts 牛扒 and 菜 (P6)", () => {
+  assert.deepEqual(extractMealIngredients("食牛扒同菜"), ["牛扒", "菜"]);
+  const intent = resolveChefIntent("食牛扒同菜", { mode: "chat" });
+  assert.equal(intent.kind, "meal");
+  assert.deepEqual(intent.requested, { total: 2, roles: ["meat", "vegetable"] });
+});
+
+test("correction with last clause is a one-card beef recipe (P8)", () => {
+  assert.deepEqual(extractMealIngredients("你出雞？我要牛扒"), ["牛扒"]);
+  const intent = resolveChefIntent("你出雞？我要牛扒", { mode: "chat" });
+  assert.equal(intent.kind, "recipe");
+  assert.equal(intent.wantsCards, true);
+  assert.deepEqual(intent.requested, { total: 1, roles: ["meat"] });
+});
+
+test("technique question about beef stays text/technique", () => {
+  const intent = resolveChefIntent("牛扒煎幾耐？", { mode: "chat" });
+  assert.equal(intent.kind, "technique");
+  assert.equal(intent.wantsCards, false);
+});
+
+test("liking beef is chat, not a card request", () => {
+  const intent = resolveChefIntent("我鍾意牛扒", { mode: "chat" });
+  assert.equal(intent.kind, "chat");
+  assert.equal(intent.wantsCards, false);
+});

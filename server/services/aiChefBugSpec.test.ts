@@ -271,3 +271,53 @@ test("BUG 7: canned 3-dish-1-soup prompt is all library and never uses tofu as m
   assert.ok(result.recipes.some((r) => /肉/.test(r.name)), `expected meat card, got ${result.recipes.map((r) => r.name).join("、")}`);
   assert.ok(result.recipes.every((r) => !/椒鹽豆腐/.test(r.name)), `tofu leaked into meat: ${result.recipes.map((r) => r.name).join("、")}`);
 });
+
+test("BUG 8: P6 beef + vegetable meal returns beef, not chicken", async () => {
+  const now = Date.now();
+  const fixtures = [
+    { name: `${prefix}經典西冷牛排`, category: "家常", dishType: "meat", ingredientName: "牛肉" },
+    { name: `${prefix}中式牛柳`, category: "家常", dishType: "meat", ingredientName: "牛肉" },
+    { name: `${prefix}雞腿`, category: "家常", dishType: "meat", ingredientName: "雞腿" },
+    { name: `${prefix}蒜蓉炒菜心`, category: "家常", dishType: "vegetable", ingredientName: "菜心" },
+  ];
+  for (let i = 0; i < fixtures.length; i++) {
+    await insertOfficial({ ...fixtures[i], createdAt: new Date(now + i * 1000) });
+  }
+
+  const result = await processAIChefChat(
+    [{ role: "user", content: "食牛扒同菜" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+
+  assert.equal(result.recipes.length, 2);
+  assert.ok(result.recipes.some((r) => /牛/.test(r.name)), `expected beef, got ${result.recipes.map((r) => r.name).join("、")}`);
+  assert.ok(result.recipes.every((r) => !/雞腿/.test(r.name)), `chicken leaked into beef meal: ${result.recipes.map((r) => r.name).join("、")}`);
+  assert.equal(result.llmUsed, false);
+});
+
+test("BUG 9: P8 correction returns one beef card, not zero cards", async () => {
+  const now = Date.now();
+  await insertOfficial({
+    name: `${prefix}P8經典西冷牛排`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "牛肉",
+    createdAt: new Date(now + 1000),
+  });
+
+  const result = await processAIChefChat(
+    [
+      { role: "user", content: "食牛扒同菜" },
+      { role: "assistant", content: "準備好" },
+      { role: "user", content: "你出雞？我要牛扒" },
+    ],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+
+  assert.equal(result.recipes.length, 1);
+  assert.match(result.recipes[0].name, /牛/);
+  assert.doesNotMatch(result.recipes[0].name, /雞/);
+  assert.equal(result.llmUsed, false);
+});

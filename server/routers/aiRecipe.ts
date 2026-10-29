@@ -6,6 +6,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isMealFollowUp, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
+import { fallbackQueriesForFoodTerm, findFoodTerm, roleForFoodTerm } from "../services/foodLexicon";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
 import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
@@ -3024,21 +3025,21 @@ export async function processAIChefChat(
     const mealSearchTerms = mealPath === "canned" ? [] : extractMealIngredients(mealContextText);
     const roleQueryFor = (role: RequestedRole): string => role === "any" ? "家常" : (ROLE_LIBRARY_QUERY[role] ?? "家常");
     console.log(`[AI Chef] meal path=${mealPath} context="${mealContextText}" terms=${mealSearchTerms.join("|") || "none"}`);
-    const roleForTerm = (term: string): RequestedRole => {
-      if (/湯|soup/i.test(term)) return "soup";
-      if (/魚|鱼|蝦|虾|蟹|蜆|蚬|蠔|蚝|海鮮|海鲜|豆腐|蛋|魚|seafood|fish|shrimp|prawn|crab|tofu|egg/i.test(term)) return "seafood";
-      if (/菜|蔬|瓜|豆|菇|笋|筍|番茄|薯|洋蔥|洋葱|蒜|蔥|葱|veg|vegetable|broccoli|spinach|mushroom|tomato|potato|onion/i.test(term)) return "vegetable";
-      if (/雞|鸡|牛|豬|猪|羊|鴨|鸭|鵝|鹅|肉|排骨|雞翼|雞翅|雞腿|雞髀|chicken|beef|pork|lamb|meat/i.test(term)) return "meat";
-      return "any";
-    };
     const termsForRole = (role: RequestedRole): string[] => {
       if (mealPath === "canned") return [];
-      const direct = mealSearchTerms.filter((term) => roleForTerm(term) === role);
+      const direct = mealSearchTerms.filter((term) => roleForFoodTerm(term) === role);
       if (direct.length > 0) return direct;
       // The flexible "any" slot should still be anchored to the user's words,
       // not a random generic pool pick (e.g. don't drop tofu into a chicken meal).
       if (role === "any") return mealSearchTerms;
       return [];
+    };
+    const fallbackQueriesForRole = (role: RequestedRole, terms: string[]): string[] => {
+      const queries = terms.flatMap((term) => fallbackQueriesForFoodTerm(term));
+      const unique = [...new Set(queries.filter(Boolean))];
+      // Never fall back from a specific protein to a generic meat query; that is
+      // exactly how «牛扒» became «雞腿».
+      return unique.length > 0 ? unique : [roleQueryFor(role)];
     };
     const isTofuOrEgg = (text: string) => /豆腐|豆卜|豆干|豆乾|腐皮|腐竹|雞蛋|鸡蛋|蛋|蒸蛋|炒蛋|皮蛋|鹹蛋|咸蛋|tofu|egg/i.test(text);
     const hasMeatMarker = (text: string) => /豬|猪|牛|雞|鸡|羊|鴨|鸭|鵝|鹅|肉|排骨|腩|雞翼|雞翅|雞腿|雞髀|火腿|叉燒|烧肉|烧肉|肉丸|pork|beef|chicken|lamb|meat/i.test(text);
@@ -3099,9 +3100,9 @@ export async function processAIChefChat(
       // User term had zero valid role hits -> try the deterministic role query
       // before touching the LLM. This is the "0 hit" fallback required by E.
       if (result.picked.length === 0 && userTerms.length > 0) {
-        const fallbackQuery = roleQueryFor(role);
-        if (!queries.includes(fallbackQuery)) {
-          queries = [fallbackQuery];
+        const fallbackQueries = fallbackQueriesForRole(role, userTerms);
+        if (fallbackQueries.some((query) => !queries.includes(query))) {
+          queries = fallbackQueries;
           source = "lib-role";
           rows = await loadRoleRows(queries);
           result = pickFrom(rows);
@@ -3319,7 +3320,9 @@ export async function processAIChefChat(
   }
 
   // ══════════ chat 非圖片：先試食譜庫（library-first）══════════
-  const keyword = cleanFoodQuery(lastUserText);
+  const extractedTerms = extractMealIngredients(lastUserText);
+  const exactFoodTerm = extractedTerms.find((term) => roleForFoodTerm(term) !== "any" && findFoodTerm(term) === term);
+  const keyword = exactFoodTerm ?? cleanFoodQuery(lastUserText);
   const isVague = !keyword; // 抽唔到關鍵字 = 模糊想食
   if (mode === "chat" && !forceNoCards && (requestedCount === null || requestedCount <= 1)) {
     // 打字「N分鐘」都尊重時間：由 raw text 抽 cookTimeMax（cleanFoodQuery 會剷走數字，所以要喺 raw 度抽）
@@ -3331,7 +3334,13 @@ export async function processAIChefChat(
     const explicitRole = requestedCount === 1 && chefIntent.requested.roles.length === 1
       ? chefIntent.requested.roles[0]
       : undefined;
-    const rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
+    let rows = keyword ? await trySearch(keyword, 30, chatCookTimeMax) : await trySearch("", 1000, chatCookTimeMax);
+    if (keyword && rows.length === 0 && findFoodTerm(keyword) === keyword) {
+      const fallbackQueries = fallbackQueriesForFoodTerm(keyword).filter((q) => q !== keyword);
+      for (const fallbackQuery of fallbackQueries) {
+        rows.push(...await trySearch(fallbackQuery, 30, chatCookTimeMax));
+      }
+    }
     const safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
@@ -3360,11 +3369,17 @@ export async function processAIChefChat(
     }
 
     if (singleCardLibrary && explicitRole && explicitRole !== "any") {
-      // A single explicit role (e.g. 甜點) must still search the library by role
-      // before falling back to the LLM. The free-text query may be a follow-up
-      // sentence that no recipe name/category contains.
-      const roleQuery = ROLE_LIBRARY_QUERY[explicitRole];
-      if (roleQuery && roleQuery !== keyword) {
+      // A specific food term (牛扒) must stay inside its family: 牛扒 -> 牛排/牛柳/牛.
+      // Only use the generic role query when the user gave no specific food term.
+      const specificFallbackQueries = findFoodTerm(keyword) === keyword ? fallbackQueriesForFoodTerm(keyword) : [];
+      const genericRoleQuery = ROLE_LIBRARY_QUERY[explicitRole];
+      const roleQueries = [...new Set(
+        specificFallbackQueries.length > 0
+          ? specificFallbackQueries
+          : [genericRoleQuery].filter(Boolean) as string[],
+      )];
+      for (const roleQuery of roleQueries) {
+        if (roleQuery === keyword) continue;
         const rolePool = await trySearch(roleQuery, 100, chatCookTimeMax);
         const afterAvoid = avoidIngredients.length === 0
           ? rolePool
@@ -3387,7 +3402,7 @@ export async function processAIChefChat(
 
       // Explicit role + no library match: do not silently call the LLM. The
       // router/UI can offer the paid AI action as an explicit next step.
-      const reason = !roleQuery ? "no_role_query" : "no_safe_role_row";
+      const reason = roleQueries.length === 0 ? "no_role_query" : "no_safe_role_row";
       console.log(`[AI Chef] library role miss: role=${explicitRole} query="${keyword || "(generic)"}" reason=${reason} -> offer AI`);
       return {
         content: aiReply(lang, "libNone"),
@@ -4774,6 +4789,7 @@ export const aiRecipeRouter = router({
         llmUsed: result.llmUsed,
         requested,
         served,
+        wantsCards: intent.wantsCards,
         cardClaim,
       });
 
