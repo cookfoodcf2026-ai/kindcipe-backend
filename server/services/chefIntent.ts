@@ -50,7 +50,7 @@ const TECHNIQUE_RE = /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|�
 const NOODLE_RE = /(?:魚面|魚麵|魚蛋麵|魚蛋面|魚片麵|魚片面|牛腩麵|牛腩面|蝦子麵|蝦子面|車仔麵|車仔面|魚湯粉|湯粉|魚蛋粉|魚片河|牛腩河|湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|河粉|米粉|noodle|ramen|udon|soba|pasta|laksa|pho)/i;
 // A short follow-up such as「比另一set我」only makes sense in the context of
 // the preceding meal request. Do not treat it as small talk.
-const MEAL_FOLLOW_UP_RE = /^(?:再|換|唔同|另一|第二|another|next|different)(?:\s|$|，|,|。|！|!|\?|？)|(?:再|另一|換|唔同|第二|另一個|另一組|再嚟|再來|different|another|next)\s*.{0,10}(?:set|組|餐|批|款|round|one|meal)|\b(?:give me|i want|show me)\s+(?:another|a different)\b|比另一\s*set/i;
+const MEAL_FOLLOW_UP_RE = /^(?:再|換|唔同|另一|第二|another|next|different)(?:\s|$|，|,|。|！|!|\?|？)|^(?:再|換|唔同|另一|第二)(?:一|兩|几|幾)?(?:套|組|份)|^(?:再|換|唔同|另一|第二).{0,6}嘅|(?:再|另一|換|唔同|第二|另一個|另一組|再嚟|再來|different|another|next)\s*.{0,10}(?:set|組|餐|批|款|round|one|meal)|\b(?:give me|i want|show me)\s+(?:another|a different)\b|比另一\s*set/i;
 
 // The app's meal-questionnaire sends a long canned prompt, not the user's own
 // ingredient words. Those category labels must never become library anchors.

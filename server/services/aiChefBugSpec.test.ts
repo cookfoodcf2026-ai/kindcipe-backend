@@ -495,6 +495,31 @@ test("dispatcher inventory path returns library cards from model items", async (
   assert.match(result.content, /兩道|牛柳|菜/);
 });
 
+test("meal follow-up bypasses dispatcher", async () => {
+  let dispatched = false;
+  const result = await processAIChefChat(
+    [
+      { role: "user", content: "今晚三餸一湯" },
+      { role: "assistant", content: "搵到幾道菜。" },
+      { role: "user", content: "再一套" },
+    ],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true, undefined, async () => {
+      dispatched = true;
+      return {
+        intent: "cards" as const,
+        items: [{ label: `${prefix}黑椒牛柳`, kind: "dish" as const, qty: 1 }],
+        confidence: 0.9,
+        ask: { needed: false, question: "" },
+        replyText: "搵到牛柳。",
+      };
+    },
+  );
+  assert.equal(dispatched, false);
+  assert.notEqual(result.clarifyReason, "ai_failed");
+});
+
 test("dispatcher library miss asks instead of guessing", async () => {
   const dispatch = {
     intent: "cards" as const,

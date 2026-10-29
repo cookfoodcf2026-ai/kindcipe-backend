@@ -3187,7 +3187,11 @@ export async function processAIChefChat(
   // Dispatcher path: free-text chat is understood by the model first; this
   // replaces the old per-sentence rule path for normal conversation.
   const hasDispatcherKey = Boolean(process.env.DASHSCOPE_API_KEY || process.env.GEMINI_API_KEY);
-  const dispatcherEnabled = !parseMealShape(lastUserText) && mode === "chat"
+  const previousMealIntent = previousText
+    ? resolveChefIntent(previousText, { mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE })
+    : null;
+  const mealFollowUp = Boolean(previousMealIntent?.kind === "meal" && isMealFollowUp(lastUserText));
+  const dispatcherEnabled = !parseMealShape(lastUserText) && !mealFollowUp && mode === "chat"
     && Boolean(db)
     && allowChatLlm
     && (hasDispatcherKey || Boolean(dispatchOverride))

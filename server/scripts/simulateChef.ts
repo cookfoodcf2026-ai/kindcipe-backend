@@ -7,10 +7,12 @@ import { startLlmMeter } from "../_core/llm";
 type Dialogue = { id: string; name: string; turns: string[] };
 
 const file = resolve(process.cwd(), "server/fixtures/aiChef/dialogues.jsonl");
-const dialogues = readFileSync(file, "utf8")
+const allDialogues = readFileSync(file, "utf8")
   .split(/\n+/)
   .filter(Boolean)
   .map((line) => JSON.parse(line) as Dialogue);
+const idFilter = process.argv.find((arg) => arg.startsWith("--id="))?.slice(5);
+const dialogues = idFilter ? allDialogues.filter((dialogue) => dialogue.id === idFilter) : allDialogues;
 
 if (!process.argv.includes("--live")) {
   console.log(JSON.stringify({ mode: "dry", dialogues: dialogues.length, turns: dialogues.reduce((n, d) => n + d.turns.length, 0) }));
@@ -39,3 +41,4 @@ for (const dialogue of dialogues) {
     messages.push({ role: "assistant", content: result.content });
   }
 }
+process.exit(0);
