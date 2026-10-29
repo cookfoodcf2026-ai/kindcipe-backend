@@ -200,7 +200,7 @@ export function runChefTurn(
     && state.shape.dishes + state.shape.soups === 0
     && !state.pendingAsk
     && /(?:豐富|簡單|清淡)\s*(?:啲|啲啦|點)/.test(text)
-    && !/(?:小朋友|半個鐘|快煮|有咩|食材|人食)/.test(text)
+    && !/(?:小朋友|半個鐘|快煮|食材)/.test(text)
     && !queryPlan.scenarios.includes("quick")
     && !queryPlan.scenarios.includes("kids")
     && queryPlan.dishTypes.length === 0;

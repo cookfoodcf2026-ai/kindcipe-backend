@@ -46,11 +46,12 @@ for (const dialogue of dialogues) {
     const expected = r.expect;
     if (!expected || expected.exit !== "ask") continue;
     if (dialogue.classes?.[`t${i + 1}`] === "safety" || expected.clarifyReason === "safety") { safety += 1; continue; }
-    if (i + 1 >= results.length) abandoned += 1;
+    if (i + 1 >= results.length) { abandoned += 1; continue; }
+    const allowed = expected.allowedCards ?? [];
+    if (allowed.length === 0) { abandoned += 1; continue; }
     const next = results.slice(i + 1, i + 4);
     const cards = next.flatMap((item) => item.names);
-    const allowed = expected.allowedCards ?? [];
-    const resolvedByAllowed = allowed.length > 0 && cards.length > 0 && cards.every((name) => allowed.includes(name));
+    const resolvedByAllowed = cards.length > 0 && cards.every((name) => allowed.includes(name));
     if (resolvedByAllowed) resolved += 1; else unresolved += 1;
   }
 }
