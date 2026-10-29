@@ -4,7 +4,7 @@ import type { DomainDishType, QueryPlan, RecipeCard } from "./types";
 export interface RecipeRepository {
   search(plan: QueryPlan, familyId: number): RecipeCard[];
   byNames(names: string[], familyId: number): RecipeCard[];
-  byFacets(facets: string[], familyId: number): RecipeCard[];
+  byFacets(facets: string[], familyId: number, dishTypes?: DomainDishType[]): RecipeCard[];
 }
 
 const TYPES: DomainDishType[] = ["meat", "seafood", "vegetable", "soup", "carb", "appetizer", "dessert", "drink", "other"];
@@ -41,11 +41,10 @@ export class FakeRepository implements RecipeRepository {
     return this.cards.filter((card) => wanted.has(card.name) && (card.visibility !== "private" || card.familyId === familyId));
   }
 
-  byFacets(facets: string[], familyId: number): RecipeCard[] {
-    const primary = facets.filter((facet) => facet !== "vegetable" && facet !== "soup");
-    const required = primary.length > 0 ? primary : facets;
+  byFacets(facets: string[], familyId: number, dishTypes: DomainDishType[] = []): RecipeCard[] {
     return this.cards.filter((card) => (card.visibility !== "private" || card.familyId === familyId)
-      && (required.length === 0 || required.some((facet) => (card.facets ?? []).includes(facet))));
+      && (dishTypes.length === 0 || dishTypes.includes(card.dishType))
+      && (facets.length === 0 || facets.every((facet) => (card.facets ?? []).includes(facet))));
   }
 
   static standardCatalog(): RecipeCard[] {

@@ -27,14 +27,37 @@ function targetFacets(text: string): string[] {
   const facets: string[] = [];
   if (/牛|和牛|beef|steak/i.test(text)) facets.push("beef");
   if (!facets.includes("beef") && /雞|鸡|chicken/i.test(text)) facets.push("chicken");
-  if (/魚|鱼|蝦|虾|蟹|海鮮|海鲜|seafood|fish|shrimp/i.test(text)) facets.push("seafood");
+  if (/魚|鱼|蝦|虾|蟹|海鮮|海鲜|扇貝|扇贝|帶子|带子|青口|花甲|蜆|蚬|蠔|蚝|蟶子|蛏子|seafood|fish|shrimp/i.test(text)) facets.push("seafood");
   if (/沙律|沙拉|salad/i.test(text)) facets.push("salad");
   if (/菜|蔬菜|veg/i.test(text)) facets.push("vegetable");
   return [...new Set(facets)];
 }
 
+function targetTerms(text: string): string[] {
+  const terms: string[] = [];
+  if (/魚|鱼|fish/i.test(text)) terms.push("魚");
+  if (/蝦|虾|shrimp/i.test(text)) terms.push("蝦");
+  if (/扇貝|扇贝/i.test(text)) terms.push("扇貝");
+  else if (/帶子|带子/i.test(text)) terms.push("帶子");
+  else if (/青口/i.test(text)) terms.push("青口");
+  else if (/花甲/i.test(text)) terms.push("花甲");
+  else if (/蜆|蚬/i.test(text)) terms.push("蜆");
+  else if (/蟶子|蛏子/i.test(text)) terms.push("蟶子");
+  else if (/蠔|蚝/i.test(text)) terms.push("蠔");
+  if (/牛|beef|steak/i.test(text)) terms.push("牛");
+  if (/雞|鸡|chicken/i.test(text)) terms.push("雞");
+  if (/沙律|沙拉|salad/i.test(text)) terms.push("沙律");
+  return [...new Set(terms)];
+}
+
+function cardHasTerm(card: RecipeCard, terms: string[]): boolean {
+  if (terms.length === 0) return true;
+  const hay = `${card.name} ${card.ingredients.join(" ")}`;
+  return terms.some((term) => hay.includes(term));
+}
+
 function nameMatchesFacet(name: string, facet: string): boolean {
-  if (facet === "seafood") return /魚|鱼|蝦|虾|蟹|海鮮|海鲜|蠔|蚝|魷魚|鱿鱼|海參|海参|三文魚|鱸魚|紅衫魚|鯪魚|鰻魚/i.test(name) && !/魚香|鱼香/.test(name);
+  if (facet === "seafood") return /魚|鱼|蝦|虾|蟹|海鮮|海鲜|蠔|蚝|魷魚|鱿鱼|海參|海参|三文魚|鱸魚|紅衫魚|鯪魚|鰻魚|扇貝|扇贝|帶子|带子|青口|花甲|蜆|蚬|蟶子|蛏子/i.test(name) && !/魚香|鱼香/.test(name);
   if (facet === "beef") return /牛|beef/i.test(name) && !/牛奶|牛油|牛角|牛蒡/.test(name);
   if (facet === "chicken") return /雞|鸡|chicken/i.test(name) && !/雞蛋|鸡蛋/.test(name);
   if (facet === "salad") return /沙律|沙拉|salad/i.test(name);
@@ -266,17 +289,30 @@ export function runChefTurn(
     }
   }
 
-  const namedProtein = /魚|鱼|蝦|虾|牛|和牛|beef|steak|雞|鸡|pork|chicken/i.test(text)
+  const namedProtein = /魚|鱼|蝦|虾|牛|和牛|beef|steak|雞|鸡|pork|chicken|扇貝|扇贝|帶子|带子|青口|花甲|蜆|蚬|蠔|蚝|蟶子|蛏子/i.test(text)
     && !/(?:有咩|有乜|食咩好|雪櫃|冰箱)/.test(text)
     && !/唔食/.test(text);
   const specific = (/[\u4e00-\u9fff]{4,}/.test(text) || namedProtein)
     && !/^我要/.test(text)
-    && !/(?:有咩|有乜|想食|想要|食咩好|有邊|款式|選擇|推薦|推介|再一套|唔要|唔食|不要|快煮|清淡|雪櫃|冰箱|多謝|唔該)/.test(text);
+    && !/(?:有咩|有乜|食咩好|有邊|款式|選擇|推薦|推介|再一套|唔要|唔食|不要|快煮|清淡|雪櫃|冰箱|多謝|唔該)/.test(text);
   if ((specific || namedProtein) && !planned) {
     const targetFacetList = targetFacets(text);
-    const facetCards = repo.byFacets(targetFacetList, familyId)
+    const targetDishTypes: DomainDishType[] = /(?:麵|面|粉|飯|noodle|rice|pasta)/i.test(text) ? ["carb"] : [];
+    const terms = targetTerms(text);
+    let facetCards = repo.byFacets(targetFacetList, familyId, targetDishTypes)
       .filter((card) => targetFacetList.some((facet) => nameMatchesFacet(card.name, facet)))
-      .slice(0, 3);
+      .filter((card) => cardHasTerm(card, terms));
+    if (facetCards.length < 3) {
+      const primary = targetFacetList.find((facet) => facet !== "vegetable" && facet !== "soup") ?? targetFacetList[0];
+      if (primary && primary !== targetFacetList[0]) {
+        facetCards = repo.byFacets([primary], familyId, targetDishTypes)
+          .filter((card) => nameMatchesFacet(card.name, primary))
+          .filter((card) => cardHasTerm(card, terms));
+      }
+    }
+    // Do not replace a relevant, short result with the unfiltered seafood pool.
+    // An empty result falls through to a concrete ask.
+    facetCards = facetCards.slice(0, 3);
     const hesitantSpecific = /魚|鱼/.test(text) && /菜/.test(text)
       && !/(?:麵|面|粉|飯|或者|或|同|and|或者)/i.test(text);
     if (facetCards.length > 0 && !hesitantSpecific) {
