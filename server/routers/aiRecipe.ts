@@ -1111,6 +1111,15 @@ const FOOD_SYNONYM_GROUPS = [
   ["鴨肉", "鴨"],
 ];
 
+const GENERIC_FOOD_QUERY_RE = /^(?:幫我諗|諗|今晚食咩|食咩|食乜|咩好食|有咩好食|有咩食|好食|清淡啲?|清淡|快煮|求其|隨便|是但|家常菜?|家常|小菜|菜式|餸|送|晚餐|午餐|早餐|今晚|今日|有咩|有乜|推介|推薦|介紹|食譜|煮咩|整咩)$/;
+
+export function isSpecificFoodTerm(term: string): boolean {
+  const normalized = normalizeName(term);
+  if (!normalized || GENERIC_FOOD_QUERY_RE.test(normalized)) return false;
+  if (findFoodTerm(normalized) === normalized) return true;
+  return roleForFoodTerm(normalized) !== "any" && normalized.length >= 2;
+}
+
 export function rowMatchesFoodQuery(row: Record<string, unknown>, query: string): boolean {
   const q = normalizeName(query);
   if (!q) return true;
@@ -3318,17 +3327,17 @@ function clarifyFoodReply(lang: string): string {
 
 function zeroCardMissReply(lang: string, lead: string): string {
   if (lang.startsWith("en")) {
-    return `${lead} I couldn't find a suitable recipe. You can: 1) use Import recipe (1 import quota), 2) tell me a bit more and I'll search the closest matches, or 3) ask AI to make it now (1 credit).`;
+    return `${lead} I couldn't find a suitable recipe. You can: 1) use Import recipe (1 import quota), 2) tell me a bit more and I'll search again, or 3) ask AI to make it now (1 credit).`;
   }
   if (lang.startsWith("fil")) {
-    return `${lead} Wala akong makitang angkop na recipe. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) magbigay ng dagdag na detalye at hahanapin ko ang pinakamalapit na tugma, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
+    return `${lead} Wala akong makitang angkop na recipe. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) magbigay ng dagdag na detalye at hahanapin ko muli, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
   }
   if (lang.startsWith("id")) {
-    return `${lead} Saya tidak menemukan resep yang cocok. Anda bisa: 1) memakai Import resep (1 kuota import), 2) beri detail tambahan dan saya cari yang paling mendekati, atau 3) meminta AI untuk membuatnya sekarang (1 credit).`;
+    return `${lead} Saya tidak menemukan resep yang cocok. Anda bisa: 1) memakai Import resep (1 kuota import), 2) beri detail tambahan dan saya cari lagi, atau 3) meminta AI untuk membuatnya sekarang (1 credit).`;
   }
   return `${lead}我未搵到合適食譜。你可以：
 1. 去「匯入食譜」（會扣 1 次匯入額度）
-2. 講多少少要求，我再搵最相近嘅庫存
+2. 講多少少要求，我再搵
 3. AI 即場煮（1 credit）`;
 }
 
@@ -4524,7 +4533,8 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
       }
     } else {
-      const libraryTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
+      const rawTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
+      const libraryTerm = isSpecificFoodTerm(rawTerm) ? rawTerm : "";
       const semanticRows = libraryTerm
         ? safeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
         : safeRows;
@@ -4593,7 +4603,7 @@ export async function processAIChefChat(
     const safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
-    const semanticRows = keyword
+    const semanticRows = keyword && isSpecificFoodTerm(keyword)
       ? safeRows.filter((row) => rowMatchesFoodQuery(row, keyword))
       : safeRows;
     // For a specific protein, prefer its closest family label (牛扒 -> 牛排)

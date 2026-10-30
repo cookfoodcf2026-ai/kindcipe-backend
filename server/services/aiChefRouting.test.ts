@@ -752,6 +752,39 @@ test("mode=ai bypasses library-miss clarify guard", async () => {
   assert.notEqual(result.clarifyReason, "library_miss");
 });
 
+test("non-food library prompts still serve a card", async () => {
+  delete process.env.DATABASE_URL;
+  const row = (id: number, name: string, ingredients: string[]) => ({
+    id,
+    name,
+    source: "official",
+    cookTime: 20,
+    servings: 4,
+    ingredients: ingredients.map((ingredient) => ({ name: ingredient, quantity: "1", unit: "份" })),
+    steps: ["1"],
+    tags: [],
+  });
+  const pool = [
+    row(1, "番茄炒蛋", ["番茄", "雞蛋"]),
+    row(2, "蒜蓉炒菜心", ["菜心", "蒜"]),
+    row(3, "豉汁蒸排骨", ["排骨", "豆豉"]),
+    row(4, "清蒸鱸魚", ["鱸魚", "薑"]),
+    row(5, "蝦仁豆腐", ["蝦仁", "豆腐"]),
+    row(6, "老火例湯", ["豬骨", "蘿蔔"]),
+  ];
+  for (const [index, query] of ["幫我諗", "今晚食咩", "清淡啲", "家常菜"].entries()) {
+    const result = await processAIChefChat(
+      [{ role: "user", content: query }],
+      918290 + index, undefined, "library",
+      [], undefined, "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => pool,
+    );
+    assert.ok(result.recipes.length >= 1, `${query} served=${result.recipes.length} clarify=${result.clarifyReason}`);
+    assert.equal(result.clarifyReason, undefined, query);
+  }
+});
+
 test("library miss never serves unrelated cards", async () => {
   delete process.env.DATABASE_URL;
   const row = (id: number, name: string, ingredients: string[]) => ({
