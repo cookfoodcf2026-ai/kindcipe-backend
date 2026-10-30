@@ -303,7 +303,7 @@ const LIBRARY_POOL_CACHE: Map<number, { at: number; rows: Record<string, unknown
 const LIBRARY_POOL_TTL_MS = 60_000;
 const MAX_RECENT_PER_FAMILY = 40;
 
-async function getFamilySeenNames(familyId?: number): Promise<string[]> {
+export async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   if (familyId === undefined) return [];
   // 1) 試 DB（migration 已跑先至有表；未跑/斷線 → fallback memory）
   try {
@@ -2016,6 +2016,16 @@ function nameSimilarity(a: string, b: string): number {
   return inter / (A.size + B.size - inter);
 }
 
+export function dropSeenAiCards(recipes: SuggestedRecipe[], seenNames: Iterable<string>): SuggestedRecipe[] {
+  const excluded = [...seenNames].map(normalizeName).filter(Boolean);
+  if (excluded.length === 0) return recipes;
+  return recipes.filter((recipe) => {
+    if (recipe.source && recipe.source !== "ai") return true;
+    const name = normalizeName(recipe.name);
+    return !excluded.some((seen) => seen && (seen === name || nameSimilarity(seen, name) >= 0.6));
+  });
+}
+
 function matchRecipeSource(recipeName: string, libResults: Record<string, unknown>[]): { source: "official" | "custom" | "ai"; officialId?: number; customId?: number } {
   const normName = normalizeName(recipeName);
   if (!normName) return { source: "ai" };
@@ -3535,9 +3545,22 @@ export async function processAIChefChat(
       generated.source = "ai";
       delete generated.officialId;
       delete generated.customId;
+      const freshGenerated = dropSeenAiCards([generated], mergedExclude);
+      if (freshGenerated.length === 0) {
+        return {
+          content: lang.startsWith("en")
+            ? "I already showed that dish recently. Want me to cook something different?"
+            : "呢味最近已經出過，要唔要我煮過第二味？",
+          recipes: [],
+          llmUsed: true,
+          clarifyReason: "ai_failed",
+          intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
+        };
+      }
+      await recordFamilySeenNames(familyId, freshGenerated.map((recipe) => recipe.name));
       return {
         content: aiReply(lang, "madeNew"),
-        recipes: [generated],
+        recipes: freshGenerated,
         llmUsed: true,
         intentOverride: {
           kind: "recipe",
@@ -4642,6 +4665,14 @@ export async function processAIChefChat(
           content = aiReply(lang, "libOne");
         }
       }
+    }
+  }
+
+  if (!forceNoCards && recipes.length > 0 && mergedExclude.length > 0) {
+    const beforeDrop = recipes.length;
+    recipes = dropSeenAiCards(recipes, mergedExclude);
+    if (recipes.length !== beforeDrop) {
+      console.log(`[AI Chef] dropped ${beforeDrop - recipes.length} seen AI card(s)`);
     }
   }
 

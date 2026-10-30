@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, processAIChefChat, recordFamilySeenNames, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
@@ -247,6 +247,30 @@ test("scenario zero-hit logs scenario query tags rows seen filtered", async () =
   assert.match(fallback!, /rows=1/);
   assert.match(fallback!, /seen=0/);
   assert.match(fallback!, /filtered=0/);
+});
+
+test("same-session AI generation does not re-serve a seen dish", async () => {
+  delete process.env.DATABASE_URL;
+  const familyId = 918273;
+  const dish = {
+    name: "蒜蓉粉絲蒸扇貝",
+    description: "蒜香粉絲蒸扇貝",
+    cookTime: 20,
+    servings: 4,
+    difficulty: "easy" as const,
+    ingredients: [{ name: "扇貝", quantity: "6", unit: "隻" }, { name: "粉絲", quantity: "1", unit: "把" }],
+    steps: ["1", "2", "3", "4", "5"],
+    tags: ["seafood"],
+    source: "ai" as const,
+  };
+  const first = dropSeenAiCards([dish], await getFamilySeenNames(familyId));
+  assert.equal(first.length, 1);
+  await recordFamilySeenNames(familyId, first.map((recipe) => recipe.name));
+  const seen = await getFamilySeenNames(familyId);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0], dish.name);
+  const second = dropSeenAiCards([dish], seen);
+  assert.equal(second.length, 0);
 });
 
 test("AI cards with zero LLM calls trip the meter invariant", () => {
