@@ -7,6 +7,7 @@ import { getChatQuotaState } from "./chatQuota";
 import { recordLlmCostEvent } from "./llmCost";
 import { startRecipeImportMeter } from "./recipeImportMeter";
 import { buildChefReply } from "./aiChefLifecycle";
+import { addFamilyAllergens } from "./chefAllergens";
 import { claimsRecipeCards } from "./chefResponse";
 import { resolveChefIntent } from "./chefIntent";
 
@@ -489,6 +490,101 @@ test("router c08 ingredient miss is zero cards and never promises cards", async 
   assert.equal(result.clarifyReason, "ingredient_miss");
   assert.equal(claimsRecipeCards(result.content), false, result.content);
   assert.doesNotMatch(result.content, /以下係|同類食譜|已準備|準備好|最接近/, result.content);
+});
+
+test("library miss returns alternative cards", async () => {
+  await sql`delete from official_recipes where name like ${"%和牛%"}`;
+  await insertOfficial({
+    name: `${prefix}黑椒牛柳替代`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "牛肉",
+    createdAt: new Date(),
+  });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要和牛" }],
+    familyId, undefined, "library", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "library_miss");
+  const alternatives = result.alternatives ?? [];
+  assert.ok(alternatives.length > 0 && alternatives.length <= 3);
+  for (const card of alternatives) {
+    assert.ok(card.name && card.name.length >= 2);
+    assert.ok(Boolean(card.officialId || card.customId));
+  }
+});
+
+test("library miss alternatives stay relevant", async () => {
+  await insertOfficial({
+    name: `${prefix}黑椒牛柳替代`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "牛柳",
+    createdAt: new Date(),
+  });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要和牛" }],
+    familyId, undefined, "library", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "library_miss");
+  const alternatives = result.alternatives ?? [];
+  assert.ok(alternatives.length > 0);
+  for (const card of alternatives) {
+    const text = `${card.name} ${card.ingredients.map((ing) => ing.name).join(" ")}`;
+    assert.match(text, /牛|和牛|牛肉|牛柳|牛扒|牛腩/);
+  }
+});
+
+test("library miss alternatives respect declared allergens", async () => {
+  const allergenFamilyId = 900005;
+  await addFamilyAllergens(allergenFamilyId, ["蝦"]);
+  await insertOfficial({
+    name: `${prefix}蝦仁牛柳`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "蝦仁",
+    createdAt: new Date(),
+  });
+  await insertOfficial({
+    name: `${prefix}黑椒牛柳`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "牛柳",
+    createdAt: new Date(Date.now() - 1000),
+  });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要和牛" }],
+    allergenFamilyId, undefined, "library", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  const alternatives = result.alternatives ?? [];
+  assert.ok(alternatives.length > 0);
+  for (const card of alternatives) {
+    const text = `${card.name} ${card.ingredients.map((ing) => ing.name).join(" ")}`;
+    assert.doesNotMatch(text, /蝦|蝦仁|大蝦/);
+  }
+  await sql`delete from ai_chef_family_safety where family_id = ${allergenFamilyId}`;
+});
+
+test("served library response has no alternatives", async () => {
+  await insertOfficial({
+    name: `${prefix}雞髀肉炒菜`,
+    category: "家常",
+    dishType: "meat",
+    ingredientName: "雞髀肉",
+    createdAt: new Date(),
+  });
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要雞髀" }],
+    familyId, undefined, "library", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+  );
+  assert.ok(result.recipes.length > 0);
+  assert.equal(result.alternatives, undefined);
 });
 
 test("P34: 魚面 library miss is clarify, never a prose-matched library card", async () => {

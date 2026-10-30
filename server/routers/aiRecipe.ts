@@ -10,7 +10,7 @@ import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
-import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, getFamilyAllergens } from "../services/chefAllergens";
+import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, filterAllergenCards, getFamilyAllergens } from "../services/chefAllergens";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
@@ -1841,6 +1841,35 @@ function rowToSuggestedRecipe(r: any): SuggestedRecipe | null {
   };
 }
 
+function rowMatchesAlternativeQuery(row: Record<string, unknown>, query: string): boolean {
+  const q = normalizeName(query);
+  if (!q) return false;
+  if (rowMatchesFoodQuery(row, query)) return true;
+  const terms = new Set<string>();
+  for (const group of FOOD_SYNONYM_GROUPS) {
+    if (group.some((term) => {
+      const normalized = normalizeName(term);
+      return normalized.length >= 1 && q.includes(normalized);
+    })) {
+      group.forEach((term) => terms.add(term));
+    }
+  }
+  for (const term of terms) {
+    if (rowMatchesFoodQuery(row, term)) return true;
+  }
+  return false;
+}
+
+function toAlternativeCards(rows: Record<string, unknown>[], term: string, allergens: string[] = [], count = 3): SuggestedRecipe[] {
+  if (!term) return [];
+  const cards = rows
+    .filter((row) => rowMatchesAlternativeQuery(row, term))
+    .map((row) => rowToSuggestedRecipe(row))
+    .filter((recipe): recipe is SuggestedRecipe => !!recipe)
+    .slice(0, count);
+  return allergens.length > 0 ? filterAllergenCards(cards, allergens) : cards;
+}
+
 export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = []): SuggestedRecipe[] {
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
@@ -3453,12 +3482,14 @@ export async function processAIChefChat(
   searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
   dispatchOverride?: (messages: Array<{ role: string; content: string }>) => Promise<ChefDispatch | null>,
   stateUserId?: string,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety"; intentOverride?: ChefIntent }> {
+  knownAllergens?: string[],
+): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
   // guessing by slicing the requested roles).
   let resultMissingRoles: RequestedRole[] | null = null;
+  const allergenList = knownAllergens ?? (familyId ? await getFamilyAllergens(familyId) : []);
 
   // FAQ must not wait for seen/trending DB queries. Keep this before the DB
   // warm-up so verified technique answers stay <50ms.
@@ -3902,6 +3933,7 @@ export async function processAIChefChat(
         return {
           content: lang.startsWith("en") ? `No library recipe is close to "${target}". Want me to cook it with AI?` : `庫存冇「${target}」，暫時亦冇夠接近嘅食譜。想我叫 AI 即場煮？`,
           recipes: [],
+          alternatives: toAlternativeCards(search.rows, target, allergenList),
           llmUsed: true,
           clarifyReason: "library_miss",
           intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
@@ -4055,12 +4087,12 @@ export async function processAIChefChat(
       if (candidates.length === 0) {
         const alternatives = search.rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3);
         if (item.kind === "dish") {
-          return { content: libraryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "library_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+          return { content: libraryMissReply(lang, item.label, alternatives), recipes: [], alternatives: toAlternativeCards(search.rows, item.label, allergenList), llmUsed: true, clarifyReason: "library_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
         }
         if (item.kind === "ingredient") {
-          return { content: ingredientMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+          return { content: ingredientMissReply(lang, item.label, alternatives), recipes: [], alternatives: toAlternativeCards(search.rows, item.label, allergenList), llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
         }
-        return { content: categoryMissReply(lang, item.label, alternatives), recipes: [], llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
+        return { content: categoryMissReply(lang, item.label, alternatives), recipes: [], alternatives: toAlternativeCards(search.rows, item.label, allergenList), llmUsed: true, clarifyReason: "ingredient_miss", intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } } };
       }
       let selected: Record<string, unknown>[];
       if (item.kind === "category") {
@@ -4075,6 +4107,7 @@ export async function processAIChefChat(
             return {
               content: categoryMissReply(lang, item.label, candidates.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
               recipes: [],
+              alternatives: toAlternativeCards(candidates, item.label, allergenList),
               llmUsed: true,
               clarifyReason: "ingredient_miss",
               intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
@@ -4099,6 +4132,7 @@ export async function processAIChefChat(
       return {
         content: dispatch.replyText || (lang.startsWith("en") ? "I couldn't find a suitable card." : "我搵唔到合適嘅食譜卡。"),
         recipes: [],
+        alternatives: [],
         llmUsed: true,
         clarifyReason: "library_miss",
         intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
@@ -4169,8 +4203,8 @@ export async function processAIChefChat(
   const requestItems = extractMealIngredients(mealRequestText).filter((term) => !/^(?:和|同|及|跟)$/.test(term));
   const genericMealRequest = /(是但|隨便|求其|煮個|整個|有咩好|食咩好)/.test(lastUserText);
   const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
-  const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
-  const missingIngredients: Array<{ term: string; alternatives: string[] }> = [];
+  const missingDishes: Array<{ term: string; alternatives: string[]; rows: Record<string, unknown>[] }> = [];
+  const missingIngredients: Array<{ term: string; alternatives: string[]; rows: Record<string, unknown>[] }> = [];
   const keywordMatches: Array<{ term: string; rows: Record<string, unknown>[] }> = [];
   if ((db || searchOverride) && wantCards && mode !== "ai" && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
     for (const term of requestItems) {
@@ -4191,8 +4225,8 @@ export async function processAIChefChat(
       }
       const alternatives = rows.map((row) => String(row.name ?? "").trim()).filter(Boolean).slice(0, 3);
       if (search?.scenario) continue;
-      if (foodItemType(term) === "dish") missingDishes.push({ term, alternatives });
-      else missingIngredients.push({ term, alternatives });
+      if (foodItemType(term) === "dish") missingDishes.push({ term, alternatives, rows });
+      else missingIngredients.push({ term, alternatives, rows });
     }
   }
   if (keywordMatches.length > 0) {
@@ -4222,6 +4256,7 @@ export async function processAIChefChat(
     return {
       content: libraryMissReply(lang, first.term, first.alternatives),
       recipes: [],
+      alternatives: toAlternativeCards(first.rows, first.term, allergenList),
       llmUsed: false,
       missingRoles: chefIntent.requested.roles,
       clarifyReason: "library_miss",
@@ -4414,6 +4449,7 @@ export async function processAIChefChat(
       return {
         content: ingredientMissReply(lang, missingIngredients[0].term, missingIngredients[0].alternatives),
         recipes: [],
+        alternatives: toAlternativeCards(missingIngredients[0].rows, missingIngredients[0].term, allergenList),
         llmUsed,
         clarifyReason: "ingredient_miss",
       };
@@ -4466,6 +4502,7 @@ export async function processAIChefChat(
       return {
         content: libraryMissReply(lang, explicitTerm, safeRows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
         recipes: [],
+        alternatives: toAlternativeCards(safeRows, explicitTerm, allergenList),
         llmUsed,
         clarifyReason: "library_miss",
       };
@@ -4624,6 +4661,7 @@ export async function processAIChefChat(
         return {
           content: libraryMissReply(lang, libraryTerm, safeRows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
           recipes: [],
+          alternatives: toAlternativeCards(safeRows, libraryTerm, allergenList),
           llmUsed,
           clarifyReason: "library_miss",
         };
@@ -4670,6 +4708,7 @@ export async function processAIChefChat(
       return {
         content: libraryMissReply(lang, keyword, rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
         recipes: [],
+        alternatives: toAlternativeCards(rows, keyword, allergenList),
         llmUsed: false,
         missingRoles: chefIntent.requested.roles,
         clarifyReason: "library_miss",
@@ -6173,6 +6212,7 @@ export const aiRecipeRouter = router({
           undefined,
           undefined,
           userIdStr,
+          familyAllergens,
         );
         result = input.aiEntry === "swap_ai"
           ? await runWithDeadline(processPromise, SWAP_AI_DEADLINE_MS, () => ({
@@ -6208,6 +6248,13 @@ export const aiRecipeRouter = router({
             result.content = guarded.content ?? result.content;
             result.clarifyReason = "safety";
           }
+        }
+      }
+      if (familyAllergens.length > 0 && result.alternatives && result.alternatives.length > 0) {
+        const safeAlternatives = filterAllergenCards(result.alternatives, familyAllergens);
+        if (safeAlternatives.length !== result.alternatives.length) {
+          console.log(`[AI Chef] allergen alternatives removed=${result.alternatives.length - safeAlternatives.length} remaining=${safeAlternatives.length}`);
+          result.alternatives = safeAlternatives;
         }
       }
 
