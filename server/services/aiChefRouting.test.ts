@@ -194,16 +194,35 @@ test("truncated card output retries once and recovers cards", async () => {
   assert.equal(recovered.recipes[0].name, "凱撒沙律");
 });
 
-test("truncated recipes array salvages named first recipe", async () => {
+// 需求改變：唔准出無內容卡；name-only 截斷必須走 retry／refund，不得用模板補位。
+test("name-only truncated recipe is rejected after spec change", async () => {
   const raw = String.raw`{"replyText":"收到！...重新生成一份完整、格式嚴謹的「黑椒蒜子雞扒」食譜...","recipes":[{"name":"黑椒蒜子雞扒","nameEn":"Black Pepper Garlic Chic`;
   const out = await retryRecipeOutputOnce(
     { content: raw, finishReason: "length", recipes: [], wantCards: true, lang: "zh-TW" },
     async () => raw,
   );
   assert.equal(out.retried, true);
+  assert.equal(out.retrySucceeded, false);
+  assert.equal(out.recipes.length, 0);
+});
+
+test("truncated recipes array keeps complete recipes with real content", async () => {
+  const raw = String.raw`{"replyText":"兩道菜","recipes":[
+{"name":"番茄炒蛋","ingredients":[{"name":"番茄","quantity":"2","unit":"個"},{"name":"雞蛋","quantity":"3","unit":"隻"}],"steps":["番茄切件。","雞蛋打散。","炒熟上碟。"]},
+{"name":"蒜蓉炒菜心","ingredients":[{"name":"菜心","quantity":"300","unit":"克"},{"name":"蒜蓉","quantity":"2","unit":"瓣"}],"steps":["菜心洗淨。","爆香蒜蓉。","大火炒熟。"]},
+{"name":"黑椒蒜子雞扒","nameEn":"Black Pepper Garlic Chic`;
+  const out = await retryRecipeOutputOnce(
+    { content: raw, finishReason: "length", recipes: [], wantCards: true, lang: "zh-TW" },
+    async () => raw,
+  );
+  assert.equal(out.retried, true);
   assert.equal(out.retrySucceeded, true);
-  assert.equal(out.recipes.length, 1);
-  assert.equal(out.recipes[0].name, "黑椒蒜子雞扒");
+  assert.equal(out.recipes.length, 2);
+  assert.deepEqual(out.recipes.map((recipe) => recipe.name), ["番茄炒蛋", "蒜蓉炒菜心"]);
+  assert.deepEqual(out.recipes[0].ingredients.map((ingredient) => ingredient.name), ["番茄", "雞蛋"]);
+  assert.deepEqual(out.recipes[0].steps, ["番茄切件。", "雞蛋打散。", "炒熟上碟。"]);
+  assert.deepEqual(out.recipes[1].ingredients.map((ingredient) => ingredient.name), ["菜心", "蒜蓉"]);
+  assert.deepEqual(out.recipes[1].steps, ["菜心洗淨。", "爆香蒜蓉。", "大火炒熟。"]);
 });
 
 test("failed retry leaves zero cards for refund path", async () => {

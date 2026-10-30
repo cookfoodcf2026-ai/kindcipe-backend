@@ -732,10 +732,10 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
     if (salvagedObjects.length > 0) {
       const replyMatch = llmContent.match(/"replyText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
       const manualReplyText = replyMatch?.[1]?.replace(/\\n/g, "\n").replace(/\\"/g, '"');
-      recipes = manuallyConvertRecipes(salvagedObjects, manualReplyText, 5, true);
+      recipes = manuallyConvertRecipes(salvagedObjects, manualReplyText, 3);
       if (recipes.length > 0) {
         content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
-        console.log(`[AI Chef] lenient salvage: ${recipes.length} recipes`);
+        console.log(`[AI Chef] balanced salvage: ${recipes.length} recipes`);
         return { content, recipes };
       }
     }
@@ -785,7 +785,9 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
  * Manual recipe converter - converts recipe data without strict Zod validation
  * Used as fallback when schema validation fails
  */
-function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5, lenient = false): SuggestedRecipe[] {
+const TEMPLATE_INGREDIENT_NAMES = new Set(["主要食材", "調味料", "配料"]);
+
+function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5): SuggestedRecipe[] {
   if (!Array.isArray(recipes)) return [];
   
   return recipes.map((r: any): SuggestedRecipe | null => {
@@ -805,9 +807,9 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5
         : [];
       
       const steps = Array.isArray(r.steps) 
-        ? r.steps.map((s: any) => String(s))
+        ? r.steps.map((s: any) => String(s).trim()).filter(Boolean)
         : Array.isArray(r.instructions)
-        ? r.instructions.map((s: any) => String(s))
+        ? r.instructions.map((s: any) => String(s).trim()).filter(Boolean)
         : [];
 
       const mapSteps = (arr: any) => (Array.isArray(arr) ? arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s)) : undefined);
@@ -815,31 +817,9 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5
       const stepsFil = mapSteps(r.stepsFil);
       const stepsId = mapSteps(r.stepsId);
       
-      const validIngredients = ingredients.filter((i: any) => i.name && i.name !== "未知食材");
-      if (lenient) {
-        const fallbackIngredients = [
-          { name: "主要食材", quantity: "適量", unit: "" },
-          { name: "調味料", quantity: "適量", unit: "" },
-        ];
-        while (validIngredients.length < 2) {
-          const fallback = fallbackIngredients[validIngredients.length] ?? { name: "配料", quantity: "適量", unit: "" };
-          ingredients.push(fallback);
-          validIngredients.push(fallback);
-        }
-        const fallbackSteps = [
-          `準備${name}所需食材。`,
-          "清洗及處理食材。",
-          "加熱鍋具及下油。",
-          "放入食材烹調至熟。",
-          "調味後上碟。",
-        ];
-        while (steps.length < minSteps) {
-          steps.push(fallbackSteps[steps.length] ?? "按實際情況完成烹調。");
-        }
-      } else {
-        if (steps.length < minSteps) return null;
-        if (validIngredients.length < 2) return null;
-      }
+      const validIngredients = ingredients.filter((i: any) => i.name && i.name !== "未知食材" && !TEMPLATE_INGREDIENT_NAMES.has(i.name));
+      if (steps.length < minSteps) return null;
+      if (validIngredients.length < 2) return null;
 
       return {
         name,
