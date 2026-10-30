@@ -273,6 +273,88 @@ test("same-session AI generation does not re-serve a seen dish", async () => {
   assert.equal(second.length, 0);
 });
 
+test("ricecooker scenario meal draws only from ricecooker pool", async () => {
+  delete process.env.DATABASE_URL;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const scenarioRows = [
+      { id: 1, name: "電飯煲香菇雞湯", dishType: "soup" },
+      { id: 2, name: "電飯煲排骨湯", dishType: "soup" },
+      { id: 3, name: "電飯煲豉油雞", dishType: "meat" },
+      { id: 4, name: "電飯煲滷水雞翼", dishType: "meat" },
+      { id: 5, name: "電飯煲蒸菜心", dishType: "vegetable" },
+      { id: 6, name: "電飯煲蒸南瓜", dishType: "vegetable" },
+    ].map((row) => ({ ...row, source: "official", cookTime: 30, servings: 4, ingredients: [], steps: ["1"], tags: [], scenarioTags: ["ricecooker"] }));
+    const decoyRows = [
+      { id: 7, name: "梅菜扣肉", dishType: "meat" },
+      { id: 8, name: "蝦仁豆腐蒸水蛋", dishType: "other" },
+      { id: 9, name: "蒜蓉炒菜心", dishType: "vegetable" },
+      { id: 10, name: "咖哩魚蛋", dishType: "other" },
+      { id: 11, name: "清蒸鱸魚", dishType: "seafood" },
+      { id: 12, name: "紅燒肉", dishType: "meat" },
+      { id: 13, name: "番茄炒蛋", dishType: "other" },
+      { id: 14, name: "冬瓜湯", dishType: "soup" },
+      { id: 15, name: "炒西蘭花", dishType: "vegetable" },
+      { id: 16, name: "鹽焗雞", dishType: "meat" },
+      { id: 17, name: "豉汁蒸排骨", dishType: "meat" },
+      { id: 18, name: "灼蝦", dishType: "seafood" },
+    ].map((row) => ({ ...row, source: "official", cookTime: 20, servings: 4, ingredients: [], steps: ["1"], tags: [], scenarioTags: [] }));
+    const result = await processAIChefChat(
+      [{ role: "user", content: "幫我諗" }],
+      918277, undefined, "library",
+      [], { scenario: "ricecooker", count: 4 },
+      "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => [...scenarioRows, ...decoyRows],
+    );
+    const allowed = new Set(scenarioRows.map((row) => row.name));
+    assert.equal(result.recipes.length, 4);
+    assert.ok(result.recipes.every((recipe) => allowed.has(recipe.name)), result.recipes.map((recipe) => recipe.name).join("|"));
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(logs.some((line) => line.includes("[pickSoupMeal]") && line.includes("scenario=ricecooker") && line.includes("scenarioRows=6")));
+});
+
+test("scenario pool smaller than meal logs and tops up", async () => {
+  delete process.env.DATABASE_URL;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const scenarioRows = [
+      { id: 21, name: "電飯煲香菇雞湯", dishType: "soup" },
+      { id: 22, name: "電飯煲豉油雞", dishType: "meat" },
+    ].map((row) => ({ ...row, source: "official", cookTime: 30, servings: 4, ingredients: [], steps: ["1"], tags: [], scenarioTags: ["ricecooker"] }));
+    const decoyRows = [
+      { id: 23, name: "梅菜扣肉", dishType: "meat" },
+      { id: 24, name: "蝦仁豆腐蒸水蛋", dishType: "other" },
+      { id: 25, name: "蒜蓉炒菜心", dishType: "vegetable" },
+      { id: 26, name: "咖哩魚蛋", dishType: "other" },
+      { id: 27, name: "清蒸鱸魚", dishType: "seafood" },
+      { id: 28, name: "紅燒肉", dishType: "meat" },
+    ].map((row) => ({ ...row, source: "official", cookTime: 20, servings: 4, ingredients: [], steps: ["1"], tags: [], scenarioTags: [] }));
+    const result = await processAIChefChat(
+      [{ role: "user", content: "幫我諗" }],
+      918278, undefined, "library",
+      [], { scenario: "ricecooker", count: 4 },
+      "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => [...scenarioRows, ...decoyRows],
+    );
+    assert.equal(result.recipes.length, 4);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(logs.some((line) => line.includes("reason=scenario_pool_small") && line.includes("scenarioRows=2")));
+});
+
 test("dish-like keyword with multiple library matches serves cards instead of clarify", async () => {
   delete process.env.DATABASE_URL;
   const logs: string[] = [];

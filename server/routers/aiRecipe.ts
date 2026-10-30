@@ -1093,7 +1093,7 @@ export async function execSearchRecipes(
     recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
     steps: officialRecipes.steps, stepsEn: officialRecipes.stepsEn, stepsFil: officialRecipes.stepsFil, stepsId: officialRecipes.stepsId,
     tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
-    dishType: officialRecipes.dishType,
+    dishType: officialRecipes.dishType, scenarioTags: officialRecipes.scenarioTags,
   };
   const customCols = {
     id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description, descriptionEn: customRecipes.descriptionEn, descriptionFil: customRecipes.descriptionFil, descriptionId: customRecipes.descriptionId,
@@ -1101,7 +1101,7 @@ export async function execSearchRecipes(
     recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
     steps: customRecipes.steps, stepsEn: customRecipes.stepsEn, stepsFil: customRecipes.stepsFil, stepsId: customRecipes.stepsId,
     tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
-    dishType: customRecipes.dishType,
+    dishType: customRecipes.dishType, scenarioTags: customRecipes.scenarioTags,
   };
 
   const officialWhere = [
@@ -1144,6 +1144,7 @@ export async function execSearchRecipes(
     steps: safeParseJsonArray(r.steps as string), stepsEn: safeParseJsonArray(r.stepsEn as string), stepsFil: safeParseJsonArray(r.stepsFil as string), stepsId: safeParseJsonArray(r.stepsId as string),
     tags: safeParseJsonArray(r.tags as string),
     thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
+    scenarioTags: safeParseJsonArray(r.scenarioTags as string).map(String),
   });
 
   // custom 優先，但唔可以擠走全部 official（避免 family 自訂太多令換卡只剩 AI）：
@@ -1561,7 +1562,7 @@ const isRowExcluded = (ex: ExcludeSets, r: Record<string, unknown>): boolean => 
   return set.has(normalizeName(String(r.name ?? "")));
 };
 
-export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1): SuggestedRecipe[] {
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string): SuggestedRecipe[] {
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
@@ -1572,7 +1573,22 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     const s = Array.isArray(r.steps) ? r.steps : [];
     return s.some((st: any) => String(st?.instruction ?? st?.text ?? st ?? "").trim());
   };
-  const pool = rows.filter(hasSteps);
+  const scenarioKey = String(scenario ?? "").trim();
+  const scenarioRows = scenarioKey
+    ? rows.filter((row) => safeParseJsonArray((row as any).scenarioTags).map(String).includes(scenarioKey))
+    : rows;
+  const needed = Math.max(dishCount + soupCount, 1);
+  let sourceRows = rows;
+  if (scenarioKey) {
+    if (scenarioRows.length >= needed) {
+      sourceRows = scenarioRows;
+    } else {
+      const names = new Set(scenarioRows.map((row) => normalizeName(String(row.name ?? ""))));
+      sourceRows = [...scenarioRows, ...rows.filter((row) => !names.has(normalizeName(String(row.name ?? ""))))];
+      console.log(`[AI Chef] scenario_pool_small scenario=${scenarioKey} scenarioRows=${scenarioRows.length} needed=${needed} fallbackRows=${rows.length} reason=scenario_pool_small`);
+    }
+  }
+  const pool = sourceRows.filter(hasSteps);
 
   // 主食（麵/飯）喺 3餸1湯 唔做餸、唔做湯：無論 classify 分做咩，一律排除，避免誤分類嘅麵/飯偷入
   const isCarb = (r: Record<string, unknown>) => { const f = family(r); return f === "noodle" || f === "rice"; };
@@ -1584,7 +1600,7 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   const vegPool = pool.filter(r => classify(r) === "vegetable" && noCarb(r));
   const otherPool = pool.filter(r => (classify(r) === "other" || classify(r) === "appetizer") && noCarb(r));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
-  console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} (raw rows=${rows.length}, noSteps=${rows.length - pool.length})`);
+  console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} scenario=${scenarioKey || "none"} scenarioRows=${scenarioRows.length} (raw rows=${rows.length}, source rows=${sourceRows.length}, noSteps=${sourceRows.length - pool.length})`);
 
   // custom 優先（段內才 shuffle），令用戶自己嘅食譜排先；同時保留排除去重
   const shuffleLocal = <T,>(a: T[]): T[] => {
@@ -4053,7 +4069,7 @@ export async function processAIChefChat(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
-      const libPicked = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount);
+      const libPicked = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
       // 問卷「N人」→ 覆蓋卡片 servings（library 卡 DB 預設 4 人，要跟用戶答嘅人數）
@@ -4454,7 +4470,7 @@ export async function processAIChefChat(
       const safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
-      const libMeal = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount);
+      const libMeal = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario);
       if (libMeal.length > 0) {
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);
