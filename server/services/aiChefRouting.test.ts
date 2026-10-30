@@ -273,6 +273,47 @@ test("same-session AI generation does not re-serve a seen dish", async () => {
   assert.equal(second.length, 0);
 });
 
+test("dish-like keyword with multiple library matches serves cards instead of clarify", async () => {
+  delete process.env.DATABASE_URL;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const rows = [
+      "電飯煲番茄牛肉燉飯",
+      "電飯煲豉油雞",
+      "電飯煲香菇雞飯",
+      "電飯煲排骨飯",
+      "電飯煲臘味飯",
+    ].map((name, index) => ({
+      id: index + 1,
+      name,
+      source: "official",
+      dishType: "rice",
+      cookTime: 30,
+      servings: 4,
+      ingredients: [],
+      steps: ["1"],
+      tags: [],
+    }));
+    const result = await processAIChefChat(
+      [{ role: "user", content: "電飯煲" }],
+      918276, undefined, "library",
+      [], { scenario: "ricecooker", count: 4 },
+      "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => rows,
+    );
+    assert.ok(result.recipes.length >= 2, `served=${result.recipes.length}`);
+    assert.equal(result.clarifyReason, undefined);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(logs.some((line) => line.includes("reason=keyword_match")));
+});
+
 test("library early-return cards are recorded and avoided next turn", async () => {
   delete process.env.DATABASE_URL;
   const familyId = 918275;

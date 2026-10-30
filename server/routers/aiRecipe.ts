@@ -3765,19 +3765,49 @@ export async function processAIChefChat(
   const hasExplicitRequestCount = /(?:\d+|[一二兩两三四五六七八九十])\s*(?:個|个|道|款|碟|樣|样|份)?\s*(?:餸|菜|肉|海鮮|魚|湯|麵|面|粉|甜品|dish|recipe|card)/i.test(lastUserText);
   const missingDishes: Array<{ term: string; alternatives: string[] }> = [];
   const missingIngredients: Array<{ term: string; alternatives: string[] }> = [];
-  if (db && wantCards && mode !== "ai" && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
+  const keywordMatches: Array<{ term: string; rows: Record<string, unknown>[] }> = [];
+  if ((db || searchOverride) && wantCards && mode !== "ai" && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
     for (const term of requestItems) {
-      const search = await trySearch(term, 12);
-      if (!search.ok) {
-        console.log(`[AI Chef] lib_search_fail item="${term}" reason=${search.reason}`);
+      const searchResult = await trySearch(term, 12);
+      if (!searchResult.ok) {
+        console.log(`[AI Chef] lib_search_fail item="${term}" reason=${searchResult.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
-      const rows = search.rows;
+      const rows = searchResult.rows;
       const exact = rows.some((row) => normalizeName(String(row.name ?? "")) === normalizeName(term));
       if (exact) continue;
+      const termKey = normalizeName(term);
+      const nameMatches = rows.filter((row) => termKey && normalizeName(String(row.name ?? "")).includes(termKey));
+      const filteredMatches = applySearchFilters(nameMatches, search);
+      if (foodItemType(term) === "dish" && filteredMatches.length >= 2) {
+        keywordMatches.push({ term, rows: filteredMatches });
+        continue;
+      }
       const alternatives = rows.map((row) => String(row.name ?? "").trim()).filter(Boolean).slice(0, 3);
+      if (search?.scenario) continue;
       if (foodItemType(term) === "dish") missingDishes.push({ term, alternatives });
       else missingIngredients.push({ term, alternatives });
+    }
+  }
+  if (keywordMatches.length > 0) {
+    const first = keywordMatches[0];
+    const wanted = Math.min(first.rows.length, Math.max(2, search?.count ?? 2));
+    const cards = rowsToSuggested(first.rows, excludeSets, wanted);
+    if (cards.length >= 2) {
+      console.log(`[AI Chef] library keyword_match item="${first.term}" rows=${first.rows.length} served=${cards.length} reason=keyword_match`);
+      await recordServedLibraryCards(familyId, cards);
+      return {
+        content: aiReply(lang, "libByTag", { q: first.term }),
+        recipes: cards,
+        llmUsed: false,
+        intentOverride: {
+          kind: "recipe",
+          wantsCards: true,
+          requested: { total: cards.length, roles: cards.map(() => "any" as RequestedRole) },
+          confidence: chefIntent.confidence,
+          reason: "keyword_match",
+        },
+      };
     }
   }
   if (missingDishes.length > 0) {
