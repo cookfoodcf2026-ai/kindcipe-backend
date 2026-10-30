@@ -5922,11 +5922,21 @@ export const aiRecipeRouter = router({
         : creditsFull ? "credits"
           : blockedByFreeFlag ? "free_ai_off"
             : "ok";
+    const aiLimit = ent?.limits.aiCredits ?? 0;
     return {
       credits: {
         used: summary.aiCredits,
-        limit: ent?.limits.aiCredits ?? 0,
+        limit: aiLimit,
         resetAt: getNextResetAt(),
+      },
+      aiCredits: {
+        used: summary.aiCredits,
+        limit: aiLimit,
+        ...(ent?.legacyAiCredits != null ? { legacy: ent.legacyAiCredits } : {}),
+      },
+      imports: {
+        used: summary.imports,
+        limit: ent?.limits.imports ?? 0,
       },
       canGenerate,
       reason,

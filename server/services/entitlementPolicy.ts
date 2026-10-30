@@ -14,7 +14,7 @@ export interface PlanLimits {
 export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
   free: { aiCredits: 15, imports: 5, customRecipes: 5, members: 2 },
   trial: { aiCredits: 50, imports: 20, customRecipes: null, members: 4 },
-  pro: { aiCredits: 250, imports: 100, customRecipes: null, members: 4 },
+  pro: { aiCredits: 150, imports: 100, customRecipes: null, members: 4 },
 };
 
 export function isPaidStatus(status: PlanStatus): boolean {
@@ -29,6 +29,14 @@ export function planKeyForStatus(status: PlanStatus): PlanKey {
 
 export function limitsForStatus(status: PlanStatus): PlanLimits {
   return PLAN_LIMITS[planKeyForStatus(status)];
+}
+
+/** Grandfather existing paid families at their old AI allowance without
+ * changing the public plan limit. `legacyAiCredits` is the effective override. */
+export function effectivePlanLimits(plan: PlanKey, legacyAiCredits: number | null | undefined): PlanLimits {
+  const limits = PLAN_LIMITS[plan];
+  if (plan !== "pro" || legacyAiCredits == null) return limits;
+  return { ...limits, aiCredits: legacyAiCredits };
 }
 
 export function memberGraceEndsAt(params: {

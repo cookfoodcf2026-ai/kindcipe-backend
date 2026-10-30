@@ -138,6 +138,7 @@ export const families = pgTable("families", {
   settings: jsonb("settings").default({ approvalRequired: false }).notNull(),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").default("free").notNull(),
   subscriptionPlan: varchar("subscription_plan", { length: 16 }),
+  legacyAiCredits: integer("legacy_ai_credits"),
   trialStartedAt: timestamp("trial_started_at").defaultNow().notNull(),
   trialEndsAt: timestamp("trial_ends_at"),
   subscriptionExpiresAt: timestamp("subscription_expires_at"),

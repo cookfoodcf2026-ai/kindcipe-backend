@@ -326,6 +326,7 @@ const familyRouter = router({
       getFamilySubscription(familyId),
       getUsageSummary(familyId),
     ]);
+    const aiLimit = sub?.aiChatLimit ?? 15;
     return {
       imports: {
         used: summary.imports,
@@ -335,9 +336,15 @@ const familyRouter = router({
         used: summary.customRecipes,
         limit: sub ? sub.maxCustomRecipesPerMonth : 5,
       },
+      aiCredits: {
+        used: summary.aiCredits,
+        limit: aiLimit,
+        ...(sub?.legacyAiCredits != null ? { legacy: sub.legacyAiCredits } : {}),
+      },
+      // Backward-compatible alias kept for existing clients.
       aiChat: {
         used: summary.aiCredits,
-        limit: sub?.aiChatLimit ?? 15,
+        limit: aiLimit,
       },
     };
   }),

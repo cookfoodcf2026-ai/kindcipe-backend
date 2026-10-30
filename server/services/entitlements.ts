@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { getFamilyMembers, getFamilySubscription } from "../db";
 import {
   PLAN_LIMITS,
+  effectivePlanLimits,
   isPaidStatus,
   planKeyForStatus,
   type PlanKey,
@@ -14,6 +15,7 @@ export interface FamilyEntitlements {
   plan: PlanKey;
   isPaid: boolean;
   limits: (typeof PLAN_LIMITS)[PlanKey];
+  legacyAiCredits: number | null;
   memberCount: number;
   memberGraceEndsAt: Date | null;
   memberGraceActive: boolean;
@@ -32,7 +34,8 @@ export async function getFamilyEntitlements(
 
   const status = sub.status as PlanStatus;
   const plan = planKeyForStatus(status);
-  const limits = PLAN_LIMITS[plan];
+  const legacyAiCredits = sub.legacyAiCredits ?? null;
+  const limits = effectivePlanLimits(plan, legacyAiCredits);
   const members = await getFamilyMembers(familyId);
   const ordered = [...members].sort(
     (a, b) => new Date(a.member.joinedAt).getTime() - new Date(b.member.joinedAt).getTime()
@@ -54,6 +57,7 @@ export async function getFamilyEntitlements(
     plan,
     isPaid: isPaidStatus(status),
     limits,
+    legacyAiCredits,
     memberCount: ordered.length,
     memberGraceEndsAt: sub.memberGraceEndsAt ?? null,
     memberGraceActive: Boolean(sub.memberGraceActive),

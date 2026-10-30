@@ -48,6 +48,7 @@ import {
 import { ENV } from "./_core/env";
 import { isCanceledTrial } from "./services/billingRules";
 import {
+  effectivePlanLimits,
   limitsForStatus,
   memberGraceEndsAt as computeMemberGraceEndsAt,
   planKeyForStatus,
@@ -1498,7 +1499,7 @@ export async function getFamilySubscription(familyId: number) {
 
   // Beta: everyone is Pro (full features, no trial expiry). Reversible via env.
   if (ENV.betaAllPaid) {
-    const limits = limitsForStatus("active");
+    const limits = effectivePlanLimits("pro", family.legacyAiCredits);
     return {
       status: "active" as const,
       isPaid: true,
@@ -1507,6 +1508,7 @@ export async function getFamilySubscription(familyId: number) {
       maxImportsPerMonth: limits.imports,
       maxCustomRecipesPerMonth: limits.customRecipes,
       aiChatLimit: limits.aiCredits,
+      legacyAiCredits: family.legacyAiCredits ?? null,
       sharedLocked: false,
       memberGraceEndsAt: null,
       memberGraceActive: false,
@@ -1598,7 +1600,7 @@ export async function getFamilySubscription(familyId: number) {
 
   const isPaid = status === "active" || status === "trial";
   const memberCount = (await countFamilyMembers([familyId])).get(familyId) ?? 0;
-  const limits = limitsForStatus(status);
+  const limits = effectivePlanLimits(planKeyForStatus(status), family.legacyAiCredits);
   const graceEndsAt = computeMemberGraceEndsAt({
     status,
     trialEndsAt: family.trialEndsAt,
@@ -1614,6 +1616,7 @@ export async function getFamilySubscription(familyId: number) {
     maxImportsPerMonth: limits.imports,
     maxCustomRecipesPerMonth: limits.customRecipes,
     aiChatLimit: limits.aiCredits,
+    legacyAiCredits: family.legacyAiCredits ?? null,
     sharedLocked: !isPaid && memberCount > limits.members && !graceActive,
     memberGraceEndsAt: graceEndsAt,
     memberGraceActive: graceActive,

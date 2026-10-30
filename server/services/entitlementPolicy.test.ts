@@ -4,6 +4,7 @@ import {
   MEMBER_GRACE_MS,
   PLAN_LIMITS,
   aiPlanCreditCost,
+  effectivePlanLimits,
   limitsForStatus,
   memberGraceEndsAt,
 } from "./entitlementPolicy";
@@ -11,9 +12,22 @@ import {
 test("plan limits match the locked product rules", () => {
   assert.deepEqual(PLAN_LIMITS.free, { aiCredits: 15, imports: 5, customRecipes: 5, members: 2 });
   assert.deepEqual(PLAN_LIMITS.trial, { aiCredits: 50, imports: 20, customRecipes: null, members: 4 });
-  assert.deepEqual(PLAN_LIMITS.pro, { aiCredits: 250, imports: 100, customRecipes: null, members: 4 });
+  assert.deepEqual(PLAN_LIMITS.pro, { aiCredits: 150, imports: 100, customRecipes: null, members: 4 });
   assert.deepEqual(limitsForStatus("expired"), PLAN_LIMITS.free);
   assert.deepEqual(limitsForStatus("active"), PLAN_LIMITS.pro);
+});
+
+test("active pro with legacy credits keeps 250", () => {
+  assert.equal(effectivePlanLimits("pro", undefined).aiCredits, 150);
+  assert.equal(effectivePlanLimits("pro", null).aiCredits, 150);
+  assert.equal(effectivePlanLimits("pro", 250).aiCredits, 250);
+  assert.equal(effectivePlanLimits("pro", 250).imports, 100);
+});
+
+test("trial is never grandfathered to legacy credits", () => {
+  assert.equal(effectivePlanLimits("trial", 250).aiCredits, 50);
+  assert.equal(effectivePlanLimits("trial", 250).imports, 20);
+  assert.equal(effectivePlanLimits("free", 250).aiCredits, 15);
 });
 
 test("member grace is only for free/expired over-limit kitchens", () => {
