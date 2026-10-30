@@ -752,6 +752,47 @@ test("mode=ai bypasses library-miss clarify guard", async () => {
   assert.notEqual(result.clarifyReason, "library_miss");
 });
 
+test("library miss never serves unrelated cards", async () => {
+  delete process.env.DATABASE_URL;
+  const row = (id: number, name: string, ingredients: string[]) => ({
+    id,
+    name,
+    source: "official",
+    cookTime: 20,
+    servings: 4,
+    ingredients: ingredients.map((ingredient) => ({ name: ingredient, quantity: "1", unit: "份" })),
+    steps: ["1"],
+    tags: [],
+  });
+  const unrelated = [
+    row(1, "番茄炒蛋", ["番茄", "雞蛋"]),
+    row(2, "蒜蓉粉絲蒸魷魚", ["魷魚", "粉絲"]),
+  ];
+  for (const [index, query] of ["我要和牛", "我要雞髀"].entries()) {
+    const result = await processAIChefChat(
+      [{ role: "user", content: query }],
+      918282 + index, undefined, "library",
+      [], undefined, "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => unrelated,
+    );
+    assert.equal(result.recipes.length, 0, `${query} served=${result.recipes.map((recipe) => recipe.name).join("|")}`);
+    assert.equal(result.clarifyReason, "library_miss", query);
+    assert.equal(claimsRecipeCards(result.content), false, result.content);
+    assert.doesNotMatch(result.content, /以下係|同類食譜|已準備|準備好|最接近/, result.content);
+  }
+  const chicken = [row(3, "醬油雞腿", ["雞腿", "豉油"])];
+  const positive = await processAIChefChat(
+    [{ role: "user", content: "我要雞髀" }],
+    918284, undefined, "library",
+    [], undefined, "zh-TW", [], false, {},
+    "replace", true, true,
+    async () => chicken,
+  );
+  assert.equal(positive.recipes.length, 1);
+  assert.match(`${positive.recipes[0].name} ${positive.recipes[0].ingredients.map((ingredient) => ingredient.name).join(" ")}`, /雞|雞腿/);
+});
+
 test("c08/c24 zero-card miss copy never promises cards", () => {
   const cases = [
     { item: "和牛", alternatives: [] as string[] },

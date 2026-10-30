@@ -1096,6 +1096,53 @@ function rowContainsAvoid(row: Record<string, unknown>, avoid: string[]): boolea
   return recipeContainsAvoid(row as any, avoid);
 }
 
+const FOOD_SYNONYM_GROUPS = [
+  ["和牛", "和牛粒", "和牛片", "和牛扒"],
+  ["雞髀", "雞脾", "雞腿", "雞腿肉", "雞扒", "雞扒肉"],
+  ["雞", "雞肉", "雞胸", "雞翼", "雞柳"],
+  ["牛", "牛肉", "牛扒", "牛柳", "牛腩", "牛肋", "牛仔骨"],
+  ["豬肉", "豬扒", "豬手", "排骨", "腩肉", "叉燒", "豬"],
+  ["魚", "魚肉", "鱸魚", "三文魚", "鯇魚", "鯛魚"],
+  ["蝦", "蝦仁", "大蝦", "蝦球"],
+  ["蟹", "蟹肉", "蟹柳"],
+  ["豆腐", "豆卜", "豆乾", "腐皮"],
+  ["蛋", "雞蛋", "鴨蛋", "蒸蛋"],
+  ["羊肉", "羊扒", "羊"],
+  ["鴨肉", "鴨"],
+];
+
+export function rowMatchesFoodQuery(row: Record<string, unknown>, query: string): boolean {
+  const q = normalizeName(query);
+  if (!q) return true;
+  const haystack = normalizeName(recipeText(row as any));
+  if (!haystack) return false;
+  if (haystack.includes(q)) return true;
+  const group = FOOD_SYNONYM_GROUPS.find((terms) =>
+    terms.some((term) => normalizeName(term) === q),
+  ) ?? FOOD_SYNONYM_GROUPS.find((terms) =>
+    terms.some((term) => {
+      const normalized = normalizeName(term);
+      return normalized && (q.includes(normalized) || normalized.includes(q));
+    }),
+  );
+  if (!group) return false;
+  let matchHaystack = haystack;
+  if (!/蛋/.test(q)) matchHaystack = matchHaystack.replace(/雞蛋|鴨蛋|蛋/g, " ");
+  if (!/牛油果/.test(q)) matchHaystack = matchHaystack.replace(/牛油果/g, " ");
+  const name = normalizeName(String(row.name ?? ""));
+  const ingredientTokens = (Array.isArray(row.ingredients) ? row.ingredients : [])
+    .map((ingredient: any) => normalizeName(typeof ingredient === "string" ? ingredient : String(ingredient?.name ?? "")))
+    .filter(Boolean);
+  return group.some((term) => {
+    const normalized = normalizeName(term);
+    if (!normalized) return false;
+    if (normalized.length === 1) {
+      return name.includes(normalized) || ingredientTokens.includes(normalized);
+    }
+    return matchHaystack.includes(normalized);
+  });
+}
+
 // ─── Tools ─────────────────────────────────────────────────
 
 const TOOLS: Array<{
@@ -3271,17 +3318,17 @@ function clarifyFoodReply(lang: string): string {
 
 function zeroCardMissReply(lang: string, lead: string): string {
   if (lang.startsWith("en")) {
-    return `${lead} I couldn't find a suitable recipe. You can: 1) use Import recipe (1 import quota), 2) tell me a bit more and I'll search again, or 3) ask AI to make it now (1 credit).`;
+    return `${lead} I couldn't find a suitable recipe. You can: 1) use Import recipe (1 import quota), 2) tell me a bit more and I'll search the closest matches, or 3) ask AI to make it now (1 credit).`;
   }
   if (lang.startsWith("fil")) {
-    return `${lead} Wala akong makitang angkop na recipe. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) magbigay ng dagdag na detalye at hahanapin ko muli, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
+    return `${lead} Wala akong makitang angkop na recipe. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) magbigay ng dagdag na detalye at hahanapin ko ang pinakamalapit na tugma, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
   }
   if (lang.startsWith("id")) {
-    return `${lead} Saya tidak menemukan resep yang cocok. Anda bisa: 1) memakai Import resep (1 kuota import), 2) beri detail tambahan dan saya cari lagi, atau 3) meminta AI membuatnya sekarang (1 credit).`;
+    return `${lead} Saya tidak menemukan resep yang cocok. Anda bisa: 1) memakai Import resep (1 kuota import), 2) beri detail tambahan dan saya cari yang paling mendekati, atau 3) meminta AI untuk membuatnya sekarang (1 credit).`;
   }
   return `${lead}我未搵到合適食譜。你可以：
 1. 去「匯入食譜」（會扣 1 次匯入額度）
-2. 講多少少要求，我再搵
+2. 講多少少要求，我再搵最相近嘅庫存
 3. AI 即場煮（1 credit）`;
 }
 
@@ -4477,11 +4524,24 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
       }
     } else {
-      picked = rowsToSuggested(safeRows, excludeSets, 1);
+      const libraryTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
+      const semanticRows = libraryTerm
+        ? safeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
+        : safeRows;
+      picked = rowsToSuggested(semanticRows, excludeSets, 1);
       if (picked.length > 0) {
-        console.log(`[AI Chef] library mode: ${picked.length} recipes`);
+        console.log(`[AI Chef] library mode: ${picked.length} recipes term="${libraryTerm || "(generic)"}"`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
         return { content: aiReply(lang, "libOneFrom"), recipes: picked, llmUsed };
+      }
+      if (libraryTerm) {
+        console.log(`[AI Chef] library miss term="${libraryTerm}" candidates=${safeRows.length} semantic=${semanticRows.length} -> clarify`);
+        return {
+          content: libraryMissReply(lang, libraryTerm, safeRows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
+          recipes: [],
+          llmUsed,
+          clarifyReason: "library_miss",
+        };
       }
     }
     return { content: aiReply(lang, "libNone"), recipes: [], llmUsed, clarifyReason: "library_miss" };
@@ -4533,14 +4593,17 @@ export async function processAIChefChat(
     const safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
+    const semanticRows = keyword
+      ? safeRows.filter((row) => rowMatchesFoodQuery(row, keyword))
+      : safeRows;
     // For a specific protein, prefer its closest family label (牛扒 -> 牛排)
     // over a broader family result (牛柳), even if the DB row is newer.
     const preferredRow = findFoodTerm(keyword) === keyword
       ? fallbackQueriesForFoodTerm(keyword)
-        .map((query) => safeRows.find((row) => String(row.name ?? "").includes(query)))
+        .map((query) => semanticRows.find((row) => String(row.name ?? "").includes(query)))
         .find(Boolean)
       : undefined;
-    const picked = rowsToSuggested(preferredRow ? [preferredRow] : safeRows, excludeSets, 1);
+    const picked = rowsToSuggested(preferredRow ? [preferredRow] : semanticRows, excludeSets, 1);
     if (picked.length > 0) {
       const pickedIsReused = singleCardLibrary
         && operation === "append"
@@ -4572,10 +4635,13 @@ export async function processAIChefChat(
       // Only use the generic role query when the user gave no specific food term.
       const specificFallbackQueries = findFoodTerm(keyword) === keyword ? fallbackQueriesForFoodTerm(keyword) : [];
       const genericRoleQuery = ROLE_LIBRARY_QUERY[explicitRole];
+      const allowGenericRole = !keyword || /^(?:肉|菜|海鮮|湯|麵|飯|甜品)$/.test(keyword);
       const roleQueries = [...new Set(
         specificFallbackQueries.length > 0
           ? specificFallbackQueries
-          : [genericRoleQuery].filter(Boolean) as string[],
+          : allowGenericRole
+            ? [genericRoleQuery].filter(Boolean) as string[]
+            : [],
       )];
       for (const roleQuery of roleQueries) {
         if (roleQuery === keyword) continue;
