@@ -400,6 +400,10 @@ export function zeroCardFoodReply(lang: string): string {
     : "I couldn't build the recipe cards this time (parse failed). No credit was charged. Please try again, or use Library / AI generate.";
 }
 
+export function hasAiCardsWithoutLlmCalls(input: { aiCards: number; llmCalls: number }): boolean {
+  return input.aiCards > 0 && input.llmCalls === 0;
+}
+
 export function getRecipeRetryReason(input: {
   content: string;
   finishReason: string;
@@ -5644,6 +5648,10 @@ export const aiRecipeRouter = router({
         console.warn(`[AI Chef] zero-card refund reason=${zeroCardFood ? "wants_cards" : "card_claim"}`);
       }
       const aiCards = result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length;
+      const meterInvariant = hasAiCardsWithoutLlmCalls({ aiCards, llmCalls: meter.calls });
+      if (meterInvariant) {
+        console.error(`[AI Chef][meter-invariant] request=${requestId} aiCards=${aiCards} served=${served} requested=${requested} llmCalls=${meter.calls} llmUsed=${result.llmUsed}`);
+      }
       const shouldCharge = shouldChargeChefRequest({ served, aiCards });
 
       const responseLang = input.lang ?? "zh-TW";
@@ -5791,6 +5799,9 @@ export const aiRecipeRouter = router({
           : undefined,
       });
       const finalResponse = finalized.response;
+      if (meterInvariant) {
+        finalResponse.llmCalls = meter.calls;
+      }
       const creditsCharged = finalized.creditsCharged;
       if (creditsCharged > 0 && familyId) {
         try { await incrementAiChatUsage(familyId, String(ctx.user.id), requestedCredits); } catch { /* history */ }

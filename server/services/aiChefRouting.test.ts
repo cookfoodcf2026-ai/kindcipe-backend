@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, getRecipeRetryReason, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, processAIChefChat, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
@@ -203,6 +203,12 @@ test("failed retry leaves zero cards for refund path", async () => {
   assert.equal(recovered.retried, true);
   assert.equal(recovered.retrySucceeded, false);
   assert.equal(recovered.recipes.length, 0);
+});
+
+test("AI cards with zero LLM calls trip the meter invariant", () => {
+  assert.equal(hasAiCardsWithoutLlmCalls({ aiCards: 4, llmCalls: 0 }), true);
+  assert.equal(hasAiCardsWithoutLlmCalls({ aiCards: 4, llmCalls: 4 }), false);
+  assert.equal(hasAiCardsWithoutLlmCalls({ aiCards: 0, llmCalls: 0 }), false);
 });
 
 test("zero-card food copy is deterministic and never claims cards exist", () => {
