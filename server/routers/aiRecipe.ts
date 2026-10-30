@@ -1707,6 +1707,52 @@ const isRowExcluded = (ex: ExcludeSets, r: Record<string, unknown>): boolean => 
   return set.has(normalizeName(String(r.name ?? "")));
 };
 
+function rowToSuggestedRecipe(r: any): SuggestedRecipe | null {
+  const steps = (Array.isArray(r.steps) ? r.steps : [])
+    .map((st: any) => typeof st === "string" ? st : String(st?.instruction ?? st?.text ?? st ?? ""))
+    .map((t: string) => t.trim()).filter(Boolean);
+  if (steps.length === 0) return null;
+  const official = r.source === "official";
+  const str = (v: unknown): string | undefined => { const s = String(v ?? "").trim(); return s ? s : undefined; };
+  const stepsOf = (v: unknown): string[] | undefined => {
+    const arr = Array.isArray(v) ? v : [];
+    const out = arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s ?? "")).map((t: string) => t.trim()).filter(Boolean);
+    return out.length > 0 ? out : undefined;
+  };
+  return {
+    name: String(r.name ?? "").trim(),
+    nameEn: str((r as any).nameEn),
+    nameFil: str((r as any).nameFil),
+    nameId: str((r as any).nameId),
+    description: String(r.description ?? "").trim(),
+    cookTime: Number(r.cookTime ?? 30) || 30,
+    servings: Number(r.servings ?? 4) || 4,
+    difficulty: String(r.difficulty ?? "medium"),
+    ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).map((i: any) => ({
+      name: String(i?.name ?? "").trim(),
+      nameEn: str(i?.nameEn),
+      nameFil: str(i?.nameFil),
+      nameId: str(i?.nameId),
+      quantity: String(i?.quantity ?? "").trim(),
+      unit: String(i?.unit ?? "").trim(),
+    })).filter((x: any) => x.name),
+    steps,
+    stepsEn: stepsOf((r as any).stepsEn),
+    stepsFil: stepsOf((r as any).stepsFil),
+    stepsId: stepsOf((r as any).stepsId),
+    tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+    source: official ? "official" : "custom",
+    officialId: official ? Number(r.id) : undefined,
+    customId: !official ? Number(r.id) : undefined,
+    thumbnailUrl: String(r?.thumbnailUrl ?? "").trim() || undefined,
+    image: String(r?.image ?? "").trim() || undefined,
+    dishType: String(r?.dishType ?? "").trim() || undefined,
+    soupType: (r as any).soupType || undefined,
+    benefits: (r as any).benefits || undefined,
+    waterVolume: (r as any).waterVolume || undefined,
+  };
+}
+
 export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string): SuggestedRecipe[] {
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
@@ -1744,6 +1790,59 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     }
   }
   const pool = sourceRows.filter(hasSteps);
+
+  if (scenarioKey === "ricecooker") {
+    const allPool = rows.filter(hasSteps);
+    const hasTag = (row: Record<string, unknown>) => safeParseJsonArray((row as any).scenarioTags).map(String).includes("ricecooker");
+    const freshOrder = (arr: Record<string, unknown>[]) => [
+      ...arr.filter((row) => !isRowExcluded(ex, row)),
+      ...arr.filter((row) => isRowExcluded(ex, row)),
+    ];
+    const tiers = [
+      freshOrder(allPool.filter(hasElectricKeyword)),
+      freshOrder(allPool.filter((row) => !hasElectricKeyword(row) && hasTag(row))),
+      freshOrder(allPool.filter((row) => !hasElectricKeyword(row) && !hasTag(row))),
+    ];
+    const usedNames = new Set<string>();
+    const pickWhere = (predicate: (row: Record<string, unknown>) => boolean): Record<string, unknown> | null => {
+      for (const tier of tiers) {
+        for (const row of tier) {
+          const key = normalizeName(String(row.name ?? ""));
+          if (key && usedNames.has(key)) continue;
+          if (!predicate(row)) continue;
+          if (key) usedNames.add(key);
+          return row;
+        }
+      }
+      return null;
+    };
+    const isSoupRow = (row: Record<string, unknown>) => classify(row) === "soup" || /湯|羹/.test(String(row.name ?? ""));
+    const isCarbRow = (row: Record<string, unknown>) => {
+      if (isSoupRow(row)) return false;
+      return classify(row) === "carb" || family(row) === "rice" || family(row) === "noodle";
+    };
+    const isVegRow = (row: Record<string, unknown>) => classify(row) === "vegetable";
+    const riceCookerWanted = Math.max(dishCount + soupCount, 1);
+    const pickedRows: Record<string, unknown>[] = [];
+    const carb = pickWhere(isCarbRow);
+    if (carb) pickedRows.push(carb);
+    const soupOrVeg = pickWhere((row) => isSoupRow(row) || isVegRow(row));
+    if (soupOrVeg) pickedRows.push(soupOrVeg);
+    let carbCount = pickedRows.filter(isCarbRow).length;
+    while (pickedRows.length < riceCookerWanted) {
+      const next = pickWhere((row) => !isCarbRow(row) || carbCount < 2);
+      if (!next) break;
+      pickedRows.push(next);
+      if (isCarbRow(next)) carbCount++;
+    }
+    pickedRows.sort((a, b) => Number(!hasElectricKeyword(a)) - Number(!hasElectricKeyword(b)));
+    const keywordCount = allPool.filter(hasElectricKeyword).length;
+    console.log(`[pickSoupMeal] pool=${allPool.length} scenario=ricecooker scenarioRows=${scenarioRows.length} keywordRows=${keywordCount} reason=ricecooker_builder`);
+    if (keywordCount < riceCookerWanted) {
+      console.log(`[AI Chef] scenario_pool_small scenario=ricecooker scenarioRows=${keywordCount} tagRows=${allPool.filter(hasTag).length} totalWanted=${riceCookerWanted} reason=scenario_pool_small`);
+    }
+    return pickedRows.map(rowToSuggestedRecipe).filter((recipe): recipe is SuggestedRecipe => !!recipe);
+  }
 
   // 主食（麵/飯）喺 3餸1湯 唔做餸、唔做湯：無論 classify 分做咩，一律排除，避免誤分類嘅麵/飯偷入
   const isCarb = (r: Record<string, unknown>) => { const f = family(r); return f === "noodle" || f === "rice"; };
@@ -1877,51 +1976,7 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     picked = [...picked].sort((a, b) => Number(!hasElectricKeyword(a)) - Number(!hasElectricKeyword(b)));
   }
 
-  return picked.map((r: any): SuggestedRecipe | null => {
-    const steps = (Array.isArray(r.steps) ? r.steps : [])
-      .map((st: any) => typeof st === "string" ? st : String(st?.instruction ?? st?.text ?? st ?? ""))
-      .map((t: string) => t.trim()).filter(Boolean);
-    if (steps.length === 0) return null;
-    const official = r.source === "official";
-    const str = (v: unknown): string | undefined => { const s = String(v ?? "").trim(); return s ? s : undefined; };
-    const stepsOf = (v: unknown): string[] | undefined => {
-      const arr = Array.isArray(v) ? v : [];
-      const out = arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s ?? "")).map((t: string) => t.trim()).filter(Boolean);
-      return out.length > 0 ? out : undefined;
-    };
-    return {
-      name: String(r.name ?? "").trim(),
-      nameEn: str((r as any).nameEn),
-      nameFil: str((r as any).nameFil),
-      nameId: str((r as any).nameId),
-      description: String(r.description ?? "").trim(),
-      cookTime: Number(r.cookTime ?? 30) || 30,
-      servings: Number(r.servings ?? 4) || 4,
-      difficulty: String(r.difficulty ?? "medium"),
-      ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).map((i: any) => ({
-        name: String(i?.name ?? "").trim(),
-        nameEn: str(i?.nameEn),
-        nameFil: str(i?.nameFil),
-        nameId: str(i?.nameId),
-        quantity: String(i?.quantity ?? "").trim(),
-        unit: String(i?.unit ?? "").trim(),
-      })).filter((x: any) => x.name),
-      steps,
-      stepsEn: stepsOf((r as any).stepsEn),
-      stepsFil: stepsOf((r as any).stepsFil),
-      stepsId: stepsOf((r as any).stepsId),
-      tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
-      source: official ? "official" : "custom",
-      officialId: official ? Number(r.id) : undefined,
-      customId: !official ? Number(r.id) : undefined,
-      thumbnailUrl: String(r?.thumbnailUrl ?? "").trim() || undefined,
-      image: String(r?.image ?? "").trim() || undefined,
-      dishType: String(r?.dishType ?? "").trim() || undefined,
-      soupType: (r as any).soupType || undefined,
-      benefits: (r as any).benefits || undefined,
-      waterVolume: (r as any).waterVolume || undefined,
-    };
-  }).filter((r: SuggestedRecipe | null): r is SuggestedRecipe => !!r);
+  return picked.map(rowToSuggestedRecipe).filter((r): r is SuggestedRecipe => !!r);
 }
 
 // 將 search 條件（時間上限 + 排除類別）後置套用喺 generic pool，令「30 分鐘 button」等唔會抽到超時/甜品/湯水/飲品
@@ -4288,6 +4343,13 @@ export async function processAIChefChat(
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0
         ? arr.map(r => ({ ...r, servings: people }))
         : arr;
+      if (search?.scenario === "ricecooker" && libPicked.length < totalWanted) {
+        const content = lang.startsWith("en")
+          ? `Rice-cooker recipes are limited, so I'm showing ${libPicked.length}. Want me to top up with AI?`
+          : `電飯煲食譜較少，先出 ${libPicked.length} 張。要唔要我用 AI 補足？`;
+        console.log(`[AI Chef] ricecooker shortfall served=${libPicked.length} wanted=${totalWanted}`);
+        return { content, recipes: applyServings(libPicked), llmUsed: false };
+      }
       // 2) 唔夠 → 按「缺失類別」逐類 AI 補缺
       if (libPicked.length < totalWanted) {
         const missing = totalWanted - libPicked.length;

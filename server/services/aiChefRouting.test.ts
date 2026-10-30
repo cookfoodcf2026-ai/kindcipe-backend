@@ -342,6 +342,65 @@ test("same-session AI generation does not re-serve a seen dish", async () => {
   assert.equal(second.length, 0);
 });
 
+test("ricecooker first two cards are electric-cooker dishes", async () => {
+  delete process.env.DATABASE_URL;
+  const rows = [
+    { id: 41, name: "電飯煲番茄牛肉燉飯", dishType: "carb" },
+    { id: 42, name: "電飯煲南瓜排骨燜飯", dishType: "carb" },
+    { id: 43, name: "電飯煲豉油雞", dishType: "meat" },
+    { id: 44, name: "電飯煲蒸水蛋", dishType: "other" },
+    { id: 45, name: "電飯煲香菇雞湯", dishType: "soup" },
+    { id: 46, name: "梅菜扣肉", dishType: "meat" },
+    { id: 47, name: "蒜蓉炒菜心", dishType: "vegetable" },
+    { id: 48, name: "番茄紅衫魚", dishType: "seafood" },
+    { id: 49, name: "咖哩魚蛋", dishType: "other" },
+    { id: 50, name: "白灼蠔油西蘭花", dishType: "vegetable" },
+    { id: 51, name: "蓮藕炆排骨", dishType: "meat" },
+  ].map((row) => ({ ...row, source: "official", cookTime: 30, servings: 4, ingredients: [], steps: ["1"], tags: [], scenarioTags: ["ricecooker"] }));
+  const result = await processAIChefChat(
+    [{ role: "user", content: "幫我諗" }],
+    918280, undefined, "library",
+    [], { scenario: "ricecooker", count: 4 },
+    "zh-TW", [], false, {},
+    "replace", true, true,
+    async () => rows,
+  );
+  assert.equal(result.recipes.length, 4);
+  assert.ok(result.recipes.slice(0, 2).every((recipe) => /電飯煲/.test(recipe.name)), result.recipes.map((recipe) => recipe.name).join("|"));
+});
+
+test("ricecooker never returns zero cards when keyword rows exist", async () => {
+  delete process.env.DATABASE_URL;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  let result: Awaited<ReturnType<typeof processAIChefChat>>;
+  try {
+    const rows = [
+      { id: 52, name: "電飯煲豉油雞", dishType: "meat" },
+      { id: 53, name: "揚州炒飯", dishType: "carb" },
+      { id: 54, name: "冬瓜湯", dishType: "soup" },
+      { id: 55, name: "蒜蓉炒菜心", dishType: "vegetable" },
+      { id: 56, name: "咖哩魚蛋", dishType: "other" },
+      { id: 57, name: "梅菜扣肉", dishType: "meat" },
+    ].map((row) => ({ ...row, source: "official", cookTime: 20, servings: 4, ingredients: [], steps: ["1"], tags: [], scenarioTags: ["ricecooker"] }));
+    result = await processAIChefChat(
+      [{ role: "user", content: "幫我諗" }],
+      918281, undefined, "library",
+      [], { scenario: "ricecooker", count: 4 },
+      "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => rows,
+    );
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(result.recipes.length > 0, `served=${result.recipes.length}`);
+  assert.ok(logs.some((line) => line.includes("reason=scenario_pool_small") && line.includes("scenarioRows=1")));
+});
+
 test("ricecooker ranks electric-cooker names first", async () => {
   delete process.env.DATABASE_URL;
   const scenario = [
