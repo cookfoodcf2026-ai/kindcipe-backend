@@ -36,11 +36,13 @@ async function insertOfficial(params: {
   dishType?: string;
   tags?: string[];
   ingredientName?: string;
+  scenarioTags?: string[];
+  scenarioTagsUser?: string[];
   createdAt: Date;
 }) {
   await sql`insert into official_recipes
-    (imported_by_user_id,name,description,cook_time,servings,difficulty,recipe_category,dish_type,ingredients,steps,tags,is_active,created_at)
-    values ('bug-spec',${params.name},${params.description ?? ""},20,4,'easy',${params.category ?? "其他"},${params.dishType ?? "other"},${ingredients(params.ingredientName ?? "食材")},${steps},${JSON.stringify(params.tags ?? [])},true,${params.createdAt})`;
+    (imported_by_user_id,name,description,cook_time,servings,difficulty,recipe_category,dish_type,ingredients,steps,tags,scenario_tags,scenario_tags_user,is_active,created_at)
+    values ('bug-spec',${params.name},${params.description ?? ""},20,4,'easy',${params.category ?? "其他"},${params.dishType ?? "other"},${ingredients(params.ingredientName ?? "食材")},${steps},${JSON.stringify(params.tags ?? [])},${JSON.stringify(params.scenarioTags ?? [])},${JSON.stringify(params.scenarioTagsUser ?? [])},true,${params.createdAt})`;
 }
 
 test.before(async () => {
@@ -53,6 +55,32 @@ test.after(async () => {
   // getDb's production pool keeps the process alive; the spec is a standalone
   // local-DB test, so exit with the runner's result.
   setTimeout(() => process.exit(process.exitCode ?? 0), 100);
+});
+
+test("user scenario tags override derived tags", async () => {
+  const userName = `${prefix}user-kids-soup`;
+  const derivedName = `${prefix}derived-rice-soup`;
+  await insertOfficial({
+    name: userName,
+    dishType: "soup",
+    scenarioTags: ["ricecooker"],
+    scenarioTagsUser: ["kids"],
+    createdAt: new Date(),
+  });
+  await insertOfficial({
+    name: derivedName,
+    dishType: "soup",
+    scenarioTags: ["ricecooker"],
+    scenarioTagsUser: [],
+    createdAt: new Date(Date.now() - 1000),
+  });
+  const db = await getDb();
+  assert.ok(db);
+  const kids = await execSearchRecipes(db, { query: "", scenario: "kids", limit: 100 }, familyId);
+  const rice = await execSearchRecipes(db, { query: "", scenario: "ricecooker", limit: 100 }, familyId);
+  assert.ok(kids.recipes.some((recipe) => recipe.name === userName), "user kids tag should match");
+  assert.ok(!rice.recipes.some((recipe) => recipe.name === userName), "user override must hide derived ricecooker");
+  assert.ok(rice.recipes.some((recipe) => recipe.name === derivedName), "empty user tags must fall back to derived");
 });
 
 test("BUG 1: role pool 30 false libNone when first 30 rows are avoided", async () => {

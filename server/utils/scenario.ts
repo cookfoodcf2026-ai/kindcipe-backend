@@ -122,3 +122,13 @@ export function computeScenarioTags(input: ScenarioInput): string {
 export function matchesScenario(input: ScenarioInput, scenario: Scenario): boolean {
   return deriveScenarios(input).includes(scenario);
 }
+
+/** Serialize user-declared scenarios into `scenario_tags_user`. Empty array
+ * stays `"[]"`, which the query layer treats as "fall back to derived". */
+export function serializeUserScenarioTags(scenarios?: string[] | null): string | undefined {
+  if (scenarios === undefined) return undefined;
+  const unique = [...new Set((scenarios ?? []).map(String))].filter((scenario): scenario is Scenario =>
+    (ALL_SCENARIOS as string[]).includes(scenario),
+  );
+  return JSON.stringify(unique);
+}

@@ -1218,6 +1218,11 @@ function safeParseJsonArray(value: unknown): unknown[] {
   return [];
 }
 
+function scenarioTagsCondition(table: any, scenario: string) {
+  const effective = sql`CASE WHEN COALESCE(${table.scenarioTagsUser}, '') NOT IN ('', '[]') THEN ${table.scenarioTagsUser} ELSE COALESCE(${table.scenarioTags}, '[]') END`;
+  return sql`${effective} ILIKE ${`%"${scenario}"%`}`;
+}
+
 export async function execSearchRecipes(
   db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan }, familyId?: number
 ) {
@@ -1268,7 +1273,7 @@ export async function execSearchRecipes(
     const dishTypeCond = plan?.dishTypes?.length ? inArray(table.dishType, plan.dishTypes) : undefined;
     const scenarioNames = [...new Set([...(args.scenario ? [args.scenario] : []), ...(plan?.scenarios ?? [])])];
     const scenarioCond = scenarioNames.length > 0
-      ? or(...scenarioNames.map(scenario => ilike(table.scenarioTags, `%"${scenario}"%`)))
+      ? or(...scenarioNames.map(scenario => scenarioTagsCondition(table, scenario)))
       : undefined;
     const tagConds = !scenarioPrimary
       ? [...(args.tags ?? []), ...(plan?.tags ?? [])].map(tag => ilike(table.tags, `%"${tag}"%`))
@@ -1294,7 +1299,7 @@ export async function execSearchRecipes(
     recipeCategory: officialRecipes.recipeCategory, ingredients: officialRecipes.ingredients,
     steps: officialRecipes.steps, stepsEn: officialRecipes.stepsEn, stepsFil: officialRecipes.stepsFil, stepsId: officialRecipes.stepsId,
     tags: officialRecipes.tags, thumbnailUrl: officialRecipes.thumbnailUrl, image: officialRecipes.image,
-    dishType: officialRecipes.dishType, scenarioTags: officialRecipes.scenarioTags,
+    dishType: officialRecipes.dishType, scenarioTags: officialRecipes.scenarioTags, scenarioTagsUser: officialRecipes.scenarioTagsUser,
   };
   const customCols = {
     id: customRecipes.id, name: customRecipes.name, nameEn: customRecipes.nameEn, nameFil: customRecipes.nameFil, nameId: customRecipes.nameId, description: customRecipes.description, descriptionEn: customRecipes.descriptionEn, descriptionFil: customRecipes.descriptionFil, descriptionId: customRecipes.descriptionId,
@@ -1302,14 +1307,14 @@ export async function execSearchRecipes(
     recipeCategory: customRecipes.recipeCategory, ingredients: customRecipes.ingredients,
     steps: customRecipes.steps, stepsEn: customRecipes.stepsEn, stepsFil: customRecipes.stepsFil, stepsId: customRecipes.stepsId,
     tags: customRecipes.tags, thumbnailUrl: customRecipes.thumbnailUrl, image: customRecipes.image,
-    dishType: customRecipes.dishType, scenarioTags: customRecipes.scenarioTags,
+    dishType: customRecipes.dishType, scenarioTags: customRecipes.scenarioTags, scenarioTagsUser: customRecipes.scenarioTagsUser,
   };
 
   const officialWhere = [
     eq(officialRecipes.isActive, true),
     args.category ? eq(officialRecipes.recipeCategory, args.category) : undefined,
     args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(officialRecipes.recipeCategory, args.excludeCategories) : undefined,
-    args.scenario ? ilike(officialRecipes.scenarioTags, `%"${args.scenario}"%`) : undefined,
+    args.scenario ? scenarioTagsCondition(officialRecipes, args.scenario) : undefined,
   ].filter(Boolean);
   let officialRows = await searchTable(officialRecipes, officialCols, officialWhere, "and");
   if (officialRows.length === 0) {
@@ -1329,12 +1334,18 @@ export async function execSearchRecipes(
       eq(customRecipes.isDraft, false),
       args.category ? eq(customRecipes.recipeCategory, args.category) : undefined,
       args.excludeCategories && args.excludeCategories.length > 0 ? notInArray(customRecipes.recipeCategory, args.excludeCategories) : undefined,
-      args.scenario ? ilike(customRecipes.scenarioTags, `%"${args.scenario}"%`) : undefined,
+      args.scenario ? scenarioTagsCondition(customRecipes, args.scenario) : undefined,
     ].filter(Boolean);
     customRows = await searchTable(customRecipes, customCols, customWhere, "and");
     if (customRows.length === 0) {
       customRows = await searchTable(customRecipes, customCols, customWhere, "or");
     }
+  }
+
+  if (args.scenario) {
+    const allRaw = [...officialRows, ...customRows];
+    const userRows = allRaw.filter((row) => safeParseJsonArray((row as any).scenarioTagsUser as string).map(String).filter(Boolean).length > 0).length;
+    console.log(`[AI Chef] scenario=${args.scenario} scenario_source=${userRows > 0 ? "user" : "derived"} userRows=${userRows} derivedRows=${allRaw.length - userRows}`);
   }
 
   const mapRow = (r: Record<string, unknown>, source: "official" | "custom") => ({
@@ -1345,7 +1356,11 @@ export async function execSearchRecipes(
     steps: safeParseJsonArray(r.steps as string), stepsEn: safeParseJsonArray(r.stepsEn as string), stepsFil: safeParseJsonArray(r.stepsFil as string), stepsId: safeParseJsonArray(r.stepsId as string),
     tags: safeParseJsonArray(r.tags as string),
     thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
-    scenarioTags: safeParseJsonArray(r.scenarioTags as string).map(String),
+    scenarioTags: (() => {
+      const userTags = safeParseJsonArray(r.scenarioTagsUser as string).map(String).filter(Boolean);
+      return userTags.length > 0 ? userTags : safeParseJsonArray(r.scenarioTags as string).map(String);
+    })(),
+    scenarioSource: safeParseJsonArray(r.scenarioTagsUser as string).map(String).filter(Boolean).length > 0 ? "user" : "derived",
   });
 
   // custom 優先，但唔可以擠走全部 official（避免 family 自訂太多令換卡只剩 AI）：

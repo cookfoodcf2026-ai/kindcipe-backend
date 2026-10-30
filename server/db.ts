@@ -1360,6 +1360,7 @@ export async function insertCustomRecipe(data: {
   stepsFil?: string;
   stepsId?: string;
   tags?: string;
+  scenarioTagsUser?: string;
   sourceType?: "instagram" | "youtube" | "xiaohongshu" | "threads" | "tiktok" | "facebook" | "import" | "manual" | "kol";
   sourceUrl?: string;
   sourceUrlHash?: string;
@@ -1405,6 +1406,7 @@ export async function updateCustomRecipeById(
     ingredients: string;
     steps: string;
     tags: string;
+    scenarioTagsUser: string;
   }>
 ) {
   const db = await getDb();

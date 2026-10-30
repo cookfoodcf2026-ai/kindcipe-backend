@@ -17,7 +17,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
-import { computeScenarioTags } from "../utils/scenario";
+import { computeScenarioTags, serializeUserScenarioTags } from "../utils/scenario";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
@@ -1080,6 +1080,7 @@ const recipeInputSchema = z.object({
   ingredients: z.array(ingredientSchema),
   steps: z.array(stepSchema),
   tags: z.array(z.string()).optional(),
+  scenarios: z.array(z.enum(["quick", "healthy", "ricecooker", "kids", "guest"])).max(5).optional(),
   sourceUrl: z.string().optional(),
   sourceAuthor: z.string().optional(),
   // Optional pre-provided translations — skip LLM translate when present (huge speed win for AI-saved recipes)
@@ -3606,6 +3607,7 @@ ${TAGS_RULE}`;
           difficulty: input.difficulty, recipeCategory: input.recipeCategory,
           dishType: input.dishType, ingredients: baseIngredients, steps: baseSteps, tags: input.tags,
         }),
+        scenarioTagsUser: serializeUserScenarioTags(input.scenarios),
       }).returning();
 
       if (reservationId) await commitUsage(reservationId);

@@ -20,6 +20,9 @@ import { sendPushNotifications } from "../pushNotification";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { runWithUsage, usageLimitToTRPC } from "../services/usage";
+import { serializeUserScenarioTags } from "../utils/scenario";
+
+const scenarioSchema = z.enum(["quick", "healthy", "ricecooker", "kids", "guest"]);
 
 export const customRecipeRouter = router({
   /** List all custom recipes for the current user's family */
@@ -43,6 +46,7 @@ export const customRecipeRouter = router({
         ingredients: z.string().optional(), // JSON string
         steps: z.string().optional(),       // JSON string
         tags: z.string().optional(),        // JSON string
+        scenarios: z.array(scenarioSchema).max(5).optional(),
         sourceType: z.enum(["instagram", "youtube", "xiaohongshu", "threads", "manual"]).optional(),
         sourceUrl: z.string().optional(),
         sourceUrlHash: z.string().optional(),
@@ -87,8 +91,10 @@ export const customRecipeRouter = router({
               } catch { /* keep as-is */ }
             }
 
+            const { scenarios, ...recipeInput } = input;
             const recipe = await insertCustomRecipe({
-              ...input,
+              ...recipeInput,
+              scenarioTagsUser: serializeUserScenarioTags(scenarios),
               ingredients: normalizedIngredients,
               familyId,
               createdByUserId: userId,
@@ -131,14 +137,18 @@ export const customRecipeRouter = router({
         ingredients: z.string().optional(),
         steps: z.string().optional(),
         tags: z.string().optional(),
+        scenarios: z.array(scenarioSchema).max(5).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "No family found" });
       }
-      const { id, ...data } = input;
-      return updateCustomRecipeById(id, ctx.activeFamilyId, data);
+      const { id, scenarios, ...data } = input;
+      const patch = scenarios !== undefined
+        ? { ...data, scenarioTagsUser: serializeUserScenarioTags(scenarios) }
+        : data;
+      return updateCustomRecipeById(id, ctx.activeFamilyId, patch);
     }),
 
   /** Delete a custom recipe (must belong to same family) */
