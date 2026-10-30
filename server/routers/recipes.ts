@@ -24,6 +24,7 @@ import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNa
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
+import { checkRecipeContent } from "../services/importQuality";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
 import { assertUsageAvailable, commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
@@ -3517,8 +3518,6 @@ ${TAGS_RULE}`;
       visibility: z.enum(["private", "pending_public"]).default("private"),
       isAiGenerated: z.boolean().optional(),
       inputLang: z.string().optional(),
-      // 用戶主動「先儲存（名＋連結）」時允許無食材/步驟，仍標記為未完整（讀取時依內容判斷）
-      allowIncomplete: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -3527,6 +3526,11 @@ ${TAGS_RULE}`;
       const ent = await getFamilyEntitlements(familyId, userId);
       if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
       if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+
+      const contentGate = checkRecipeContent(input.ingredients, input.steps);
+      if (!contentGate.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
+      }
 
       let reservationId: number | undefined;
       if (!input.isAiGenerated) {
@@ -3594,14 +3598,8 @@ ${TAGS_RULE}`;
         }
       }
 
-      // 守門：唔准存入「無名」食譜。無食材又無步驟 → 只有用戶主動 allowIncomplete（先儲存名＋連結）才放行。
       if (!String(input.name ?? "").trim()) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請輸入食譜名稱。" });
-      }
-      const _hasIngredients = Array.isArray(input.ingredients) && input.ingredients.some((i: any) => String(i?.name ?? "").trim());
-      const _hasSteps = Array.isArray(input.steps) && input.steps.some((s: any) => String(typeof s === "string" ? s : (s?.instruction ?? "")).trim());
-      if (!_hasIngredients && !_hasSteps && !input.allowIncomplete) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "食譜內容不足（沒有食材或步驟），請手動輸入。" });
       }
 
       // 速度：只有「4 語言齊全」先跳過翻譯；否則由作者語言 buildAllLangs 補齊（保證中文 base + en/fil/id）
@@ -3859,6 +3857,10 @@ ${TAGS_RULE}`;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
       const isDraft = input.isDraft;
+      if (!isDraft) {
+        const contentGate = checkRecipeContent(input.ingredients, input.steps);
+        if (!contentGate.ok) throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
+      }
       let baseName = (input.name && input.name.trim()) || (isDraft ? "未命名草稿" : input.name);
       let baseDesc = input.description ?? "";
       let baseSteps: any[] = input.steps;
@@ -3939,6 +3941,10 @@ ${TAGS_RULE}`;
       if (recipe.createdByUserId !== String(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN" });
 
       const isDraft = input.isDraft;
+      if (!isDraft) {
+        const contentGate = checkRecipeContent(input.ingredients, input.steps);
+        if (!contentGate.ok) throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
+      }
       const baseNameRaw = (input.name && input.name.trim()) || (isDraft ? "未命名草稿" : input.name);
       const update: any = {
         name: baseNameRaw,

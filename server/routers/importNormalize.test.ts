@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cnQuantityToArabic, guardServings, normalizeIngredientAmount } from "./recipes";
+import { checkRecipeContent } from "../services/importQuality";
 
 // 真實案例（FB reel 1138268891981753，2026-10-28 匯入）：model 把中文單位同中文數字
 // 一齊塞入 quantity，英文介面就漏中文 → 一定要喺後端正規化。
@@ -67,4 +68,23 @@ test("guardServings rejects impossible values", () => {
   assert.deepEqual(guardServings(0, "Serves 4"), { servings: 2, defaulted: true });
   assert.deepEqual(guardServings(99, "Serves 4"), { servings: 2, defaulted: true });
   assert.deepEqual(guardServings("abc", "Serves 4"), { servings: 2, defaulted: true });
+});
+
+test("import content gate rejects title-only cards", () => {
+  const empty = checkRecipeContent([], []);
+  assert.equal(empty.ok, false);
+  assert.deepEqual(empty.ok ? [] : empty.missing, ["ingredients", "steps"]);
+  assert.match(empty.ok ? "" : empty.message, /只抽到標題/);
+  assert.equal(checkRecipeContent([{ name: "  " }], [{ instruction: " " }]).ok, false);
+  const onlyIngredients = checkRecipeContent([{ name: "薯仔" }], []);
+  const onlySteps = checkRecipeContent([], [{ instruction: "煎香" }]);
+  assert.equal(onlyIngredients.ok, false);
+  assert.equal(onlySteps.ok, false);
+  if (!onlyIngredients.ok) assert.deepEqual(onlyIngredients.missing, ["steps"]);
+  if (!onlySteps.ok) assert.deepEqual(onlySteps.missing, ["ingredients"]);
+});
+
+test("import content gate accepts one real ingredient and one real step", () => {
+  assert.equal(checkRecipeContent([{ name: "薯仔" }], ["煎香"]).ok, true);
+  assert.equal(checkRecipeContent([{ name: "薯仔" }], [{ instruction: "煎香" }]).ok, true);
 });
