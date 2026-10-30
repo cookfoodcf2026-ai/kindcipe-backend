@@ -206,6 +206,29 @@ test("name-only truncated recipe is rejected after spec change", async () => {
   assert.equal(out.recipes.length, 0);
 });
 
+test("literal newlines inside JSON strings parse without retry", async () => {
+  const raw = `{"replyText":"收到！\n為你推薦一道經典又下飯嘅**中式蔥油雞扒**。","recipes":[{"name":"中式蔥油雞扒","ingredients":[{"name":"雞扒","quantity":"2","unit":"塊"},{"name":"洋蔥","quantity":"1","unit":"個"}],"steps":["雞扒洗淨。","煎至金黃。","淋上蔥油。","切件。","上碟。"]}]}`;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  let out: Awaited<ReturnType<typeof retryRecipeOutputOnce>>;
+  try {
+    out = await retryRecipeOutputOnce(
+      { content: raw, finishReason: "stop", recipes: [], wantCards: true, lang: "zh-TW" },
+      async () => raw,
+    );
+  } finally {
+    console.log = originalLog;
+  }
+  assert.equal(out.retrySucceeded, true);
+  assert.equal(out.recipes.length, 1);
+  assert.equal(out.recipes[0].name, "中式蔥油雞扒");
+  assert.ok(logs.some((line) => line.includes("Direct JSON parse: 1 recipes")));
+  assert.ok(!logs.some((line) => line.includes("balanced salvage")));
+});
+
 test("fresh AI retry rejects wrong protein from user request", () => {
   const base = {
     description: "",

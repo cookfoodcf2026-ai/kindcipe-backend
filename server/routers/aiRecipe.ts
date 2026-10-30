@@ -605,7 +605,47 @@ function salvageRecipeObjects(raw: string): unknown[] {
   return out;
 }
 
+function escapeControlCharsInJsonStrings(input: string): string {
+  let out = "";
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (!inStr) {
+      if (c === '"') inStr = true;
+      out += c;
+      continue;
+    }
+    if (esc) {
+      out += c;
+      esc = false;
+      continue;
+    }
+    if (c === "\\") {
+      out += c;
+      esc = true;
+      continue;
+    }
+    if (c === '"') {
+      out += c;
+      inStr = false;
+      continue;
+    }
+    if (c === "\n") { out += "\\n"; continue; }
+    if (c === "\r") { out += "\\r"; continue; }
+    if (c === "\t") { out += "\\t"; continue; }
+    const code = c.charCodeAt(0);
+    if (code < 0x20) {
+      out += `\\u${code.toString(16).padStart(4, "0")}`;
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { content: string; recipes: SuggestedRecipe[] } {
+  llmContent = escapeControlCharsInJsonStrings(llmContent);
   const parseStart = Date.now();
   
   let content = llmContent;
