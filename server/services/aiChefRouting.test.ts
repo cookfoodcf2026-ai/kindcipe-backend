@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, processAIChefChat, recordFamilySeenNames, retryRecipeOutputOnce, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, processAIChefChat, recordFamilySeenNames, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
@@ -271,6 +271,26 @@ test("same-session AI generation does not re-serve a seen dish", async () => {
   assert.equal(seen[0], dish.name);
   const second = dropSeenAiCards([dish], seen);
   assert.equal(second.length, 0);
+});
+
+test("swap AI deadline returns clarify instead of waiting for slow LLM", async () => {
+  const started = Date.now();
+  const result = await runWithDeadline(
+    new Promise<never>(() => {}),
+    50,
+    () => ({
+      content: swapAiTimeoutReply("zh-TW"),
+      recipes: [],
+      llmUsed: true,
+      clarifyReason: "ai_failed" as const,
+    }),
+  );
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 500, `deadline took ${elapsed}ms`);
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "ai_failed");
+  assert.match(result.content, /冇扣你 credit/);
+  assert.match(swapAiTimeoutReply("en"), /No credit/i);
 });
 
 test("AI cards with zero LLM calls trip the meter invariant", () => {

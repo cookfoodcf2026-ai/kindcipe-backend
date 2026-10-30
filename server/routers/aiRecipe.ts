@@ -287,6 +287,7 @@ const AI_RECIPE_MAX_TOKENS = 2600;
 const AI_RECIPE_CONTEXT_TIMEOUT_MS = 4000;
 const AI_RECIPE_LLM_TIMEOUT_MS = 45000;
 const AI_RECIPE_CHAT_TIMEOUT_MS = 30000;
+const SWAP_AI_DEADLINE_MS = 25_000;
 // AI Edit returns the recipe in 4 languages (zh + en/fil/id) → needs a bigger budget.
 const AI_EDIT_MAX_TOKENS = 7000;
 const AI_EDIT_LLM_TIMEOUT_MS = 80000;
@@ -843,6 +844,25 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 
   try {
     return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+export function swapAiTimeoutReply(lang: string): string {
+  if (lang.startsWith("en")) return "The swap is taking too long. No credit was charged. Please try again.";
+  if (lang.startsWith("fil")) return "Masyadong matagal ang pagpapalit. Walang credit na nabawas. Subukan muli.";
+  if (lang.startsWith("id")) return "Penggantian terlalu lama. Tidak ada credit yang dipotong. Coba lagi.";
+  return "今次換食譜等得太耐，未有結果，冇扣你 credit。請再試一次。";
+}
+
+export async function runWithDeadline<T>(work: Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(onTimeout()), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, deadline]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -5620,7 +5640,7 @@ export const aiRecipeRouter = router({
       const reqStartedAt = Date.now();
       let result: Awaited<ReturnType<typeof processAIChefChat>>;
       try {
-        result = await processAIChefChat(
+        const processPromise = processAIChefChat(
           input.messages.map(m => ({ role: m.role, content: m.content })),
           familyId,
           userId,
@@ -5638,6 +5658,14 @@ export const aiRecipeRouter = router({
           undefined,
           userIdStr,
         );
+        result = input.aiEntry === "swap_ai"
+          ? await runWithDeadline(processPromise, SWAP_AI_DEADLINE_MS, () => ({
+              content: swapAiTimeoutReply(input.lang ?? "zh-TW"),
+              recipes: [],
+              llmUsed: true,
+              clarifyReason: "ai_failed" as const,
+            }))
+          : await processPromise;
       } catch (error) {
         if (idempotencyClaimed && idempotencyStore && idempotencyKey) {
           await idempotencyStore.release?.(idempotencyKey).catch(() => {});
