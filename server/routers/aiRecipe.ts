@@ -5379,6 +5379,7 @@ export const aiRecipeRouter = router({
       forceText: z.boolean().optional(),
       lang: z.string().optional(),
       clientMessageId: z.string().min(1).max(128).optional(),
+      aiEntry: z.string().max(40).optional(),
       chatId: z.string().max(64).optional(),
       operation: z.enum(["replace", "append"]).optional(),
       search: z.object({
@@ -5404,6 +5405,9 @@ export const aiRecipeRouter = router({
         requestId,
       });
       const mode = input.mode ?? "chat";
+      if (mode === "ai" && !input.aiEntry) {
+        console.warn(`[AI Chef] ai telemetry missing request=${requestId}`);
+      }
       const excludeNames = input.excludeNames ?? [];
       const avoidIngredients = input.avoidIngredients ?? [];
       const hasMedia = input.messages.some((m) => {
@@ -5800,7 +5804,7 @@ export const aiRecipeRouter = router({
         : "user";
       console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
       console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
-      console.log(`[AI Chef][metric] request=${requestId} path=${metricPath} kind=${effectiveIntent.kind} roles=${effectiveIntent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
+      console.log(`[AI Chef][metric] request=${requestId} mode=${mode} aiEntry=${input.aiEntry ?? "missing"} path=${metricPath} kind=${effectiveIntent.kind} roles=${effectiveIntent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
       if (clientMessageIdEnabled) {
         finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }
