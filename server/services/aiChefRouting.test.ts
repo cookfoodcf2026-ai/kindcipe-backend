@@ -778,16 +778,19 @@ test("ricecooker rotates staples across consecutive calls", async () => {
     row(5, "測試湯A", "soup", true),
     row(6, "測試湯B", "soup", true),
   ];
-  await recordFamilySeenNames(familyId, staples.map((item) => item.name));
   const logs: string[] = [];
   const originalLog = console.log;
+  const originalNow = Date.now;
+  Date.now = () => 1_700_000_000_000;
   console.log = (...args: unknown[]) => { logs.push(args.map((arg) => String(arg)).join(" ")); };
   let first: Awaited<ReturnType<typeof processAIChefChat>>;
   let second: Awaited<ReturnType<typeof processAIChefChat>>;
   try {
+    await recordFamilySeenNames(familyId, staples.map((item) => item.name));
     first = await processAIChefChat([{ role: "user", content: "幫我諗" }], familyId, undefined, "library", [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {}, "replace", true, true, async () => pool);
     second = await processAIChefChat([{ role: "user", content: "幫我諗" }], familyId, undefined, "library", [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {}, "replace", true, true, async () => pool);
   } finally {
+    Date.now = originalNow;
     console.log = originalLog;
   }
   const stapleOf = (result: Awaited<ReturnType<typeof processAIChefChat>>) =>

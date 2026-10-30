@@ -303,6 +303,13 @@ const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
 const LIBRARY_POOL_CACHE: Map<number, { at: number; rows: Record<string, unknown>[] }> = new Map();
 const LIBRARY_POOL_TTL_MS = 60_000;
 const MAX_RECENT_PER_FAMILY = 40;
+let lastSeenWriteMs = 0;
+
+function nextSeenTimestamp(): number {
+  const now = Date.now();
+  lastSeenWriteMs = Math.max(now, lastSeenWriteMs + 1);
+  return lastSeenWriteMs;
+}
 
 export async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   if (familyId === undefined) return [];
@@ -315,7 +322,7 @@ export async function getFamilySeenNames(familyId?: number): Promise<string[]> {
         .select({ name: aiChefSeenRecipes.name })
         .from(aiChefSeenRecipes)
         .where(and(eq(aiChefSeenRecipes.familyId, familyId), gt(aiChefSeenRecipes.seenAt, cutoff)))
-        .orderBy(desc(aiChefSeenRecipes.seenAt))
+        .orderBy(desc(aiChefSeenRecipes.seenAt), aiChefSeenRecipes.name)
         .limit(MAX_RECENT_PER_FAMILY);
       return rows.map(r => r.name);
     }
@@ -327,7 +334,7 @@ export async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   const entries = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
   return entries
     .filter(e => now - e.seenAt < SEEN_EXPIRY_MS)
-    .sort((a, b) => b.seenAt - a.seenAt)
+    .sort((a, b) => b.seenAt - a.seenAt || a.name.localeCompare(b.name))
     .map(e => e.name);
 }
 
@@ -348,7 +355,7 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
         .select({ name: aiChefSeenRecipes.name, seenAt: aiChefSeenRecipes.seenAt })
         .from(aiChefSeenRecipes)
         .where(and(eq(aiChefSeenRecipes.familyId, familyId), gt(aiChefSeenRecipes.seenAt, cutoff)))
-        .orderBy(desc(aiChefSeenRecipes.seenAt))
+        .orderBy(desc(aiChefSeenRecipes.seenAt), aiChefSeenRecipes.name)
         .limit(MAX_RECENT_PER_FAMILY);
       const seen7d = rows.map(r => r.name);
       const seen1d = rows.filter(r => now - new Date(r.seenAt).getTime() < SEEN_CUSTOM_EXPIRY_MS).map(r => r.name);
@@ -360,7 +367,7 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
   const entries = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
   const live = entries
     .filter(e => now - e.seenAt < SEEN_EXPIRY_MS)
-    .sort((a, b) => b.seenAt - a.seenAt);
+    .sort((a, b) => b.seenAt - a.seenAt || a.name.localeCompare(b.name));
   return {
     seen7d: live.map(e => e.name),
     seen1d: live.filter(e => now - e.seenAt < SEEN_CUSTOM_EXPIRY_MS).map(e => e.name),
@@ -369,7 +376,7 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
 
 export async function recordFamilySeenNames(familyId: number | undefined, names: string[]): Promise<void> {
   if (familyId === undefined || !names || names.length === 0) return;
-  const now = Date.now();
+  const now = nextSeenTimestamp();
   // memory 照樣記（fallback 用）
   const currentMem = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
   const seen = new Map<string, number>();
@@ -380,7 +387,7 @@ export async function recordFamilySeenNames(familyId: number | undefined, names:
   }
   const arr = [...seen.entries()]
     .map(([name, seenAt]) => ({ name, seenAt }))
-    .sort((a, b) => b.seenAt - a.seenAt)
+    .sort((a, b) => b.seenAt - a.seenAt || a.name.localeCompare(b.name))
     .slice(0, MAX_RECENT_PER_FAMILY);
   FAMILY_RECENT_RECIPES.set(familyId, arr);
 
@@ -393,10 +400,10 @@ export async function recordFamilySeenNames(familyId: number | undefined, names:
       if (!t) continue;
       await db
         .insert(aiChefSeenRecipes)
-        .values({ familyId, name: t, seenAt: new Date() })
+        .values({ familyId, name: t, seenAt: new Date(now) })
         .onConflictDoUpdate({
           target: [aiChefSeenRecipes.familyId, aiChefSeenRecipes.name],
-          set: { seenAt: new Date() },
+          set: { seenAt: new Date(now) },
         });
     }
     // 清走 7 日前嘅舊紀錄，防止表無限脹
@@ -1885,12 +1892,18 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     }
     const seenRank = new Map(seenOrder.map((name, index) => [normalizeName(name), index]));
     const orderKeywordRows = (arr: Record<string, unknown>[]) => [...arr].sort((a, b) => {
-      const ia = seenRank.get(normalizeName(String(a.name ?? "")));
-      const ib = seenRank.get(normalizeName(String(b.name ?? "")));
-      if (ia === undefined && ib === undefined) return 0;
-      if (ia === undefined) return -1;
-      if (ib === undefined) return 1;
-      return ib - ia;
+      const nameA = normalizeName(String(a.name ?? ""));
+      const nameB = normalizeName(String(b.name ?? ""));
+      const ia = seenRank.get(nameA);
+      const ib = seenRank.get(nameB);
+      if (ia !== undefined || ib !== undefined) {
+        if (ia === undefined) return -1;
+        if (ib === undefined) return 1;
+        if (ia !== ib) return ib - ia;
+      }
+      const byName = nameA.localeCompare(nameB);
+      if (byName !== 0) return byName;
+      return Number(a.id ?? 0) - Number(b.id ?? 0);
     });
     const tiers = [
       orderKeywordRows(keywordRows),
