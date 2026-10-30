@@ -4,6 +4,8 @@ import postgres from "postgres";
 import { execSearchRecipes, processAIChefChat } from "../routers/aiRecipe";
 import { getDb } from "../db";
 import { getChatQuotaState } from "./chatQuota";
+import { recordLlmCostEvent } from "./llmCost";
+import { startRecipeImportMeter } from "./recipeImportMeter";
 import { buildChefReply } from "./aiChefLifecycle";
 import { claimsRecipeCards } from "./chefResponse";
 import { resolveChefIntent } from "./chefIntent";
@@ -55,6 +57,23 @@ test.after(async () => {
   // getDb's production pool keeps the process alive; the spec is a standalone
   // local-DB test, so exit with the runner's result.
   setTimeout(() => process.exit(process.exitCode ?? 0), 100);
+});
+
+test("import parse records llm cost event", async () => {
+  const meter = startRecipeImportMeter(999999, "import-meter-test", "req-import-meter");
+  await recordLlmCostEvent({
+    model: "test-model",
+    inputTokens: 10,
+    outputTokens: 5,
+    costMicros: 1,
+    context: meter.context!,
+  });
+  const rows = await sql`select route from llm_cost_events where request_id = ${"req-import-meter"}`;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].route, "recipe_import");
+  await sql`delete from llm_cost_events where family_id = ${999999}`;
+  await sql`delete from family_usage_monthly where family_id = ${999999}`;
+  await sql`delete from llm_cost_monthly where family_id = ${999999}`;
 });
 
 test("user scenario tags override derived tags", async () => {

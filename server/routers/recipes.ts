@@ -25,6 +25,7 @@ import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonL
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
+import { startRecipeImportMeter } from "../services/recipeImportMeter";
 import { assertUsageAvailable, commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
@@ -2228,6 +2229,7 @@ export const recipesRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
       await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
+      startRecipeImportMeter(ctx.activeFamilyId, String(ctx.user.id));
       
       const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption);
       // 配額改為喺 importUser（真正儲存）先扣，避免「解析扣咗但存唔到」嘅 off-by-one。
@@ -2248,6 +2250,7 @@ export const recipesRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
       await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
+      startRecipeImportMeter(ctx.activeFamilyId, String(ctx.user.id));
       
       const parsed = await parseTextToRecipe(input.text, input.language);
       // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
@@ -2322,6 +2325,7 @@ export const recipesRouter = router({
       if (!sub?.isPaid) {
         throw new TRPCError({ code: "FORBIDDEN", message: "截圖匯入係 Pro 功能，升級後即可用相機／截圖匯入。" });
       }
+      startRecipeImportMeter(ctx.activeFamilyId, String(ctx.user.id));
       
       // Build absolute URL(s) for Vision API via storage signed URL
       const { storageGetSignedUrl } = await import("../storage");
