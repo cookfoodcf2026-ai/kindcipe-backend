@@ -328,6 +328,11 @@ export async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   return entries.filter(e => now - e.seenAt < SEEN_EXPIRY_MS).map(e => e.name);
 }
 
+export async function recordServedLibraryCards(familyId: number | undefined, cards: SuggestedRecipe[]): Promise<void> {
+  if (cards.length === 0) return;
+  await recordFamilySeenNames(familyId, cards.map((card) => card.name));
+}
+
 /** Split recently-shown names by window: official uses 7d, custom uses 1d. */
 export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen7d: string[]; seen1d: string[] }> {
   if (familyId === undefined) return { seen7d: [], seen1d: [] };
@@ -3496,6 +3501,7 @@ export async function processAIChefChat(
           intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
         };
       }
+      await recordServedLibraryCards(familyId, cards);
       return {
         content: lang.startsWith("en")
           ? `No exact "${target}" in the library. These are the closest:`
@@ -3692,6 +3698,7 @@ export async function processAIChefChat(
         intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
       };
     }
+    await recordServedLibraryCards(familyId, cards);
     return {
       content: dispatch.replyText || aiReply(lang, "libMealSet", { dish: dishLabel(cards.length, 0, lang) }),
       recipes: cards,

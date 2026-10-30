@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, processAIChefChat, recordFamilySeenNames, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
@@ -271,6 +271,39 @@ test("same-session AI generation does not re-serve a seen dish", async () => {
   assert.equal(seen[0], dish.name);
   const second = dropSeenAiCards([dish], seen);
   assert.equal(second.length, 0);
+});
+
+test("library early-return cards are recorded and avoided next turn", async () => {
+  delete process.env.DATABASE_URL;
+  const familyId = 918275;
+  const row = (id: number, name: string, dishType: string) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 20,
+    servings: 4,
+    ingredients: [],
+    steps: ["1"],
+    tags: [],
+  });
+  const rows = [
+    row(1, "黑椒牛柳", "meat"),
+    row(2, "紅燒肉", "meat"),
+    row(3, "清蒸魚", "seafood"),
+    row(4, "紅燒魚", "seafood"),
+    row(5, "炒菜心", "vegetable"),
+    row(6, "蒜蓉西蘭花", "vegetable"),
+  ];
+  const first = pickSoupMeal(rows, mkExcludeSets([], []), 3, 0);
+  assert.equal(first.length, 3);
+  await recordServedLibraryCards(familyId, first);
+  const seen = await getFamilySeenNames(familyId);
+  assert.equal(seen.length, 3);
+  const second = pickSoupMeal(rows, mkExcludeSets(seen, seen), 3, 0);
+  assert.equal(second.length, 3);
+  const overlap = second.filter((next) => first.some((prev) => prev.name === next.name));
+  assert.equal(overlap.length, 0);
 });
 
 test("swap AI deadline returns clarify instead of waiting for slow LLM", async () => {
