@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
@@ -204,6 +204,21 @@ test("name-only truncated recipe is rejected after spec change", async () => {
   assert.equal(out.retried, true);
   assert.equal(out.retrySucceeded, false);
   assert.equal(out.recipes.length, 0);
+});
+
+test("fresh AI retry rejects wrong protein from user request", () => {
+  const base = {
+    description: "",
+    cookTime: 20,
+    servings: 4,
+    difficulty: "easy" as const,
+    ingredients: [{ name: "食材", quantity: "1", unit: "份" }, { name: "水", quantity: "適量", unit: "" }],
+    steps: ["1", "2", "3", "4", "5"],
+    tags: [],
+    source: "ai" as const,
+  };
+  assert.equal(matchesFreshAiConstraint({ ...base, name: "黑椒牛柳炒蘆筍" }, "雞扒", "meat", []), false);
+  assert.equal(matchesFreshAiConstraint({ ...base, name: "檸檬蒜香雞扒" }, "雞扒", "meat", []), true);
 });
 
 test("truncated recipes array keeps complete recipes with real content", async () => {

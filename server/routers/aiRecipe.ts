@@ -1896,6 +1896,37 @@ function dishTypeForRole(role: RequestedRole): DishType {
   return role === "noodle" ? "carb" : (role as DishType);
 }
 
+const PROTEIN_TOKENS = ["魷魚", "豆腐", "雞蛋", "雞", "牛", "豬", "羊", "鴨", "鵝", "魚", "蝦", "蟹", "蜆", "蠔", "蛋"];
+
+export function matchesFreshAiConstraint(
+  recipe: SuggestedRecipe,
+  term: string,
+  role: RequestedRole,
+  avoidIngredients: string[] = [],
+): boolean {
+  if (!recipe?.name) return false;
+  if (recipeContainsAvoid(recipe, avoidIngredients)) return false;
+  const name = recipe.name;
+  const type = classifyDishType({ name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
+  if (role === "any") {
+    if (type === "soup" || type === "dessert" || type === "drink") return false;
+  } else if (role === "soup") {
+    if (type !== "soup" && !isSoupRecipe(recipe)) return false;
+  } else if (role === "vegetable") {
+    if (type !== "vegetable") return false;
+  } else if (role === "dessert") {
+    if (type !== "dessert") return false;
+  } else if (role === "noodle") {
+    if (type !== "carb" && !/麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name)) return false;
+  } else {
+    const expected = dishTypeForRole(role);
+    if (type !== expected && type !== "other") return false;
+  }
+  const protein = PROTEIN_TOKENS.find((token) => term.includes(token));
+  if (protein && !name.includes(protein)) return false;
+  return true;
+}
+
 const ROLE_LIBRARY_QUERY: Partial<Record<RequestedRole, string>> = {
   dessert: "甜品",
   soup: "湯",
@@ -4809,13 +4840,20 @@ export async function processAIChefChat(
     if (wantsFallbackCards) {
       // 明確撳「AI 生成」（mode=ai，非模糊）：先叫 AI 重新諗一個全新菜（避免「AI 生成」跌去食譜庫）
       if (mode === "ai" && !isVague) {
-        const freshAi = await generateMissingRecipes(1, false, mergedExclude, familyId, userId, undefined, avoidIngredients);
-        if (freshAi.length > 0) {
-          llmUsed = true;
-          freshAi.forEach(r => { if (!r.source || r.source === "ai") r.source = "ai"; });
-          recipes = freshAi;
+        const freshTerm = keyword || lastUserText;
+        const freshRole = chefIntent.requested.total === 1 && chefIntent.requested.roles.length === 1
+          ? chefIntent.requested.roles[0]
+          : roleForFoodTerm(freshTerm);
+        const freshType = freshRole === "any" ? "other" : dishTypeForRole(freshRole);
+        llmUsed = true;
+        const freshRecipe = await generateOneType(freshTerm, freshType, mergedExclude, avoidIngredients);
+        if (freshRecipe && matchesFreshAiConstraint(freshRecipe, freshTerm, freshRole, avoidIngredients)) {
+          if (!freshRecipe.source || freshRecipe.source === "ai") freshRecipe.source = "ai";
+          recipes = [freshRecipe];
           content = aiReply(lang, "madeNew");
-          console.log(`[AI Chef] AI fresh retry: ${freshAi[0].name}`);
+          console.log(`[AI Chef] AI fresh retry: ${freshRecipe.name}`);
+        } else if (freshRecipe) {
+          console.warn(`[AI Chef] AI fresh retry rejected name="${freshRecipe.name}" term="${freshTerm}" reason=constraint_mismatch`);
         }
       }
       if (recipes.length === 0) {
