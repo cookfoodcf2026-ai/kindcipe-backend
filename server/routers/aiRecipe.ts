@@ -4396,6 +4396,29 @@ export async function processAIChefChat(
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
 
+    const explicitTermCandidate = extractMealIngredients(lastUserText)[0] ?? "";
+    const explicitTerm = isSpecificFoodTerm(explicitTermCandidate) ? explicitTermCandidate : "";
+    if (explicitTerm) {
+      const semanticRows = safeRows.filter((row) => rowMatchesFoodQuery(row, explicitTerm));
+      const scenarioRank = (row: Record<string, unknown>) =>
+        search?.scenario && safeParseJsonArray((row as any).scenarioTags).map(String).includes(search.scenario) ? 0 : 1;
+      const rankedRows = [...semanticRows].sort((a, b) => scenarioRank(a) - scenarioRank(b));
+      const take = Math.max(1, Math.min(search?.count ?? 1, rankedRows.length));
+      const explicitPicked = rowsToSuggested(rankedRows, excludeSets, take);
+      if (explicitPicked.length > 0) {
+        console.log(`[AI Chef] explicit item wins: term="${explicitTerm}" served=${explicitPicked.length} scenario=${search?.scenario ?? "none"}`);
+        await recordFamilySeenNames(familyId, explicitPicked.map((recipe) => recipe.name));
+        return { content: aiReply(lang, "libByKeyword", { kw: explicitTerm }), recipes: explicitPicked, llmUsed };
+      }
+      console.log(`[AI Chef] explicit item miss: term="${explicitTerm}" candidates=${safeRows.length} semantic=0 scenario=${search?.scenario ?? "none"} -> clarify`);
+      return {
+        content: libraryMissReply(lang, explicitTerm, safeRows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
+        recipes: [],
+        llmUsed,
+        clarifyReason: "library_miss",
+      };
+    }
+
     if (isMealLib) {
       // 尊重前端指定嘅總卡數（例如「辛辣3餸1湯」= 4），否則用 intent；再否則 fallback 3餸1湯
       let dishCount = libMealIntent.dishCount;

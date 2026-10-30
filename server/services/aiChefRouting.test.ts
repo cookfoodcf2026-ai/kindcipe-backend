@@ -752,6 +752,59 @@ test("mode=ai bypasses library-miss clarify guard", async () => {
   assert.notEqual(result.clarifyReason, "library_miss");
 });
 
+test("scenario never overrides explicit food item", async () => {
+  delete process.env.DATABASE_URL;
+  const row = (id: number, name: string, dishType: string, ingredients: string[], scenarioTags: string[]) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 30,
+    servings: 4,
+    ingredients: ingredients.map((ingredient) => ({ name: ingredient, quantity: "1", unit: "份" })),
+    steps: ["1"],
+    tags: [],
+    scenarioTags,
+  });
+  const pool = [
+    row(1, "電飯煲番茄牛肉燉飯", "carb", ["牛肉", "米"], ["ricecooker"]),
+    row(2, "電飯煲意式奶油煙肉野菌燉飯", "carb", ["煙肉", "米"], ["ricecooker"]),
+    row(3, "電飯煲豉油雞", "meat", ["雞", "豉油"], ["ricecooker"]),
+    row(4, "電飯煲香菇雞湯", "soup", ["雞", "香菇"], ["ricecooker"]),
+    row(5, "無水雞肉椰菜煲", "meat", ["雞髀肉", "椰菜"], []),
+    row(6, "番茄炒蛋", "other", ["番茄", "雞蛋"], []),
+  ];
+  const beef = await processAIChefChat(
+    [{ role: "user", content: "我要和牛" }],
+    918294, undefined, "library",
+    [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {},
+    "replace", true, true,
+    async () => pool,
+  );
+  assert.equal(beef.recipes.length, 0, beef.recipes.map((recipe) => recipe.name).join("|"));
+  assert.equal(beef.clarifyReason, "library_miss");
+
+  const chicken = await processAIChefChat(
+    [{ role: "user", content: "我要雞髀" }],
+    918295, undefined, "library",
+    [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {},
+    "replace", true, true,
+    async () => pool,
+  );
+  assert.ok(chicken.recipes.length > 0);
+  assert.ok(chicken.recipes.every((recipe) => /雞|雞髀|雞腿/.test(`${recipe.name} ${recipe.ingredients.map((ingredient) => ingredient.name).join(" ")}`)), chicken.recipes.map((recipe) => recipe.name).join("|"));
+
+  const vague = await processAIChefChat(
+    [{ role: "user", content: "幫我諗" }],
+    918296, undefined, "library",
+    [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {},
+    "replace", true, true,
+    async () => pool,
+  );
+  assert.equal(vague.recipes.length, 4);
+  assert.ok(vague.recipes.slice(0, 2).every((recipe) => /電飯煲/.test(recipe.name)), vague.recipes.map((recipe) => recipe.name).join("|"));
+});
+
 test("non-food library prompts still serve a card", async () => {
   delete process.env.DATABASE_URL;
   const row = (id: number, name: string, ingredients: string[]) => ({
