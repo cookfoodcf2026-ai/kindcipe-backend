@@ -73,6 +73,7 @@ const isQuick = (cookTime?: number | null): boolean =>
 const HEALTHY_TAGS = ["清淡", "少油", "低脂", "健康", "輕食", "轻食", "少鹽", "少盐", "蒸", "水煮", "清蒸", "白灼"];
 const RICECOOKER_RE = /電飯煲|电饭煲|電子鍋|电子锅|一鍋|一锅|煲仔|燜|焖|炆|慢煮|慢燉|慢炖|壓力鍋|压力锅|氣炸|气炸/;
 const KIDS_TAGS = ["小朋友", "幼兒", "幼儿", "兒童", "儿童", "不辣", "親子", "亲子", "BB", "bb"];
+const KIDS_NAME_RE = /兒童|儿童|親子|亲子/;
 const GUEST_TAGS = ["宴客", "大菜", "喜慶", "喜庆", "節慶", "节庆", "招待", "過節", "过节", "party", "Party"];
 const GUEST_RE = /宴客|大菜|喜慶|喜庆|節慶|节庆|招待|過節|过节/;
 const SPICY_RE = /辣|麻辣|花椒|芥末|wasabi|chilli|chili/;
@@ -85,7 +86,6 @@ const FRIED_RE = /炸|油炸|deep.?fry|fried/;
 export function deriveScenarios(input: ScenarioInput): Scenario[] {
   const name = String(input.name ?? "");
   const dishType = String(input.dishType ?? "");
-  const difficulty = String(input.difficulty ?? "");
   const tags = toTags(input.tags);
   const tagsText = tags.join(" ");
   const bodyText = `${name} ${String(input.description ?? "")} ${toText(input.steps)} ${toText(input.ingredients)} ${tagsText}`;
@@ -102,9 +102,11 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
   if (RICECOOKER_RE.test(bodyText)) out.add("ricecooker");
   if (dishType === "soup") out.add("ricecooker");
 
-  // kids: explicit tags, OR easy and not spicy
+  // kids: explicit tags, kid-named dishes, or non-spicy dessert/drink.
+  // Difficulty alone must never imply a kids meal.
   if (KIDS_TAGS.some((t) => tagsText.includes(t))) out.add("kids");
-  if (difficulty === "簡單" && !SPICY_RE.test(bodyText)) out.add("kids");
+  if (KIDS_NAME_RE.test(name)) out.add("kids");
+  if ((dishType === "dessert" || dishType === "drink") && !SPICY_RE.test(bodyText)) out.add("kids");
 
   // guest: explicit tags, or festive name
   if (GUEST_TAGS.some((t) => tagsText.includes(t))) out.add("guest");
