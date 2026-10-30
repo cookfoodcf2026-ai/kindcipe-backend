@@ -4026,7 +4026,17 @@ export async function processAIChefChat(
           console.warn("[AI Chef] structured lib search failed:", e);
         }
       }
-      picked = rowsToSuggested(applySearchFilters(searchRows, search), excludeSets, searchCount);
+      const scenarioTagLabel = [search.scenario, ...(search.tags ?? [])].filter(Boolean).join("|") || "none";
+      const logScenarioRows = (stage: string, rows: Record<string, unknown>[]) => {
+        if (!search.scenario && !search.query && !(search.tags?.length ?? 0)) {
+          return applySearchFilters(rows, search);
+        }
+        const filtered = applySearchFilters(rows, search);
+        const seen = rows.filter((row) => isRowExcluded(excludeSets, row)).length;
+        console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
+        return filtered;
+      };
+      picked = rowsToSuggested(logScenarioRows("direct", searchRows), excludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -4039,7 +4049,7 @@ export async function processAIChefChat(
         return { content, recipes: picked, llmUsed };
       }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
-      const filteredRows = applySearchFilters(safeRows, search);
+      const filteredRows = logScenarioRows("fallback", safeRows);
       picked = rowsToSuggested(filteredRows, excludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));

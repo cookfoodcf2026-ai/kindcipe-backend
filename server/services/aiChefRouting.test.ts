@@ -205,6 +205,50 @@ test("failed retry leaves zero cards for refund path", async () => {
   assert.equal(recovered.recipes.length, 0);
 });
 
+test("scenario zero-hit logs scenario query tags rows seen filtered", async () => {
+  delete process.env.DATABASE_URL;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const rows = [{
+      id: 1,
+      name: "電飯煲豉油雞",
+      source: "official",
+      cookTime: 40,
+      steps: ["1"],
+      ingredients: [],
+      tags: [],
+    }];
+    const result = await processAIChefChat(
+      [{ role: "user", content: "電飯煲" }],
+      987654, undefined, "library",
+      [], { query: "電飯煲", scenario: "ricecooker", count: 1, cookTimeMax: 10 },
+      "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => rows,
+    );
+    assert.deepEqual(result.recipes, []);
+  } finally {
+    console.log = originalLog;
+  }
+  const direct = logs.find((line) => line.includes("[AI Chef][scenario]") && line.includes("stage=direct"));
+  assert.ok(direct);
+  assert.match(direct!, /scenario=ricecooker/);
+  assert.match(direct!, /query="電飯煲"/);
+  assert.match(direct!, /scenarioTags=ricecooker/);
+  assert.match(direct!, /rows=0/);
+  assert.match(direct!, /seen=0/);
+  assert.match(direct!, /filtered=0/);
+  const fallback = logs.find((line) => line.includes("[AI Chef][scenario]") && line.includes("stage=fallback"));
+  assert.ok(fallback);
+  assert.match(fallback!, /rows=1/);
+  assert.match(fallback!, /seen=0/);
+  assert.match(fallback!, /filtered=0/);
+});
+
 test("AI cards with zero LLM calls trip the meter invariant", () => {
   assert.equal(hasAiCardsWithoutLlmCalls({ aiCards: 4, llmCalls: 0 }), true);
   assert.equal(hasAiCardsWithoutLlmCalls({ aiCards: 4, llmCalls: 4 }), false);
