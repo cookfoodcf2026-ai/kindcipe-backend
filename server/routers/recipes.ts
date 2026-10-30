@@ -543,6 +543,35 @@ function facebookCaption(meta: FacebookMeta): { caption: string; cleanTitle: str
   return { caption: captionParts.join("\n").trim(), cleanTitle, titleSegments };
 }
 
+export type FacebookContentCandidate = {
+  html: string;
+  meta: FacebookMeta;
+  url: string;
+  caption: string;
+};
+
+function isDirectionsContent(caption: string): boolean {
+  return /(?:^|\n)\s*(?:directions?|instructions?|method|做法|作法|步驟|步骤)\b|(?:directions?|instructions?|做法|作法|步驟|步骤)\s*[:：]/i.test(caption);
+}
+
+/** share link 或 caption 太短 → 再用 canonical page 抓一次（5s timeout）。 */
+export function shouldRefetchFacebookCanonical(originalUrl: string, caption: string): boolean {
+  return /\/share\//i.test(originalUrl) || caption.trim().length < 400;
+}
+
+/** 有 Directions 優先；同樣有/無就揀 caption 較長。 */
+export function chooseFacebookContent(
+  current: FacebookContentCandidate | null,
+  candidate: FacebookContentCandidate | null,
+): FacebookContentCandidate | null {
+  if (!candidate || !candidate.caption.trim()) return current;
+  if (!current || !current.caption.trim()) return candidate;
+  const currentDirections = isDirectionsContent(current.caption);
+  const candidateDirections = isDirectionsContent(candidate.caption);
+  if (candidateDirections !== currentDirections) return candidateDirections ? candidate : current;
+  return candidate.caption.length > current.caption.length ? candidate : current;
+}
+
 function facebookAuthor(html: string, meta: FacebookMeta, originalUrl: string, titleSegments: string[]): string {
   const unescapeJson = (s: string) =>
     s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
@@ -1580,9 +1609,48 @@ export async function fetchPageContent(url: string): Promise<{ text: string; thu
         }
       }
 
+      let chosenCaption = chosenMeta ? facebookCaption(chosenMeta).caption : "";
+      if (shouldRefetchFacebookCanonical(url, chosenCaption)) {
+        const refetchUrl = canonicalUrl || url;
+        try {
+          const resp = await fetch(refetchUrl, {
+            redirect: "follow",
+            headers: {
+              "User-Agent": FACEBOOK_USER_AGENTS[2].value,
+              "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+            },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (resp.ok) {
+            const html = await resp.text();
+            const meta = parseFacebookMeta(html);
+            const { caption } = facebookCaption(meta);
+            const nextCanonical = resolveFacebookCanonicalUrl(meta.url, resp.url || refetchUrl)
+              || resolveFacebookCanonicalUrl(resp.url || refetchUrl, refetchUrl)
+              || refetchUrl;
+            const current = chosenMeta
+              ? { html: chosenHtml, meta: chosenMeta, url: canonicalUrl, caption: chosenCaption }
+              : null;
+            const candidate = { html, meta, url: nextCanonical, caption };
+            const best = chooseFacebookContent(current, candidate);
+            console.log(`[parseUrl][facebook] canonical=${best === current ? "keep" : "hit"} refetchUrl=${nextCanonical} pageContentLen=${caption.length}`);
+            if (best && best !== current) {
+              chosenHtml = best.html;
+              chosenMeta = best.meta;
+              canonicalUrl = best.url;
+              chosenCaption = best.caption;
+            }
+          } else {
+            console.log(`[parseUrl][facebook] canonical=miss refetchUrl=${refetchUrl} status=${resp.status}`);
+          }
+        } catch (error) {
+          console.log(`[parseUrl][facebook] canonical=miss refetchUrl=${refetchUrl} error=${(error as Error)?.message || "unknown"}`);
+        }
+      }
+
       if (chosenMeta) {
-        const { caption, titleSegments } = facebookCaption(chosenMeta);
-        fbCaption = caption;
+        const { titleSegments } = facebookCaption(chosenMeta);
+        fbCaption = chosenCaption;
         fbThumbnail = chosenMeta.image;
         fbAuthor = facebookAuthor(chosenHtml, chosenMeta, url, titleSegments);
       }
