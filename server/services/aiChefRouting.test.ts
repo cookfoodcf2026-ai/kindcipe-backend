@@ -342,6 +342,32 @@ test("same-session AI generation does not re-serve a seen dish", async () => {
   assert.equal(second.length, 0);
 });
 
+test("ricecooker ranks electric-cooker names first", async () => {
+  delete process.env.DATABASE_URL;
+  const scenario = [
+    { id: 31, name: "電子鍋豉油雞", dishType: "meat", ingredients: [{ name: "雞扒", quantity: "1", unit: "份" }] },
+    { id: 32, name: "洋蔥炒蛋", dishType: "vegetable", ingredients: [{ name: "洋蔥", quantity: "1", unit: "個" }, { name: "電子鍋", quantity: "1", unit: "個" }] },
+    { id: 33, name: "梅菜扣肉", dishType: "meat", ingredients: [{ name: "豬肉", quantity: "1", unit: "份" }] },
+    { id: 34, name: "蒜蓉炒菜心", dishType: "vegetable", ingredients: [{ name: "菜心", quantity: "1", unit: "份" }] },
+    { id: 35, name: "冬瓜湯", dishType: "soup", ingredients: [{ name: "冬瓜", quantity: "1", unit: "份" }] },
+    { id: 36, name: "清蒸鱸魚", dishType: "seafood", ingredients: [{ name: "鱸魚", quantity: "1", unit: "條" }] },
+    { id: 37, name: "咖哩魚蛋", dishType: "other", ingredients: [{ name: "魚蛋", quantity: "1", unit: "份" }] },
+    { id: 38, name: "番茄炒蛋", dishType: "other", ingredients: [{ name: "番茄", quantity: "1", unit: "個" }] },
+  ].map((row) => ({ ...row, source: "official", cookTime: 20, servings: 4, steps: ["1"], tags: [], scenarioTags: ["ricecooker"] }));
+  const result = await processAIChefChat(
+    [{ role: "user", content: "幫我諗" }],
+    918279, undefined, "library",
+    [], { scenario: "ricecooker", count: 4 },
+    "zh-TW", [], false, {},
+    "replace", true, true,
+    async () => scenario,
+  );
+  assert.equal(result.recipes.length, 4);
+  const firstTwo = result.recipes.slice(0, 2).map((recipe) => recipe.name);
+  assert.ok(firstTwo.includes("電子鍋豉油雞"), firstTwo.join("|"));
+  assert.ok(firstTwo.includes("洋蔥炒蛋"), firstTwo.join("|"));
+});
+
 test("ricecooker scenario meal draws only from ricecooker pool", async () => {
   delete process.env.DATABASE_URL;
   const logs: string[] = [];

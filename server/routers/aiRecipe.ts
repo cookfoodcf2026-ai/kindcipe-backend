@@ -1719,6 +1719,16 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     return s.some((st: any) => String(st?.instruction ?? st?.text ?? st ?? "").trim());
   };
   const scenarioKey = String(scenario ?? "").trim();
+  const scenarioKeywordActive = scenarioKey === "ricecooker";
+  const electricKeywordRe = /電飯煲|電子鍋|电子锅/;
+  const hasElectricKeyword = (row: Record<string, unknown>) => {
+    const name = String(row.name ?? "");
+    const ingredients = Array.isArray(row.ingredients) ? row.ingredients : [];
+    const ingredientText = ingredients
+      .map((ingredient: any) => typeof ingredient === "string" ? ingredient : String(ingredient?.name ?? ""))
+      .join(" ");
+    return electricKeywordRe.test(name) || electricKeywordRe.test(ingredientText);
+  };
   const scenarioRows = scenarioKey
     ? rows.filter((row) => safeParseJsonArray((row as any).scenarioTags).map(String).includes(scenarioKey))
     : rows;
@@ -1760,11 +1770,24 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     ...shuffleLocal(arr.filter((r) => r.source !== "official")),
     ...shuffleLocal(arr.filter((r) => r.source === "official")),
   ];
+  const keywordFirst = (arr: Record<string, unknown>[]): Record<string, unknown>[] => {
+    if (!scenarioKeywordActive) return customFirst(arr);
+    const out = shuffleLocal(arr);
+    out.sort((a, b) => {
+      const ka = hasElectricKeyword(a) ? 0 : 1;
+      const kb = hasElectricKeyword(b) ? 0 : 1;
+      if (ka !== kb) return ka - kb;
+      const ca = a.source === "official" ? 1 : 0;
+      const cb = b.source === "official" ? 1 : 0;
+      return ca - cb;
+    });
+    return out;
+  };
   const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
     const fresh = arr.filter(r => !isRowExcluded(ex, r));
     const reused = arr.filter(r => isRowExcluded(ex, r));
-    return customFirst(fresh.length > 0 ? fresh : reused).slice(0, n);
+    return keywordFirst(fresh.length > 0 ? fresh : reused).slice(0, n);
   };
 
   const soup = pickN(soupPool, Math.min(soupCount, 3));
@@ -1775,6 +1798,11 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     const fresh = arr.filter(r => !isRowExcluded(ex, r));
     const reused = arr.filter(r => isRowExcluded(ex, r));
     const pool = (fresh.length > 0 ? fresh : reused).sort((a, b) => {
+      if (scenarioKeywordActive) {
+        const ka = hasElectricKeyword(a) ? 0 : 1;
+        const kb = hasElectricKeyword(b) ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+      }
       const ca = a.source === "official" ? 1 : 0;
       const cb = b.source === "official" ? 1 : 0;
       if (ca !== cb) return ca - cb;
@@ -1797,6 +1825,10 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     const nm = (r: Record<string, unknown>) => String(r.name ?? "");
     const isFishTofuEgg = (r: Record<string, unknown>) => /魚|鱸|三文魚|鯇|鯪|鯧|黃花|多寶|龍躉|鱈|鰻|豆腐|豆卜|豆干|腐皮|雞蛋|皮蛋|蒸蛋|炒蛋|蛋/.test(nm(r));
     const isSquidClamShrimp = (r: Record<string, unknown>) => /魷魚|章魚|墨魚|蜆|蠔|蝦/.test(nm(r));
+    if (scenarioKeywordActive) {
+      const keywordSeafood = seafoodPool.filter(hasElectricKeyword);
+      if (keywordSeafood.length > 0) return addDish(keywordSeafood, 1);
+    }
     const groups = [
       { arr: seafoodPool.filter(isFishTofuEgg), w: 50 },
       { arr: seafoodPool.filter(isSquidClamShrimp), w: 30 },
@@ -1840,6 +1872,9 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     const already = new Set(picked.map(r => r));
     const rest = pool.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
     picked = picked.concat(rest.slice(0, totalWanted - picked.length));
+  }
+  if (scenarioKeywordActive) {
+    picked = [...picked].sort((a, b) => Number(!hasElectricKeyword(a)) - Number(!hasElectricKeyword(b)));
   }
 
   return picked.map((r: any): SuggestedRecipe | null => {
