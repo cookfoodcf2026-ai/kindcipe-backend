@@ -5,6 +5,7 @@ import { execSearchRecipes, processAIChefChat } from "../routers/aiRecipe";
 import { getDb } from "../db";
 import { getChatQuotaState } from "./chatQuota";
 import { buildChefReply } from "./aiChefLifecycle";
+import { claimsRecipeCards } from "./chefResponse";
 import { resolveChefIntent } from "./chefIntent";
 
 const localUrl = process.env.TEST_DATABASE_URL;
@@ -420,6 +421,27 @@ test("ingredient miss gives same-family alternatives with honest copy", async ()
   assert.ok(result.recipes.length > 0);
   assert.match(result.content, /庫存冇「和牛」/);
   assert.equal(result.llmUsed, false);
+});
+
+test("router c08 ingredient miss is zero cards and never promises cards", async () => {
+  await sql`delete from official_recipes where name like ${"%和牛%"}`;
+  const dispatch = {
+    intent: "cards" as const,
+    items: [{ label: "和牛", kind: "ingredient" as const, qty: 1 }],
+    confidence: 0.9,
+    ask: { needed: false, question: "" },
+    replyText: "收到，搵緊和牛嘅食譜。",
+  };
+  const result = await processAIChefChat(
+    [{ role: "user", content: "我要和牛" }],
+    familyId, undefined, "chat", [], undefined, "zh-TW", [], false,
+    { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
+    "replace", true, true, undefined, async () => dispatch,
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "ingredient_miss");
+  assert.equal(claimsRecipeCards(result.content), false, result.content);
+  assert.doesNotMatch(result.content, /以下係|同類食譜|已準備|準備好|最接近/, result.content);
 });
 
 test("P34: 魚面 library miss is clarify, never a prose-matched library card", async () => {

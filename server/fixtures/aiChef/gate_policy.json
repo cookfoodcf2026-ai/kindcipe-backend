@@ -49,6 +49,6 @@
     "server/fixtures/aiChef/dialogues.jsonl": "b5a3f826aced8edd5fb70d8254efb3d18623b26430747fec3482adcc711c8cef",
     "server/fixtures/aiChef/ask_resolve_ours.jsonl": "738d79f14af4add58dcf6307d02f1c2e913406fcf4047dd16efdd0cd9e8a7437",
     "server/fixtures/aiChef/hard_invariants.json": "d9e9a04badb3dddd69e12b9d10ab9a0164b5f954a6fecd70d30f3bc4406e7654",
-    "server/fixtures/aiChef/record-30.jsonl": "c6dd801db1f1b952796df81ba9edce66dc56646cbb826506bf5082f3cab5279a"
+    "server/fixtures/aiChef/record-30.jsonl": "cd62ecd25fde75297497803e0d84ea2dc763f1dcedcea2ff4a6e96313ec919a0"
   }
 }
