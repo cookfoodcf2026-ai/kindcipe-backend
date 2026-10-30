@@ -712,6 +712,15 @@ export const aiChefSeenRecipes = pgTable("ai_chef_seen_recipes", {
 export type AiChefSeenRecipe = typeof aiChefSeenRecipes.$inferSelect;
 export type InsertAiChefSeenRecipe = typeof aiChefSeenRecipes.$inferInsert;
 
+// ─── AI Chef Family Allergen Safety (family-level, v1) ───────────────────────
+export const aiChefFamilySafety = pgTable("ai_chef_family_safety", {
+  familyId: integer("family_id").primaryKey(),
+  allergens: jsonb("allergens").$type<string[]>().default([]).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AiChefFamilySafety = typeof aiChefFamilySafety.$inferSelect;
+
 // ─── AI Chef Last Meal State (chatId-less bridge for AI mode) ─────────────────
 export const aiChefMealState = pgTable("ai_chef_meal_state", {
   familyId: integer("family_id").notNull(),

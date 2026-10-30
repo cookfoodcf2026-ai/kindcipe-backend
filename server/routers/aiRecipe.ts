@@ -10,6 +10,7 @@ import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
+import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, getFamilyAllergens } from "../services/chefAllergens";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
@@ -6146,6 +6147,12 @@ export const aiRecipeRouter = router({
         }
       }
 
+      const declaredAllergens = familyId ? detectDeclaredAllergens(lastUserText(input.messages)) : [];
+      if (familyId && declaredAllergens.length > 0) {
+        await addFamilyAllergens(familyId, declaredAllergens);
+      }
+      const familyAllergens = familyId ? await getFamilyAllergens(familyId) : [];
+
       const reqStartedAt = Date.now();
       let result: Awaited<ReturnType<typeof processAIChefChat>>;
       try {
@@ -6189,6 +6196,18 @@ export const aiRecipeRouter = router({
         if (safeRecipes.length !== result.recipes.length) {
           console.warn(`[AI Chef] removed ${result.recipes.length - safeRecipes.length} recipe(s) containing avoid ingredients`);
           result.recipes = safeRecipes;
+        }
+      }
+
+      if (familyAllergens.length > 0 && result.recipes.length > 0) {
+        const guarded = applyAllergenGuard(result.recipes, familyAllergens, input.lang ?? "zh-TW");
+        if (guarded.removed > 0) {
+          result.recipes = guarded.recipes;
+          console.log(`[AI Chef] allergen filter allergens=${familyAllergens.join("|")} removed=${guarded.removed} remaining=${guarded.recipes.length}`);
+          if (guarded.blocked) {
+            result.content = guarded.content ?? result.content;
+            result.clarifyReason = "safety";
+          }
         }
       }
 
