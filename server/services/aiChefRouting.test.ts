@@ -194,6 +194,18 @@ test("truncated card output retries once and recovers cards", async () => {
   assert.equal(recovered.recipes[0].name, "凱撒沙律");
 });
 
+test("truncated recipes array salvages named first recipe", async () => {
+  const raw = String.raw`{"replyText":"收到！...重新生成一份完整、格式嚴謹的「黑椒蒜子雞扒」食譜...","recipes":[{"name":"黑椒蒜子雞扒","nameEn":"Black Pepper Garlic Chic`;
+  const out = await retryRecipeOutputOnce(
+    { content: raw, finishReason: "length", recipes: [], wantCards: true, lang: "zh-TW" },
+    async () => raw,
+  );
+  assert.equal(out.retried, true);
+  assert.equal(out.retrySucceeded, true);
+  assert.equal(out.recipes.length, 1);
+  assert.equal(out.recipes[0].name, "黑椒蒜子雞扒");
+});
+
 test("failed retry leaves zero cards for refund path", async () => {
   const truncated = '{"replyText":"今晚建議","recipes":[{"name":"凱撒';
   const recovered = await retryRecipeOutputOnce(

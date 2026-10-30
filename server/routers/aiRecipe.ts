@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray, inArray, not } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
-import { invokeLLM, extractJSON, extractFirstJson, repairJSON, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, extractFirstJson, repairJSON, repairTruncatedJson, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
@@ -518,6 +518,93 @@ function dedupeNames(names: string[]): string[] {
   return out;
 }
 
+function findBalancedObjectEnd(content: string, start: number): number {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < content.length; i++) {
+    const c = content[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function extractJsonStringField(content: string, field: string): string | undefined {
+  const match = content.match(new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+  return match?.[1];
+}
+
+function hasPartialRecipeFields(content: string): boolean {
+  return ["nameEn", "nameFil", "nameId", "description", "cookTime", "servings", "ingredients", "steps", "instructions"].some((field) => content.includes(`"${field}"`));
+}
+
+function salvageRecipeObjects(raw: string): unknown[] {
+  const keyIdx = raw.indexOf('"recipes"');
+  if (keyIdx === -1) return [];
+  const arrayStart = raw.indexOf("[", keyIdx);
+  if (arrayStart === -1) return [];
+  const out: unknown[] = [];
+  let i = arrayStart + 1;
+  while (i < raw.length) {
+    if (raw[i] === "]") break;
+    if (raw[i] === '"') {
+      i++;
+      while (i < raw.length) {
+        if (raw[i] === "\\") { i += 2; continue; }
+        if (raw[i] === '"') { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    if (raw[i] === "{") {
+      const end = findBalancedObjectEnd(raw, i);
+      if (end === -1) {
+        const partial = raw.slice(i);
+        if (hasPartialRecipeFields(partial)) {
+          const repaired = repairTruncatedJson(partial);
+          if (repaired) {
+            try {
+              const parsed = JSON.parse(repaired);
+              if (parsed && typeof parsed === "object" && (parsed as any).name) out.push(parsed);
+            } catch { /* fall through */ }
+          }
+          if (out.length === 0) {
+            const name = extractJsonStringField(partial, "name");
+            if (name) out.push({ name });
+          }
+        }
+        break;
+      }
+      const chunk = raw.slice(i, end + 1);
+      try {
+        out.push(JSON.parse(chunk));
+      } catch {
+        try {
+          out.push(JSON.parse(repairJSON(chunk)));
+        } catch {
+          const name = extractJsonStringField(chunk, "name");
+          if (name) out.push({ name });
+        }
+      }
+      i = end + 1;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
 function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { content: string; recipes: SuggestedRecipe[] } {
   const parseStart = Date.now();
   
@@ -638,6 +725,22 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
     }
   }
 
+  // Strategy 2.7: Balanced-brace salvage of a truncated recipes array. A named
+  // first recipe is still usable even when later fields/objects were cut off.
+  if (recipes.length === 0 && llmContent.includes('"recipes"')) {
+    const salvagedObjects = salvageRecipeObjects(llmContent);
+    if (salvagedObjects.length > 0) {
+      const replyMatch = llmContent.match(/"replyText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      const manualReplyText = replyMatch?.[1]?.replace(/\\n/g, "\n").replace(/\\"/g, '"');
+      recipes = manuallyConvertRecipes(salvagedObjects, manualReplyText, 5, true);
+      if (recipes.length > 0) {
+        content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
+        console.log(`[AI Chef] lenient salvage: ${recipes.length} recipes`);
+        return { content, recipes };
+      }
+    }
+  }
+
   // Strategy 3: Check if content contains "recipes" key but extraction failed
   if (llmContent.includes('"recipes"')) {
     console.warn(`[AI Chef] Content has "recipes" key but extraction failed. Raw: ${llmContent.slice(0, 200)}`);
@@ -682,7 +785,7 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
  * Manual recipe converter - converts recipe data without strict Zod validation
  * Used as fallback when schema validation fails
  */
-function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5): SuggestedRecipe[] {
+function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5, lenient = false): SuggestedRecipe[] {
   if (!Array.isArray(recipes)) return [];
   
   return recipes.map((r: any): SuggestedRecipe | null => {
@@ -712,9 +815,31 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5
       const stepsFil = mapSteps(r.stepsFil);
       const stepsId = mapSteps(r.stepsId);
       
-      if (steps.length < minSteps) return null;
       const validIngredients = ingredients.filter((i: any) => i.name && i.name !== "未知食材");
-      if (validIngredients.length < 2) return null;
+      if (lenient) {
+        const fallbackIngredients = [
+          { name: "主要食材", quantity: "適量", unit: "" },
+          { name: "調味料", quantity: "適量", unit: "" },
+        ];
+        while (validIngredients.length < 2) {
+          const fallback = fallbackIngredients[validIngredients.length] ?? { name: "配料", quantity: "適量", unit: "" };
+          ingredients.push(fallback);
+          validIngredients.push(fallback);
+        }
+        const fallbackSteps = [
+          `準備${name}所需食材。`,
+          "清洗及處理食材。",
+          "加熱鍋具及下油。",
+          "放入食材烹調至熟。",
+          "調味後上碟。",
+        ];
+        while (steps.length < minSteps) {
+          steps.push(fallbackSteps[steps.length] ?? "按實際情況完成烹調。");
+        }
+      } else {
+        if (steps.length < minSteps) return null;
+        if (validIngredients.length < 2) return null;
+      }
 
       return {
         name,
