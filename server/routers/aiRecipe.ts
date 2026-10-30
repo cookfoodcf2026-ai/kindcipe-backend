@@ -325,7 +325,10 @@ export async function getFamilySeenNames(familyId?: number): Promise<string[]> {
   // 2) memory fallback
   const now = Date.now();
   const entries = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
-  return entries.filter(e => now - e.seenAt < SEEN_EXPIRY_MS).map(e => e.name);
+  return entries
+    .filter(e => now - e.seenAt < SEEN_EXPIRY_MS)
+    .sort((a, b) => b.seenAt - a.seenAt)
+    .map(e => e.name);
 }
 
 export async function recordServedLibraryCards(familyId: number | undefined, cards: SuggestedRecipe[]): Promise<void> {
@@ -355,9 +358,12 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
     console.warn("[AI Chef] getFamilySeenNamesSplit DB failed, fallback memory:", (e as Error)?.message);
   }
   const entries = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
+  const live = entries
+    .filter(e => now - e.seenAt < SEEN_EXPIRY_MS)
+    .sort((a, b) => b.seenAt - a.seenAt);
   return {
-    seen7d: entries.filter(e => now - e.seenAt < SEEN_EXPIRY_MS).map(e => e.name),
-    seen1d: entries.filter(e => now - e.seenAt < SEEN_CUSTOM_EXPIRY_MS).map(e => e.name),
+    seen7d: live.map(e => e.name),
+    seen1d: live.filter(e => now - e.seenAt < SEEN_CUSTOM_EXPIRY_MS).map(e => e.name),
   };
 }
 
@@ -367,13 +373,16 @@ export async function recordFamilySeenNames(familyId: number | undefined, names:
   // memory 照樣記（fallback 用）
   const currentMem = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
   const seen = new Map<string, number>();
-  for (const n of currentMem) seen.set(n.name, now);
+  for (const entry of currentMem) seen.set(entry.name, entry.seenAt);
   for (const n of names) {
     const t = String(n ?? "").trim();
     if (t) seen.set(t, now); // 重複睇會刷新時間
   }
-  const arr = [...seen.entries()].map(([name, seenAt]) => ({ name, seenAt }));
-  FAMILY_RECENT_RECIPES.set(familyId, arr.slice(-MAX_RECENT_PER_FAMILY));
+  const arr = [...seen.entries()]
+    .map(([name, seenAt]) => ({ name, seenAt }))
+    .sort((a, b) => b.seenAt - a.seenAt)
+    .slice(0, MAX_RECENT_PER_FAMILY);
+  FAMILY_RECENT_RECIPES.set(familyId, arr);
 
   // DB 持久化（upsert + 清過期）
   try {
@@ -1824,7 +1833,7 @@ function rowToSuggestedRecipe(r: any): SuggestedRecipe | null {
   };
 }
 
-export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string): SuggestedRecipe[] {
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = []): SuggestedRecipe[] {
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
@@ -1869,8 +1878,22 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
       ...arr.filter((row) => !isRowExcluded(ex, row)),
       ...arr.filter((row) => isRowExcluded(ex, row)),
     ];
+    const keywordRows = allPool.filter(hasElectricKeyword);
+    const keywordAllSeen = keywordRows.length > 0 && keywordRows.every((row) => isRowExcluded(ex, row));
+    if (keywordAllSeen) {
+      console.log(`[AI Chef] seen_all_recycled scenario=ricecooker keywordRows=${keywordRows.length}`);
+    }
+    const seenRank = new Map(seenOrder.map((name, index) => [normalizeName(name), index]));
+    const orderKeywordRows = (arr: Record<string, unknown>[]) => [...arr].sort((a, b) => {
+      const ia = seenRank.get(normalizeName(String(a.name ?? "")));
+      const ib = seenRank.get(normalizeName(String(b.name ?? "")));
+      if (ia === undefined && ib === undefined) return 0;
+      if (ia === undefined) return -1;
+      if (ib === undefined) return 1;
+      return ib - ia;
+    });
     const tiers = [
-      freshOrder(allPool.filter(hasElectricKeyword)),
+      orderKeywordRows(keywordRows),
       freshOrder(allPool.filter((row) => !hasElectricKeyword(row) && hasTag(row))),
       freshOrder(allPool.filter((row) => !hasElectricKeyword(row) && !hasTag(row))),
     ];
@@ -4445,7 +4468,7 @@ export async function processAIChefChat(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
-      const libPicked = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario);
+      const libPicked = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d);
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
       // 問卷「N人」→ 覆蓋卡片 servings（library 卡 DB 預設 4 人，要跟用戶答嘅人數）
@@ -4873,7 +4896,7 @@ export async function processAIChefChat(
       const safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
-      const libMeal = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario);
+      const libMeal = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d);
       if (libMeal.length > 0) {
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);

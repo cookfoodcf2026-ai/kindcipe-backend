@@ -752,6 +752,56 @@ test("mode=ai bypasses library-miss clarify guard", async () => {
   assert.notEqual(result.clarifyReason, "library_miss");
 });
 
+test("ricecooker rotates staples across consecutive calls", async () => {
+  delete process.env.DATABASE_URL;
+  const familyId = 918300;
+  const row = (id: number, name: string, dishType: string, scenario: boolean) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 30,
+    servings: 4,
+    ingredients: [{ name: "食材", quantity: "1", unit: "份" }],
+    steps: ["1"],
+    tags: [],
+    scenarioTags: scenario ? ["ricecooker"] : [],
+  });
+  const staples = [
+    row(1, "電飯煲測試飯A", "carb", true),
+    row(2, "電飯煲測試飯B", "carb", true),
+    row(3, "電飯煲測試飯C", "carb", true),
+    row(4, "電飯煲測試飯D", "carb", true),
+  ];
+  const pool = [
+    ...staples,
+    row(5, "測試湯A", "soup", true),
+    row(6, "測試湯B", "soup", true),
+  ];
+  await recordFamilySeenNames(familyId, staples.map((item) => item.name));
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.map((arg) => String(arg)).join(" ")); };
+  let first: Awaited<ReturnType<typeof processAIChefChat>>;
+  let second: Awaited<ReturnType<typeof processAIChefChat>>;
+  try {
+    first = await processAIChefChat([{ role: "user", content: "幫我諗" }], familyId, undefined, "library", [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {}, "replace", true, true, async () => pool);
+    second = await processAIChefChat([{ role: "user", content: "幫我諗" }], familyId, undefined, "library", [], { scenario: "ricecooker", count: 4 }, "zh-TW", [], false, {}, "replace", true, true, async () => pool);
+  } finally {
+    console.log = originalLog;
+  }
+  const stapleOf = (result: Awaited<ReturnType<typeof processAIChefChat>>) =>
+    result.recipes.filter((recipe) => /電飯煲測試飯/.test(recipe.name)).map((recipe) => recipe.name).sort();
+  const firstStaples = stapleOf(first);
+  const secondStaples = stapleOf(second);
+  assert.equal(first.recipes.length, 4);
+  assert.equal(second.recipes.length, 4);
+  assert.equal(firstStaples.length, 2);
+  assert.equal(secondStaples.length, 2);
+  assert.notDeepEqual(firstStaples, secondStaples, `${firstStaples.join("|")} vs ${secondStaples.join("|")}`);
+  assert.ok(logs.some((line) => line.includes("seen_all_recycled")));
+});
+
 test("scenario never overrides explicit food item", async () => {
   delete process.env.DATABASE_URL;
   const row = (id: number, name: string, dishType: string, ingredients: string[], scenarioTags: string[]) => ({
