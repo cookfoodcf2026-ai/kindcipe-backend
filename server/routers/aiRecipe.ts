@@ -3269,21 +3269,31 @@ function clarifyFoodReply(lang: string): string {
   return "好呀 — 你想中式、西式、快煮，定清淡？幾多人食？";
 }
 
-function libraryMissReply(lang: string, item: string, alternatives: string[]): string {
-  const alt = alternatives.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
+function zeroCardMissReply(lang: string, lead: string): string {
   if (lang.startsWith("en")) {
-    return `I couldn't find "${item}" in the library. You can: 1) use Import recipe (uses 1 import quota), 2) look at the closest library items: ${alt}, or 3) ask AI to make it now (1 credit).`;
+    return `${lead} I couldn't find a suitable recipe. You can: 1) use Import recipe (1 import quota), 2) tell me a bit more and I'll search again, or 3) ask AI to make it now (1 credit).`;
   }
   if (lang.startsWith("fil")) {
-    return `Wala sa library ang "${item}". Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) tingnan ang pinakamalapit na library: ${alt}, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
+    return `${lead} Wala akong makitang angkop na recipe. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) magbigay ng dagdag na detalye at hahanapin ko muli, o 3) hilingin sa AI na gawin ito ngayon (1 credit).`;
   }
   if (lang.startsWith("id")) {
-    return `Tidak ada "${item}" di pustaka. Anda bisa: 1) memakai Import resep (1 kuota import), 2) melihat resep pustaka terdekat: ${alt}, atau 3) meminta AI membuatnya sekarang (1 credit).`;
+    return `${lead} Saya tidak menemukan resep yang cocok. Anda bisa: 1) memakai Import resep (1 kuota import), 2) beri detail tambahan dan saya cari lagi, atau 3) meminta AI membuatnya sekarang (1 credit).`;
   }
-  return `我未有你指定嘅「${item}」食譜。你可以：
+  return `${lead}我未搵到合適食譜。你可以：
 1. 去「匯入食譜」（會扣 1 次匯入額度）
-2. 睇最接近嘅庫存：${alt}
+2. 講多少少要求，我再搵
 3. AI 即場煮（1 credit）`;
+}
+
+function libraryMissReply(lang: string, item: string, _alternatives: string[]): string {
+  const lead = lang.startsWith("en")
+    ? `I couldn't find "${item}" in the library. `
+    : lang.startsWith("fil")
+      ? `Wala sa library ang "${item}". `
+      : lang.startsWith("id")
+        ? `Tidak ada "${item}" di pustaka. `
+        : `我未有你指定嘅「${item}」食譜。`;
+  return zeroCardMissReply(lang, lead);
 }
 
 function searchFailureReply(lang: string): string {
@@ -3293,20 +3303,26 @@ function searchFailureReply(lang: string): string {
   return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以重試、叫 AI 即場煮（1 credit），或者稍後再試。";
 }
 
-function categoryMissReply(lang: string, item: string, cards: string[]): string {
-  const names = cards.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
-  if (lang.startsWith("en")) return `I couldn't find a "${item}" match. Closest: ${names}. You can ask AI to make one (1 credit).`;
-  if (lang.startsWith("fil")) return `Wala akong makitang "${item}". Pinakamalapit: ${names}. Maaari mong hilingin sa AI (1 credit).`;
-  if (lang.startsWith("id")) return `Tidak ada padanan untuk "${item}". Terdekat: ${names}. Anda bisa meminta AI (1 credit).`;
-  return `庫存冇「${item}」嘅合適選擇。最接近：${names}。可以叫 AI 即場煮（1 credit）。`;
+function categoryMissReply(lang: string, item: string, _cards: string[]): string {
+  const lead = lang.startsWith("en")
+    ? `The library has no suitable "${item}" option. `
+    : lang.startsWith("fil")
+      ? `Wala sa library ang angkop na "${item}". `
+      : lang.startsWith("id")
+        ? `Tidak ada pilihan "${item}" yang cocok di pustaka. `
+        : `庫存冇「${item}」嘅合適選擇。`;
+  return zeroCardMissReply(lang, lead);
 }
 
-function ingredientMissReply(lang: string, item: string, cards: string[]): string {
-  const names = cards.filter(Boolean).slice(0, 3).join("、") || "暫時冇相近庫存";
-  if (lang.startsWith("en")) return `The library has no "${item}". Closest similar dishes: ${names}. You can also ask AI to make it now (1 credit).`;
-  if (lang.startsWith("fil")) return `Wala sa library ang "${item}". Pinakamalapit: ${names}. Maaari mo ring hilingin sa AI na gawin ito ngayon (1 credit).`;
-  if (lang.startsWith("id")) return `Tidak ada "${item}" di pustaka. Yang terdekat: ${names}. Anda juga bisa meminta AI membuatnya sekarang (1 credit).`;
-  return `庫存冇「${item}」，以下係同類食譜：${names}。亦可以叫 AI 即場煮（1 credit）。`;
+export function ingredientMissReply(lang: string, item: string, _cards: string[]): string {
+  const lead = lang.startsWith("en")
+    ? `The library has no "${item}". `
+    : lang.startsWith("fil")
+      ? `Wala sa library ang "${item}". `
+      : lang.startsWith("id")
+        ? `Tidak ada "${item}" di pustaka. `
+        : `庫存冇「${item}」。`;
+  return zeroCardMissReply(lang, lead);
 }
 
 export async function processAIChefChat(

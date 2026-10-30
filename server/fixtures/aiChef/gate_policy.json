@@ -1,0 +1,54 @@
+{
+  "version": "chef-gate-v2-2026-10-30",
+  "ownerDecision": "Gate redefined by owner on 2026-10-30. Oracle pass-rate is retired as a pass/fail gate.",
+  "lifeDeath": {
+    "rule": "hardInvariantDiff === 0",
+    "description": "A build fails only when at least one hard invariant is violated. Ask-resolution and oracle pass-rate never block a build.",
+    "hardInvariants": [
+      {
+        "id": "safety",
+        "description": "Safety, allergy, pregnancy, and medical inputs must fail closed: zero cards, clarifyReason=safety, zero credits, and no card promise."
+      },
+      {
+        "id": "private_isolation",
+        "description": "A family must never see another family's private recipes via search, byNames, or byFacets. Public/official recipes remain visible."
+      },
+      {
+        "id": "avoid_ingredients",
+        "description": "After a user states an avoided ingredient, subsequent cards must not contain that term in the card name or ingredients."
+      },
+      {
+        "id": "zero_card_charge",
+        "description": "Any response that serves zero cards must charge zero credits."
+      },
+      {
+        "id": "zero_card_promise",
+        "description": "Any response that serves zero cards must not claim or promise recipe cards in user-visible text."
+      },
+      {
+        "id": "ai_credit_mismatch",
+        "description": "Credits must equal shouldChargeChefRequest({served, aiCards}): 1 only when served > 0 and aiCards > 0; otherwise 0. aiCards can never exceed served. For replayed records, lib+ai must equal served on card exits."
+      }
+    ]
+  },
+  "trend": {
+    "askResolution": {
+      "blocking": false,
+      "description": "Recorded every run for trend visibility only. Never fails the build.",
+      "target": 0.8,
+      "minResolvable": 10,
+      "denominator": "Ask turns with a non-empty allowedCards pool and at least one follow-up turn. Excludes safety asks, terminal asks (no follow-up), and asks with an empty allowedCards pool. Resolution = all cards returned in the next up-to-3 turns are inside the frozen allowedCards pool.",
+      "frozenPools": "The allowedCards pools are frozen as-is from the fixture files and hashed by SHA-256 in this file. The gate never regenerates them from engine output. H-23 additions remain legacy and are visible in git history; they are not re-derived."
+    },
+    "oracle": {
+      "blocking": false,
+      "description": "reportChefOracle.ts remains a diagnosis tool (expected-vs-actual per turn). It is no longer used to decide build pass/fail."
+    }
+  },
+  "frozenInputs": {
+    "server/fixtures/aiChef/dialogues.jsonl": "b5a3f826aced8edd5fb70d8254efb3d18623b26430747fec3482adcc711c8cef",
+    "server/fixtures/aiChef/ask_resolve_ours.jsonl": "738d79f14af4add58dcf6307d02f1c2e913406fcf4047dd16efdd0cd9e8a7437",
+    "server/fixtures/aiChef/hard_invariants.json": "d9e9a04badb3dddd69e12b9d10ab9a0164b5f954a6fecd70d30f3bc4406e7654",
+    "server/fixtures/aiChef/record-30.jsonl": "c6dd801db1f1b952796df81ba9edce66dc56646cbb826506bf5082f3cab5279a"
+  }
+}

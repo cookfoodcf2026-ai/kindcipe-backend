@@ -3,7 +3,8 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, ingredientMissReply, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { claimsRecipeCards } from "./chefResponse";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
 import type { ChefRunResult } from "./aiChefLifecycle";
@@ -749,6 +750,23 @@ test("mode=ai bypasses library-miss clarify guard", async () => {
     { ai_chef_single_card_library: true, ai_chef_any_library_miss_offer: false },
   );
   assert.notEqual(result.clarifyReason, "library_miss");
+});
+
+test("c08/c24 zero-card miss copy never promises cards", () => {
+  const cases = [
+    { item: "和牛", alternatives: [] as string[] },
+    { item: "雞髀", alternatives: ["醬油雞腿", "三杯雞", "薑蔥滑雞"] },
+  ];
+  for (const testCase of cases) {
+    const text = ingredientMissReply("zh-TW", testCase.item, testCase.alternatives);
+    assert.equal(claimsRecipeCards(text), false, text);
+    assert.doesNotMatch(text, /以下係|同類食譜|已準備|準備好|最接近/, text);
+    assert.match(text, /庫存冇/, text);
+    assert.match(text, /1\./, text);
+    assert.match(text, /2\./, text);
+    assert.match(text, /3\./, text);
+    assert.match(text, /AI/, text);
+  }
 });
 
 test("clarify quick replies are reason-specific", () => {
