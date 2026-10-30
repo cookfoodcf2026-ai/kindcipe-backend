@@ -16,6 +16,20 @@ test("easy non-kids dish is not tagged kids", () => {
   assert.equal(scenarios.includes("kids"), false, scenarios.join(","));
 });
 
+test("braised dish with short cookTime is not quick", () => {
+  const scenarios = deriveScenarios({
+    name: "發財好市炆豬手",
+    description: "意頭菜",
+    difficulty: "簡單",
+    dishType: "meat",
+    cookTime: 30,
+    tags: [],
+    ingredients: [{ name: "豬手" }, { name: "髮菜" }],
+    steps: ["豬手汆水", "加入配料炆 120 分鐘"],
+  });
+  assert.equal(scenarios.includes("quick"), false, scenarios.join(","));
+});
+
 test("kid friendly dessert still tagged", () => {
   const scenarios = deriveScenarios({
     name: "兒童香蕉布丁",
