@@ -3518,6 +3518,8 @@ ${TAGS_RULE}`;
       visibility: z.enum(["private", "pending_public"]).default("private"),
       isAiGenerated: z.boolean().optional(),
       inputLang: z.string().optional(),
+      // 用戶主動「先儲存（名＋連結）」時允許無食材/步驟，仍標記為未完整（讀取時依內容判斷）
+      allowIncomplete: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
@@ -3527,9 +3529,12 @@ ${TAGS_RULE}`;
       if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
       if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
 
-      const contentGate = checkRecipeContent(input.ingredients, input.steps);
-      if (!contentGate.ok) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
+      // 自動匯入（caption／OCR／連結解析）唔准存空白卡；只有用戶主動「先儲存名＋連結」才放行。
+      if (!input.allowIncomplete) {
+        const contentGate = checkRecipeContent(input.ingredients, input.steps);
+        if (!contentGate.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
+        }
       }
 
       let reservationId: number | undefined;
