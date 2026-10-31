@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cnQuantityToArabic, guardServings, normalizeIngredientAmount } from "./recipes";
+import { cnQuantityToArabic, extractStepsFromDescription, guardServings, normalizeIngredientAmount } from "./recipes";
 import { checkRecipeContent } from "../services/importQuality";
 
 // 真實案例（FB reel 1138268891981753，2026-10-28 匯入）：model 把中文單位同中文數字
@@ -87,4 +87,13 @@ test("import content gate rejects title-only cards", () => {
 test("import content gate accepts one real ingredient and one real step", () => {
   assert.equal(checkRecipeContent([{ name: "薯仔" }], ["煎香"]).ok, true);
   assert.equal(checkRecipeContent([{ name: "薯仔" }], [{ instruction: "煎香" }]).ok, true);
+});
+
+test("youtube description steps are parsed deterministically", () => {
+  const description = `材料：\n蝦 8隻\n薯仔 2個\n做法：\n0:00 1. 蝦去殼去腸，用鹽醃十分鐘。\n2. 薯仔切片，落鑊煎至金黃。\n3. 加入蝦一同煎香，調味上碟。 #recipe https://example.com @chef`;
+  const steps = extractStepsFromDescription(description);
+  assert.equal(steps.length >= 3, true);
+  assert.match(steps[0], /蝦去殼/);
+  assert.doesNotMatch(steps.join(" "), /0:00|#recipe|example\.com|@chef/);
+  assert.deepEqual(extractStepsFromDescription("材料：\n蝦 8隻\n薯仔 2個。"), []);
 });

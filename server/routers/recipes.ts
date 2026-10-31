@@ -1142,6 +1142,82 @@ function decodeHtmlEntities(s: string): string {
     .trim();
 }
 
+function cleanStepLine(raw: string): string {
+  return String(raw ?? "")
+    .replace(/[\u200b\u2060\ufeff]/g, "")
+    .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, " ")
+    .replace(/#[\p{L}\p{N}_]+/gu, " ")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/@[\w._-]+/g, " ")
+    .replace(/^\s*(?:\d+[.)、]|[①-⑳]|[-•*])\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Deterministic steps from a description/caption. Returns [] unless >=2 valid steps. */
+export function extractStepsFromDescription(text: string): string[] {
+  const raw = String(text ?? "").replace(/\r\n?/g, "\n");
+  const header = /(?:^|\n)[^\p{L}\p{N}]{0,12}(?:做法|步驟|煮法|instructions?|method|directions?|วิธีทำ|cara membuat)\s*[:：]?\s*/iu.exec(raw);
+  if (!header) return [];
+  const after = raw.slice((header.index ?? 0) + header[0].length);
+  const nextSection = after.search(/\n\s*(?:材料|食材|ingredients?|備註|notes?|tips?)\s*[:：]?\s*(?:\n|$)/i);
+  const section = nextSection >= 0 ? after.slice(0, nextSection) : after;
+  const steps: string[] = [];
+  for (const line of section.split(/\n+/)) {
+    const step = cleanStepLine(line);
+    if (step.length >= 8 && !steps.includes(step)) steps.push(step);
+  }
+  return steps.length >= 2 ? steps.slice(0, 20) : [];
+}
+
+function extractStepsFromTranscript(text: string): string[] {
+  const normalized = String(text ?? "")
+    .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return [];
+  const steps = normalized
+    .split(/(?<=[。！？.!?])\s+/)
+    .map(cleanStepLine)
+    .filter((step) => step.length >= 8);
+  return steps.length >= 2 ? steps.slice(0, 20) : [];
+}
+
+async function fetchYouTubeTranscript(videoId: string): Promise<string> {
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+  };
+  const urls = new Set<string>();
+  try {
+    const watch = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { headers, signal: AbortSignal.timeout(8000) });
+    const html = watch.ok ? await watch.text() : "";
+    for (const m of html.matchAll(/"baseUrl":"([^"]+)"/g)) {
+      const u = m[1].replace(/\\u0026/g, "&").replace(/\u0026/g, "&");
+      if (u.startsWith("https://")) urls.add(u);
+      if (urls.size >= 3) break;
+    }
+  } catch { /* fall through */ }
+  for (const lang of ["en", "zh-Hant", "zh-TW"]) urls.add(`https://www.youtube.com/api/timedtext?lang=${lang}&v=${videoId}`);
+  for (const base of urls) {
+    try {
+      const resp = await fetch(base.includes("fmt=") ? base : `${base}${base.includes("?") ? "&" : "?"}fmt=json3`, { headers, signal: AbortSignal.timeout(6000) });
+      if (!resp.ok) continue;
+      const body = await resp.text();
+      if (!body.trim()) continue;
+      try {
+        const json = JSON.parse(body) as { events?: Array<{ segs?: Array<{ utf8?: string }> }> };
+        const text = (json.events ?? []).flatMap((event) => event.segs ?? []).map((seg) => seg.utf8 ?? "").join(" ");
+        if (text.trim()) return text;
+      } catch {
+        const text = [...body.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)].map((m) => decodeHtmlEntities(m[1])).join(" ");
+        if (text.trim()) return text;
+      }
+    } catch { /* try next */ }
+  }
+  return "";
+}
+
 export async function fetchPageContent(url: string): Promise<{ text: string; thumbnail: string }> {
   try {
   const sourceType = detectSourceType(url);
@@ -1875,6 +1951,24 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     console.log(`[parseRecipeFromUrl] using clientCaption (${clientCaptionText.length} chars, platform=${sourceType})`);
   }
   const hasRealContent = pageContent.length > 30;
+  const youtubeVideoId = sourceType === "youtube"
+    ? (url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([-\w]+)/)?.[1] ?? "")
+    : "";
+  let deterministicSteps: string[] = [];
+  let stepsSource: "description" | "transcript" | "llm" | "none" = "none";
+  if (youtubeVideoId) {
+    deterministicSteps = extractStepsFromDescription(pageContent);
+    if (deterministicSteps.length >= 2) {
+      stepsSource = "description";
+    } else {
+      const transcript = await fetchYouTubeTranscript(youtubeVideoId);
+      const transcriptSteps = extractStepsFromTranscript(transcript);
+      if (transcriptSteps.length >= 2) {
+        deterministicSteps = transcriptSteps;
+        stepsSource = "transcript";
+      }
+    }
+  }
 
   // 縮圖候選：手機拎到（clientThumbnail，住宅 IP 最可靠）優先，其次 oEmbed/embed、/media、page
   const thumbCandidates: string[] = [];
@@ -1938,7 +2032,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     };
   }
 
-  const systemPrompt = `你是一個專業的食譜解析助手。從提供的內容中提取完整的食譜資訊並以 JSON 格式回傳。
+  let systemPrompt = `你是一個專業的食譜解析助手。從提供的內容中提取完整的食譜資訊並以 JSON 格式回傳。
 
 重要規則：
 - 只提取內容中實際存在的食譜資訊，不要虛構或猜測
@@ -1948,6 +2042,9 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 - servings 必須係內容明確寫出嘅人數；內容冇寫就填 2，**唔准猜 1**
 - 食材分類：肉類/海鮮/蔬菜/調味料/乾貨/其他
 - 主要文字使用繁體中文；並同時提供英(En)/菲(Fil)/印尼(Id)譯文`;
+  if (sourceType === "youtube") {
+    systemPrompt += "\n- YouTube 匯入：只可以使用影片 description 內容；如果 description 冇清楚做法，steps 必須留空，絕對唔准用常識或標題推測步驟。";
+  }
 
   // For Instagram with thumbnail but no keywords: use Vision AI to parse from image
   // Facebook 同樣適用（Reels 多數只有封面圖、caption 未必有完整食材）
@@ -2106,6 +2203,25 @@ ${TAGS_RULE}`;
   if (!parsedContent) throw new Error("AI returned empty response");
   console.log(`[parseUrl] llmRawLen=${parsedContent.length} jsonClosed=${parsedContent.trim().endsWith("}")}`);
   const result: any = extractJSON(parsedContent);
+  if (deterministicSteps.length >= 2) {
+    result.steps = deterministicSteps;
+    result.stepsEn = undefined;
+    result.stepsFil = undefined;
+    result.stepsId = undefined;
+  } else if (Array.isArray(result.steps) && result.steps.some((step: any) => String(typeof step === "string" ? step : step?.instruction ?? "").trim())) {
+    stepsSource = "llm";
+  }
+  const effectiveStepCount = Array.isArray(result.steps)
+    ? result.steps.filter((step: any) => String(typeof step === "string" ? step : step?.instruction ?? "").trim().length >= 8).length
+    : 0;
+  if (effectiveStepCount === 0) {
+    result.steps = [];
+    result.missing = ["steps"];
+    result.stepsMissingMessage = String(userLanguage ?? "zh-TW").startsWith("en")
+      ? `Found ${Array.isArray(result.ingredients) ? result.ingredients.length : 0} ingredient(s), but no steps. Paste the steps or add them in notes.`
+      : `已抽到材料（${Array.isArray(result.ingredients) ? result.ingredients.length : 0} 項），但未抽到做法。可以貼上步驟，或者喺備註自己補。`;
+  }
+  console.log(`[import] steps_source=${stepsSource} steps=${effectiveStepCount}`);
   if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
   // 份量護欄：來源冇寫份量 → 2 人（唔准 AI 自創 1 人）
   {
