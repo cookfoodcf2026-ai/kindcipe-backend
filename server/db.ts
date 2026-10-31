@@ -1412,6 +1412,9 @@ export async function updateCustomRecipeById(
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  const [before] = await db.select().from(customRecipes).where(
+    and(eq(customRecipes.id, id), eq(customRecipes.familyId, familyId))
+  ).limit(1);
   // Choke point: localize ingredient names before persisting.
   if (typeof data.ingredients === "string" && data.ingredients) {
     try {
@@ -1434,6 +1437,10 @@ export async function updateCustomRecipeById(
       await db.update(customRecipes).set({ scenarioTags: st }).where(eq(customRecipes.id, id));
       row = { ...row, scenarioTags: st };
     }
+  }
+  if (before) {
+    const { invalidateTranslationIfSourceChanged } = await import("./services/translationQueue");
+    await invalidateTranslationIfSourceChanged(id, familyId, before, data);
   }
   return row;
 }

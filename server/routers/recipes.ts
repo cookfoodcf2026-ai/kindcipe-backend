@@ -25,7 +25,7 @@ import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonL
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
 import { checkRecipeContent } from "../services/importQuality";
-import { enqueueRecipeTranslation, runMeteredTranslation } from "../services/translationQueue";
+import { enqueueRecipeTranslation, invalidateTranslationIfSourceChanged, runMeteredTranslation } from "../services/translationQueue";
 import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
@@ -4171,7 +4171,7 @@ ${TAGS_RULE}`;
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先建立或加入家庭廚房" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const [recipe] = await db.select({ id: customRecipes.id, createdByUserId: customRecipes.createdByUserId })
+      const [recipe] = await db.select()
         .from(customRecipes)
         .where(eq(customRecipes.id, input.id))
         .limit(1);
@@ -4237,6 +4237,9 @@ ${TAGS_RULE}`;
       }
 
       await db.update(customRecipes).set(update).where(eq(customRecipes.id, input.id));
+      if (!isDraft) {
+        await invalidateTranslationIfSourceChanged(input.id, ctx.activeFamilyId, recipe, update);
+      }
 
       return { success: true };
     }),

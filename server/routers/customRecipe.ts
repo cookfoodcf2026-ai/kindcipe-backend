@@ -21,6 +21,7 @@ import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { runWithUsage, usageLimitToTRPC } from "../services/usage";
 import { serializeUserScenarioTags } from "../utils/scenario";
+import { enqueueRecipeTranslation } from "../services/translationQueue";
 
 const scenarioSchema = z.enum(["quick", "healthy", "ricecooker", "kids", "guest"]);
 
@@ -100,6 +101,7 @@ export const customRecipeRouter = router({
               createdByUserId: userId,
             });
 
+            if (recipe?.id) enqueueRecipeTranslation(recipe.id, familyId);
             if (isImport) {
               try { await incrementImportUsage(userId, familyId); } catch { /* history only */ }
             }

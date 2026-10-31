@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, lt } from "drizzle-orm";
 import { startLlmMeter } from "../_core/llm";
 import { getDb } from "../db";
-import { buildTranslationPatch, isRowComplete, translationSourceFlags } from "../utils/recipeTranslations";
+import { buildTranslationPatch, isRowComplete, translationChangedFields, translationSourceFlags } from "../utils/recipeTranslations";
 import { customRecipes } from "../../drizzle/schema";
 
 const MAX_ATTEMPTS = 5;
@@ -128,6 +128,54 @@ export async function runTranslationSweep(limit = SWEEP_CONCURRENCY): Promise<vo
   } finally {
     endSweep();
   }
+}
+
+export async function invalidateTranslationIfSourceChanged(
+  id: number,
+  familyId: number,
+  before: any,
+  patch: any,
+): Promise<boolean> {
+  const changed = translationChangedFields(before, patch);
+  if (changed.length === 0) return false;
+  const db = await getDb();
+  if (!db) return false;
+  const update: Record<string, unknown> = {
+    translationStatus: "pending",
+    translationAttempts: 0,
+    translationUpdatedAt: new Date(),
+  };
+  if (changed.includes("name")) {
+    update.nameEn = null;
+    update.nameFil = null;
+    update.nameId = null;
+  }
+  if (changed.includes("description")) {
+    update.descriptionEn = null;
+    update.descriptionFil = null;
+    update.descriptionId = null;
+  }
+  if (changed.includes("steps")) {
+    update.stepsEn = null;
+    update.stepsFil = null;
+    update.stepsId = null;
+  }
+  if (changed.includes("ingredients")) {
+    try {
+      const raw = patch.ingredients ?? before.ingredients;
+      const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (Array.isArray(arr)) {
+        update.ingredients = JSON.stringify(arr.map((ing: any) => {
+          const { nameEn, nameFil, nameId, ...rest } = ing ?? {};
+          return rest;
+        }));
+      }
+    } catch { /* keep existing ingredients */ }
+  }
+  await db.update(customRecipes).set(update as any).where(eq(customRecipes.id, id));
+  console.log(`[import] translate=invalidated id=${id} reason=content_changed`);
+  enqueueRecipeTranslation(id, familyId);
+  return true;
 }
 
 export function enqueueRecipeTranslation(id: number, familyId: number): void {

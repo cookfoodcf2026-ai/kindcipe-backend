@@ -72,6 +72,23 @@ export function translationSourceFlags(row: TranslatableRow): { hasName: boolean
   };
 }
 
+export function translationChangedFields(before: TranslatableRow, patch: Partial<TranslatableRow>): Array<"name" | "description" | "steps" | "ingredients"> {
+  const changed: Array<"name" | "description" | "steps" | "ingredients"> = [];
+  if (patch.name !== undefined && String(patch.name ?? "").trim() !== String(before.name ?? "").trim()) changed.push("name");
+  if (patch.description !== undefined && String(patch.description ?? "").trim() !== String(before.description ?? "").trim()) changed.push("description");
+  if (patch.steps !== undefined && JSON.stringify(parseSteps(patch.steps)) !== JSON.stringify(parseSteps(before.steps))) changed.push("steps");
+  if (patch.ingredients !== undefined) {
+    const beforeNames = parseArray(before.ingredients).map((i: any) => String(i?.name ?? "").trim()).filter(Boolean);
+    const patchNames = parseArray(patch.ingredients).map((i: any) => String(i?.name ?? "").trim()).filter(Boolean);
+    if (JSON.stringify(beforeNames) !== JSON.stringify(patchNames)) changed.push("ingredients");
+  }
+  return changed;
+}
+
+export function translationSourceChanged(before: TranslatableRow, patch: Partial<TranslatableRow>): boolean {
+  return translationChangedFields(before, patch).length > 0;
+}
+
 export function isRowComplete(row: TranslatableRow): boolean {
   const flags = translationSourceFlags(row);
   if (flags.hasName && (!row.nameEn || !row.nameFil || !row.nameId)) return false;

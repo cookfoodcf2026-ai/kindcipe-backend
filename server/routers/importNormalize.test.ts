@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cnQuantityToArabic, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
-import { buildTranslationPatch, isRowComplete, localizedName, needsChineseBase, translationSourceFlags } from "../utils/recipeTranslations";
+import { buildTranslationPatch, isRowComplete, localizedName, needsChineseBase, translationSourceChanged, translationSourceFlags } from "../utils/recipeTranslations";
 import { endSweep, isPendingForTranslation, nextTranslationState, translationMeterContext, tryBeginSweep } from "../services/translationQueue";
 import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
 import { checkRecipeContent } from "../services/importQuality";
@@ -211,4 +211,17 @@ test("patch and completeness share the same field requirements", async () => {
   const withSteps = { ...emptySteps, steps: JSON.stringify(["處理雞翼"]) };
   assert.equal(translationSourceFlags(withSteps).hasSteps, true);
   assert.equal(isRowComplete(withSteps), false);
+});
+
+test("editing chinese name resets translation status to pending", () => {
+  assert.equal(translationSourceChanged({ name: "舊名", steps: "[]" }, { name: "新名" }), true);
+});
+
+test("editing only translation fields does not reset status", () => {
+  assert.equal(translationSourceChanged({ name: "滷水雞翼", nameEn: "Old" }, { nameEn: "New" }), false);
+  assert.equal(translationSourceChanged({ name: "滷水雞翼", nameFil: "Old" }, { nameFil: "New" }), false);
+});
+
+test("ingredients change re-queues translation", () => {
+  assert.equal(translationSourceChanged({ ingredients: JSON.stringify([{ name: "雞翼" }]) }, { ingredients: JSON.stringify([{ name: "豆腐" }]) }), true);
 });
