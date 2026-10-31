@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { cnQuantityToArabic, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
 import { localizedName, needsChineseBase } from "../utils/recipeTranslations";
-import { isPendingForTranslation, nextTranslationState } from "../services/translationQueue";
+import { endSweep, isPendingForTranslation, nextTranslationState, translationMeterContext, tryBeginSweep } from "../services/translationQueue";
 import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
 import { checkRecipeContent } from "../services/importQuality";
 
@@ -169,4 +169,28 @@ test("sweep enqueues pending rows only", () => {
 
 test("ready rows are not re-enqueued", () => {
   assert.equal(isPendingForTranslation("ready", 0), false);
+});
+
+test("rejects description lines without cooking verbs", () => {
+  assert.deepEqual(extractStepsFromDescription("做法：\n1. 材料全部準備好再開始\n2. 所有嘢放埋一齊就可以"), []);
+});
+
+test("rejects ingredient-shaped lines as steps", () => {
+  assert.deepEqual(extractStepsFromDescription("做法：\n1. 雞中翼 6 隻（約400克）\n2. 薯仔 2 個去皮切塊"), []);
+});
+
+test("rejects promo lines as steps", () => {
+  assert.deepEqual(extractStepsFromDescription("做法：\n1. 訂閱我嘅頻道多謝支持\n2. 記得follow我嘅社群呀"), []);
+});
+
+test("translation cost is metered under recipe_translate", () => {
+  assert.equal(translationMeterContext(13, "u").route, "recipe_translate");
+});
+
+test("concurrent sweeps do not duplicate work", () => {
+  assert.equal(tryBeginSweep(), true);
+  assert.equal(tryBeginSweep(), false);
+  endSweep();
+  assert.equal(tryBeginSweep(), true);
+  endSweep();
 });

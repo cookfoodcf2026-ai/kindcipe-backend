@@ -25,7 +25,7 @@ import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonL
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
 import { checkRecipeContent } from "../services/importQuality";
-import { enqueueRecipeTranslation } from "../services/translationQueue";
+import { enqueueRecipeTranslation, runMeteredTranslation } from "../services/translationQueue";
 import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
@@ -1156,6 +1156,10 @@ function cleanStepLine(raw: string): string {
     .trim();
 }
 
+const STEP_VERB_RE = /煎|炒|煮|蒸|焗|炸|燉|炆|煲|撈|浸|打|刨|削|剁|爆|烤|燴|滾|沖|瀝|盛|拌|攪|鋪|蓋|倒|加|切|洗|醃|mix|stir|fry|boil|bake|steam|simmer|heat|add|cut|wash|season/i;
+const STEP_AMOUNT_RE = /[\d一二兩两三四五六七八九十]+\s*(?:克|g|ml|毫升|隻|個|条|條|湯匙|茶匙|杯|公斤|kg|兩|两|斤|磅)/i;
+const STEP_PROMO_RE = /訂閱|關注|按讚|讚好|優惠|折扣|連結|網址|下單|追蹤|follow|subscribe|like and/i;
+
 /** Deterministic steps from a description/caption. Returns [] unless >=2 valid steps. */
 export function extractStepsFromDescription(text: string): string[] {
   const raw = String(text ?? "").replace(/\r\n?/g, "\n");
@@ -1165,9 +1169,19 @@ export function extractStepsFromDescription(text: string): string[] {
   const nextSection = after.search(/\n\s*(?:材料|食材|ingredients?|備註|notes?|tips?)\s*[:：]?\s*(?:\n|$)/i);
   const section = nextSection >= 0 ? after.slice(0, nextSection) : after;
   const steps: string[] = [];
+  let noVerb = 0;
+  let ingredientShape = 0;
+  let promo = 0;
   for (const line of section.split(/\n+/)) {
     const step = cleanStepLine(line);
-    if (step.length >= 8 && !steps.includes(step)) steps.push(step);
+    if (step.length < 8) continue;
+    if (STEP_PROMO_RE.test(step)) { promo++; continue; }
+    if (!STEP_VERB_RE.test(step) && STEP_AMOUNT_RE.test(step)) { ingredientShape++; continue; }
+    if (!STEP_VERB_RE.test(step)) { noVerb++; continue; }
+    if (!steps.includes(step)) steps.push(step);
+  }
+  if (noVerb > 0 || ingredientShape > 0 || promo > 0) {
+    console.log(`[import] steps_rejected no_verb=${noVerb} ingredient_shape=${ingredientShape} promo=${promo}`);
   }
   return steps.length >= 2 ? steps.slice(0, 20) : [];
 }
@@ -4092,10 +4106,10 @@ ${TAGS_RULE}`;
       let _tr2: any = {};
       // 草稿唔翻譯（避免自動儲存狂燒錢）；最終儲存先補齊 4 語言（保證中文 base）
       if (!isDraft) {
-        const built = await buildAllLangs({
+        const built = await runMeteredTranslation(ctx.activeFamilyId, String(ctx.user.id), () => buildAllLangs({
           name: baseName, description: input.description, steps: input.steps,
           ingredients: input.ingredients, srcLang: input.inputLang,
-        });
+        }));
         baseName = built.name; baseDesc = built.description; baseSteps = built.steps; baseIngredients = built.ingredients;
         _tr2 = built;
       }
@@ -4123,7 +4137,7 @@ ${TAGS_RULE}`;
           tags: input.tags,
           category: input.recipeCategory,
         }))),
-        ingredients: isDraft ? JSON.stringify(baseIngredients) : await withIngredientTranslations(baseIngredients),
+        ingredients: isDraft ? JSON.stringify(baseIngredients) : await runMeteredTranslation(ctx.activeFamilyId, String(ctx.user.id), () => withIngredientTranslations(baseIngredients)),
         steps: JSON.stringify(baseSteps),
         stepsEn: _tr2.stepsEn ? JSON.stringify(_tr2.stepsEn) : undefined,
         stepsFil: _tr2.stepsFil ? JSON.stringify(_tr2.stepsFil) : undefined,
@@ -4204,10 +4218,10 @@ ${TAGS_RULE}`;
       };
       if (!isDraft) {
         // 最終儲存：由作者語言 buildAllLangs 補齊 4 語言（保證中文 base）；非中文編輯唔會覆寫中文 base
-        const built = await buildAllLangs({
+        const built = await runMeteredTranslation(ctx.activeFamilyId, String(ctx.user.id), () => buildAllLangs({
           name: baseNameRaw, description: input.description, steps: input.steps,
           ingredients: input.ingredients, srcLang: input.inputLang,
-        });
+        }));
         update.name = built.name;
         update.description = built.description;
         update.nameEn = built.nameEn; update.nameFil = built.nameFil; update.nameId = built.nameId;
@@ -4216,7 +4230,7 @@ ${TAGS_RULE}`;
         update.stepsEn = built.stepsEn ? JSON.stringify(built.stepsEn) : undefined;
         update.stepsFil = built.stepsFil ? JSON.stringify(built.stepsFil) : undefined;
         update.stepsId = built.stepsId ? JSON.stringify(built.stepsId) : undefined;
-        update.ingredients = await withIngredientTranslations(built.ingredients);
+        update.ingredients = await runMeteredTranslation(ctx.activeFamilyId, String(ctx.user.id), () => withIngredientTranslations(built.ingredients));
       } else {
         // 草稿：唔翻譯、亦唔覆寫現有翻譯（避免自動儲存清空譯文）
         update.ingredients = JSON.stringify(input.ingredients);
@@ -4686,7 +4700,7 @@ ${TAGS_RULE}`;
       // 缺語言先背景補 + 寫回 cache；今次先回基底資料，下次開就有譯文。
       void (async () => {
         try {
-          const patch = await buildTranslationPatch(r as any);
+          const patch = await runMeteredTranslation(r.familyId, r.createdByUserId, () => buildTranslationPatch(r as any));
           if (Object.keys(patch).length > 0) {
             await db.update(customRecipes).set(patch as any).where(eq(customRecipes.id, r.id));
           }
