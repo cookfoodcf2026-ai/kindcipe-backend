@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   MEMBER_GRACE_MS,
@@ -43,4 +44,16 @@ test("AI plan is free for paid/trial and one credit for free", () => {
   assert.equal(aiPlanCreditCost("trial"), 0);
   assert.equal(aiPlanCreditCost("free"), 1);
   assert.equal(aiPlanCreditCost("expired"), 1);
+});
+
+test("legacy override is not granted by default", () => {
+  assert.equal(PLAN_LIMITS.pro.aiCredits, 150);
+  assert.equal(effectivePlanLimits("pro", null).aiCredits, 150);
+  assert.equal(effectivePlanLimits("pro", undefined).aiCredits, 150);
+  const migration = readFileSync(
+    new URL("../../drizzle/migrations/0053_clear_legacy_ai_credits.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /SET "legacy_ai_credits" = NULL/);
+  assert.match(migration, /WHERE "legacy_ai_credits" IS NOT NULL/);
 });
