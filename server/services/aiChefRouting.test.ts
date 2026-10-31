@@ -1099,3 +1099,53 @@ test("explicit dish request miss returns three exits not a question", async () =
   assert.ok(reply.quickReplies.every((q) => q.label && q.label !== q.labelKey));
   assert.doesNotMatch(reply.replyText, /你想我幫你搵或煮邊款/);
 });
+
+test("meal shape postcondition matrix holds for Chinese and English", async () => {
+  const row = (id: number, name: string, dishType: string) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 30,
+    servings: 4,
+    ingredients: [
+      { name: "食材", quantity: "1", unit: "份" },
+      { name: "配料", quantity: "1", unit: "份" },
+    ],
+    steps: ["1", "2"],
+    tags: [],
+  });
+  const pool = [
+    row(1, "豉汁蒸排骨", "meat"),
+    row(2, "香煎雞扒", "meat"),
+    row(3, "清蒸鱸魚", "seafood"),
+    row(4, "蒜蓉炒菜心", "vegetable"),
+    row(5, "番茄炒蛋", "vegetable"),
+    row(6, "老火例湯", "soup"),
+    row(7, "番茄薯仔湯", "soup"),
+    row(8, "牛肉煲", "meat"),
+  ];
+  const cases: Array<[string, string, number, number]> = [
+    ["3餸1湯", "zh-TW", 4, 1],
+    ["三餸一湯", "zh-TW", 4, 1],
+    ["今晚三餸一湯", "zh-TW", 4, 1],
+    ["我要三餸一湯 4個人", "zh-TW", 4, 1],
+    ["聽日三餸一湯 半個鐘", "zh-TW", 4, 1],
+    ["四人三餸一湯", "zh-TW", 4, 1],
+    ["3 dishes and 1 soup", "en", 4, 1],
+    ["three dishes and one soup", "en", 4, 1],
+    ["two dishes one soup", "en", 3, 1],
+    ["four mains and two soups", "en", 6, 2],
+  ];
+  for (const [text, lang, expectedServed, expectedSoups] of cases) {
+    const result = await processAIChefChat(
+      [{ role: "user", content: text }],
+      940000, undefined, "chat",
+      [], undefined, lang, [], false, {},
+      "replace", false, false,
+      async () => pool,
+    );
+    assert.equal(result.recipes.length, expectedServed, `${text} served=${result.recipes.length}`);
+    assert.equal(result.recipes.filter((recipe) => recipe.dishType === "soup").length, expectedSoups, text);
+  }
+});

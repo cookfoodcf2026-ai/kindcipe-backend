@@ -2656,10 +2656,6 @@ function mealShapeFromIntent(intent: ChefIntent): { dishCount: number; soupCount
   return { dishCount: Math.max(0, intent.requested.total - soupCount), soupCount, total: intent.requested.total };
 }
 
-function logMealShapeShortfall(need: number, got: number): void {
-  if (need !== got) console.log(`[AI Chef] meal_shape_shortfall need=${need} got=${got}`);
-}
-
 function extractPeopleCount(text: string): number | null {
   const cn: Record<string, number> = { 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
   const m = text.match(/([\d一二兩三四五六七八九十]+)\s*(?:人份|人食用|人食|人)/);
@@ -3473,7 +3469,149 @@ export function ingredientMissReply(lang: string, item: string, _cards: string[]
   return zeroCardMissReply(lang, lead);
 }
 
-export async function processAIChefChat(
+type LooseMealShape = { dishCount: number; soupCount: number; total: number };
+type CoreResult = Awaited<ReturnType<typeof processAIChefChatCore>>;
+
+const LOOSE_NUM: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
+function looseNumber(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const token = raw.trim().toLowerCase();
+  if (/^\d+$/.test(token)) return Number(token);
+  if (LOOSE_NUM[token] != null) return LOOSE_NUM[token];
+  return ({ 零: 0, 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 } as Record<string, number>)[token] ?? null;
+}
+
+export function detectMealShapeLoose(text: string): LooseMealShape | null {
+  const raw = String(text ?? "");
+  const num = `(?:[0-9]+|[一二兩两三四五六七八九十]+|one|two|three|four|five|six|seven|eight|nine|ten)`;
+  const dish = `(?:餸|菜|道菜|款菜|dishes?|mains?|recipes?|cards?)`;
+  const soup = `(?:湯|汤|soups?)`;
+  const m = raw.match(new RegExp(`(${num})\\s*(?:個|个|道|款)?\\s*${dish}\\s*(?:and|同|加|,|，)?\\s*(${num})\\s*(?:個|个|道|款)?\\s*${soup}`, "i"));
+  if (!m) return null;
+  const dishCount = looseNumber(m[1]);
+  const soupCount = looseNumber(m[2]);
+  if (dishCount === null || soupCount === null) return null;
+  const dishes = Math.max(1, Math.min(10, dishCount));
+  const soups = Math.max(1, Math.min(5, soupCount));
+  return { dishCount: dishes, soupCount: soups, total: dishes + soups };
+}
+
+function mealShapeForText(text: string, mode: string): LooseMealShape | null {
+  return detectMealShapeLoose(text) ?? mealShapeFromIntent(resolveChefIntent(text, { mode: mode as "chat" | "ai" | "library" }));
+}
+
+function isPostconditionSoup(recipe: SuggestedRecipe): boolean {
+  return classifyDishType({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>) === "soup";
+}
+
+async function loadMealPool(
+  familyId: number | undefined,
+  searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>,
+): Promise<Record<string, unknown>[]> {
+  if (searchOverride) {
+    try { return await searchOverride("", 1000); } catch { return []; }
+  }
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const result = await execSearchRecipes(db, { query: "", limit: 1000 }, familyId);
+    return (result.recipes ?? []) as Record<string, unknown>[];
+  } catch {
+    return [];
+  }
+}
+
+async function applyMealShapePostcondition(
+  result: CoreResult,
+  params: {
+    text: string;
+    mode: string;
+    familyId?: number;
+    lang: string;
+    avoidIngredients: string[];
+    knownAllergens?: string[];
+    searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>;
+    forceText?: boolean;
+  },
+): Promise<CoreResult> {
+  if (params.forceText || result.clarifyReason === "safety" || result.clarifyReason === "lib_search_fail") return result;
+  const shape = mealShapeForText(params.text, params.mode);
+  if (!shape) return result;
+
+  const allergens = params.knownAllergens
+    ?? (params.familyId ? await getFamilyAllergens(params.familyId) : []);
+  const hasSoupWord = (recipe: SuggestedRecipe) => /湯|羹|煲/.test(String(recipe.name ?? ""));
+  const isSoupSlot = (recipe: SuggestedRecipe) => isPostconditionSoup(recipe) || hasSoupWord(recipe);
+  const soupScore = (recipe: SuggestedRecipe) => /湯|羹/.test(String(recipe.name ?? "")) ? 0 : isPostconditionSoup(recipe) ? 1 : 2;
+  const current = result.recipes ?? [];
+  const selectedNames = new Set(current.map((recipe) => normalizeName(recipe.name)).filter(Boolean));
+  const soups = current.filter(isSoupSlot).sort((a, b) => soupScore(a) - soupScore(b)).slice(0, shape.soupCount);
+  const dishes = current.filter((recipe) => !isSoupSlot(recipe)).slice(0, shape.dishCount);
+
+  const pick = (wantSoup: boolean, count: number, pool: Record<string, unknown>[]): SuggestedRecipe[] => {
+    const out: SuggestedRecipe[] = [];
+    for (const row of pool) {
+      if (params.avoidIngredients.length > 0 && rowContainsAvoid(row, params.avoidIngredients)) continue;
+      const recipe = rowToSuggestedRecipe(row);
+      if (!recipe) continue;
+      if (wantSoup !== isSoupSlot(recipe)) continue;
+      if (!wantSoup && hasSoupWord(recipe)) continue;
+      const key = normalizeName(recipe.name);
+      if (!key || selectedNames.has(key)) continue;
+      const safe = allergens.length > 0 ? filterAllergenCards([recipe], allergens) : [recipe];
+      if (safe.length === 0) continue;
+      selectedNames.add(key);
+      out.push(safe[0]);
+      if (out.length >= count) break;
+    }
+    return out;
+  };
+
+  let cards = [...soups, ...dishes];
+  if (cards.filter(isSoupSlot).length < shape.soupCount) {
+    cards.push(...pick(true, shape.soupCount - cards.filter(isSoupSlot).length, await loadMealPool(params.familyId, params.searchOverride)));
+  }
+  if (cards.filter((recipe) => !isSoupSlot(recipe)).length < shape.dishCount) {
+    cards.push(...pick(false, shape.dishCount - cards.filter((recipe) => !isSoupSlot(recipe)).length, await loadMealPool(params.familyId, params.searchOverride)));
+  }
+  cards = cards.slice(0, shape.total);
+
+  const gotSoups = cards.filter(isSoupSlot).length;
+  if (cards.length !== shape.total || gotSoups !== shape.soupCount) {
+    console.log(`[AI Chef] postcondition_shortfall need=${shape.total} got=${cards.length} soups=${gotSoups}`);
+    return {
+      ...result,
+      content: aiReply(params.lang, "cantRecommend"),
+      recipes: [],
+      missingRoles: Array.from({ length: shape.total }, (_, i) => (i < shape.soupCount ? "soup" : "any") as RequestedRole),
+      clarifyReason: "library_miss",
+    };
+  }
+
+  if (cards.length === current.length && gotSoups === current.filter(isSoupSlot).length) return result;
+  console.log(`[AI Chef] postcondition_meal_shape need=${shape.total} got=${cards.length} soups=${gotSoups}`);
+  return {
+    ...result,
+    content: aiReply(params.lang, "libMealSet", { dish: dishLabel(shape.dishCount, shape.soupCount, params.lang) }),
+    recipes: cards,
+    missingRoles: [],
+    clarifyReason: undefined,
+    intentOverride: {
+      kind: "meal",
+      wantsCards: true,
+      requested: {
+        total: shape.total,
+        roles: [...Array.from({ length: shape.dishCount }, () => "any" as RequestedRole), ...Array.from({ length: shape.soupCount }, () => "soup" as RequestedRole)],
+      },
+      confidence: 0.99,
+      reason: "meal_postcondition",
+    },
+  };
+}
+
+async function processAIChefChatCore(
   inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
   familyId?: number,
   userId?: number,
@@ -4431,28 +4569,6 @@ export async function processAIChefChat(
     if (roleSearchFailed) {
       return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
     }
-    const requestedShape = mealShapeFromIntent(chefIntent);
-    if (requestedShape && assembled.cards.length !== requestedShape.total) {
-      const fallbackSearch = await trySearch("", 1000);
-      const fallbackRows = fallbackSearch.ok ? fallbackSearch.rows : [];
-      const filled = pickSoupMeal(fallbackRows, excludeSets, requestedShape.dishCount, requestedShape.soupCount, search?.scenario, seenSplit.seen7d);
-      if (filled.length === requestedShape.total) {
-        assembled.cards = filled;
-        assembled.served = filled.length;
-        assembled.missingRoles = [];
-        console.log(`[AI Chef] meal_shape_relaxed need=${requestedShape.total} got=${filled.length} source=library_pool`);
-      } else {
-        logMealShapeShortfall(requestedShape.total, filled.length);
-        return {
-          content: aiReply(lang, "cantRecommend"),
-          recipes: [],
-          llmUsed,
-          missingRoles: requested.roles,
-          clarifyReason: "library_miss",
-          intentOverride: chefIntent,
-        };
-      }
-    }
     if (assembled.cards.length > 0) {
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0
@@ -4581,18 +4697,10 @@ export async function processAIChefChat(
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
         const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
-        if (all.length !== totalWanted) {
-          logMealShapeShortfall(totalWanted, all.length);
-          return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss" };
-        }
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
         return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
       }
       const dishSetLabel = dishLabel(libCount.dishCount, libCount.soupCount, lang);
-      if (libPicked.length !== totalWanted) {
-        logMealShapeShortfall(totalWanted, libPicked.length);
-        return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss" };
-      }
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
       return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: applyServings(libPicked), llmUsed };
     }
@@ -5299,21 +5407,6 @@ export async function processAIChefChat(
       : `我只搵到 ${recipes.length} 道食譜，未能完成你要求嘅 ${totalWanted} 道。`;
   }
 
-  const finalMealShape = mealShapeFromIntent(chefIntent);
-  if (!forceNoCards && finalMealShape && recipes.length !== finalMealShape.total) {
-    const fallbackSearch = await trySearch("", 1000);
-    const fallbackRows = fallbackSearch.ok ? fallbackSearch.rows : [];
-    const filled = pickSoupMeal(fallbackRows, excludeSets, finalMealShape.dishCount, finalMealShape.soupCount, search?.scenario, seenSplit.seen7d);
-    if (filled.length === finalMealShape.total) {
-      recipes = filled;
-      content = aiReply(lang, "libMealSet", { dish: dishLabel(finalMealShape.dishCount, finalMealShape.soupCount, lang) });
-      console.log(`[AI Chef] meal_shape_relaxed need=${finalMealShape.total} got=${filled.length} source=library_pool`);
-    } else {
-      logMealShapeShortfall(finalMealShape.total, filled.length);
-      return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss", missingRoles: chefIntent.requested.roles };
-    }
-  }
-
   if (recipes.length > 0) {
     console.log(`[AI Chef] Returning ${recipes.length} recipes`);
     // Fix2: 記低今次出咗嘅卡，之後自動排除（唔靠前端 state）
@@ -5321,6 +5414,23 @@ export async function processAIChefChat(
   }
 
   return { content, recipes, llmUsed, missingRoles: resultMissingRoles ?? undefined };
+}
+
+export async function processAIChefChat(
+  ...args: Parameters<typeof processAIChefChatCore>
+): Promise<CoreResult> {
+  const [inputMessages, familyId, , mode = "chat", , , lang = "zh-TW", avoidIngredients = [], forceText = false, , , , , searchOverride, , , knownAllergens] = args;
+  const result = await processAIChefChatCore(...args);
+  return applyMealShapePostcondition(result, {
+    text: lastUserText(inputMessages as any),
+    mode,
+    familyId,
+    lang,
+    avoidIngredients,
+    knownAllergens,
+    searchOverride,
+    forceText,
+  });
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──
