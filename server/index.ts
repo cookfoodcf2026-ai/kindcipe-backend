@@ -277,6 +277,16 @@ async function startServer() {
     };
     setInterval(sweepLlmBudget, LLM_BUDGET_SWEEP_INTERVAL_MS);
     setTimeout(sweepLlmBudget, 2 * 60 * 1000);
+
+    // Background translation sweep: fill pending en/fil/id (Pro 4-language) with a bounded concurrency.
+    (async () => {
+      try {
+        const { startTranslationSweep } = await import("./services/translationQueue");
+        startTranslationSweep(5 * 60 * 1000);
+      } catch (e) {
+        console.warn("[import] translation sweep start failed (non-fatal):", (e as Error).message);
+      }
+    })();
   });
 }
 

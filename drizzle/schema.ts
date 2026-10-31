@@ -310,6 +310,9 @@ export const customRecipes = pgTable("custom_recipes", {
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),
   popularity: integer("popularity").default(50).notNull(),
+  translationStatus: text("translation_status").default("pending").notNull(),
+  translationAttempts: integer("translation_attempts").default(0).notNull(),
+  translationUpdatedAt: timestamp("translation_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

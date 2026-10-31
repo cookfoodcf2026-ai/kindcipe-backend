@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { cnQuantityToArabic, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
 import { localizedName, needsChineseBase } from "../utils/recipeTranslations";
+import { isPendingForTranslation, nextTranslationState } from "../services/translationQueue";
 import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
 import { checkRecipeContent } from "../services/importQuality";
 
@@ -149,4 +150,23 @@ test("missing translations fall back to chinese on read", () => {
   assert.equal(localizedName(undefined, "滷水雞翼"), "滷水雞翼");
   assert.equal(localizedName(null, "滷水雞翼"), "滷水雞翼");
   assert.equal(localizedName("Braised Chicken", "滷水雞翼"), "Braised Chicken");
+});
+
+test("translation failure marks pending and retries", () => {
+  assert.deepEqual(nextTranslationState(0, false), { status: "pending", attempts: 1 });
+  assert.deepEqual(nextTranslationState(3, false), { status: "pending", attempts: 4 });
+  assert.deepEqual(nextTranslationState(4, false), { status: "failed", attempts: 5 });
+  assert.deepEqual(nextTranslationState(2, true), { status: "ready", attempts: 0 });
+});
+
+test("sweep enqueues pending rows only", () => {
+  assert.equal(isPendingForTranslation("pending", 0), true);
+  assert.equal(isPendingForTranslation("pending", 4), true);
+  assert.equal(isPendingForTranslation("pending", 5), false);
+  assert.equal(isPendingForTranslation("ready", 0), false);
+  assert.equal(isPendingForTranslation("failed", 0), false);
+});
+
+test("ready rows are not re-enqueued", () => {
+  assert.equal(isPendingForTranslation("ready", 0), false);
 });
