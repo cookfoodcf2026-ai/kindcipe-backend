@@ -25,6 +25,7 @@ import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonL
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
 import { checkRecipeContent } from "../services/importQuality";
+import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
 import { assertUsageAvailable, commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
@@ -1876,7 +1877,7 @@ async function recipeFromJsonLd(jl: any, thumbnail: string): Promise<any | null>
   }
 }
 
-async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThumbnail?: string, clientCaption?: string): Promise<{
+async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThumbnail?: string, clientCaption?: string, familyId?: number): Promise<{
   name: string;
   description: string;
   cookTime: number;
@@ -1893,6 +1894,10 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   const sourceType = detectSourceType(url);
   // 匯入效能量度（睇 railway logs 搵瓶頸；唔含 PII）
   const __t0 = Date.now();
+  let fetchDoneAt = __t0;
+  let parseDoneAt = __t0;
+  let classifyDoneAt = __t0;
+  let translateDoneAt = __t0;
   const __stage = (s: string) => console.log(`[parseUrl] ${s} +${Date.now() - __t0}ms`);
   __stage("start");
 
@@ -1942,6 +1947,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
 
   const { text: fetchedContent, thumbnail: fetchedThumbnail } = await fetchPageContent(url);
   __stage("fetchPageContent done");
+  fetchDoneAt = Date.now();
   // Path A：若手機分享帶嚟 caption，優先/合併使用（Threads/TikTok/小紅書 後端爬唔到時靠佢）
   const clientCaptionText = String(clientCaption ?? "").trim();
   const pageContent = clientCaptionText.length > fetchedContent.length
@@ -1970,6 +1976,37 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     }
   }
 
+  const emitUrlTelemetry = (parsed: any, stepsSource: ImportStepsSource = "none") => {
+    const ingredients = Array.isArray(parsed?.ingredients) ? parsed.ingredients : [];
+    const steps = Array.isArray(parsed?.steps) ? parsed.steps : [];
+    const stepCount = steps.filter((step: any) => String(typeof step === "string" ? step : step?.instruction ?? "").trim()).length;
+    const ingredientCount = ingredients.filter((ingredient: any) => String(ingredient?.name ?? "").trim()).length;
+    emitImportParseEvent({
+      source: importTelemetrySource(sourceType),
+      result: classifyImportParseResult({
+        parseReason: parsed?.parseReason,
+        ingredientCount,
+        stepCount,
+        source: importTelemetrySource(sourceType),
+        pageContentChars: pageContent.length,
+        hasCaption: clientCaptionText.length > 0,
+      }),
+      hasCaption: clientCaptionText.length > 0,
+      captionChars: clientCaptionText.length,
+      hasIngredients: ingredientCount > 0,
+      ingredientCount,
+      stepCount,
+      stepsSource,
+      stageMs: {
+        fetch: fetchDoneAt - __t0,
+        parse: parseDoneAt - fetchDoneAt,
+        translate: translateDoneAt - classifyDoneAt,
+        classify: classifyDoneAt - parseDoneAt,
+      },
+      familyId,
+    });
+  };
+
   // 縮圖候選：手機拎到（clientThumbnail，住宅 IP 最可靠）優先，其次 oEmbed/embed、/media、page
   const thumbCandidates: string[] = [];
   if (clientThumbnail) thumbCandidates.push(clientThumbnail);
@@ -1997,6 +2034,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
         const fromJsonLd = await recipeFromJsonLd(jl, effectiveThumbnail);
         if (fromJsonLd) {
           console.log(`[parseRecipeFromUrl] JSON-LD path ok (${candidate})`);
+          emitUrlTelemetry(fromJsonLd, "none");
           cacheParseUrl(__cacheKey, fromJsonLd);
           return fromJsonLd;
         }
@@ -2016,7 +2054,7 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
   // If we have text but NO recipe keywords AND no thumbnail to try Vision → return early
   // Note: For Instagram, if we have clientThumbnail (from oEmbed), continue to AI parsing even without keywords
   if (hasRealContent && !hasRecipeKeywords && (sourceType === "instagram" || sourceType === "facebook") && !effectiveThumbnail) {
-    return {
+    const noContentResult = {
       name: "帖子沒有食譜內容",
       description: `這個 Instagram 帖子只有分享文字，沒有食材清單或烹飪步驟。請嘗試：\n1. 複製帖子文字，使用「貼上文字」功能\n2. 手動新增食譜`,
       cookTime: 0,
@@ -2030,6 +2068,8 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
       thumbnailUrl: effectiveThumbnail || "",
       parseReason: "no_recipe_content" as const,
     };
+    emitUrlTelemetry(noContentResult, "none");
+    return noContentResult;
   }
 
   let systemPrompt = `你是一個專業的食譜解析助手。從提供的內容中提取完整的食譜資訊並以 JSON 格式回傳。
@@ -2199,6 +2239,7 @@ ${TAGS_RULE}`;
 
   const rawContent = response.choices[0]?.message?.content;
   __stage("llm parse done");
+  parseDoneAt = Date.now();
   const parsedContent = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!parsedContent) throw new Error("AI returned empty response");
   console.log(`[parseUrl] llmRawLen=${parsedContent.length} jsonClosed=${parsedContent.trim().endsWith("}")}`);
@@ -2271,6 +2312,7 @@ ${TAGS_RULE}`;
     if (classified) dish = classified;
   }
   __stage("classify done");
+  classifyDoneAt = Date.now();
   result.dishType = guardDishTypeByName(result.name || "", dish || "other");
   // 標籤保底：確保至少有菜系 / 菜式類型 / 家常菜，避免匯入後標籤空白
   try {
@@ -2312,6 +2354,8 @@ ${TAGS_RULE}`;
   }
   console.log(`[parseUrl] reason=${result.parseReason} name=${String(result.name || "").slice(0, 40)} ingredients=${result.ingredients?.length ?? 0} steps=${result.steps?.length ?? 0}`);
   const __out = await ensureParseTranslations(result);
+  translateDoneAt = Date.now();
+  emitUrlTelemetry(__out, stepsSource);
   cacheParseUrl(__cacheKey, __out);
   return __out;
 }
@@ -2416,7 +2460,20 @@ export const recipesRouter = router({
       await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
       startRecipeImportMeter(ctx.activeFamilyId, String(ctx.user.id));
       
-      const parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption);
+      let parsed: any;
+      const parseStartedAt = Date.now();
+      try {
+        parsed = await parseRecipeFromUrl(input.url, input.language, input.clientThumbnail, input.clientCaption, ctx.activeFamilyId);
+      } catch (error) {
+        const source = importTelemetrySource(detectSourceType(input.url));
+        emitImportParseEvent({
+          source, result: classifyImportParseResult({ source, ingredientCount: 0, stepCount: 0, error }),
+          hasCaption: Boolean(input.clientCaption), captionChars: String(input.clientCaption ?? "").length,
+          hasIngredients: false, ingredientCount: 0, stepCount: 0, stepsSource: "none",
+          stageMs: { fetch: 0, parse: Date.now() - parseStartedAt, translate: 0, classify: 0 }, familyId: ctx.activeFamilyId,
+        });
+        throw error;
+      }
       // 配額改為喺 importUser（真正儲存）先扣，避免「解析扣咗但存唔到」嘅 off-by-one。
       return {
         ...parsed,
@@ -2437,14 +2494,33 @@ export const recipesRouter = router({
       await assertImportAvailable(ctx.activeFamilyId, String(ctx.user.id));
       startRecipeImportMeter(ctx.activeFamilyId, String(ctx.user.id));
       
-      const parsed = await parseTextToRecipe(input.text, input.language);
-      // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
-      return {
+      const parseStartedAt = Date.now();
+      let parsed: any;
+      try {
+        parsed = await parseTextToRecipe(input.text, input.language);
+      } catch (error) {
+        emitImportParseEvent({
+          source: "text", result: classifyImportParseResult({ source: "text", ingredientCount: 0, stepCount: 0, error }),
+          hasCaption: true, captionChars: input.text.length, hasIngredients: false, ingredientCount: 0, stepCount: 0, stepsSource: "none",
+          stageMs: { fetch: 0, parse: Date.now() - parseStartedAt, translate: 0, classify: 0 }, familyId: ctx.activeFamilyId,
+        });
+        throw error;
+      }
+      const parsedResult = {
         ...parsed,
         sourceUrl: "",
         sourceType: "import" as const,
         sourceUrlHash: "",
       };
+      const ingredientCount = Array.isArray(parsedResult.ingredients) ? parsedResult.ingredients.length : 0;
+      const stepCount = Array.isArray(parsedResult.steps) ? parsedResult.steps.length : 0;
+      emitImportParseEvent({
+        source: "text", result: classifyImportParseResult({ parseReason: parsedResult.parseReason, ingredientCount, stepCount, source: "text" }),
+        hasCaption: true, captionChars: input.text.length, hasIngredients: ingredientCount > 0, ingredientCount, stepCount,
+        stepsSource: stepCount > 0 ? "llm" : "none",
+        stageMs: { fetch: 0, parse: Date.now() - parseStartedAt, translate: 0, classify: 0 }, familyId: ctx.activeFamilyId,
+      });
+      return parsedResult;
     }),
 
   // ── Upload recipe screenshot (returns storage URL for Vision AI) ────────────
@@ -2499,6 +2575,7 @@ export const recipesRouter = router({
       storageKeys: z.array(z.string()).max(5).optional(), // 多張截圖（caption + 留言）
     }))
     .mutation(async ({ ctx, input }) => {
+      const parseImageStartedAt = Date.now();
       // 🛑 Quota check BEFORE calling LLM
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
@@ -2687,13 +2764,22 @@ ${TAGS_RULE}`;
       // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
       await ensureParseTranslations(result);
 
-      return {
+      const parsedResult = {
         ...result,
         parseReason,
         sourceUrl: "",
         sourceType: "import" as const,
         sourceUrlHash: "",
       };
+      const ingredientCount = Array.isArray(parsedResult.ingredients) ? parsedResult.ingredients.length : 0;
+      const stepCount = Array.isArray(parsedResult.steps) ? parsedResult.steps.length : 0;
+      emitImportParseEvent({
+        source: "image", result: classifyImportParseResult({ parseReason, ingredientCount, stepCount, source: "image" }),
+        hasCaption: false, captionChars: 0, hasIngredients: ingredientCount > 0, ingredientCount, stepCount,
+        stepsSource: stepCount > 0 ? "llm" : "none",
+        stageMs: { fetch: 0, parse: Date.now() - parseImageStartedAt, translate: 0, classify: 0 }, familyId: ctx.activeFamilyId,
+      });
+      return parsedResult;
     }),
 
   // ── Check duplicate (by URL hash or name similarity) ──────────────────────

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cnQuantityToArabic, extractStepsFromDescription, guardServings, normalizeIngredientAmount } from "./recipes";
+import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
 import { checkRecipeContent } from "../services/importQuality";
 
 // 真實案例（FB reel 1138268891981753，2026-10-28 匯入）：model 把中文單位同中文數字
@@ -96,4 +97,30 @@ test("youtube description steps are parsed deterministically", () => {
   assert.match(steps[0], /蝦去殼/);
   assert.doesNotMatch(steps.join(" "), /0:00|#recipe|example\.com|@chef/);
   assert.deepEqual(extractStepsFromDescription("材料：\n蝦 8隻\n薯仔 2個。"), []);
+});
+
+test("import_parse event is emitted with result and counts", () => {
+  const event = buildImportParseEvent({
+    source: "instagram",
+    result: classifyImportParseResult({ parseReason: "ok", ingredientCount: 3, stepCount: 0, source: "instagram" }),
+    hasCaption: true,
+    captionChars: 120,
+    hasIngredients: true,
+    ingredientCount: 3,
+    stepCount: 0,
+    stepsSource: "none",
+    stageMs: { fetch: 40, parse: 200, translate: 30, classify: 10 },
+    familyId: 13,
+  });
+  assert.equal(event.event, "import_parse");
+  assert.equal(event.source, "instagram");
+  assert.equal(event.result, "partial");
+  assert.equal(event.hasCaption, true);
+  assert.equal(event.captionChars, 120);
+  assert.equal(event.hasIngredients, true);
+  assert.equal(event.ingredientCount, 3);
+  assert.equal(event.stepCount, 0);
+  assert.equal(event.stepsSource, "none");
+  assert.deepEqual(event.stageMs, { fetch: 40, parse: 200, translate: 30, classify: 10 });
+  assert.equal(event.familyId, 13);
 });
