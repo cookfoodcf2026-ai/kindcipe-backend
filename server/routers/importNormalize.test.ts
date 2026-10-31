@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { cnQuantityToArabic, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
+import { cnQuantityToArabic, extractJapaneseIngredients, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
 import { buildTranslationPatch, isRowComplete, localizedName, needsChineseBase, translationSourceChanged, translationSourceFlags } from "../utils/recipeTranslations";
 import { endSweep, isPendingForTranslation, nextTranslationState, translationMeterContext, tryBeginSweep } from "../services/translationQueue";
 import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
@@ -224,4 +225,26 @@ test("editing only translation fields does not reset status", () => {
 
 test("ingredients change re-queues translation", () => {
   assert.equal(translationSourceChanged({ ingredients: JSON.stringify([{ name: "雞翼" }]) }, { ingredients: JSON.stringify([{ name: "豆腐" }]) }), true);
+});
+
+test("japanese caption steps are extracted deterministically", () => {
+  const caption = readFileSync(new URL("../fixtures/import/facebook/19ea5Ngbey/caption.txt", import.meta.url), "utf8");
+  const steps = extractStepsFromDescription(caption);
+  assert.equal(steps.length, 5);
+  assert.ok(steps.every((step) => step.length >= 8));
+  assert.match(steps[0], /ごま油/);
+  assert.match(steps[4], /完成/);
+});
+
+test("japanese ingredient lines map to chinese names", () => {
+  const caption = readFileSync(new URL("../fixtures/import/facebook/19ea5Ngbey/caption.txt", import.meta.url), "utf8");
+  assert.deepEqual(extractJapaneseIngredients(caption), ["雞腿肉", "黑胡椒", "檸檬汁", "芝麻油", "味醂", "蔥", "鹽"]);
+});
+
+test("non-japanese caption is unaffected", () => {
+  const english = "Directions:\n1. Heat the pan and add oil.\n2. Fry chicken until golden.";
+  const steps = extractStepsFromDescription(english);
+  assert.equal(steps.length, 2);
+  assert.match(steps[0], /Heat the pan/);
+  assert.deepEqual(extractJapaneseIngredients(english), []);
 });

@@ -1,0 +1,8 @@
+{
+  "name": "檸檬胡椒雞",
+  "ingredientCount": 7,
+  "stepCount": 5,
+  "stepsSource": "description",
+  "dishType": "meat",
+  "note": "steps extracted deterministically from Japanese caption"
+}

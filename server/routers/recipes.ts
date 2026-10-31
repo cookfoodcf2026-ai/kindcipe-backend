@@ -1151,9 +1151,53 @@ function cleanStepLine(raw: string): string {
     .replace(/#[\p{L}\p{N}_]+/gu, " ")
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/@[\w._-]+/g, " ")
+    .replace(/\|.*$/g, " ")
+    .replace(/[＊*]/g, " ")
+    .replace(/-{3,}/g, " ")
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, " ")
     .replace(/^\s*(?:\d+[.)、]|[①-⑳]|[-•*])\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const JA_INGREDIENT_MAP: Array<[RegExp, string]> = [
+  [/鶏もも肉|鶏腿肉|鶏肉|チキン/i, "雞腿肉"],
+  [/ブラックペッパー|黒胡椒|黑胡椒/i, "黑胡椒"],
+  [/レモン汁|レモン/i, "檸檬汁"],
+  [/ごま油|胡麻油/i, "芝麻油"],
+  [/味醂|みりん/i, "味醂"],
+  [/ネギ|ねぎ|葱/i, "蔥"],
+  [/塩|しお/i, "鹽"],
+];
+
+export function extractJapaneseIngredients(text: string): string[] {
+  const raw = String(text ?? "");
+  const found: string[] = [];
+  for (const [pattern, name] of JA_INGREDIENT_MAP) {
+    if (pattern.test(raw) && !found.includes(name)) found.push(name);
+  }
+  return found;
+}
+
+function extractJapaneseSteps(raw: string): string[] {
+  const lines = raw.replace(/\r\n?/g, "\n").split("\n");
+  const steps: string[] = [];
+  let started = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!started) {
+      if (!/^→/.test(trimmed)) continue;
+      started = true;
+    }
+    if (!trimmed) break;
+    if (/^(?:調味料|材料|---|#|@)/.test(trimmed)) break;
+    const isArrow = /^→/.test(trimmed);
+    const isIndented = /^[　\s]/.test(line) && !/^[⚪︎・〇●＊]/.test(trimmed);
+    if (!isArrow && !isIndented) break;
+    const step = cleanStepLine(trimmed.replace(/^→\s*/, ""));
+    if (step.length >= 8 && !steps.includes(step)) steps.push(step);
+  }
+  return steps.length >= 2 ? steps : [];
 }
 
 const STEP_VERB_RE = /煎|炒|煮|蒸|焗|炸|燉|炆|煲|撈|浸|打|刨|削|剁|爆|烤|燴|滾|沖|瀝|盛|拌|攪|鋪|蓋|倒|加|切|洗|醃|mix|stir|fry|boil|bake|steam|simmer|heat|add|cut|wash|season/i;
@@ -1163,6 +1207,8 @@ const STEP_PROMO_RE = /訂閱|關注|按讚|讚好|優惠|折扣|連結|網址|�
 /** Deterministic steps from a description/caption. Returns [] unless >=2 valid steps. */
 export function extractStepsFromDescription(text: string): string[] {
   const raw = String(text ?? "").replace(/\r\n?/g, "\n");
+  const japaneseSteps = extractJapaneseSteps(raw);
+  if (japaneseSteps.length >= 2) return japaneseSteps.slice(0, 20);
   const header = /(?:^|\n)[^\p{L}\p{N}]{0,12}(?:做法|步驟|煮法|instructions?|method|directions?|วิธีทำ|cara membuat)\s*[:：]?\s*/iu.exec(raw);
   if (!header) return [];
   const after = raw.slice((header.index ?? 0) + header[0].length);
@@ -2001,11 +2047,11 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     : "";
   let deterministicSteps: string[] = [];
   let stepsSource: "description" | "transcript" | "llm" | "none" = "none";
-  if (youtubeVideoId) {
+  if (youtubeVideoId || sourceType === "facebook") {
     deterministicSteps = extractStepsFromDescription(pageContent);
     if (deterministicSteps.length >= 2) {
       stepsSource = "description";
-    } else {
+    } else if (youtubeVideoId) {
       const transcript = await fetchYouTubeTranscript(youtubeVideoId);
       const transcriptSteps = extractStepsFromTranscript(transcript);
       if (transcriptSteps.length >= 2) {
