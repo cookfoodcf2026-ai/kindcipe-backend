@@ -97,6 +97,33 @@ export function hashChefPayload(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
 
+function quickReplyLabel(actionId: ChefReply["quickReplies"][number]["actionId"], lang: string): string {
+  const zh: Record<string, string> = {
+    complete_cards: "補齊卡數",
+    swap_cards: "換一批",
+    accept_partial: "接受現有",
+    restart: "重新開始",
+    closest_library: "最接近食譜",
+    ai_generate: "AI 生成",
+    retry_search: "再搜尋",
+    retry_later: "遲啲再試",
+    import_recipe: "匯入食譜",
+  };
+  const en: Record<string, string> = {
+    complete_cards: "Complete set",
+    swap_cards: "Swap cards",
+    accept_partial: "Keep these",
+    restart: "Start over",
+    closest_library: "Closest recipes",
+    ai_generate: "Generate with AI",
+    retry_search: "Search again",
+    retry_later: "Try later",
+    import_recipe: "Import a recipe",
+  };
+  if (/^(?:en|fil|id)/i.test(lang)) return en[actionId] ?? en.ai_generate;
+  return zh[actionId] ?? zh.ai_generate;
+}
+
 function statusFor(
   intent: ChefIntent,
   recipes: ChefRecipeLike[],
@@ -228,6 +255,10 @@ export function buildChefReply(params: {
             { actionId: "restart" as const, labelKey: "aiChef.quickRestart" },
           ]
         : [];
+  const quickRepliesWithLabels = quickReplies.map((reply) => ({
+    ...reply,
+    label: quickReplyLabel(reply.actionId, lang),
+  }));
 
   return {
     requestId,
@@ -242,7 +273,7 @@ export function buildChefReply(params: {
     served,
     missingRoles,
     sources,
-    quickReplies,
+    quickReplies: quickRepliesWithLabels,
   };
 }
 

@@ -2649,6 +2649,17 @@ function parseMealIntent(messages: Message[]): { isMeal: boolean; dishCount: num
 }
 
 // 由 prompt/文字抽「幾多人食」（適合 N 人食用 / N 人份）→ 用作卡片 servings 覆蓋
+function mealShapeFromIntent(intent: ChefIntent): { dishCount: number; soupCount: number; total: number } | null {
+  if (intent.requested.total <= 1) return null;
+  const soupCount = intent.requested.roles.filter((role) => role === "soup").length;
+  if (soupCount <= 0) return null;
+  return { dishCount: Math.max(0, intent.requested.total - soupCount), soupCount, total: intent.requested.total };
+}
+
+function logMealShapeShortfall(need: number, got: number): void {
+  if (need !== got) console.log(`[AI Chef] meal_shape_shortfall need=${need} got=${got}`);
+}
+
 function extractPeopleCount(text: string): number | null {
   const cn: Record<string, number> = { 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
   const m = text.match(/([\d一二兩三四五六七八九十]+)\s*(?:人份|人食用|人食|人)/);
@@ -3587,6 +3598,7 @@ export async function processAIChefChat(
     previousTexts,
     previousMeal: storedMeal,
   });
+  console.log(`[AI Chef] intent reason=${chefIntent.reason} kind=${chefIntent.kind} total=${chefIntent.requested.total} roles=${chefIntent.requested.roles.join(",") || "none"}`);
   let requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
   let forceNoCards = hasImage || !chefIntent.wantsCards;
   let isPlain = !chefIntent.wantsCards;
@@ -3808,8 +3820,11 @@ export async function processAIChefChat(
   // Dispatcher path: free-text chat is understood by the model first; this
   // replaces the old per-sentence rule path for normal conversation.
   const hasDispatcherKey = Boolean(process.env.DASHSCOPE_API_KEY || process.env.GEMINI_API_KEY);
+  const explicitDishRequest = chefIntent.reason === "explicit_food_request"
+    && (historyHasMealShape || plannedTurn?.followUp === true);
   const dispatcherEnabled = !plannedTurn && mode === "chat"
     && Boolean(db)
+    && !explicitDishRequest
     && allowChatLlm
     && (hasDispatcherKey || Boolean(dispatchOverride))
     && !hasImage
@@ -4416,6 +4431,28 @@ export async function processAIChefChat(
     if (roleSearchFailed) {
       return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
     }
+    const requestedShape = mealShapeFromIntent(chefIntent);
+    if (requestedShape && assembled.cards.length !== requestedShape.total) {
+      const fallbackSearch = await trySearch("", 1000);
+      const fallbackRows = fallbackSearch.ok ? fallbackSearch.rows : [];
+      const filled = pickSoupMeal(fallbackRows, excludeSets, requestedShape.dishCount, requestedShape.soupCount, search?.scenario, seenSplit.seen7d);
+      if (filled.length === requestedShape.total) {
+        assembled.cards = filled;
+        assembled.served = filled.length;
+        assembled.missingRoles = [];
+        console.log(`[AI Chef] meal_shape_relaxed need=${requestedShape.total} got=${filled.length} source=library_pool`);
+      } else {
+        logMealShapeShortfall(requestedShape.total, filled.length);
+        return {
+          content: aiReply(lang, "cantRecommend"),
+          recipes: [],
+          llmUsed,
+          missingRoles: requested.roles,
+          clarifyReason: "library_miss",
+          intentOverride: chefIntent,
+        };
+      }
+    }
     if (assembled.cards.length > 0) {
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0
@@ -4544,10 +4581,18 @@ export async function processAIChefChat(
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
         const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
+        if (all.length !== totalWanted) {
+          logMealShapeShortfall(totalWanted, all.length);
+          return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss" };
+        }
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
         return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
       }
       const dishSetLabel = dishLabel(libCount.dishCount, libCount.soupCount, lang);
+      if (libPicked.length !== totalWanted) {
+        logMealShapeShortfall(totalWanted, libPicked.length);
+        return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss" };
+      }
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
       return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: applyServings(libPicked), llmUsed };
     }
@@ -4702,7 +4747,7 @@ export async function processAIChefChat(
         rows.push(...fallbackSearch.rows);
       }
     }
-    const specificDish = !!keyword && foodItemType(keyword) === "dish" && findFoodTerm(keyword) === keyword;
+    const specificDish = !!keyword && chefIntent.reason === "explicit_food_request" && isSpecificFoodTerm(keyword);
     if (!genericMealRequest && specificDish && rows.length === 0) {
       console.log(`[AI Chef] library miss single item="${keyword}" -> clarify (no LLM)`);
       return {
@@ -5252,6 +5297,21 @@ export async function processAIChefChat(
     content = lang.startsWith("en")
       ? `I found ${recipes.length} recipe(s), but could not complete the requested ${totalWanted}.`
       : `我只搵到 ${recipes.length} 道食譜，未能完成你要求嘅 ${totalWanted} 道。`;
+  }
+
+  const finalMealShape = mealShapeFromIntent(chefIntent);
+  if (!forceNoCards && finalMealShape && recipes.length !== finalMealShape.total) {
+    const fallbackSearch = await trySearch("", 1000);
+    const fallbackRows = fallbackSearch.ok ? fallbackSearch.rows : [];
+    const filled = pickSoupMeal(fallbackRows, excludeSets, finalMealShape.dishCount, finalMealShape.soupCount, search?.scenario, seenSplit.seen7d);
+    if (filled.length === finalMealShape.total) {
+      recipes = filled;
+      content = aiReply(lang, "libMealSet", { dish: dishLabel(finalMealShape.dishCount, finalMealShape.soupCount, lang) });
+      console.log(`[AI Chef] meal_shape_relaxed need=${finalMealShape.total} got=${filled.length} source=library_pool`);
+    } else {
+      logMealShapeShortfall(finalMealShape.total, filled.length);
+      return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss", missingRoles: chefIntent.requested.roles };
+    }
   }
 
   if (recipes.length > 0) {

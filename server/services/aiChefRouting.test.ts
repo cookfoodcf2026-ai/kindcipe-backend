@@ -981,3 +981,121 @@ test("fixed library-miss copy has three exits in four languages", () => {
     assert.match(text, /AI/i);
   }
 });
+
+test("chinese numeral meal shape yields four cards", async () => {
+  const row = (id: number, name: string, dishType: string) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 30,
+    servings: 4,
+    ingredients: [{ name: "食材", quantity: "1", unit: "份" }, { name: "配料", quantity: "1", unit: "份" }],
+    steps: ["1", "2"],
+    tags: [],
+  });
+  const pool = [
+    row(1, "豉汁蒸排骨", "meat"),
+    row(2, "香煎雞扒", "meat"),
+    row(3, "清蒸鱸魚", "seafood"),
+    row(4, "蒜蓉炒菜心", "vegetable"),
+    row(5, "番茄炒蛋", "vegetable"),
+    row(6, "老火例湯", "soup"),
+    row(7, "番茄薯仔湯", "soup"),
+  ];
+  for (const [index, text] of ["3餸1湯", "我要三餸一湯 4個人", "三餸一湯", "今晚三餸一湯"].entries()) {
+    const result = await processAIChefChat(
+      [{ role: "user", content: text }],
+      930000 + index, undefined, "library",
+      [], undefined, "zh-TW", [], false, {},
+      "replace", false, false,
+      async () => pool,
+    );
+    assert.equal(result.recipes.length, 4, `${text} served=${result.recipes.length}`);
+    assert.equal(result.recipes.filter((recipe) => recipe.dishType === "soup").length, 1, text);
+  }
+});
+
+test("meal shape invariant holds under narrow filters", async () => {
+  const row = (id: number, name: string, dishType: string, ingredients: string[], scenarioTags: string[] = []) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 30,
+    servings: 4,
+    ingredients: ingredients.map((name) => ({ name, quantity: "1", unit: "份" })),
+    steps: ["1", "2"],
+    tags: [],
+    scenarioTags,
+  });
+  const pool = [
+    row(1, "香煎雞扒", "meat", ["雞扒"]),
+    row(2, "豉汁蒸排骨", "meat", ["排骨"]),
+    row(3, "清蒸鱸魚", "seafood", ["鱸魚"]),
+    row(4, "蒜蓉炒菜心", "vegetable", ["菜心"]),
+    row(5, "番茄炒蛋", "vegetable", ["番茄", "蛋"]),
+    row(6, "老火例湯", "soup", ["豬骨"]),
+    row(7, "番茄薯仔湯", "soup", ["番茄", "薯仔"]),
+    row(8, "牛肉煲", "meat", ["牛肉"]),
+  ];
+  const result = await processAIChefChat(
+    [{ role: "user", content: "三餸一湯" }],
+    930100, undefined, "library",
+    [], { scenario: "quick" }, "zh-TW", ["牛"], false, {},
+    "replace", false, false,
+    async () => pool,
+  );
+  assert.equal(result.recipes.length, 4);
+  assert.equal(result.recipes.filter((recipe) => recipe.dishType === "soup").length, 1);
+  assert.ok(result.recipes.every((recipe) => !recipe.ingredients.some((ingredient) => /牛/.test(ingredient.name))));
+});
+
+test("explicit dish request with context still returns cards", async () => {
+  const row = {
+    id: 1,
+    name: "香煎雞扒",
+    source: "official",
+    dishType: "meat",
+    cookTime: 20,
+    servings: 4,
+    ingredients: [{ name: "雞扒", quantity: "2", unit: "塊" }, { name: "鹽", quantity: "1", unit: "茶匙" }],
+    steps: ["1", "2"],
+    tags: [],
+  };
+  const intent = resolveChefIntent("我要雞扒", { mode: "chat", previousUserText: "三餸一湯" });
+  assert.equal(intent.reason, "explicit_food_request");
+  const result = await processAIChefChat(
+    [
+      { role: "user", content: "三餸一湯" },
+      { role: "assistant", content: "以下係你嘅三餸一湯。" },
+      { role: "user", content: "我要雞扒" },
+    ],
+    930200, undefined, "chat",
+    ["香煎雞扒"], undefined, "zh-TW", [], false, {},
+    "replace", false, false,
+    async () => [row],
+  );
+  assert.equal(result.recipes.length, 1);
+  assert.equal(result.recipes[0].name, "香煎雞扒");
+});
+
+test("explicit dish request miss returns three exits not a question", async () => {
+  const intent = resolveChefIntent("我要雞扒", { mode: "chat", previousUserText: "三餸一湯" });
+  const result = await processAIChefChat(
+    [
+      { role: "user", content: "三餸一湯" },
+      { role: "user", content: "我要雞扒" },
+    ],
+    930300, undefined, "chat",
+    [], undefined, "zh-TW", [], false, {},
+    "replace", false, false,
+    async () => [],
+  );
+  assert.equal(result.recipes.length, 0);
+  assert.equal(result.clarifyReason, "library_miss");
+  const reply = buildChefReply({ requestId: "req_explicit_miss", intent, result, lang: "zh-TW" });
+  assert.deepEqual(reply.quickReplies.map((q) => q.actionId), ["import_recipe", "closest_library", "ai_generate"]);
+  assert.ok(reply.quickReplies.every((q) => q.label && q.label !== q.labelKey));
+  assert.doesNotMatch(reply.replyText, /你想我幫你搵或煮邊款/);
+});

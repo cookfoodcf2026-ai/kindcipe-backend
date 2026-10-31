@@ -57,6 +57,7 @@ export interface ChefCardSnapshot {
 export interface ChefQuickReply {
   actionId: ChefActionId;
   labelKey: string;
+  label: string;
 }
 
 export interface ChefReply {
