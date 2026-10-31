@@ -20,11 +20,12 @@ import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from ".
 import { computeScenarioTags, serializeUserScenarioTags } from "../utils/scenario";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
-import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
+import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, localizedName } from "../utils/recipeTranslations";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
 import { checkRecipeContent } from "../services/importQuality";
+import { enqueueRecipeTranslation } from "../services/translationQueue";
 import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
@@ -1077,7 +1078,7 @@ ${TAGS_RULE}`;
   result.parseReason = (result.name === "無法解析" || result.name === "需要手動輸入" || !hasContent)
     ? "no_recipe_content"
     : "ok";
-  return await ensureParseTranslations(result);
+  return await ensureChineseBase(result, userLanguage);
 }
 
 // ─── Ingredient / Step schemas ────────────────────────────────────────────────
@@ -1781,6 +1782,30 @@ async function ensureParseTranslations(result: any): Promise<any> {
   return result;
 }
 
+export function markTranslationPending(result: any): any {
+  result.translationStatus = "pending";
+  return result;
+}
+
+async function ensureChineseBase(result: any, srcLang?: string): Promise<any> {
+  if (!result || !String(result.name ?? "").trim()) return markTranslationPending(result);
+  const name = String(result.name ?? "").trim();
+  if (result.name === "無法解析" || result.name === "需要手動輸入") return markTranslationPending(result);
+  if (hasHan(name)) return markTranslationPending(result);
+  const stepTexts = (Array.isArray(result.steps) ? result.steps : [])
+    .map((s: any) => (typeof s === "string" ? s : String(s?.instruction ?? ""))).filter(Boolean);
+  const ingredients = Array.isArray(result.ingredients) ? result.ingredients : [];
+  const ingredientNames = ingredients.map((i: any) => String(i?.name ?? "").trim()).filter(Boolean);
+  const zh = await translateToChinese(name, stepTexts, result.description ?? undefined, ingredientNames, srcLang ?? "en");
+  if (zh.name) result.name = zh.name;
+  if (zh.description) result.description = zh.description;
+  if (zh.steps && zh.steps.length === stepTexts.length) result.steps = zh.steps;
+  if (zh.ingredientNames && zh.ingredientNames.length === ingredients.length) {
+    result.ingredients = ingredients.map((i: any, idx: number) => ({ ...i, name: zh.ingredientNames![idx] || String(i?.name ?? "") }));
+  }
+  return markTranslationPending(result);
+}
+
 /** Fetch raw HTML (for JSON-LD extraction), SSRF-guarded + size-capped. */
 async function fetchRawHtml(url: string): Promise<string> {
   try {
@@ -2353,8 +2378,9 @@ ${TAGS_RULE}`;
     result.parseReason = "ok";
   }
   console.log(`[parseUrl] reason=${result.parseReason} name=${String(result.name || "").slice(0, 40)} ingredients=${result.ingredients?.length ?? 0} steps=${result.steps?.length ?? 0}`);
-  const __out = await ensureParseTranslations(result);
+  const __out = await ensureChineseBase(result, userLanguage);
   translateDoneAt = Date.now();
+  console.log("[import] translate=deferred");
   emitUrlTelemetry(__out, stepsSource);
   cacheParseUrl(__cacheKey, __out);
   return __out;
@@ -2762,7 +2788,8 @@ ${TAGS_RULE}`;
         : "ok" as const;
 
       // 配額改為喺 importUser 先扣（同 parseUrl 一致）。
-      await ensureParseTranslations(result);
+      await ensureChineseBase(result, "zh-TW");
+      console.log("[import] translate=deferred");
 
       const parsedResult = {
         ...result,
@@ -3809,39 +3836,15 @@ ${TAGS_RULE}`;
         throw new TRPCError({ code: "BAD_REQUEST", message: "請輸入食譜名稱。" });
       }
 
-      // 速度：只有「4 語言齊全」先跳過翻譯；否則由作者語言 buildAllLangs 補齊（保證中文 base + en/fil/id）
-      const hasAll =
-        !!input.nameEn && !!input.nameFil && !!input.nameId &&
-        (!!input.stepsEn && input.stepsEn.length > 0) &&
-        (!!input.stepsFil && input.stepsFil.length > 0) &&
-        (!!input.stepsId && input.stepsId.length > 0);
-
-      let baseName = input.name;
-      let baseDesc = input.description ?? "";
-      let baseSteps: any[] = input.steps;
-      let baseIngredients: any[] = input.ingredients;
-      let _tr: any;
-      if (hasAll) {
-        _tr = {
-          nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
-          descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
-          stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
-        };
-      } else {
-        // Degrade gracefully: if translation fails, still save the canonical base
-        // (missing locales are filled later by buildTranslationPatch on read).
-        try {
-          const built = await buildAllLangs({
-            name: input.name, description: input.description, steps: input.steps,
-            ingredients: input.ingredients, srcLang: input.inputLang,
-          });
-          baseName = built.name; baseDesc = built.description; baseSteps = built.steps; baseIngredients = built.ingredients;
-          _tr = built;
-        } catch (e) {
-          console.warn("[importUser] buildAllLangs failed; saving canonical base only:", (e as Error)?.message);
-          _tr = {};
-        }
-      }
+      const baseName = input.name;
+      const baseDesc = input.description ?? "";
+      const baseSteps: any[] = input.steps;
+      const baseIngredients: any[] = input.ingredients;
+      const _tr = {
+        nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
+        descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
+        stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
+      };
 
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
@@ -3867,7 +3870,7 @@ ${TAGS_RULE}`;
           tags: input.tags,
           category: input.recipeCategory,
         })),
-        ingredients: await withIngredientTranslations(baseIngredients),
+        ingredients: JSON.stringify(baseIngredients),
         steps: JSON.stringify(baseSteps),
         stepsEn: _tr.stepsEn ? JSON.stringify(_tr.stepsEn) : undefined,
         stepsFil: _tr.stepsFil ? JSON.stringify(_tr.stepsFil) : undefined,
@@ -3888,6 +3891,8 @@ ${TAGS_RULE}`;
       }).returning();
 
       if (reservationId) await commitUsage(reservationId);
+
+      enqueueRecipeTranslation(inserted.id, familyId);
 
       return { success: true, id: inserted.id };
       } catch (error) {
@@ -3922,6 +3927,9 @@ ${TAGS_RULE}`;
         .offset(input.offset);
       return rows.map((r: typeof customRecipes.$inferSelect) => ({
         ...r,
+        nameEn: localizedName(r.nameEn, r.name),
+        nameFil: localizedName(r.nameFil, r.name),
+        nameId: localizedName(r.nameId, r.name),
         ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
         steps: r.steps ? JSON.parse(r.steps) : [],
         stepsEn: r.stepsEn ? (() => { try { return JSON.parse(r.stepsEn!); } catch { return []; } })() : [],
@@ -4689,6 +4697,9 @@ ${TAGS_RULE}`;
       return {
         ...merged,
         id: `user_${r.id}`,
+        nameEn: localizedName(merged.nameEn, merged.name),
+        nameFil: localizedName(merged.nameFil, merged.name),
+        nameId: localizedName(merged.nameId, merged.name),
         visibility: r.visibility,
         ingredients: merged.ingredients ? JSON.parse(merged.ingredients) : [],
         steps: merged.steps ? JSON.parse(merged.steps) : [],

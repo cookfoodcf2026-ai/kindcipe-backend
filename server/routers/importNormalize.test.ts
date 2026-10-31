@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cnQuantityToArabic, extractStepsFromDescription, guardServings, normalizeIngredientAmount } from "./recipes";
+import { cnQuantityToArabic, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
+import { localizedName, needsChineseBase } from "../utils/recipeTranslations";
 import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
 import { checkRecipeContent } from "../services/importQuality";
 
@@ -123,4 +124,29 @@ test("import_parse event is emitted with result and counts", () => {
   assert.equal(event.stepsSource, "none");
   assert.deepEqual(event.stageMs, { fetch: 40, parse: 200, translate: 30, classify: 10 });
   assert.equal(event.familyId, 13);
+});
+
+test("parse returns zh recipe before translations", () => {
+  const result = markTranslationPending({
+    name: "滷水雞翼拼豆腐",
+    steps: ["處理雞翼 雞翼浸淡鹽水約 2 小時瀝乾"],
+    ingredients: [{ name: "雞中翼" }],
+  });
+  assert.equal(result.translationStatus, "pending");
+  assert.match(result.name, /滷水/);
+  assert.equal(result.nameEn, undefined);
+  assert.equal(result.nameFil, undefined);
+  assert.equal(result.nameId, undefined);
+});
+
+test("non-zh source still canonicalises to chinese first", () => {
+  assert.equal(needsChineseBase("Braised Chicken Wings"), true);
+  assert.equal(needsChineseBase("滷水雞翼"), false);
+  assert.equal(needsChineseBase(""), false);
+});
+
+test("missing translations fall back to chinese on read", () => {
+  assert.equal(localizedName(undefined, "滷水雞翼"), "滷水雞翼");
+  assert.equal(localizedName(null, "滷水雞翼"), "滷水雞翼");
+  assert.equal(localizedName("Braised Chicken", "滷水雞翼"), "Braised Chicken");
 });

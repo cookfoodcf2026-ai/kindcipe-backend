@@ -13,6 +13,19 @@
  */
 import { translateRecipeContent, translateIngredientNames } from "./translateContent";
 
+export function hasHan(text: string): boolean {
+  return /[\u4e00-\u9fff]/.test(String(text ?? ""));
+}
+
+export function needsChineseBase(text: string): boolean {
+  const value = String(text ?? "").trim();
+  return value.length > 0 && !hasHan(value);
+}
+
+export function localizedName(nameEn: string | null | undefined, name: string | null | undefined): string {
+  return String(nameEn ?? name ?? "").trim();
+}
+
 export type TranslatableRow = {
   name?: string | null;
   steps?: string | null;          // JSON string (array of strings/objects)
