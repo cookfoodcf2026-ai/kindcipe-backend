@@ -64,20 +64,35 @@ function parseArray(raw?: string | null): any[] {
   return Array.isArray(arr) ? arr : [];
 }
 
+export function translationSourceFlags(row: TranslatableRow): { hasName: boolean; hasSteps: boolean; hasDesc: boolean } {
+  return {
+    hasName: !!String(row.name ?? "").trim(),
+    hasSteps: parseSteps(row.steps).length > 0,
+    hasDesc: !!String(row.description ?? "").trim(),
+  };
+}
+
+export function isRowComplete(row: TranslatableRow): boolean {
+  const flags = translationSourceFlags(row);
+  if (flags.hasName && (!row.nameEn || !row.nameFil || !row.nameId)) return false;
+  if (flags.hasSteps && (!row.stepsEn || !row.stepsFil || !row.stepsId)) return false;
+  if (flags.hasDesc && (!row.descriptionEn || !row.descriptionFil || !row.descriptionId)) return false;
+  return true;
+}
+
 /**
  * Build a partial patch of missing translations. Returns {} when nothing is
  * missing (or when the LLM produces nothing). Never throws.
  */
 export async function buildTranslationPatch(row: TranslatableRow): Promise<Record<string, string>> {
   const patch: Record<string, string> = {};
-  const hasSourceName = !!String(row.name ?? "").trim();
+  const flags = translationSourceFlags(row);
   const stepsArr = parseSteps(row.steps);
   const ingredients = parseArray(row.ingredients);
 
-  const missingName = hasSourceName && (!row.nameEn || !row.nameFil || !row.nameId);
-  const missingSteps = stepsArr.length > 0 && (!row.stepsEn || !row.stepsFil || !row.stepsId);
-  const missingDesc = !!String(row.description ?? "").trim() &&
-    (!row.descriptionEn || !row.descriptionFil || !row.descriptionId);
+  const missingName = flags.hasName && (!row.nameEn || !row.nameFil || !row.nameId);
+  const missingSteps = flags.hasSteps && (!row.stepsEn || !row.stepsFil || !row.stepsId);
+  const missingDesc = flags.hasDesc && (!row.descriptionEn || !row.descriptionFil || !row.descriptionId);
 
   if (missingName || missingSteps || missingDesc) {
     const tr = await translateRecipeContent(

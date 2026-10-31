@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cnQuantityToArabic, extractStepsFromDescription, guardServings, markTranslationPending, normalizeIngredientAmount } from "./recipes";
-import { localizedName, needsChineseBase } from "../utils/recipeTranslations";
+import { buildTranslationPatch, isRowComplete, localizedName, needsChineseBase, translationSourceFlags } from "../utils/recipeTranslations";
 import { endSweep, isPendingForTranslation, nextTranslationState, translationMeterContext, tryBeginSweep } from "../services/translationQueue";
 import { buildImportParseEvent, classifyImportParseResult } from "../services/importTelemetry";
 import { checkRecipeContent } from "../services/importQuality";
@@ -193,4 +193,22 @@ test("concurrent sweeps do not duplicate work", () => {
   endSweep();
   assert.equal(tryBeginSweep(), true);
   endSweep();
+});
+
+test("row with empty steps is complete when names translated", () => {
+  assert.equal(isRowComplete({ name: "滷水雞翼", nameEn: "Braised", nameFil: "Braised", nameId: "Braised", steps: "[]" }), true);
+});
+
+test("row with steps still requires steps translations", () => {
+  assert.equal(isRowComplete({ name: "滷水雞翼", nameEn: "Braised", nameFil: "Braised", nameId: "Braised", steps: JSON.stringify(["處理雞翼"]) }), false);
+});
+
+test("patch and completeness share the same field requirements", async () => {
+  const emptySteps = { name: "滷水雞翼", nameEn: "Braised", nameFil: "Braised", nameId: "Braised", steps: "[]" };
+  assert.deepEqual(translationSourceFlags(emptySteps), { hasName: true, hasSteps: false, hasDesc: false });
+  assert.equal(isRowComplete(emptySteps), true);
+  assert.deepEqual(await buildTranslationPatch(emptySteps), {});
+  const withSteps = { ...emptySteps, steps: JSON.stringify(["處理雞翼"]) };
+  assert.equal(translationSourceFlags(withSteps).hasSteps, true);
+  assert.equal(isRowComplete(withSteps), false);
 });

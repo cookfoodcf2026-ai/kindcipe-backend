@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, lt } from "drizzle-orm";
 import { startLlmMeter } from "../_core/llm";
 import { getDb } from "../db";
-import { buildTranslationPatch } from "../utils/recipeTranslations";
+import { buildTranslationPatch, isRowComplete, translationSourceFlags } from "../utils/recipeTranslations";
 import { customRecipes } from "../../drizzle/schema";
 
 const MAX_ATTEMPTS = 5;
@@ -63,15 +63,17 @@ export function nextTranslationState(attempts: number, success: boolean): { stat
   return next >= MAX_ATTEMPTS ? { status: "failed", attempts: next } : { status: "pending", attempts: next };
 }
 
-function isRowComplete(row: any): boolean {
-  return Boolean(row?.nameEn && row.nameFil && row.nameId && row.stepsEn && row.stepsFil && row.stepsId);
-}
-
 async function translateOne(id: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
   const [row] = await db.select().from(customRecipes).where(eq(customRecipes.id, id)).limit(1);
   if (!row) return;
+  if (isRowComplete(row)) {
+    const flags = translationSourceFlags(row as any);
+    await db.update(customRecipes).set({ translationStatus: "ready", translationAttempts: 0, translationUpdatedAt: new Date() }).where(eq(customRecipes.id, id));
+    console.log(`[import] translate=noop id=${id} reason=${!flags.hasSteps ? "no_source_content" : "already_complete"}`);
+    return;
+  }
   await acquireTranslationSlot();
   const startedAt = Date.now();
   await runMeteredTranslation(row.familyId, row.createdByUserId, async () => {
