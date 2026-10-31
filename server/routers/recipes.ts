@@ -3891,6 +3891,15 @@ ${TAGS_RULE}`;
 
       return { success: true, id: inserted.id };
       } catch (error) {
+        const saveSource = importTelemetrySource(input.sourceUrl ? detectSourceType(input.sourceUrl) : "import");
+        const saveIngredients = Array.isArray(input.ingredients) ? input.ingredients.length : 0;
+        const saveSteps = Array.isArray(input.steps) ? input.steps.length : 0;
+        emitImportParseEvent({
+          source: saveSource, result: "save_fail", hasCaption: false, captionChars: 0,
+          hasIngredients: saveIngredients > 0, ingredientCount: saveIngredients, stepCount: saveSteps,
+          stepsSource: saveSteps > 0 ? "llm" : "none",
+          stageMs: { fetch: 0, parse: 0, translate: 0, classify: 0 }, familyId,
+        });
         if (reservationId) await refundUsage(reservationId).catch(() => {});
         usageLimitToTRPC(error);
       }
