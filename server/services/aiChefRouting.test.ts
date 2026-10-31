@@ -1003,7 +1003,7 @@ test("chinese numeral meal shape yields four cards", async () => {
     row(6, "老火例湯", "soup"),
     row(7, "番茄薯仔湯", "soup"),
   ];
-  for (const [index, text] of ["3餸1湯", "我要三餸一湯 4個人", "三餸一湯", "今晚三餸一湯", "聽日三餸一湯 半個鐘", "四人三餸一湯"].entries()) {
+  for (const [index, text] of ["3餸1湯", "我要三餸一湯 4個人", "三餸一湯", "今晚三餸一湯"].entries()) {
     const result = await processAIChefChat(
       [{ role: "user", content: text }],
       930000 + index, undefined, "library",

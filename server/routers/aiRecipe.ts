@@ -2660,58 +2660,6 @@ function logMealShapeShortfall(need: number, got: number): void {
   if (need !== got) console.log(`[AI Chef] meal_shape_shortfall need=${need} got=${got}`);
 }
 
-function isMealSoupCard(recipe: SuggestedRecipe): boolean {
-  const type = classifyDishType({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
-  return type === "soup";
-}
-
-function ensureMealShape(
-  cards: SuggestedRecipe[],
-  shape: { dishCount: number; soupCount: number; total: number },
-  pool: Record<string, unknown>[],
-  excludeSets: ExcludeSets,
-  scenario?: string,
-  seenOrder: string[] = [],
-): SuggestedRecipe[] {
-  const byName = new Map<string, SuggestedRecipe>();
-  const add = (recipe: SuggestedRecipe) => {
-    const key = normalizeName(recipe.name);
-    if (key && !byName.has(key)) byName.set(key, recipe);
-  };
-  cards.forEach(add);
-  const hasSoupWord = (recipe: SuggestedRecipe) => /湯|羹|煲/.test(String(recipe.name ?? ""));
-  const currentSoups = [...byName.values()].filter(isMealSoupCard);
-  const currentDishes = [...byName.values()].filter((recipe) => !isMealSoupCard(recipe) && !hasSoupWord(recipe));
-  const out: SuggestedRecipe[] = [
-    ...currentSoups.slice(0, shape.soupCount),
-    ...currentDishes.slice(0, shape.dishCount),
-  ];
-  const selected = new Set(out.map((recipe) => normalizeName(recipe.name)));
-  if (out.filter(isMealSoupCard).length < shape.soupCount) {
-    const soups = pickSoupMeal(pool, excludeSets, 0, shape.soupCount, scenario, seenOrder);
-    for (const soup of soups) {
-      const key = normalizeName(soup.name);
-      if (key && !selected.has(key)) { selected.add(key); out.push(soup); }
-      if (out.filter(isMealSoupCard).length >= shape.soupCount) break;
-    }
-  }
-  if (out.filter((recipe) => !isMealSoupCard(recipe)).length < shape.dishCount) {
-    const dishes = pickSoupMeal(pool, excludeSets, shape.dishCount + 10, 0, scenario, seenOrder).filter((recipe) => !hasSoupWord(recipe));
-    for (const dish of dishes) {
-      const key = normalizeName(dish.name);
-      if (key && !selected.has(key)) { selected.add(key); out.push(dish); }
-      if (out.filter((recipe) => !isMealSoupCard(recipe)).length >= shape.dishCount) break;
-    }
-  }
-  if (out.length !== shape.total || out.filter(isMealSoupCard).length !== shape.soupCount) {
-    const full = pickSoupMeal(pool, excludeSets, shape.dishCount + 10, shape.soupCount, scenario, seenOrder);
-    const fullSoups = full.filter(isMealSoupCard).slice(0, shape.soupCount);
-    const fullDishes = full.filter((recipe) => !isMealSoupCard(recipe) && !hasSoupWord(recipe)).slice(0, shape.dishCount);
-    if (fullSoups.length === shape.soupCount && fullDishes.length === shape.dishCount) return [...fullSoups, ...fullDishes];
-  }
-  return out.slice(0, shape.total);
-}
-
 function extractPeopleCount(text: string): number | null {
   const cn: Record<string, number> = { 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
   const m = text.match(/([\d一二兩三四五六七八九十]+)\s*(?:人份|人食用|人食|人)/);
@@ -4483,19 +4431,18 @@ export async function processAIChefChat(
     if (roleSearchFailed) {
       return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
     }
-    const requestedShape = search?.scenario ? null : mealShapeFromIntent(chefIntent);
-    if (requestedShape) {
+    const requestedShape = mealShapeFromIntent(chefIntent);
+    if (requestedShape && assembled.cards.length !== requestedShape.total) {
       const fallbackSearch = await trySearch("", 1000);
       const fallbackRows = fallbackSearch.ok ? fallbackSearch.rows : [];
-      const normalized = ensureMealShape(assembled.cards, requestedShape, fallbackRows, excludeSets, search?.scenario, seenSplit.seen7d);
-      const gotSoups = normalized.filter(isMealSoupCard).length;
-      if (normalized.length === requestedShape.total && gotSoups === requestedShape.soupCount) {
-        assembled.cards = normalized;
-        assembled.served = normalized.length;
+      const filled = pickSoupMeal(fallbackRows, excludeSets, requestedShape.dishCount, requestedShape.soupCount, search?.scenario, seenSplit.seen7d);
+      if (filled.length === requestedShape.total) {
+        assembled.cards = filled;
+        assembled.served = filled.length;
         assembled.missingRoles = [];
-        console.log(`[AI Chef] meal_shape_relaxed need=${requestedShape.total} got=${normalized.length} soups=${gotSoups} source=library_pool`);
+        console.log(`[AI Chef] meal_shape_relaxed need=${requestedShape.total} got=${filled.length} source=library_pool`);
       } else {
-        logMealShapeShortfall(requestedShape.total, normalized.length);
+        logMealShapeShortfall(requestedShape.total, filled.length);
         return {
           content: aiReply(lang, "cantRecommend"),
           recipes: [],
@@ -4633,11 +4580,8 @@ export async function processAIChefChat(
         const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes, avoidIngredients);
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
-        const shape = { dishCount: libCount.dishCount, soupCount: libCount.soupCount, total: totalWanted };
-        const all = applyServings(search?.scenario
-          ? [...libPicked, ...aiPicked].slice(0, totalWanted)
-          : ensureMealShape([...libPicked, ...aiPicked], shape, safeRows, excludeSets, undefined, seenSplit.seen7d));
-        if (all.length !== totalWanted || (!search?.scenario && all.filter(isMealSoupCard).length !== libCount.soupCount)) {
+        const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
+        if (all.length !== totalWanted) {
           logMealShapeShortfall(totalWanted, all.length);
           return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss" };
         }
@@ -4645,16 +4589,12 @@ export async function processAIChefChat(
         return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
       }
       const dishSetLabel = dishLabel(libCount.dishCount, libCount.soupCount, lang);
-      const shape = { dishCount: libCount.dishCount, soupCount: libCount.soupCount, total: totalWanted };
-      const normalized = applyServings(search?.scenario
-        ? libPicked
-        : ensureMealShape(libPicked, shape, safeRows, excludeSets, undefined, seenSplit.seen7d));
-      if (normalized.length !== totalWanted || (!search?.scenario && normalized.filter(isMealSoupCard).length !== libCount.soupCount)) {
-        logMealShapeShortfall(totalWanted, normalized.length);
+      if (libPicked.length !== totalWanted) {
+        logMealShapeShortfall(totalWanted, libPicked.length);
         return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss" };
       }
-      console.log(`[AI Chef] library meal: ${normalized.length} lib`);
-      return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: normalized, llmUsed };
+      console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
+      return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: applyServings(libPicked), llmUsed };
     }
 
     // 單卡：支援「庫內搜尋：X」marker（前端「換」用，指定類別換同類），亦支援結構化 search（hotkey/pantry 用）
@@ -5359,18 +5299,17 @@ export async function processAIChefChat(
       : `我只搵到 ${recipes.length} 道食譜，未能完成你要求嘅 ${totalWanted} 道。`;
   }
 
-  const finalMealShape = search?.scenario ? null : mealShapeFromIntent(chefIntent);
-  if (!forceNoCards && finalMealShape) {
+  const finalMealShape = mealShapeFromIntent(chefIntent);
+  if (!forceNoCards && finalMealShape && recipes.length !== finalMealShape.total) {
     const fallbackSearch = await trySearch("", 1000);
     const fallbackRows = fallbackSearch.ok ? fallbackSearch.rows : [];
-    const normalized = ensureMealShape(recipes, finalMealShape, fallbackRows, excludeSets, search?.scenario, seenSplit.seen7d);
-    const gotSoups = normalized.filter(isMealSoupCard).length;
-    if (normalized.length === finalMealShape.total && gotSoups === finalMealShape.soupCount) {
-      recipes = normalized;
+    const filled = pickSoupMeal(fallbackRows, excludeSets, finalMealShape.dishCount, finalMealShape.soupCount, search?.scenario, seenSplit.seen7d);
+    if (filled.length === finalMealShape.total) {
+      recipes = filled;
       content = aiReply(lang, "libMealSet", { dish: dishLabel(finalMealShape.dishCount, finalMealShape.soupCount, lang) });
-      console.log(`[AI Chef] meal_shape_relaxed need=${finalMealShape.total} got=${normalized.length} soups=${gotSoups} source=library_pool`);
+      console.log(`[AI Chef] meal_shape_relaxed need=${finalMealShape.total} got=${filled.length} source=library_pool`);
     } else {
-      logMealShapeShortfall(finalMealShape.total, normalized.length);
+      logMealShapeShortfall(finalMealShape.total, filled.length);
       return { content: aiReply(lang, "cantRecommend"), recipes: [], llmUsed, clarifyReason: "library_miss", missingRoles: chefIntent.requested.roles };
     }
   }
