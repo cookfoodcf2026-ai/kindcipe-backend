@@ -80,7 +80,7 @@ test("import content gate rejects title-only cards", () => {
   assert.deepEqual(empty.ok ? [] : empty.missing, ["ingredients", "steps"]);
   assert.match(empty.ok ? "" : empty.message, /只抽到標題/);
   assert.equal(checkRecipeContent([{ name: "  " }], [{ instruction: " " }]).ok, false);
-  const onlyIngredients = checkRecipeContent([{ name: "薯仔" }], []);
+  const onlyIngredients = checkRecipeContent([{ name: "薯仔" }, { name: "雞蛋" }], []);
   const onlySteps = checkRecipeContent([], [{ instruction: "煎香" }]);
   assert.equal(onlyIngredients.ok, false);
   assert.equal(onlySteps.ok, false);
@@ -88,9 +88,23 @@ test("import content gate rejects title-only cards", () => {
   if (!onlySteps.ok) assert.deepEqual(onlySteps.missing, ["ingredients"]);
 });
 
-test("import content gate accepts one real ingredient and one real step", () => {
-  assert.equal(checkRecipeContent([{ name: "薯仔" }], ["煎香"]).ok, true);
-  assert.equal(checkRecipeContent([{ name: "薯仔" }], [{ instruction: "煎香" }]).ok, true);
+test("import content gate requires two ingredients and one step", () => {
+  const oneIngredient = checkRecipeContent([{ name: "薯仔" }], ["煎香"]);
+  assert.equal(oneIngredient.ok, false);
+  if (!oneIngredient.ok) assert.deepEqual(oneIngredient.missing, ["ingredients"]);
+
+  const twoIngredients = checkRecipeContent(
+    [{ name: "薯仔" }, { name: "雞蛋" }],
+    ["煎香"],
+  );
+  assert.equal(twoIngredients.ok, true);
+
+  const noSteps = checkRecipeContent(
+    [{ name: "薯仔" }, { name: "雞蛋" }],
+    [],
+  );
+  assert.equal(noSteps.ok, false);
+  if (!noSteps.ok) assert.deepEqual(noSteps.missing, ["steps"]);
 });
 
 test("youtube description steps are parsed deterministically", () => {

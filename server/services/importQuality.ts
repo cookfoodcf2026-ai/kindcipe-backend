@@ -19,13 +19,18 @@ export function checkRecipeContent(
   steps: StepLike[] | null | undefined,
 ): RecipeContentGate {
   const missing: Array<"ingredients" | "steps"> = [];
-  if (!Array.isArray(ingredients) || !ingredients.some(hasIngredient)) missing.push("ingredients");
+  const ingredientCount = Array.isArray(ingredients)
+    ? ingredients.filter(hasIngredient).length
+    : 0;
+  if (ingredientCount < 2) missing.push("ingredients");
   if (!Array.isArray(steps) || !steps.some(hasStep)) missing.push("steps");
   if (missing.length === 0) return { ok: true };
   const message = missing.length === 2
-    ? "只抽到標題，請貼上材料同步驟。"
+    ? "只抽到標題，請貼上材料同步步驟。"
     : missing[0] === "ingredients"
-      ? "只抽到標題，未讀到材料，請補上材料。"
+      ? ingredientCount === 0
+        ? "只抽到標題，未讀到材料，請補上材料。"
+        : "材料不足（至少 2 項），請補上材料。"
       : "只抽到標題，未讀到步驟，請補上做法。";
   return { ok: false, missing, message };
 }
