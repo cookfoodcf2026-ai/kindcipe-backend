@@ -25,6 +25,8 @@ import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonL
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
 import { checkRecipeContent } from "../services/importQuality";
+import { AI_FILLED_TAG, isTextGroundingWarningEnabled } from "../services/importWarning";
+import { applyParseGrounding, issueParseToken, resolveImportIngredients } from "../services/importParseTokenStore";
 import { enqueueRecipeTranslation, invalidateTranslationIfSourceChanged, runMeteredTranslation } from "../services/translationQueue";
 import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
@@ -780,43 +782,6 @@ function sanitizeParsedIngredients(list: any[]): any[] {
   });
 }
 
-/**
- * Grounding 驗證（防「AI 老作」）：只保留喺來源文字搵到嘅食材。
- * 保守設計：來源太短（<60 字）或 vision（圖為主）→ 唔做（避免誤刪）。
- * 食材 4 種語言名任一對得上來源（CJK 2+ 字子串 / 拉丁 3+ 字母 token）→ 保留。
- */
-function groundIngredients(ingredients: any[], sourceText: string): any[] {
-  if (!Array.isArray(ingredients) || ingredients.length === 0) return ingredients;
-  const src = String(sourceText ?? "").toLowerCase();
-  if (src.length < 80) return ingredients; // 太短無法判斷 → 唔動
-  const srcTokens = new Set(src.match(/[a-z0-9]+/g) || []);
-  const cjkOverlap = (n: string): boolean => {
-    const runs = n.match(/[\u4e00-\u9fff]+/g) || [];
-    for (const run of runs) {
-      if (src.includes(run)) return true;
-      // 滑動 2 字窗（處理「中筋麵粉」vs 來源「麵粉」）
-      for (let i = 0; i + 2 <= run.length; i++) if (src.includes(run.slice(i, i + 2))) return true;
-    }
-    return false;
-  };
-  const overlap = (name: string): boolean => {
-    const n = String(name ?? "").toLowerCase().trim();
-    if (!n) return false;
-    if (cjkOverlap(n)) return true;
-    for (const tk of (n.match(/[a-z0-9]+/g) || [])) if (tk.length >= 3 && srcTokens.has(tk)) return true;
-    return false;
-  };
-  const kept = ingredients.filter((ing) => {
-    const variants = [ing?.name, ing?.nameEn, ing?.nameFil, ing?.nameId]
-      .map((v) => String(v ?? "").trim()).filter(Boolean);
-    if (variants.length === 0) return false;
-    return variants.some(overlap);
-  });
-  if (kept.length !== ingredients.length) {
-    console.log(`[parseUrl] grounding dropped ${ingredients.length - kept.length} ingredient(s) not found in source`);
-  }
-  return kept;
-}
 
 async function rehostExternalImage(imageUrl: string, category?: string, opts?: { fallback?: boolean }): Promise<string> {  const useFallback = opts?.fallback !== false;
   if (!imageUrl) return useFallback ? "" : "";
@@ -1063,9 +1028,19 @@ ${TAGS_RULE}`;
   const content = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
   if (!content) throw new Error("AI returned empty response");
   const result: any = extractJSON(content);
-  const hasContent = (result.ingredients && result.ingredients.length > 0) ||
+  let hasContent = (result.ingredients && result.ingredients.length > 0) ||
     (result.steps && result.steps.length > 0);
   if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
+  if (isTextGroundingWarningEnabled() && Array.isArray(result?.ingredients)) {
+    const applied = applyParseGrounding(result.ingredients, text, String(result.name ?? ""));
+    result.ingredients = applied.ingredients;
+    hasContent = (result.ingredients.length > 0) ||
+      (Array.isArray(result.steps) && result.steps.length > 0);
+    if (applied.importWarning) {
+      result.importWarning = applied.importWarning;
+      result.parseToken = applied.parseToken;
+    }
+  }
   // 份量護欄（貼文字路徑一樣要，來源冇寫份量 → 2 人）
   {
     const guarded = guardServings(result.servings, text);
@@ -1092,6 +1067,7 @@ const ingredientSchema = z.object({
   unit: z.string().optional(),
   category: z.string().optional(),
   price: z.number().optional(),
+  grounded: z.boolean().optional(),
 });
 
 const stepSchema = z.object({
@@ -1114,6 +1090,9 @@ const recipeInputSchema = z.object({
   steps: z.array(stepSchema),
   tags: z.array(z.string()).optional(),
   scenarios: z.array(z.enum(["quick", "healthy", "ricecooker", "kids", "guest"])).max(5).optional(),
+  ackWarning: z.boolean().optional(),
+  parseToken: z.string().min(1).max(128).optional(),
+  inferredIngredients: z.array(ingredientSchema).max(50).optional(),
   sourceUrl: z.string().optional(),
   sourceAuthor: z.string().optional(),
   // Optional pre-provided translations — skip LLM translate when present (huge speed win for AI-saved recipes)
@@ -1992,7 +1971,15 @@ async function parseRecipeFromUrl(url: string, userLanguage?: string, clientThum
     const hit = parseUrlCache.get(__cacheKey);
     if (hit && Date.now() - hit.at < PARSE_CACHE_TTL_MS) {
       console.log("[parseUrl] cache hit");
-      return hit.result;
+      const cached = hit.result;
+      if (cached?.importWarning) {
+        const grounded = Array.isArray(cached.ingredients) ? cached.ingredients : [];
+        const inferred = Array.isArray(cached.importWarning.inferredIngredients)
+          ? cached.importWarning.inferredIngredients
+          : [];
+        return { ...cached, parseToken: issueParseToken(grounded, inferred) };
+      }
+      return cached;
     }
   }
 
@@ -2416,9 +2403,15 @@ ${TAGS_RULE}`;
     if (existing.length === 0) existing.push("家常菜");
     result.tags = existing.slice(0, 20);
   } catch { /* ignore tag backfill errors */ }
-  // Grounding（防 AI 老作）：非 vision 路徑 → 刪走來源文字搵唔到嘅食材
+  // Grounding（防 AI 老作）：非 vision 路徑 → 只保留 grounded 食材，並附 warning/token。
   if (!useVisionForInstagram && hasRealContent) {
-    result.ingredients = groundIngredients(Array.isArray(result.ingredients) ? result.ingredients : [], pageContent);
+    const rawIngredients = Array.isArray(result.ingredients) ? result.ingredients : [];
+    const applied = applyParseGrounding(rawIngredients, pageContent, String(result.name ?? ""));
+    result.ingredients = applied.ingredients;
+    if (applied.importWarning) {
+      result.importWarning = applied.importWarning;
+      result.parseToken = applied.parseToken;
+    }
   }
   // 正規化：難度統一 canonical 中文（LLM 可能回英文/空）
   result.difficulty = normalizeDifficulty(result.difficulty);
@@ -3818,14 +3811,6 @@ ${TAGS_RULE}`;
       if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
       if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
 
-      // 自動匯入（caption／OCR／連結解析）唔准存空白卡；只有用戶主動「先儲存名＋連結」才放行。
-      if (!input.allowIncomplete) {
-        const contentGate = checkRecipeContent(input.ingredients, input.steps);
-        if (!contentGate.ok) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
-        }
-      }
-
       let reservationId: number | undefined;
       if (!input.isAiGenerated) {
         try {
@@ -3899,7 +3884,38 @@ ${TAGS_RULE}`;
       const baseName = input.name;
       const baseDesc = input.description ?? "";
       const baseSteps: any[] = input.steps;
-      const baseIngredients: any[] = input.ingredients;
+      let baseIngredients: any[] = input.ingredients;
+      let tagsForSave: string[] = Array.isArray(input.tags) ? [...input.tags] : [];
+
+      const resolved = resolveImportIngredients(baseIngredients, {
+        ackWarning: input.ackWarning,
+        parseToken: input.parseToken,
+        inferredIngredients: input.inferredIngredients,
+      });
+      baseIngredients = resolved.ingredients;
+      if (resolved.tokenStatus === "miss") {
+        console.warn("[import] parse_token_miss");
+      } else if (resolved.tokenStatus === "mismatch") {
+        console.warn("[import] parse_token_mismatch");
+      }
+      if (resolved.conflicts > 0) {
+        console.log(`[import] inferred_conflict count=${resolved.conflicts}`);
+      }
+      if (resolved.droppedOverCap > 0) {
+        console.warn(`[import] inferred_cap_dropped count=${resolved.droppedOverCap}`);
+      }
+      if (resolved.addAiTag && !tagsForSave.includes(AI_FILLED_TAG)) {
+        tagsForSave = [AI_FILLED_TAG, ...tagsForSave];
+      }
+
+      // 自動匯入（caption／OCR／連結解析）唔准存空白卡；只有用戶主動「先儲存名＋連結」才放行。
+      if (!input.allowIncomplete) {
+        const contentGate = checkRecipeContent(baseIngredients, baseSteps);
+        if (!contentGate.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
+        }
+      }
+
       const _tr = {
         nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
         descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
@@ -3935,7 +3951,7 @@ ${TAGS_RULE}`;
         stepsEn: _tr.stepsEn ? JSON.stringify(_tr.stepsEn) : undefined,
         stepsFil: _tr.stepsFil ? JSON.stringify(_tr.stepsFil) : undefined,
         stepsId: _tr.stepsId ? JSON.stringify(_tr.stepsId) : undefined,
-        tags: JSON.stringify(cleanTags(input.tags || [])),
+        tags: JSON.stringify(cleanTags(tagsForSave)),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
         sourceUrlHash: urlHash ?? undefined,
@@ -3945,7 +3961,9 @@ ${TAGS_RULE}`;
         scenarioTags: computeScenarioTags({
           name: baseName, description: baseDesc, cookTime: input.cookTime,
           difficulty: input.difficulty, recipeCategory: input.recipeCategory,
-          dishType: input.dishType, ingredients: baseIngredients, steps: baseSteps, tags: input.tags,
+          dishType: input.dishType,
+          ingredients: baseIngredients.filter((ingredient: any) => ingredient.grounded !== false),
+          steps: baseSteps, tags: input.tags,
         }),
         scenarioTagsUser: serializeUserScenarioTags(input.scenarios),
       }).returning();

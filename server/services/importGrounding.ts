@@ -105,7 +105,7 @@ function nfkcLower(value: unknown): string {
   return String(value ?? "").normalize("NFKC").toLowerCase();
 }
 
-function normalizeForMatch(value: unknown): string {
+export function normalizeForMatch(value: unknown): string {
   return foldChars(nfkcLower(value)).replace(/[^\p{L}\p{N}]/gu, "");
 }
 
