@@ -13,7 +13,7 @@
  * OR user-imported) is reliably reachable.
  */
 
-export type Scenario = "quick" | "healthy" | "ricecooker" | "kids" | "guest";
+export type Scenario = "quick" | "healthy" | "ricecooker" | "kids" | "guest" | "highProtein";
 
 export const ALL_SCENARIOS: Scenario[] = [
   "quick",
@@ -21,6 +21,7 @@ export const ALL_SCENARIOS: Scenario[] = [
   "ricecooker",
   "kids",
   "guest",
+  "highProtein",
 ];
 
 export interface ScenarioInput {
@@ -84,6 +85,57 @@ const GUEST_RE = /宴客|大菜|喜慶|喜庆|節慶|节庆|招待|過節|过节
 const SPICY_RE = /辣|麻辣|花椒|芥末|wasabi|chilli|chili/;
 const FRIED_RE = /炸|油炸|deep.?fry|fried/;
 
+function ingredientText(ingredients: ScenarioInput["ingredients"]): string {
+  if (!ingredients) return "";
+  if (typeof ingredients === "string") {
+    try {
+      const parsed = JSON.parse(ingredients);
+      if (Array.isArray(parsed)) return ingredientText(parsed as ScenarioInput["ingredients"]);
+    } catch {
+      return ingredients;
+    }
+    return ingredients;
+  }
+  if (!Array.isArray(ingredients)) return "";
+  return ingredients
+    .map((ingredient) => {
+      if (typeof ingredient === "string") return ingredient;
+      if (!ingredient || typeof ingredient !== "object") return "";
+      const row = ingredient as { name?: unknown; nameEn?: unknown };
+      return [row.name, row.nameEn].filter(Boolean).join(" ");
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function proteinGroupCount(ingredients: ScenarioInput["ingredients"]): number {
+  const text = String(ingredientText(ingredients)).normalize("NFKC").toLowerCase();
+  if (!text.trim()) return 0;
+  const groups = new Set<string>();
+
+  const redMeat = /牛肉|牛扒|牛排|牛仔骨|牛腩|牛腱|牛柳|牛肋|牛丸|牛舌|牛雜|牛杂|豬肉|猪肉|豬扒|猪扒|豬排|猪排|豬手|猪手|豬腳|猪脚|叉燒|叉烧|燒肉|烧肉|煙肉|烟肉|培根|火腿|午餐肉|肉丸|肉腸|肉肠|羊肉|羊扒|羊排|羊腿|羊架|羊(?!奶)/;
+  if (redMeat.test(text)) groups.add("redMeat");
+
+  const poultryText = text.replace(/雞蛋|鸡蛋|鴨蛋|鸭蛋|鵪鶉蛋|鹌鹑蛋|皮蛋|鹹蛋|咸蛋|雞湯|鸡汤|雞粉|鸡粉|雞汁|鸡汁|雞精|鸡精/g, " ");
+  if (/雞|鸡|鴨|鸭|鵝|鹅|火雞|火鸡/.test(poultryText)) groups.add("poultry");
+
+  const fishText = text.replace(/魚露|鱼露/g, " ");
+  if (/魚|鱼|三文魚|三文鱼|吞拿魚|吞拿鱼|鯖魚|鲭鱼|鱈魚|鳕鱼|鮭魚|鲑鱼|鯛魚|鲷鱼|鱸魚|鲈鱼|沙丁魚|沙丁鱼|比目魚|比目鱼/.test(fishText)) groups.add("fish");
+
+  if (/蝦|虾|蟹|帶子|带子|帆立貝|帆立贝|蠔|蚝|蜆|蚬|魷魚|鱿鱼|章魚|章鱼|八爪魚|八爪鱼|龍蝦|龙虾|青口|扇貝|扇贝|貽貝|贻贝|鮑魚|鲍鱼|海參|海参/.test(text)) groups.add("seafood");
+
+  const eggText = text.replace(/蛋白粉|乳清蛋白|蛋白質|蛋白质|蛋白霜|蛋糕|蛋撻|蛋挞|蛋卷|蛋捲/g, " ");
+  if (/雞蛋|鸡蛋|鴨蛋|鸭蛋|鵪鶉蛋|鹌鹑蛋|皮蛋|鹹蛋|咸蛋|蛋/.test(eggText)) groups.add("egg");
+
+  if (/豆腐|豆乾|豆干|腐竹|毛豆|黃豆|黄豆|豆類|豆类|豆漿|豆浆|豆奶|豆卜|豆皮|素雞|素鸡|天貝|天贝|紅豆|红豆|綠豆|绿豆|鷹嘴豆|鹰嘴豆|黑豆|黃豆芽|黄豆芽|tofu|soy|edamame|tempeh/.test(text)) groups.add("soy");
+
+  if (/芝士|起司|乳酪|牛奶|希臘優格|希腊优格|優格|优格|酸奶|yogurt|yoghurt|cheese|cottage cheese|茅屋芝士|茅屋起司|奶油芝士|cream cheese/.test(text)) groups.add("dairy");
+
+  if (/蛋白粉|乳清蛋白|whey|protein powder|蛋白飲|蛋白饮品|protein shake/.test(text)) groups.add("proteinPowder");
+
+  return groups.size;
+}
+
 /**
  * Derive the multi-label scenario list for a recipe.
  * Deterministic — safe to run on every write and to backfill.
@@ -117,6 +169,9 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
   // guest: explicit tags, or festive name
   if (GUEST_TAGS.some((t) => tagsText.includes(t))) out.add("guest");
   if (GUEST_RE.test(name)) out.add("guest");
+
+  // highProtein: at least two distinct protein groups; ingredient names only.
+  if (proteinGroupCount(input.ingredients) >= 2) out.add("highProtein");
 
   return ALL_SCENARIOS.filter((s) => out.has(s));
 }

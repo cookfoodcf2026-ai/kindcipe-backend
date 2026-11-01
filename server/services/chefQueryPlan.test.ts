@@ -24,3 +24,9 @@ test("avoid and time constraints are structural", () => {
   assert.deepEqual(plan.avoid, ["雞"]);
   assert.equal(plan.cookTimeMax, 30);
 });
+
+test("high protein queries map to highProtein scenario", () => {
+  assert.deepEqual(buildQueryPlan("高蛋白").scenarios, ["highProtein"]);
+  assert.deepEqual(buildQueryPlan("增肌").scenarios, ["highProtein"]);
+  assert.deepEqual(buildQueryPlan("蛋白粉").scenarios, []);
+});

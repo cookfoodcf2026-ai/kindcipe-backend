@@ -6174,10 +6174,11 @@ export const aiRecipeRouter = router({
         count: z.number().int().min(1).max(10).optional(),
         rank: z.enum(["shortestTime", "default"]).optional(),
         excludeCategories: z.array(z.string()).optional(),
-        scenario: z.enum(["quick", "healthy", "ricecooker", "kids", "guest"]).optional(),
+        scenario: z.enum(["quick", "healthy", "ricecooker", "kids", "guest", "highProtein"]).optional(),
       }).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      const swapStartedAt = Date.now();
       const familyId = ctx.activeFamilyId ?? undefined;
       const userId = ctx.user?.id ? Number(ctx.user.id) : undefined;
       const userIdStr = ctx.user?.id ? String(ctx.user.id) : undefined;
@@ -6630,6 +6631,16 @@ export const aiRecipeRouter = router({
       console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
       console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
       console.log(`[AI Chef][metric] request=${requestId} mode=${mode} aiEntry=${input.aiEntry ?? "missing"} path=${metricPath} kind=${effectiveIntent.kind} roles=${effectiveIntent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
+      const swapRequested = input.aiEntry === "swap_ai" || /庫內搜尋：|同類別：/.test(lastUserText(input.messages));
+      if (swapRequested) {
+        const aiCardsCount = result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length;
+        const timeout = input.aiEntry === "swap_ai" && result.clarifyReason === "ai_failed" && result.recipes.length === 0;
+        const libMs = input.aiEntry === "swap_ai" ? 0 : generateMs;
+        const aiMs = input.aiEntry === "swap_ai" ? generateMs : 0;
+        console.log(`[AI Chef][swap] phase=lib ms=${libMs} served=${served} ai=${aiCardsCount} credits=${creditsCharged}`);
+        console.log(`[AI Chef][swap] phase=ai ms=${aiMs} served=${served} ai=${aiCardsCount} credits=${creditsCharged}`);
+        console.log(`[AI Chef][swap] phase=total ms=${Date.now() - swapStartedAt} served=${served} ai=${aiCardsCount} credits=${creditsCharged} timeout=${timeout ? 1 : 0}`);
+      }
       if (clientMessageIdEnabled) {
         finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }

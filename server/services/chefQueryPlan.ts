@@ -1,6 +1,6 @@
 import type { DishType } from "../routers/aiRecipe";
 
-export type ChefScenario = "quick" | "healthy" | "ricecooker" | "kids" | "guest";
+export type ChefScenario = "quick" | "healthy" | "ricecooker" | "kids" | "guest" | "highProtein";
 
 export type QueryPlan = {
   dishTypes: DishType[];
@@ -28,6 +28,7 @@ const SCENARIO_HINTS: Array<[RegExp, ChefScenario]> = [
   [/電飯煲|电饭煲|rice\s*cooker/i, "ricecooker"],
   [/小朋友|細路|兒童|儿童|kids?|children/i, "kids"],
   [/客人|宴客|派對|派对|guest|party/i, "guest"],
+  [/高蛋白|蛋白質|蛋白质|增肌|蛋白(?!粉|霜|質|质)|protein/i, "highProtein"],
 ];
 
 const CJK_FILLER = /^(?:我想|我想食|想食|想要|要|有咩|有乜|推薦|推介|搵|找|食|煮|整|啲|的|呢|呀|啊|啦|嗎|吗|？|\?|\s)+|(?:食譜|食谱|推介|推薦|推薦|嗎|吗|？|\?|\s)+$/giu;
