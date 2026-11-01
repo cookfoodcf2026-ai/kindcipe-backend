@@ -13,7 +13,7 @@
  * OR user-imported) is reliably reachable.
  */
 
-export type Scenario = "quick" | "healthy" | "ricecooker" | "kids" | "guest" | "highProtein";
+export type Scenario = "quick" | "healthy" | "ricecooker" | "kids" | "guest" | "highProtein" | "vegetarian";
 
 export const ALL_SCENARIOS: Scenario[] = [
   "quick",
@@ -22,6 +22,7 @@ export const ALL_SCENARIOS: Scenario[] = [
   "kids",
   "guest",
   "highProtein",
+  "vegetarian",
 ];
 
 export interface ScenarioInput {
@@ -136,6 +137,21 @@ function proteinGroupCount(ingredients: ScenarioInput["ingredients"]): number {
   return groups.size;
 }
 
+function isVegetarian(ingredients: ScenarioInput["ingredients"]): boolean {
+  const text = String(ingredientText(ingredients)).normalize("NFKC").toLowerCase();
+  if (!text.trim()) return false;
+
+  const cleaned = text.replace(
+    /豬仔包|豬腸粉|豬籠草|猪仔包|猪肠粉|猪笼草|雞髀菇|鸡髀菇|雞腿菇|鸡腿菇|牛油果|牛肝菌|羊肚菌|肉桂|肉蓯蓉|肉苁蓉|腸粉|肠粉|貝果|贝果|魚腥草|鱼腥草|蟹味菇|蠔菇|蚝菇|果肉|oyster mushroom|chicken of the woods|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/g,
+    " ",
+  );
+
+  const nonVegetarian =
+    /豬|猪|牛(?!奶|油|肝菌|至|角|蒡)|羊(?!奶|肚菌)|雞(?!蛋|湯|汤|粉|精|汁)|鸡(?!蛋|汤|粉|精|汁)|鴨(?!蛋)|鸭(?!蛋)|鵝(?!蛋)|鹅(?!蛋)|火雞(?!蛋)|火鸡(?!蛋)|肉(?!桂|豆蔻|蓯蓉|苁蓉)|排骨|腩|扒|腸|肠|火腿|煙肉|烟肉|臘|腊|海鮮|海鲜|魚|鱼|蝦|虾|蟹|貝(?!果)|贝(?!果)|蜆|蚬|帶子|带子|蠔|蚝|魷魚|鱿鱼|墨魚|墨鱼|八爪魚|八爪鱼|魚蛋|鱼蛋|魚片|鱼片|魚粉|鱼粉|柴魚|柴鱼|鰹魚|鲣鱼|anchovy|蝦米|虾米|瑤柱|瑶柱|蠔豉|蚝豉|海參|海参|鮑魚|鲍鱼|龍蝦|龙虾|青口|扇貝|扇贝|貽貝|贻贝|魚露|鱼露|蠔油|蚝油|雞湯|鸡汤|豬油|猪油|雞粉|鸡粉|xo醬|xo酱|worcestershire|喼汁|明膠|明胶|gelatin|gelatine|rennet|動物性|动物性|魚膠|鱼胶|吉利丁|dashi|bonito|fish\s*sauce|oyster\s*sauce|chicken\s*(stock|broth|powder)|lard|shrimp\s*paste|dried\s*shrimp|xo\s*sauce|pork|beef|lamb|mutton|chicken|duck|goose|turkey|bacon|ham|sausage|meat|steak|ribs|fish|shrimp|prawn|crab|shellfish|oyster|clam|squid|octopus|cuttlefish|tuna|salmon|mackerel|cod|sardine|scallop/i;
+
+  return !nonVegetarian.test(cleaned);
+}
+
 /**
  * Derive the multi-label scenario list for a recipe.
  * Deterministic — safe to run on every write and to backfill.
@@ -172,6 +188,9 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
 
   // highProtein: at least two distinct protein groups; ingredient names only.
   if (proteinGroupCount(input.ingredients) >= 2) out.add("highProtein");
+
+  // vegetarian: exclusion rule; eggs/dairy/cheese/butter are allowed (lacto-ovo).
+  if (isVegetarian(input.ingredients)) out.add("vegetarian");
 
   return ALL_SCENARIOS.filter((s) => out.has(s));
 }

@@ -188,3 +188,68 @@ test("highProtein: 牛油果 is not red meat", () => {
   });
   assert.equal(scenarios.includes("highProtein"), false, scenarios.join(","));
 });
+
+function vegetarianFor(ingredients: Array<{ name: string }>, tags: string[] = []): boolean {
+  return deriveScenarios({
+    name: "測試菜式",
+    tags,
+    ingredients,
+    steps: ["煮"],
+  }).includes("vegetarian");
+}
+
+test("vegetarian: pure vegetables qualify", () => {
+  assert.equal(vegetarianFor([{ name: "菜心" }, { name: "蒜蓉" }]), true);
+});
+
+test("vegetarian: tofu qualifies", () => {
+  assert.equal(vegetarianFor([{ name: "豆腐" }, { name: "醬油" }]), true);
+});
+
+test("vegetarian: egg qualifies (lacto-ovo)", () => {
+  assert.equal(vegetarianFor([{ name: "雞蛋" }, { name: "番茄" }]), true);
+});
+
+test("vegetarian: fish sauce disqualifies", () => {
+  assert.equal(vegetarianFor([{ name: "菜心" }, { name: "魚露" }]), false);
+});
+
+test("vegetarian: dried shrimp disqualifies", () => {
+  assert.equal(vegetarianFor([{ name: "節瓜" }, { name: "蝦米" }]), false);
+});
+
+test("vegetarian: oyster sauce disqualifies", () => {
+  assert.equal(vegetarianFor([{ name: "芥蘭" }, { name: "蠔油" }]), false);
+});
+
+test("vegetarian: gelatin disqualifies", () => {
+  assert.equal(vegetarianFor([{ name: "水果" }, { name: "明膠" }]), false);
+});
+
+test("vegetarian: cheese qualifies", () => {
+  assert.equal(vegetarianFor([{ name: "芝士" }, { name: "麵包" }]), true);
+});
+
+test("vegetarian: butter qualifies", () => {
+  assert.equal(vegetarianFor([{ name: "牛油" }, { name: "麵包" }]), true);
+});
+
+test("vegetarian: chicken disqualifies", () => {
+  assert.equal(vegetarianFor([{ name: "雞肉" }, { name: "菜心" }]), false);
+});
+
+test("vegetarian: oyster mushroom is not oyster", () => {
+  assert.equal(vegetarianFor([{ name: "蠔菇" }, { name: "蒜蓉" }]), true);
+});
+
+test("vegetarian: avocado is not beef", () => {
+  assert.equal(vegetarianFor([{ name: "牛油果" }, { name: "番茄" }]), true);
+});
+
+test("vegetarian: free tags are ignored", () => {
+  assert.equal(vegetarianFor([{ name: "雞肉" }, { name: "菜心" }], ["素食", "vegetarian"]), false);
+});
+
+test("vegetarian: empty ingredients do not qualify", () => {
+  assert.equal(vegetarianFor([]), false);
+});
