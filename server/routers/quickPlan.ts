@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { familyWriteProcedure, router } from "../_core/trpc";
+import { familyWriteProcedure, protectedProcedure, router } from "../_core/trpc";
 import { mealPlans, shoppingItems } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { getFamilyEntitlements } from "../services/entitlements";
@@ -53,6 +53,13 @@ function recipeRef(recipe: SuggestedRecipe): string | null {
   if (recipe.customId != null) return `user_${recipe.customId}`;
   return null;
 }
+
+/** onboarding 三組預先審核嘅新手餐單（湯 / 肉 / 海鮮或蛋 / 菜） */
+const STARTER_SETS: string[][] = [
+  ["粟米蛋花湯", "豉汁蒸排骨", "蝦仁炒蛋", "蒜蓉炒菜心"],
+  ["紫菜豆腐魚蛋湯", "豉油雞翼", "勝瓜炒蝦仁", "白灼蠔油菜心"],
+  ["生菜魚肉", "蒜蓉豆豉蒸雞髀肉", "花甲蒸水蛋", "魚香茄子"],
+];
 
 function toPlanRecipe(recipe: SuggestedRecipe) {
   return {
@@ -171,11 +178,6 @@ export const quickPlanRouter = router({
       const seen = await getFamilySeenNamesSplit(ctx.activeFamilyId);
       const firstDate = input.startDate;
       // onboarding 新手餐單：3 組預先審核過（全部有相、港式、≤25 分鐘）
-      const STARTER_SETS: string[][] = [
-        ["粟米蛋花湯", "豉汁蒸排骨", "蝦仁炒蛋", "蒜蓉炒菜心"],
-        ["紫菜豆腐魚蛋湯", "豉油雞翼", "勝瓜炒蝦仁", "白灼蠔油菜心"],
-        ["生菜魚肉", "蒜蓉豆豉蒸雞髀肉", "花甲蒸水蛋", "魚香茄子"],
-      ];
       if (input.starter) {
         const names = STARTER_SETS[input.starterVariant ?? 0] ?? STARTER_SETS[0];
         const byName = new Map(rows.map((r) => [String(r.name ?? "").trim(), r]));
@@ -224,6 +226,20 @@ export const quickPlanRouter = router({
         usageLimitToTRPC(error);
       }
     }),
+  /** 新手餐單 3 組完整資料（含食材），俾 onboarding 逐道換 */
+  starterPool: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+    const rows = (await execSearchRecipes(db, { query: "", limit: 800 }, ctx.activeFamilyId ?? undefined)).recipes as Record<string, unknown>[];
+    const byName = new Map(rows.map((r) => [String(r.name ?? "").trim(), r]));
+    return STARTER_SETS.map((names) =>
+      names
+        .map((n) => byName.get(n))
+        .filter(Boolean)
+        .map((r) => toPlanRecipe(r as unknown as SuggestedRecipe)),
+    );
+  }),
+
   accept: familyWriteProcedure
     .input(
       z.object({
