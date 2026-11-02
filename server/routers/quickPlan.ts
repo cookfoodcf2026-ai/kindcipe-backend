@@ -17,6 +17,26 @@ import {
   type SuggestedRecipe,
 } from "./aiRecipe";
 
+/** 以 familyId + 日期做種子的洗牌：每個廚房每日唔同，同一廚房同日重試穩定。 */
+function seededShuffle<T>(arr: T[], seed: string): T[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let state = h >>> 0;
+  const rnd = () => {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function addDays(dateStr: string, days: number): string {
@@ -138,6 +158,8 @@ export const quickPlanRouter = router({
 
       const seen = await getFamilySeenNamesSplit(ctx.activeFamilyId);
       const firstDate = input.startDate;
+      // 每個廚房／每日唔同組合（否則所有新用戶見到一模一樣嘅三餸一湯）
+      rows = seededShuffle(rows, `${ctx.activeFamilyId}:${firstDate}`);
       const dates = Array.from({ length: input.days }, (_, i) => addDays(firstDate, i));
       const allNames: string[] = [];
       const days: Array<{ date: string; recipes: ReturnType<typeof toPlanRecipe>[] }> = [];
