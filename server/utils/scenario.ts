@@ -109,6 +109,41 @@ function ingredientText(ingredients: ScenarioInput["ingredients"]): string {
     .join(" ");
 }
 
+const QUANTITY_ONLY_NAME_RE =
+  /^[\d\s\.\/半一二三四五六七八九十百]+(克|g|kg|毫升|ml|l|茶匙|湯匙|匙|瓣|個|隻|條|片|杯|碗|適量|少許)/i;
+
+export function isValidIngredientName(name: string | null | undefined): boolean {
+  const text = String(name ?? "").trim();
+  if (!text) return false;
+  return !QUANTITY_ONLY_NAME_RE.test(text);
+}
+
+function ingredientNames(ingredients: ScenarioInput["ingredients"]): string[] {
+  if (!ingredients) return [];
+  if (typeof ingredients === "string") {
+    const text = ingredients.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return ingredientNames(parsed as ScenarioInput["ingredients"]);
+      return [String(parsed ?? "")];
+    } catch {
+      return text.split(/[,\n、;；]+/).map((part) => part.trim()).filter(Boolean);
+    }
+  }
+  if (!Array.isArray(ingredients)) return [];
+  return ingredients.map((ingredient) => {
+    if (typeof ingredient === "string") return ingredient;
+    if (!ingredient || typeof ingredient !== "object") return "";
+    return String((ingredient as { name?: unknown }).name ?? "");
+  });
+}
+
+function hasUsableIngredientNames(ingredients: ScenarioInput["ingredients"]): boolean {
+  const names = ingredientNames(ingredients);
+  return names.length >= 2 && names.every(isValidIngredientName);
+}
+
 function proteinGroupCount(ingredients: ScenarioInput["ingredients"]): number {
   const text = String(ingredientText(ingredients)).normalize("NFKC").toLowerCase();
   if (!text.trim()) return 0;
@@ -186,11 +221,13 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
   if (GUEST_TAGS.some((t) => tagsText.includes(t))) out.add("guest");
   if (GUEST_RE.test(name)) out.add("guest");
 
+  const usableIngredientNames = hasUsableIngredientNames(input.ingredients);
+
   // highProtein: at least two distinct protein groups; ingredient names only.
-  if (proteinGroupCount(input.ingredients) >= 2) out.add("highProtein");
+  if (usableIngredientNames && proteinGroupCount(input.ingredients) >= 2) out.add("highProtein");
 
   // vegetarian: exclusion rule; eggs/dairy/cheese/butter are allowed (lacto-ovo).
-  if (isVegetarian(input.ingredients)) out.add("vegetarian");
+  if (usableIngredientNames && isVegetarian(input.ingredients)) out.add("vegetarian");
 
   return ALL_SCENARIOS.filter((s) => out.has(s));
 }

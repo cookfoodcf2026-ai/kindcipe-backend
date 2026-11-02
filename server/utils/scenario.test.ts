@@ -253,3 +253,49 @@ test("vegetarian: free tags are ignored", () => {
 test("vegetarian: empty ingredients do not qualify", () => {
   assert.equal(vegetarianFor([]), false);
 });
+
+test("vegetarian: mussels with a valid ingredient name do not qualify", () => {
+  assert.equal(vegetarianFor([{ name: "青口" }, { name: "白酒" }]), false);
+});
+
+test("fail-safe: quantity-only ingredient names disable vegetarian and highProtein", () => {
+  const scenarios = deriveScenarios({
+    name: "蒜香白酒煮青口",
+    ingredients: [{ name: "500 克" }, { name: "4 瓣" }, { name: "1 個（切碎" }],
+    steps: ["煮熟"],
+  });
+  assert.equal(scenarios.includes("vegetarian"), false, scenarios.join(","));
+  assert.equal(scenarios.includes("highProtein"), false, scenarios.join(","));
+});
+
+test("fail-safe: one invalid ingredient name disables vegetarian and highProtein", () => {
+  const vegetarian = deriveScenarios({
+    name: "菜心豆腐",
+    ingredients: [{ name: "菜心" }, { name: "豆腐" }, { name: "2 瓣" }],
+    steps: ["煮熟"],
+  });
+  assert.equal(vegetarian.includes("vegetarian"), false, vegetarian.join(","));
+
+  const highProtein = deriveScenarios({
+    name: "雞胸炒蛋",
+    ingredients: [{ name: "雞胸" }, { name: "雞蛋" }, { name: "2 瓣" }],
+    steps: ["炒熟"],
+  });
+  assert.equal(highProtein.includes("highProtein"), false, highProtein.join(","));
+});
+
+test("fail-safe: valid ingredient names still derive vegetarian and highProtein", () => {
+  const vegetarian = deriveScenarios({
+    name: "菜心豆腐",
+    ingredients: [{ name: "菜心" }, { name: "豆腐" }],
+    steps: ["煮熟"],
+  });
+  assert.equal(vegetarian.includes("vegetarian"), true, vegetarian.join(","));
+
+  const highProtein = deriveScenarios({
+    name: "雞胸炒蛋",
+    ingredients: [{ name: "雞胸" }, { name: "雞蛋" }],
+    steps: ["炒熟"],
+  });
+  assert.equal(highProtein.includes("highProtein"), true, highProtein.join(","));
+});
