@@ -295,7 +295,22 @@ const familyRouter = router({
       getFamilySubscription(ctx.activeFamilyId),
       getPromoState(ctx.activeFamilyId, String(ctx.user.id)),
     ]);
-    return sub ? { ...sub, promo } : null;
+    // 「已享有 Pro」：同一用戶所屬嘅另一個廚房已經 active → 唔應該再賣一次
+    let coveredBy: { familyId: number; name: string } | null = null;
+    try {
+      const fams = await getUserFamilies(String(ctx.user.id));
+      for (const f of fams) {
+        const fam: any = (f as any).family;
+        if (!fam || fam.id === ctx.activeFamilyId) continue;
+        if (fam.subscriptionStatus === "active") {
+          coveredBy = { familyId: fam.id, name: fam.name };
+          break;
+        }
+      }
+    } catch {
+      /* 查唔到就當冇 cover，唔阻付款 */
+    }
+    return sub ? { ...sub, promo, coveredBy } : null;
   }),
 
   usageHistory: protectedProcedure
