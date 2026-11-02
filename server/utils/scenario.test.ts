@@ -299,3 +299,19 @@ test("fail-safe: valid ingredient names still derive vegetarian and highProtein"
   });
   assert.equal(highProtein.includes("highProtein"), true, highProtein.join(","));
 });
+
+test("vegetarian excludes fish species without the word 魚 (龍脷 / 斑塊)", () => {
+  const sole = deriveScenarios({
+    name: "香脆魚柳條",
+    ingredients: [{ name: "龍脷柳" }, { name: "雞蛋" }, { name: "麵粉" }],
+    steps: ["炸至金黃"],
+  });
+  assert.equal(sole.includes("vegetarian"), false, sole.join(","));
+
+  const grouper = deriveScenarios({
+    name: "酸甜咕嚕魚塊",
+    ingredients: [{ name: "斑塊" }, { name: "青椒" }, { name: "菠蘿" }],
+    steps: ["炒勻"],
+  });
+  assert.equal(grouper.includes("vegetarian"), false, grouper.join(","));
+});
