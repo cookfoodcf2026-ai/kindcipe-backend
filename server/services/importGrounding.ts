@@ -3,6 +3,7 @@ export type GroundingReason =
   | "substring"
   | "single_char_ctx"
   | "en_token"
+  | "synonym"
   | "blacklist"
   | "miss";
 
@@ -49,6 +50,21 @@ export const SINGLE_CHAR_INGREDIENTS = [
   "酒",
   "米",
   "麵",
+] as const;
+
+/**
+ * Broad ingredient synonym groups for grounding only. The first entry is the
+ * canonical key; every member normalises to it via `normalizeForMatch`, so
+ * this map does not introduce another normalisation scheme.
+ */
+export const INGREDIENT_SYNONYM_GROUPS = [
+  ["醬油", "生抽", "老抽", "豉油", "しょうゆ", "醤油", "soy sauce", "shoyu"],
+  ["糖", "砂糖"],
+  ["鹽", "食鹽"],
+  ["麻油", "芝麻油"],
+  ["醋", "酢"],
+  ["味醂", "みりん"],
+  ["料理酒", "清酒"],
 ] as const;
 
 const TRADITIONAL_TO_SIMPLIFIED_PAIRS =
@@ -111,6 +127,44 @@ export function normalizeForMatch(value: unknown): string {
 
 function normalizeEnglish(value: unknown): string {
   return nfkcLower(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+const INGREDIENT_CANONICAL_BY_VARIANT = new Map<string, string>(
+  INGREDIENT_SYNONYM_GROUPS.flatMap((group) => {
+    const canonical = normalizeForMatch(group[0]);
+    return group.map((term) => [normalizeForMatch(term), canonical] as const);
+  }),
+);
+
+const INGREDIENT_VARIANTS_BY_CANONICAL = new Map<string, string[]>(
+  INGREDIENT_SYNONYM_GROUPS.map((group) => {
+    const canonical = normalizeForMatch(group[0]);
+    return [canonical, group.map((term) => normalizeForMatch(term))] as const;
+  }),
+);
+
+export function canonicalIngredientKey(value: unknown): string {
+  const normalized = normalizeForMatch(value);
+  return INGREDIENT_CANONICAL_BY_VARIANT.get(normalized) ?? normalized;
+}
+
+function synonymGrounding(name: string, sourceText: string): GroundingReason | null {
+  const normalizedName = normalizeForMatch(name);
+  if (!normalizedName) return null;
+
+  const canonical = canonicalIngredientKey(normalizedName);
+  const variants = INGREDIENT_VARIANTS_BY_CANONICAL.get(canonical);
+  if (!variants) return null;
+
+  const normalizedSource = normalizeForMatch(sourceText);
+  if (!normalizedSource) return null;
+
+  for (const variant of variants) {
+    if (!variant || variant === normalizedName) continue;
+    if (normalizedSource.includes(variant)) return "synonym";
+  }
+
+  return null;
 }
 
 function compact(value: unknown): string {
@@ -264,6 +318,12 @@ export function groundIngredient(
   if (nameEn && englishNameGrounding(nameEn, sourceText)) {
     return { grounded: true, reason: "en_token" };
   }
+
+  const nameEnSynonym = nameEn ? synonymGrounding(nameEn, sourceText) : null;
+  if (nameEnSynonym) return { grounded: true, reason: nameEnSynonym };
+
+  const nameSynonym = name ? synonymGrounding(name, sourceText) : null;
+  if (nameSynonym) return { grounded: true, reason: nameSynonym };
 
   if (
     name &&

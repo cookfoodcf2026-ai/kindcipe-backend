@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   analyzeGrounding,
   BLACKLIST_PHRASES,
+  canonicalIngredientKey,
   groundIngredient,
+  INGREDIENT_SYNONYM_GROUPS,
   stripTitleLines,
 } from "./importGrounding";
 
@@ -311,4 +313,77 @@ test("stepsInferred is passed through without C1 judging steps", () => {
   assert.equal(withFlag.stepsInferred, true);
   const withoutFlag = analyzeGrounding([{ name: "豆腐" }], "豆腐", "煎豆腐");
   assert.equal("stepsInferred" in withoutFlag, false);
+});
+
+test("Japanese しょうゆ grounds a 醬油 ingredient and vice versa", () => {
+  assert.deepEqual(groundIngredient({ name: "しょうゆ" }, "材料：醬油2湯匙"), {
+    grounded: true,
+    reason: "synonym",
+  });
+  assert.deepEqual(groundIngredient({ name: "醬油" }, "材料：しょうゆ2湯匙"), {
+    grounded: true,
+    reason: "synonym",
+  });
+});
+
+test("English soy sauce grounds a 醬油 ingredient and vice versa", () => {
+  assert.deepEqual(groundIngredient({ name: "醬油" }, "2 tbsp soy sauce"), {
+    grounded: true,
+    reason: "synonym",
+  });
+  assert.deepEqual(groundIngredient({ name: "soy sauce" }, "材料：醬油2湯匙"), {
+    grounded: true,
+    reason: "synonym",
+  });
+});
+
+test("生抽 and 老抽 ground each other through the broad soy sauce group", () => {
+  assert.equal(groundIngredient({ name: "生抽" }, "加入醬油拌勻").grounded, true);
+  assert.equal(groundIngredient({ name: "老抽" }, "加入生抽調色").grounded, true);
+  assert.equal(groundIngredient({ name: "豉油" }, "老抽1茶匙").grounded, true);
+});
+
+test("common condiment synonym groups ground without a new normalizer", () => {
+  assert.equal(groundIngredient({ name: "砂糖" }, "糖1茶匙").grounded, true);
+  assert.equal(groundIngredient({ name: "食鹽" }, "鹽少許").grounded, true);
+  assert.equal(groundIngredient({ name: "芝麻油" }, "麻油1湯匙").grounded, true);
+  assert.equal(groundIngredient({ name: "酢" }, "醋2湯匙").grounded, true);
+  assert.equal(groundIngredient({ name: "みりん" }, "味醂1湯匙").grounded, true);
+  assert.equal(groundIngredient({ name: "清酒" }, "料理酒1湯匙").grounded, true);
+});
+
+test("blacklist still wins for 維達廚房紙巾 even when source has a synonym", () => {
+  assert.deepEqual(
+    groundIngredient({ name: "維達廚房紙巾" }, "材料：醬油2湯匙、維達廚房紙巾一包"),
+    { grounded: false, reason: "blacklist" },
+  );
+  const result = analyzeGrounding(
+    [{ name: "醬油" }, { name: "維達廚房紙巾" }],
+    "材料：しょうゆ2湯匙、維達廚房紙巾一包",
+    "測試",
+  );
+  assert.equal(result.blacklistHits, 1);
+  assert.equal(result.total, 1);
+  assert.equal(result.groundedCount, 1);
+});
+
+test("unrelated words stay inferred after synonym grounding", () => {
+  assert.deepEqual(groundIngredient({ name: "魚露" }, "醬油2湯匙、糖1茶匙"), {
+    grounded: false,
+    reason: "miss",
+  });
+  assert.deepEqual(groundIngredient({ name: "辣椒" }, "しょうゆ2湯匙"), {
+    grounded: false,
+    reason: "miss",
+  });
+});
+
+test("canonicalIngredientKey is stable across aliases and repeated calls", () => {
+  const key = canonicalIngredientKey("醬油");
+  for (const alias of ["生抽", "老抽", "豉油", "しょうゆ", "醤油", "soy sauce", "shoyu"]) {
+    assert.equal(canonicalIngredientKey(alias), key);
+  }
+  assert.equal(canonicalIngredientKey("醬油"), key);
+  assert.equal(canonicalIngredientKey("unknown-herb"), "unknownherb");
+  assert.equal(INGREDIENT_SYNONYM_GROUPS.length >= 7, true);
 });
