@@ -4572,7 +4572,8 @@ async function processAIChefChatCore(
       generate: generateRole,
       validate: validateRole,
       nameOf: (recipe) => recipe.name,
-      maxRounds: 2,
+      // 2 → 4：食譜庫唔夠時多試幾輪補齊（用戶要 4 張但只出 3 張嘅主因）
+      maxRounds: 4,
     });
     if (roleSearchFailed) {
       return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
