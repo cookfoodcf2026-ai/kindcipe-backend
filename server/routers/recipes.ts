@@ -18,6 +18,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
 import { computeScenarioTags, serializeUserScenarioTags } from "../utils/scenario";
+import { dedupeIngredients, markQuantityProvenance } from "../services/ingredientQuality";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, localizedName } from "../utils/recipeTranslations";
@@ -748,7 +749,7 @@ export function guardServings(servingsRaw: any, sourceText: string): { servings:
 /**
  * 過濾 AI 解析出嘅「偽食材」：小標題（如「蔥油醬汁材料：」）唔應該當食材。
  *  規則：名稱以「：或:」結尾，或屬「…材料」類標題且冇數量 → 丢弃。 */
-function sanitizeParsedIngredients(list: any[]): any[] {
+function sanitizeParsedIngredients(list: any[], sourceText?: string): any[] {
   if (!Array.isArray(list)) return [];
   const kept = list.filter((ing) => {
     const name = String(ing?.name ?? "").trim();
@@ -763,7 +764,7 @@ function sanitizeParsedIngredients(list: any[]): any[] {
     return true;
   });
   // 把描述型量詞（適量/少許…）由 quantity/name 移入 unit，避免非中文介面漏中文。
-  return kept.map((ing) => {
+  const cleaned = kept.map((ing) => {
     const name = String(ing?.name ?? "").trim();
     const q = String(ing?.quantity ?? "").trim();
     const u = String(ing?.unit ?? "").trim();
@@ -780,6 +781,9 @@ function sanitizeParsedIngredients(list: any[]): any[] {
     out.unit = amount.unit;
     return out;
   });
+  // 重複食材合併（醬油／しょうゆ），quantity 唔相加；再標示份量有冇喺原文出現
+  const deduped = dedupeIngredients(cleaned);
+  return markQuantityProvenance(deduped, sourceText);
 }
 
 
@@ -1030,7 +1034,7 @@ ${TAGS_RULE}`;
   const result: any = extractJSON(content);
   let hasContent = (result.ingredients && result.ingredients.length > 0) ||
     (result.steps && result.steps.length > 0);
-  if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
+  if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients, text);
   if (isTextGroundingWarningEnabled() && Array.isArray(result?.ingredients)) {
     const applied = applyParseGrounding(result.ingredients, text, String(result.name ?? ""));
     result.ingredients = applied.ingredients;
@@ -2335,7 +2339,7 @@ ${TAGS_RULE}`;
       : `已抽到材料（${Array.isArray(result.ingredients) ? result.ingredients.length : 0} 項），但未抽到做法。可以貼上步驟，或者喺備註自己補。`;
   }
   console.log(`[import] steps_source=${stepsSource} steps=${effectiveStepCount}`);
-  if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients);
+  if (Array.isArray(result?.ingredients)) result.ingredients = sanitizeParsedIngredients(result.ingredients, `${pageContent}\n${clientCaptionText}`);
   // 份量護欄：來源冇寫份量 → 2 人（唔准 AI 自創 1 人）
   {
     const srcForServings = `${pageContent}\n${clientCaptionText}`;
