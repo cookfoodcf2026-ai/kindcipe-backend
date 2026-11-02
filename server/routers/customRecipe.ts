@@ -18,6 +18,7 @@ import {
 import { msg } from "../_core/msg";
 import { sendPushNotifications } from "../pushNotification";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
+import { checkRecipeContent } from "../services/importQuality";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { runWithUsage, usageLimitToTRPC } from "../services/usage";
 import { serializeUserScenarioTags } from "../utils/scenario";
@@ -90,6 +91,18 @@ export const customRecipeRouter = router({
                   normalizedIngredients = JSON.stringify(normalizeRecipeIngredients(parsed));
                 }
               } catch { /* keep as-is */ }
+            }
+
+            // 空卡唔准入庫（同 importUser 用同一道閘）；draft 例外
+            if (!(input as any).isDraft) {
+              let ingArr: any[] = [];
+              let stepArr: any[] = [];
+              try { ingArr = JSON.parse(String(normalizedIngredients ?? "[]")); } catch { ingArr = []; }
+              try { stepArr = JSON.parse(String(input.steps ?? "[]")); } catch { stepArr = []; }
+              const gate = checkRecipeContent(ingArr, stepArr);
+              if (!gate.ok) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: gate.message });
+              }
             }
 
             const { scenarios, ...recipeInput } = input;
