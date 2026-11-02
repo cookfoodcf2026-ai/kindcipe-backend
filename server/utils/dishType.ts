@@ -48,6 +48,37 @@ export function guardDishTypeByName(name: string, current: DishKind): DishKind {
   return current;
 }
 
+/**
+ * 用「食材 + 菜名」做確定性護欄（第二層）：
+ * 只救援 **肉／海鮮 但食材完全冇對應字** 嘅明顯誤判（例：韭黃炒蛋 → seafood）。
+ * 冇明確證據就保留原值，避免誤改。
+ */
+const SEAFOOD_WORD_RE = /(?:魚|鱼|蝦|虾|蟹|蜆|蚬|蠔|蚝|魷|鱿|貝|贝|螺|蜆|海參|海参|帶子|带子|墨魚|墨鱼|八爪|海鮮|海鲜|三文魚|三文鱼|吞拿|鯖|鲭|鰻|鳗|沙丁|銀鱈|银鳕|斑|龍脷|龙脷|鱈|鳕|鯇|鲩|鯪|鲮|鱸|鲈|黃花魚|黄花鱼|牙帶|牙带|白飯魚|白饭鱼|泥鯭|倉魚|仓鱼|紅衫魚|红衫鱼|花膠|花胶|魚肚|鱼肚|鮑|鲍|魚翅|鱼翅|fish|salmon|tuna|shrimp|prawn|crab|squid|octopus|scallop|oyster|clam|mussel|seafood)/i;
+const MEAT_WORD_RE = /(?:豬|猪|牛|雞|鸡|羊|鴨|鸭|鵝|鹅|肉|排骨|腩|扒|火腿|煙肉|烟肉|培根|香腸|香肠|午餐肉|肉碎|免治|pork|beef|chicken|lamb|duck|ham|bacon|sausage|mince)/i;
+const EGG_TOFU_RE = /(?:蛋|豆腐|豆乾|豆干|腐竹|枝竹|豆卜|素雞|素鸡|tofu|egg|bean curd)/i;
+
+export function guardDishTypeByIngredients(
+  name: string,
+  ingredients: unknown[] | undefined,
+  current: DishKind,
+): DishKind {
+  if (current !== "seafood" && current !== "meat") return current;
+  const n = String(name || "");
+  const ingText = (ingredients || [])
+    .map((i: any) => String(i?.name ?? i ?? ""))
+    .join("、");
+  const hay = `${n}、${ingText}`;
+  const proteinRe = current === "seafood" ? SEAFOOD_WORD_RE : MEAT_WORD_RE;
+  if (proteinRe.test(hay)) return current;
+
+  // 冇任何對應蛋白字 → 用菜名重新判斷（只接受有明確證據嘅類別）
+  if (NAME_DESSERT_RE.test(n)) return "dessert";
+  if (NAME_CARB_RE.test(n)) return "carb";
+  if (NAME_DRINK_RE.test(n)) return "drink";
+  if (EGG_TOFU_RE.test(hay) || NAME_VEG_RE.test(n)) return "vegetable";
+  return current;
+}
+
 export async function classifyRecipeDishTypeLLM(input: {
   name: string;
   description?: string;

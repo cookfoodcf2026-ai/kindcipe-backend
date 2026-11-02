@@ -16,7 +16,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
-import { classifyRecipeDishTypeLLM, guardDishTypeByName, type DishKind } from "../utils/dishType";
+import { classifyRecipeDishTypeLLM, guardDishTypeByName, guardDishTypeByIngredients, type DishKind } from "../utils/dishType";
 import { computeScenarioTags, serializeUserScenarioTags } from "../utils/scenario";
 import { dedupeIngredients, markQuantityProvenance } from "../services/ingredientQuality";
 import { generateRecipeImage } from "../utils/imageGen";
@@ -2389,7 +2389,12 @@ ${TAGS_RULE}`;
   }
   __stage("classify done");
   classifyDoneAt = Date.now();
-  result.dishType = guardDishTypeByName(result.name || "", dish || "other");
+  const byName = guardDishTypeByName(result.name || "", dish || "other");
+  result.dishType = guardDishTypeByIngredients(
+    result.name || "",
+    Array.isArray(result.ingredients) ? result.ingredients : [],
+    byName,
+  );
   // 標籤保底：確保至少有菜系 / 菜式類型 / 家常菜，避免匯入後標籤空白
   try {
     const existing: string[] = Array.isArray(result.tags) ? result.tags.map(String).filter(Boolean) : [];
