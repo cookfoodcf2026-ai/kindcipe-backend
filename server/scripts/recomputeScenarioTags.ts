@@ -30,9 +30,9 @@ function sorted(values: Scenario[]): string {
   return JSON.stringify([...new Set(values)].sort());
 }
 
-export function diffScenarioTags(row: Row): { before: Scenario[]; after: Scenario[]; changed: boolean } {
+export function diffScenarioTags(row: Row, mode: "replace" | "union" = "replace"): { before: Scenario[]; after: Scenario[]; changed: boolean } {
   const before = scenarioSet(row.scenario_tags);
-  const after = deriveScenarios({
+  const derived = deriveScenarios({
     name: row.name,
     description: row.description,
     cookTime: row.cook_time,
@@ -43,6 +43,7 @@ export function diffScenarioTags(row: Row): { before: Scenario[]; after: Scenari
     ingredients: parseArray(row.ingredients) as Array<{ name?: string | null }>,
     steps: parseArray(row.steps) as Array<string | { instruction?: string | null }>,
   });
+  const after = mode === "union" ? [...new Set([...before, ...derived])] : derived;
   return { before, after, changed: sorted(before) !== sorted(after) };
 }
 
@@ -55,13 +56,13 @@ type Summary = {
   examples: Array<{ id: number; name: string; before: Scenario[]; after: Scenario[] }>;
 };
 
-function summarize(rows: Row[]): Summary {
+function summarize(rows: Row[], mode: "replace" | "union"): Summary {
   const added = Object.fromEntries(ALL_SCENARIOS.map((scenario) => [scenario, 0])) as Record<Scenario, number>;
   const removed = Object.fromEntries(ALL_SCENARIOS.map((scenario) => [scenario, 0])) as Record<Scenario, number>;
   const examples: Summary["examples"] = [];
   let changed = 0;
   for (const row of rows) {
-    const diff = diffScenarioTags(row);
+    const diff = diffScenarioTags(row, mode);
     if (!diff.changed) continue;
     changed++;
     for (const s of diff.after) if (!diff.before.includes(s)) added[s]++;
@@ -84,6 +85,8 @@ function printSummary(label: string, summary: Summary): void {
 
 async function main(): Promise<void> {
   const apply = process.argv.includes("--apply");
+  const replace = process.argv.includes("--replace");
+  const mode = replace ? "replace" : "union";
   const url = process.env.DATABASE_URL ?? "postgres://mavisng@localhost:5432/kindcipe_restore_test";
   const sql = postgres(url, { max: 1 });
   try {
@@ -96,13 +99,13 @@ async function main(): Promise<void> {
       select 'custom'::text source, id, name, description, cook_time, difficulty, dish_type, recipe_category, tags, ingredients, steps, scenario_tags
       from custom_recipes where coalesce(is_draft, false) = false order by id
     `;
-    console.log(`mode=${apply ? "APPLY" : "DRY-RUN"} database=${url.replace(/\/\/[^@]+@/, "//***@")}`);
-    printSummary("official_recipes", summarize(official));
-    printSummary("custom_recipes", summarize(custom));
+    console.log(`mode=${apply ? "APPLY" : "DRY-RUN"} tags=${mode} database=${url.replace(/\/\/[^@]+@/, "//***@")}`);
+    printSummary("official_recipes", summarize(official, mode));
+    printSummary("custom_recipes", summarize(custom, mode));
     if (apply) {
       let updates = 0;
       for (const row of [...official, ...custom]) {
-        const diff = diffScenarioTags(row);
+        const diff = diffScenarioTags(row, mode);
         if (!diff.changed) continue;
         const table = row.source === "official" ? "official_recipes" : "custom_recipes";
         await sql.unsafe(`update ${table} set scenario_tags = $1 where id = $2`, [JSON.stringify(diff.after), row.id]);
