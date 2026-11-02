@@ -101,6 +101,10 @@ export const quickPlanRouter = router({
         days: z.number().int().min(1).max(2).default(2),
         servings: z.number().int().min(1).max(12).default(4),
         exclusions: z.array(z.string().max(32)).max(20).optional(),
+        /** 換一組時傳入上一組菜名，避免抽返相同 */
+        excludeNames: z.array(z.string().max(128)).max(20).optional(),
+        /** onboarding 新手餐單：固定一組港式三餸一湯（品質可控） */
+        starter: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -156,8 +160,25 @@ export const quickPlanRouter = router({
       }
       rows = rows.filter((row) => hasUsableMainIngredient(Array.isArray(row.ingredients) ? (row.ingredients as any) : []));
 
+      const bannedNames = new Set((input.excludeNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
+      if (bannedNames.size > 0) {
+        const filteredOut = rows.filter((row) => !bannedNames.has(String(row.name ?? "").trim().toLowerCase()));
+        if (filteredOut.length >= 20) rows = filteredOut;
+      }
+
       const seen = await getFamilySeenNamesSplit(ctx.activeFamilyId);
       const firstDate = input.startDate;
+      // onboarding 新手餐單：固定一組（全部有相、港式、≤25 分鐘）
+      const STARTER_NAMES = ["粟米蛋花湯", "豉汁蒸排骨", "蝦仁炒蛋", "蒜蓉炒菜心"];
+      if (input.starter) {
+        const byName = new Map(rows.map((r) => [String(r.name ?? "").trim(), r]));
+        const picked = STARTER_NAMES.map((n) => byName.get(n)).filter(Boolean) as Record<string, unknown>[];
+        if (picked.length === STARTER_NAMES.length) {
+          rows = picked;
+        } else {
+          console.log(`[quickPlan] starter incomplete (${picked.length}/${STARTER_NAMES.length}) → fallback to normal pick`);
+        }
+      }
       // 每個廚房／每日唔同組合（否則所有新用戶見到一模一樣嘅三餸一湯）
       rows = seededShuffle(rows, `${ctx.activeFamilyId}:${firstDate}`);
       const dates = Array.from({ length: input.days }, (_, i) => addDays(firstDate, i));
