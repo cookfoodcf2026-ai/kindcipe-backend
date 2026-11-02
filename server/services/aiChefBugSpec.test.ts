@@ -103,6 +103,50 @@ test("user scenario tags override derived tags", async () => {
   assert.ok(rice.recipes.some((recipe) => recipe.name === derivedName), "empty user tags must fall back to derived");
 });
 
+test("highProtein unions user tags with derived tags", async () => {
+  const name = `${prefix}hp-user-union`;
+  await insertOfficial({
+    name,
+    scenarioTags: ["highProtein"],
+    scenarioTagsUser: ["kids"],
+    createdAt: new Date(),
+  });
+  const db = await getDb();
+  assert.ok(db);
+  const hp = await execSearchRecipes(db, { query: "", scenario: "highProtein", limit: 100 }, familyId);
+  assert.ok(hp.recipes.some((recipe) => recipe.name === name), "user highProtein tag must still match derived highProtein");
+});
+
+test("non-union scenarios keep user override over derived tags", async () => {
+  const name = `${prefix}healthy-user-override`;
+  await insertOfficial({
+    name,
+    scenarioTags: ["healthy"],
+    scenarioTagsUser: ["kids"],
+    createdAt: new Date(),
+  });
+  const db = await getDb();
+  assert.ok(db);
+  const healthy = await execSearchRecipes(db, { query: "", scenario: "healthy", limit: 100 }, familyId);
+  const kids = await execSearchRecipes(db, { query: "", scenario: "kids", limit: 100 }, familyId);
+  assert.ok(!healthy.recipes.some((recipe) => recipe.name === name), "user override must still hide derived healthy");
+  assert.ok(kids.recipes.some((recipe) => recipe.name === name), "user kids tag should match");
+});
+
+test("scenario with no user tags still matches derived tags", async () => {
+  const name = `${prefix}hp-derived-only`;
+  await insertOfficial({
+    name,
+    scenarioTags: ["highProtein"],
+    scenarioTagsUser: [],
+    createdAt: new Date(),
+  });
+  const db = await getDb();
+  assert.ok(db);
+  const hp = await execSearchRecipes(db, { query: "", scenario: "highProtein", limit: 100 }, familyId);
+  assert.ok(hp.recipes.some((recipe) => recipe.name === name), "empty user tags must fall back to derived highProtein");
+});
+
 test("BUG 1: role pool 30 false libNone when first 30 rows are avoided", async () => {
   const now = Date.now();
   for (let i = 0; i < 30; i++) {

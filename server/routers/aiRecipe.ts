@@ -1235,7 +1235,15 @@ function safeParseJsonArray(value: unknown): unknown[] {
   return [];
 }
 
+const UNION_SCENARIOS = new Set(["highProtein", "vegetarian"]);
+
 function scenarioTagsCondition(table: any, scenario: string) {
+  if (UNION_SCENARIOS.has(scenario)) {
+    const scenarioJson = JSON.stringify([scenario]);
+    const userTags = sql`COALESCE(NULLIF(${table.scenarioTagsUser}, ''), '[]')::jsonb`;
+    const derivedTags = sql`COALESCE(NULLIF(${table.scenarioTags}, ''), '[]')::jsonb`;
+    return sql`(${userTags} @> ${scenarioJson}::jsonb OR ${derivedTags} @> ${scenarioJson}::jsonb)`;
+  }
   const effective = sql`CASE WHEN COALESCE(${table.scenarioTagsUser}, '') NOT IN ('', '[]') THEN ${table.scenarioTagsUser} ELSE COALESCE(${table.scenarioTags}, '[]') END`;
   return sql`${effective} ILIKE ${`%"${scenario}"%`}`;
 }
