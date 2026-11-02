@@ -94,6 +94,14 @@ const aiRecipeSourceSchema = z.object({
   sourceAuthor: z.string().optional(),
 });
 
+/** AI 改完等於冇改 → 唔應該收 credit（runWithUsage 會自動 refund）。 */
+class UnchangedEditError extends Error {
+  constructor() {
+    super("unchanged_edit");
+    this.name = "UnchangedEditError";
+  }
+}
+
 const aiEditSaveInputSchema = z.object({
   recipe: aiRecipeSourceSchema,
   editPrompt: z.string().min(1).max(1000),
@@ -6029,10 +6037,35 @@ export const aiRecipeRouter = router({
             idempotencyKey: `ai_edit:${familyId}:${userId}:${randomUUID()}`,
             cost: { credits: 1 },
           },
-          () => runAiEdit(input, familyId, userId)
+          async () => {
+            const out = await runAiEdit(input, familyId, userId);
+            // 改完同原本一樣 → throw，令 runWithUsage refund，唔收錢
+            const _n = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, "");
+            const origIng = (input.recipe.ingredients ?? []).map((i: any) => _n(i?.name)).filter(Boolean).sort().join("|");
+            const nextIng = (out.ingredients ?? []).map((i: any) => _n(i?.name)).filter(Boolean).sort().join("|");
+            const origSteps = (input.recipe.steps ?? []).map((x: any) => _n(typeof x === "string" ? x : x?.instruction)).filter(Boolean).join("|");
+            const nextSteps = (out.steps ?? []).map((x: any) => _n(x?.instruction)).filter(Boolean).join("|");
+            const same = _n(input.recipe.name) === _n(out.name) && origIng === nextIng && origSteps === nextSteps;
+            if (same) throw new UnchangedEditError();
+            return out;
+          }
         );
         try { await incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
       } catch (error) {
+        if (error instanceof UnchangedEditError) {
+          // 冇改動 → 已自動 refund，回傳原文俾前端提示「AI 改唔到」
+          return {
+            unchanged: true,
+            name: input.recipe.name,
+            nameEn: (input.recipe as any).nameEn,
+            nameFil: (input.recipe as any).nameFil,
+            nameId: (input.recipe as any).nameId,
+            description: input.recipe.description,
+            ingredients: input.recipe.ingredients,
+            steps: input.recipe.steps,
+            creditsCharged: 0,
+          } as any;
+        }
         usageLimitToTRPC(error);
       }
 
