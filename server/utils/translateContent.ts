@@ -1,4 +1,5 @@
 import { invokeLLM, extractJSON } from "../_core/llm";
+import { getTranslationCache, setTranslationCache, translationCacheKey } from "../services/translationCache";
 
 // Small in-process caches. AI Chef often reuses the same dish across a meal /
 // chat session; without this, every non-Chinese request re-translates it.
@@ -38,6 +39,19 @@ export async function translateToChinese(
   ingredientNames: string[],
   srcLang: string,
 ): Promise<{ name?: string; description?: string; steps?: string[]; ingredientNames?: string[] }> {
+  const cacheHash = translationCacheKey({
+    kind: "to_zh",
+    srcLang,
+    name,
+    description: description ?? "",
+    steps,
+    ingredientNames,
+  });
+  const cachedZh = await getTranslationCache<{ name?: string; description?: string; steps?: string[]; ingredientNames?: string[] }>(cacheHash);
+  if (cachedZh?.name) {
+    console.log(`[translateToChinese] cache hit ${cacheHash.slice(0, 8)}`);
+    return cachedZh;
+  }
   try {
     const hasDesc = typeof description === "string" && description.trim().length > 0;
     const prompt = `Translate the following recipe from ${srcLang} into Traditional Chinese (繁體中文).
@@ -57,12 +71,17 @@ Ingredients: ${JSON.stringify(ingredientNames)}`;
     const raw = resp.choices?.[0]?.message?.content || "{}";
     const p: any = extractJSON(raw);
     const arr = (v: any) => (Array.isArray(v) ? v.map((x: any) => String(x)) : undefined);
-    return {
+    const out = {
       name: p?.name ? String(p.name) : undefined,
       description: p?.description ? String(p.description) : undefined,
       steps: arr(p?.steps),
       ingredientNames: arr(p?.ingredientNames),
     };
+    // 只 cache 完整結果，避免半截譯文污染
+    if (out.name && Array.isArray(out.steps) && out.steps.length === steps.length) {
+      void setTranslationCache(cacheHash, "to_zh", out);
+    }
+    return out;
   } catch (e) {
     console.warn("[translateToChinese] failed:", (e as Error)?.message);
     return {};
@@ -92,6 +111,13 @@ export async function translateRecipeContent(
   const cacheKey = JSON.stringify([name, steps, description ?? ""]);
   const cached = cacheGet(RECIPE_CACHE, cacheKey);
   if (cached) return cached as any;
+  const dbHash = translationCacheKey({ kind: "to_multi", name, description: description ?? "", steps });
+  const dbCached = await getTranslationCache<any>(dbHash);
+  if (dbCached?.nameEn) {
+    console.log(`[translateRecipeContent] cache hit ${dbHash.slice(0, 8)}`);
+    cacheSet(RECIPE_CACHE, cacheKey, dbCached, RECIPE_CACHE_MAX);
+    return dbCached;
+  }
   try {
     const hasDesc = typeof description === "string" && description.trim().length > 0;
     const prompt = `Translate this recipe content into (1) English, (2) Filipino, (3) Indonesian.
@@ -122,6 +148,10 @@ Steps: ${JSON.stringify(steps)}`;
       stepsId: arr(p?.stepsId),
     };
     if (Object.values(out).some((v) => v !== undefined)) cacheSet(RECIPE_CACHE, cacheKey, out, RECIPE_CACHE_MAX);
+    // 只 cache 完整結果（有 nameEn 且 steps 數目對得上），避免半截譯文污染
+    if (out.nameEn && Array.isArray(out.stepsEn) && out.stepsEn.length === steps.length) {
+      void setTranslationCache(dbHash, "to_multi", out);
+    }
     return out;
   } catch (e) {
     console.warn("[translateRecipeContent] failed:", (e as Error)?.message);

@@ -278,6 +278,19 @@ async function startServer() {
     setInterval(sweepLlmBudget, LLM_BUDGET_SWEEP_INTERVAL_MS);
     setTimeout(sweepLlmBudget, 2 * 60 * 1000);
 
+    // 翻譯 cache 清理：90 日冇再用就刪（每日一次）
+    const sweepTranslationCache = async () => {
+      try {
+        const { pruneTranslationCache } = await import("./services/translationCache");
+        const removed = await pruneTranslationCache(90);
+        if (removed > 0) console.log(`[translation-cache] pruned ${removed} rows`);
+      } catch (e) {
+        console.warn("[translation-cache] prune failed (non-fatal):", (e as Error).message);
+      }
+    };
+    setInterval(sweepTranslationCache, 24 * 60 * 60 * 1000);
+    setTimeout(sweepTranslationCache, 10 * 60 * 1000);
+
     // Background translation sweep: fill pending en/fil/id (Pro 4-language) with a bounded concurrency.
     (async () => {
       try {

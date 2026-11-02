@@ -12,3 +12,19 @@
 4. **驗證方式**：`env -u DATABASE_URL npm run test:chef` 0 fail（跑 ≥3 次，已知 ~15% flaky）＋ `tsc --noEmit` 0 ＋ 相關舊 test。唔准只跑新 test。
 
 未寫呢段嘅改動，一律當未完成。
+
+## Repo 鎖（防止兩個 agent 撞）
+改任何檔之前，先認領 repo 鎖：
+
+```bash
+LOCK=~/.hermes/scripts/kindcipe-lock.sh
+$LOCK status
+$LOCK claim <repo> <agent> "<做咩>"
+# …改嘢、驗、push、deploy…
+$LOCK release <repo> <agent>
+```
+
+- `<repo>`：kindcipe-backend / kindcipe-app-4 / kindcipe-site
+- 鎖 90 分鐘自動過期；未 release 就離開，下一個 agent 會等或接手
+- **同一時間一個 repo 只准一條線**；另一個 agent 想改就要等
+- 狀態一律寫入 `~/Desktop/Kindcipe/manus/QUEUE.md`，唔好喺唔同 tab 各寫一份
