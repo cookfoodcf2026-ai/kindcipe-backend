@@ -141,6 +141,8 @@ const aiEditOutputSchema = z.object({
 const aiEditPersistInputSchema = z.object({
   recipe: aiEditOutputSchema,
   editPrompt: z.string().min(1).max(1000),
+  /** 若改嘅係「我嘅食譜」，傳原 custom_recipes.id → 原地更新，唔會重複一張 */
+  sourceRecipeId: z.number().int().positive().optional(),
 });
 
 /**
@@ -6131,6 +6133,46 @@ export const aiRecipeRouter = router({
         ...(parsed.tags ?? []),
         "AI 生成",
       ]));
+
+      // 改「我嘅食譜」→ 原地更新（唔會產生重複卡、唔扣 custom recipe 額度）
+      if (input.sourceRecipeId) {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 未連線" });
+        const [existing] = await db
+          .select({ id: customRecipes.id, familyId: customRecipes.familyId })
+          .from(customRecipes)
+          .where(eq(customRecipes.id, input.sourceRecipeId))
+          .limit(1);
+        if (!existing || Number(existing.familyId) !== Number(familyId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "無權修改此食譜" });
+        }
+        await db
+          .update(customRecipes)
+          .set({
+            name: parsed.name,
+            nameEn: parsed.nameEn,
+            nameFil: parsed.nameFil,
+            nameId: parsed.nameId,
+            description: parsed.description,
+            descriptionEn: parsed.descriptionEn,
+            descriptionFil: parsed.descriptionFil,
+            descriptionId: parsed.descriptionId,
+            cookTime: parsed.cookTime,
+            servings: parsed.servings,
+            difficulty: normalizeDifficulty(parsed.difficulty),
+            recipeCategory: parsed.recipeCategory,
+            dishType: parsed.dishType,
+            ingredients: JSON.stringify(parsed.ingredients),
+            steps: JSON.stringify(parsed.steps),
+            stepsEn: parsed.stepsEn ? JSON.stringify(parsed.stepsEn) : undefined,
+            stepsFil: parsed.stepsFil ? JSON.stringify(parsed.stepsFil) : undefined,
+            stepsId: parsed.stepsId ? JSON.stringify(parsed.stepsId) : undefined,
+            tags: JSON.stringify(mergedTags),
+            updatedAt: new Date(),
+          })
+          .where(eq(customRecipes.id, input.sourceRecipeId));
+        return { success: true, id: input.sourceRecipeId, name: parsed.name, updated: true };
+      }
 
       let saved: Awaited<ReturnType<typeof insertCustomRecipe>>;
       try {
