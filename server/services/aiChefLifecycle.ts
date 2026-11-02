@@ -39,7 +39,7 @@ export type ChefRunResult = {
   recipes: ChefRecipeLike[];
   llmUsed: boolean;
   missingRoles?: RequestedRole[];
-  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety";
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set";
   llmCalls?: number;
 };
 

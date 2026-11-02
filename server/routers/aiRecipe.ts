@@ -3640,7 +3640,7 @@ async function processAIChefChatCore(
   dispatchOverride?: (messages: Array<{ role: string; content: string }>) => Promise<ChefDispatch | null>,
   stateUserId?: string,
   knownAllergens?: string[],
-): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety"; intentOverride?: ChefIntent }> {
+): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -4575,8 +4575,43 @@ async function processAIChefChatCore(
       // 2 → 4：食譜庫唔夠時多試幾輪補齊（用戶要 4 張但只出 3 張嘅主因）
       maxRounds: 4,
     });
+    // ── 最後補卡：唔准交少過 requested（車主 2026-11-02 明確要求）──
+    // 角色池湊唔齊時，逐個角色放寬再抽，最後用 "any" 兜底，保證張數。
+    const wantedTotal = Math.max(0, Math.floor((requested as unknown as { total?: number })?.total ?? 0));
+    if (wantedTotal > 0 && assembled.cards.length < wantedTotal) {
+      const usedNames = assembled.cards.map((c) => String((c as SuggestedRecipe)?.name ?? ""));
+      const topUpRoles: RequestedRole[] = ["any", "vegetable", "meat", "seafood", "soup", "noodle"];
+      for (const role of topUpRoles) {
+        if (assembled.cards.length >= wantedTotal) break;
+        const need = wantedTotal - assembled.cards.length;
+        try {
+          const extra = await pickLibrary(role, need, usedNames);
+          for (const e of extra) {
+            if (assembled.cards.length >= wantedTotal) break;
+            const nm = String((e.recipe as SuggestedRecipe)?.name ?? "");
+            if (!nm) continue;
+            const dup = usedNames.some((u) => normalizeName(u).toLowerCase() === normalizeName(nm).toLowerCase());
+            if (dup) continue;
+            assembled.cards.push(e.recipe);
+            usedNames.push(nm);
+            console.log(`[AI Chef] topup role=${role} picked=${nm} now=${assembled.cards.length}/${wantedTotal}`);
+          }
+        } catch (e) {
+          console.log(`[AI Chef] topup role=${role} error=${(e as Error)?.message ?? e}`);
+        }
+      }
+      assembled.served = assembled.cards.length;
+    }
     if (roleSearchFailed) {
       return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+    }
+    // 車主要求：4 張（3餸1湯）唔准交 3 張。湊唔齊就當失敗、唔收錢，叫用戶再試。
+    if (wantedTotal >= 2 && assembled.cards.length < wantedTotal) {
+      console.warn(`[AI Chef] incomplete-set blocked requested=${wantedTotal} served=${assembled.cards.length}`);
+      const msg = lang === "en"
+        ? `I couldn't put together ${wantedTotal} dishes this time, so this request was not charged. Please try again, or loosen the filters.`
+        : `今次湊唔齊 ${wantedTotal} 道菜，所以呢次**唔會扣你額度**。可以再試一次，或者放寬限制（例如唔指定食材）。`;
+      return { content: msg, recipes: [], llmUsed, clarifyReason: "incomplete_set" };
     }
     if (assembled.cards.length > 0) {
       const people = extractPeopleCount(lastUserText);

@@ -65,7 +65,7 @@ export interface ChefReply {
   chatId?: string;
   clientMessageId?: string;
   status: ChefResponseStatus;
-  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety";
+  clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set";
   /** How the client should apply these cards to the current conversation. */
   operation?: "replace" | "append";
   recipes: ChefCardSnapshot[];
