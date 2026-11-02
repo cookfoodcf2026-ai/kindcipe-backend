@@ -7,7 +7,7 @@ import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../ser
 import { weeklyMenu, officialRecipes, mealPlans, customRecipes } from "../../drizzle/schema";
 import { randomUUID } from "node:crypto";
 import { familyWriteProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
-import { invokeLLM, extractJSON } from "../_core/llm";
+import { invokeLLM, extractJSON, startLlmMeter } from "../_core/llm";
 
 type SlotType = "meat" | "seafood" | "veg" | "soup";
 
@@ -688,6 +688,15 @@ ${JSON.stringify(byType.soup.map(r => ({ id: r.id, name: r.name, cookTime: r.coo
 
 請為本週安排 7 天晚餐，每天各選 1 肉類、1 海鮮/魚、1 蔬菜、1 湯。`;
 
+      // 成本計量（呢個 router 之前冇 meter，LLM 成本計唔到）
+      if (ctx.activeFamilyId) {
+        startLlmMeter({
+          familyId: ctx.activeFamilyId,
+          userId: String(ctx.user.id),
+          route: "weekly_menu",
+          requestId: randomUUID(),
+        });
+      }
       const llmResponse = await invokeLLM({
         messages: [
           { role: "system", content: systemPrompt },
