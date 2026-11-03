@@ -231,7 +231,7 @@ export const quickPlanRouter = router({
             hasStepsRow(r) &&
             !takenNames.has(String(r?.name ?? "")),
         );
-        const diversityEnabled = (process.env.MEAL_DIVERSITY_ENABLED ?? "true") !== "false";
+        const diversityEnabled = (process.env.MEAL_DIVERSITY_ENABLED ?? "false") !== "false";
         const div = diversityEnabled
           ? enforceDiversity(dishes as any[], poolCandidates as any[], 2)
           : { dishes: dishes as any[], swapped: 0, collisionsBefore: 0, collisionsAfter: 0, reasons: [] as string[] };

@@ -4247,13 +4247,14 @@ async function processAIChefChatCore(
     const getDispatchPool = async (): Promise<SuggestedRecipe[]> => {
       if (dispatchPool) return dispatchPool;
       if (!db) { dispatchPool = []; return dispatchPool; }
-      const res = await execSearchRecipes(db, { query: "", limit: 400 }, familyId);
+      const res = await execSearchRecipes(db, { query: "", limit: 600 }, familyId);
       dispatchPool = (res.recipes ?? []) as SuggestedRecipe[];
       return dispatchPool;
     };
 
     for (const item of dispatchItems) {
-      const termPattern = findFoodTermPattern(item.label);
+      const termPoolEnabled = (process.env.AI_CHEF_TERM_POOL ?? "true") !== "false";
+      const termPattern = termPoolEnabled ? findFoodTermPattern(item.label) : null;
       let search: RecipeSearchResult;
       if (termPattern) {
         const pool = await getDispatchPool();
@@ -4751,7 +4752,7 @@ async function processAIChefChatCore(
       poolRows: Record<string, unknown>[],
       opts: { scenario?: string; protectTerm?: string } = {},
     ): SuggestedRecipe[] => {
-      if ((process.env.MEAL_DIVERSITY_ENABLED ?? "true") === "false") return picked;
+      if ((process.env.MEAL_DIVERSITY_ENABLED ?? "false") === "false") return picked;
       // ricecooker 有自己嘅嚴格名稱排序規則（電飯煲／電子鍋 優先），唔好干擾
       if (String(opts.scenario ?? "") === "ricecooker") return picked;
       const isSoupR = (r: any) =>
@@ -5246,7 +5247,7 @@ async function processAIChefChatCore(
       const libMealRaw = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d);
       // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
       let libMeal = libMealRaw;
-      if ((process.env.MEAL_DIVERSITY_ENABLED ?? "true") !== "false" && libMealRaw.length >= 2) {
+      if ((process.env.MEAL_DIVERSITY_ENABLED ?? "false") !== "false" && libMealRaw.length >= 2) {
         const before = collisionScore(libMealRaw as any[]);
         if (before > 0) {
           const retry = pickSoupMeal(
