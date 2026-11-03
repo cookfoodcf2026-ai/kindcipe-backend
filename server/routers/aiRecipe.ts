@@ -4236,8 +4236,14 @@ async function processAIChefChatCore(
 
     const pickedCards: SuggestedRecipe[] = [];
     const usedNames = new Set<string>();
+    // 時間約束：用戶講「20 分鐘內」→ 單卡搜尋要 deterministic 過濾（唔靠 AI）
+    const dispatchTimeLimit = (() => {
+      const m = String(lastUserText ?? "").match(/(\d{1,3})\s*分鐘/);
+      const v = m ? parseInt(m[1], 10) : 0;
+      return v > 0 && v <= 120 ? v : undefined;
+    })();
     for (const item of dispatchItems) {
-      const search = await trySearch(item.label, Math.max(20, item.qty * 5), undefined, buildQueryPlan(item.label));
+      const search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
       if (!search.ok) {
         return {
           content: searchFailureReply(lang),
