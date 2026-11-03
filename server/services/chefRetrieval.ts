@@ -205,7 +205,7 @@ function scoreRecipe(recipe: ChefLibraryRecipe, slots: ChefSlots, keys: string[]
   // desserts, snacks and sides. The reverse holds when 甜品/小食 is explicitly asked.
   const wantsDessert = keys.some((key) => key === "dessert" || key === "snack");
   const wantsMainDish = !wantsDessert
-    && keys.some((key) => key === "vegetarian" || key === "light" || key === "healthy" || key === "high-protein");
+    && keys.some((key) => ["vegetarian", "light", "healthy", "high-protein", "kids", "quick", "one-pot"].includes(key));
   if (wantsMainDish) {
     const shape = `${recipe.dishType ?? ""} ${(recipe.tags ?? []).join(" ")}`;
     if (/蔬菜|vegetable|炒|stirfry|炆|braise|蒸|steam|湯|soup|meat|seafood/i.test(shape)) score += 18;
