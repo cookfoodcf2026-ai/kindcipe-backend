@@ -4015,7 +4015,9 @@ async function processAIChefChatCore(
     for (const term of pantryTerms.slice(0, 4)) {
       const search = await trySearch(term, 20);
       if (!search.ok) break;
-      const cards = rowsToSuggested(search.rows, excludeSets, 1);
+      // Ignore the "already seen" list here: with 3 fridge items the pool is tiny,
+      // and skipping seen cards turned the pantry tab into 0 cards.
+      const cards = rowsToSuggested(search.rows, mkExcludeSets([], []), 1);
       if (cards.length > 0) {
         return {
           content: lang.startsWith("en")
