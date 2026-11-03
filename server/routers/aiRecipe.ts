@@ -5850,6 +5850,9 @@ function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots 
   // "any snack"), so this must come first.
   const tagHits = deriveTagsFromText(text);
   if (tagHits.length > 0) return { wantsCards: true, tags: tagHits };
+  // A concrete keyword the user named ("墨西哥菜", "韓國炸雞") is the strongest
+  // signal; without this the fallback drifted to findFoodTerm and served 菜心.
+  if (parsed?.keyword) return { wantsCards: true, keyword: parsed.keyword };
   if (parsed?.dishType) return { wantsCards: true, dishType: parsed.dishType };
   if (parsed?.method) return { wantsCards: true, method: parsed.method };
 
