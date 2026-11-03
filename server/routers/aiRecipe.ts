@@ -4761,12 +4761,15 @@ async function processAIChefChatCore(
         );
         // 換入嘅新菜唔喺 merged 之中 → 補返
         for (const d of div.dishes) if (!merged.some((m) => String(m.name) === String(d.name))) merged.push(d);
-        return [...(merged.slice(0, dishes.length) as SuggestedRecipe[]), ...soups];
+        let di2 = 0;
+        return picked.map((r) => (isSoupR(r) ? r : ((merged as SuggestedRecipe[])[di2++] ?? r)));
       }
       console.log(
         `[AI Chef] diversity swapped=${div.swapped} collisions=${div.collisionsBefore}->${div.collisionsAfter}`,
       );
-      return [...(div.dishes as SuggestedRecipe[]), ...soups];
+      // 保留原本次序（湯位置不變），下游用 index 對應角色
+      let di = 0;
+      return picked.map((r) => (isSoupR(r) ? r : ((div.dishes as SuggestedRecipe[])[di++] ?? r)));
     };
 
     if (isMealLib) {

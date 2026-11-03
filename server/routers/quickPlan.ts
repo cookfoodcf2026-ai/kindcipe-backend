@@ -238,7 +238,9 @@ export const quickPlanRouter = router({
         console.log(
           `[quickPlan] diversity enabled=${diversityEnabled} swapped=${div.swapped} collisions=${div.collisionsBefore}->${div.collisionsAfter}`,
         );
-        const finalPicked = soup ? [...div.dishes, soup] : div.dishes;
+        // 保留原本次序（湯原本位置）→ onboarding 逐道換用 index 對應，次序一變就會換錯角色
+        let di = 0;
+        const finalPicked = picked.map((r) => (isSoup(r) ? r : (div.dishes[di++] ?? r)));
 
         allNames.push(...finalPicked.map((r: any) => r.name));
         days.push({
