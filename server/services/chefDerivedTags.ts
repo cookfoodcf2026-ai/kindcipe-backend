@@ -87,7 +87,9 @@ const PROTEIN_FALSE_POSITIVES: Array<[string, RegExp]> = [
 function neutraliseProteinNoise(text: string): string {
   return String(text ?? "")
     .replace(/[^\s，、]{0,3}(?:菇|菌)/g, " ")
-    .replace(/素肉|素雞|素蠔|植物肉/g, " ");
+    .replace(/素肉|素雞|素蠔|植物肉/g, " ")
+    // 「高蛋白」係營養標籤，唔係蛋類食材
+    .replace(/高蛋白|蛋白質|蛋白质|蛋白粉|蛋白霜/g, " ");
 }
 
 function hasProtein(text: string, protein: string): boolean {
