@@ -7539,6 +7539,34 @@ export const aiRecipeRouter = router({
         reason: `${result.clarifyReason ?? effectiveIntent.reason}${pipelineTelemetry?.skipReason ? `|skip=${pipelineTelemetry.skipReason}` : ""}`,
         servedSources: sources,
       });
+
+      // Red line, every path: a 素食 ask must never get meat/seafood cards.
+      // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
+      // so match the ingredient text directly.
+      const vegRecipes = (finalResponse.recipes ?? []) as any[];
+      if (/素食|吃素|食素|vegan|vegetarian/i.test(lastUserText(input.messages) ?? "") && vegRecipes.length > 0) {
+        const MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉/;
+        const isMeat = (raw: unknown) => {
+          const name = String(raw ?? "");
+          if (!name) return false;
+          if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
+          return MEAT_RE.test(name);
+        };
+        const kept = vegRecipes.filter((recipe: any) => {
+          const items = (recipe.ingredients ?? []).map((item: any) =>
+            typeof item === "string" ? item : String(item?.name ?? ""),
+          );
+          return !isMeat(recipe.name) && !items.some(isMeat);
+        });
+        if (kept.length !== vegRecipes.length) {
+          console.log(`[AI Chef] veg postcondition removed=${vegRecipes.length - kept.length} path=${metricPath}`);
+          finalResponse.recipes = kept as typeof finalResponse.recipes;
+          if (kept.length === 0) {
+            finalResponse.content = "我搵唔到合適嘅素食主菜，試下：紅燒豆腐、素麻婆豆腐、蒜蓉炒雜菌？";
+          }
+        }
+      }
+
       return finalResponse;
     }),
 });
