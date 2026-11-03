@@ -4261,30 +4261,7 @@ async function processAIChefChatCore(
         search = { ok: true, rows: picked as any };
         console.log(`[AI Chef] dispatch term-pool item="${item.label}" pool=${pool.length} chosen=${picked.length}`);
       } else {
-        // 條件詞（減肥／簡單／快／清淡）→ deterministic 過濾，唔靠全文搜尋
-        const text = `${item.label} ${lastUserText ?? ""}`;
-        const wantsLight = /減肥|减肥|瘦身|低卡|低脂|健康|健身/.test(text);
-        const wantsEasy = /簡單|简单|容易|新手|易煮/.test(text);
-        const wantsQuick = /快|快手|快啲|快速|quick/i.test(text);
-        if (wantsLight || wantsEasy || wantsQuick) {
-          const pool = await getDispatchPool();
-          const filtered = pool.filter((r: any) => {
-            const tags = `${r.tags ?? ""} ${r.scenarioTags ?? ""}`;
-            if (wantsLight && !/低卡|低脂|健康|清淡|高蛋白|healthy|highProtein/.test(tags)) return false;
-            if (wantsEasy && !/簡單|简单|easy/i.test(`${r.difficulty ?? ""} ${tags}`)) return false;
-            if (wantsQuick && Number(r.cookTime ?? 99) > (dispatchTimeLimit ?? 20)) return false;
-            if (dispatchTimeLimit && Number(r.cookTime ?? 99) > dispatchTimeLimit) return false;
-            return true;
-          });
-          if (filtered.length > 0) {
-            search = { ok: true, rows: filtered.slice(0, 80) as any };
-            console.log(`[AI Chef] dispatch condition-filter light=${wantsLight} easy=${wantsEasy} quick=${wantsQuick} chosen=${filtered.length}`);
-          } else {
-            search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
-          }
-        } else {
-          search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
-        }
+        search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
       }
       if (!search.ok) {
         return {
