@@ -1328,7 +1328,11 @@ export async function execSearchRecipes(
       ilike(table.tags, `%${term}%`),
       ilike(table.ingredients, `%${term}%`),
     )!));
-    const combined = [textCond, tagCond, dishTypeCond, scenarioCond, ...avoidConds].filter(Boolean) as any[];
+    // A hotkey passes a scenario (素食/蛋白): the scenario IS the filter, so the
+    // literal query ("素食") must not narrow it to the few recipes that happen to
+    // contain that word — that is what returned 0 cards for the 素食 hotkey.
+    const effectiveTextCond = args.scenario ? undefined : textCond;
+    const combined = [effectiveTextCond, tagCond, dishTypeCond, scenarioCond, ...avoidConds].filter(Boolean) as any[];
     const mainCond = combined.length > 0 ? and(...combined) : undefined;
     const where = and(
       mainCond && timeCond ? or(mainCond, timeCond) : (mainCond ?? timeCond),
