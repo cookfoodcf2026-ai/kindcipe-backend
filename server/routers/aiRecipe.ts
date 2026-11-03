@@ -5995,7 +5995,9 @@ async function applyZeroCardInsurance(
       const safeSlots = inferInsuranceSlots(text, params.telemetry?.slots ?? null);
       if (!safeSlots) {
         // No protein / keyword / tag signal: serving popularity cards here is how
-        // "早餐" ended up returning braised beef. Ask with concrete options instead.
+        // "早餐" ended up returning braised beef. Ask with concrete options instead —
+        // but never delete a card the normal path already produced.
+        if ((result.recipes?.length ?? 0) > 0) return result;
         result.recipes = [];
         result.content = insuranceAskReply(params.lang);
         result.clarifyReason = "ambiguous_food";
