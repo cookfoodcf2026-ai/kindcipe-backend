@@ -52,9 +52,40 @@ const VEGETABLE_TERMS = [
 ];
 const SOUP_TERMS = ["湯水", "老火湯", "燉湯", "煲湯", "滾湯", "湯羹", "湯", "soup"];
 const NOODLE_TERMS = [
-  "魚面", "魚麵", "魚蛋麵", "魚蛋面", "魚片麵", "魚片面", "牛腩麵", "牛腩面", "蝦子麵", "蝦子面", "車仔麵", "車仔面", "魚湯粉", "湯粉", "魚蛋粉", "魚片河", "牛腩河", "湯麵", "湯面", "拉麵", "烏冬", "米線", "意粉", "河粉", "米粉", "麵", "面",
+  "魚面", "魚麵", "魚蛋麵", "魚蛋面", "魚丸麵", "魚丸面", "魚蛋粉",
+  "蝦子麵", "蝦子面", "蝦籽麵", "蝦籽面", "蝦子撈麵", "蝦子捞麵",
+  "魚湯粉", "魚湯米線", "魚湯米",
+  "牛腩麵", "牛腩面", "牛腩河", "牛腩米粉",
+  "雲吞麵", "雲吞面", "細蓉",
+  "車仔麵", "車仔面",
+  "魚片麵", "魚片面", "魚片河",
+  "米線", "米线", "米粉", "河粉", "公仔麵", "公仔面", "出前一丁", "即食麵", "即食面",
+  "撈麵", "撈面", "撈丁", "乾撈",
+  "湯麵", "湯面", "湯粉", "拉麵", "烏冬", "意粉", "麵", "面",
   "noodle", "ramen", "udon", "pasta",
 ];
+
+/** Noodle alias families. A query matching any member is the same food family,
+ * but never expands to a bare ingredient (e.g. 魚 is not 魚蛋). */
+export const FOOD_TERM_FAMILIES: Record<string, string[]> = {
+  fish_ball_noodle: ["魚面", "魚麵", "魚蛋麵", "魚蛋面", "魚丸麵", "魚丸面", "魚蛋粉"],
+  shrimp_roe_noodle: ["蝦子麵", "蝦子面", "蝦籽麵", "蝦籽面", "蝦子撈麵", "蝦子捞麵"],
+  fish_soup_noodle: ["魚湯粉", "魚湯米線", "魚湯米"],
+  beef_brisket_noodle: ["牛腩麵", "牛腩面", "牛腩河", "牛腩米粉"],
+  wonton_noodle: ["雲吞麵", "雲吞面", "細蓉"],
+  cart_noodle: ["車仔麵", "車仔面"],
+  plain_noodle: ["米線", "米线", "米粉", "河粉", "公仔麵", "公仔面", "出前一丁", "即食麵", "即食面"],
+  lo_mein: ["撈麵", "撈面", "撈丁", "乾撈"],
+};
+
+export function foodFamilyForTerm(term: string): string | null {
+  const raw = String(term ?? "").trim();
+  if (!raw) return null;
+  for (const [family, aliases] of Object.entries(FOOD_TERM_FAMILIES)) {
+    if (aliases.some((alias) => raw === alias || raw.includes(alias))) return family;
+  }
+  return null;
+}
 const DISH_COOKING_RE = /(?:湯粉|魚蛋粉|魚片河|牛腩河|炒|煎|煮|蒸|焗|燉|煲|烤|炸|涼拌|滷|炆)/u;
 const DESSERT_TERMS = ["甜品", "甜點", "糖水", "布甸", "蛋糕", "雪糕", "dessert"];
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { extractMealIngredients, isCannedMealPrompt, resolveChefIntent } from "./chefIntent";
 import { parseMealShape } from "./chefPlanner";
+import { FOOD_TERM_FAMILIES, foodFamilyForTerm } from "./foodLexicon";
 
 test("one meat and dessert (zh) requests two explicit cards", () => {
   const intent = resolveChefIntent("我淨係要一個肉，同甜品", { mode: "chat" });
@@ -224,4 +225,16 @@ test("typed 三送一湯 is parsed structurally", () => {
   assert.deepEqual(parseMealShape("三送一湯"), { dishes: 3, soups: 1 });
   assert.deepEqual(parseMealShape("3餸1湯"), { dishes: 3, soups: 1 });
   assert.equal(parseMealShape("食牛扒同菜"), null);
+});
+
+test("fish-ball-noodle aliases resolve to one family", () => {
+  for (const term of ["魚面", "魚蛋麵", "魚丸麵", "魚蛋粉"]) {
+    assert.equal(foodFamilyForTerm(term), "fish_ball_noodle", term);
+  }
+  assert.equal(FOOD_TERM_FAMILIES.fish_ball_noodle.includes("魚蛋麵"), true);
+});
+
+test("fish (魚) is not an alias of fish ball", () => {
+  assert.equal(foodFamilyForTerm("魚"), null);
+  assert.notEqual(foodFamilyForTerm("魚"), "fish_ball_noodle");
 });
