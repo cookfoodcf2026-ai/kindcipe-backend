@@ -5953,7 +5953,8 @@ async function applyZeroCardInsurance(
     telemetry?: ChefPipelineTelemetry;
   },
 ): Promise<CoreResult> {
-  if ((result.recipes?.length ?? 0) > 0) return result;
+  // Top up thin answers too (「有咩湯水」used to come back with a single card).
+  if ((result.recipes?.length ?? 0) >= 3) return result;
   if (params.forceText) return result;
   if (params.mode !== "chat" && params.mode !== "ai") return result;
   if (result.clarifyReason === "safety") return result;
@@ -6036,7 +6037,17 @@ async function applyZeroCardInsurance(
 
       if (cards.length > 0) {
         await recordServedLibraryCards(params.familyId, cards);
-        result.recipes = cards;
+        const existing = result.recipes ?? [];
+        const seen = new Set(existing.map((card) => normalizeName(card.name)));
+        const merged = [...existing];
+        for (const card of cards) {
+          const key = normalizeName(card.name);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(card);
+          if (merged.length >= 3) break;
+        }
+        result.recipes = merged;
         result.content = insuranceReply(params.lang);
         result.clarifyReason = undefined;
         result.intentOverride = {
