@@ -5921,7 +5921,10 @@ function applyChefCardConstraint(
   const hasParsedFacet = Boolean(parsedSlots && (parsedSlots.protein || parsedSlots.dishType || parsedSlots.method || parsedSlots.keyword || (parsedSlots.tags?.length ?? 0) > 0));
   const safeSlots = hasParsedFacet ? parsedSlots : inferInsuranceSlots(text, parsedSlots);
   if (!safeSlots) return result;
-  const constrained = result.recipes.filter((card) => (!safeSlots.dishType || matchesDishTypeName(card.name, safeSlots.dishType)) && validateGeneratedCard(
+  // A tag the user named is the stronger constraint; re-checking a vague
+  // dishType (breakfast → snack) on top of it deleted 燕麥/粥.
+  const enforceDishType = Boolean(safeSlots.dishType) && (safeSlots.tags?.length ?? 0) === 0;
+  const constrained = result.recipes.filter((card) => (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
     {
       name: card.name,
       cookTime: card.cookTime,
