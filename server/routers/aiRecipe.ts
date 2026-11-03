@@ -4120,7 +4120,9 @@ async function processAIChefChatCore(
         return rowsToSuggested([raw], excludeSets, 1)[0] ?? null;
       },
       avoid: avoidIngredients,
-      count: 3,
+      // Fetch wider than we serve: the constraint layer drops mismatched cards,
+      // and asking for exactly 3 used to leave 1 card (「有咩湯水」).
+      count: 8,
       lang,
       previousText,
       cache: dbChefSlotsCache,
@@ -5919,12 +5921,14 @@ function applyChefCardConstraint(
     },
     safeSlots,
   ));
-  if (constrained.length === result.recipes.length) return result;
+  // Single-card questions get at most 3 cards; meal shapes are shaped later.
+  const capped = detectMealShapeLoose(text) ? constrained : constrained.slice(0, 3);
+  if (capped.length === result.recipes.length && capped === constrained) return result;
   console.log(`[AI Chef] card_constraint removed=${result.recipes.length - constrained.length} remaining=${constrained.length} protein=${safeSlots.protein ?? "none"} veg=${safeSlots.tags?.includes("素食") ? 1 : 0} keyword=${safeSlots.keyword ?? "none"}`);
   return {
     ...result,
-    recipes: constrained,
-    ...(constrained.length === 0
+    recipes: capped,
+    ...(capped.length === 0
       ? { content: clarifyFoodReply(lang), clarifyReason: "library_miss" as const }
       : {}),
   };
