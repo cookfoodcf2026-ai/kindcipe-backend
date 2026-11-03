@@ -3128,8 +3128,15 @@ ${TAGS_RULE}`;
             ));
           }
           if (chip === "vegetarian") {
-            officialConditions.push(like(officialRecipes.scenarioTags ?? "", '%"vegetarian"%'));
-            customConditions.push(like(customRecipes.scenarioTags ?? "", '%"vegetarian"%'));
+            // union：derived tag 或 用戶自訂 tag 都要命中（同 aiRecipe 一致）
+            officialConditions.push(or(
+              like(officialRecipes.scenarioTags ?? "", '%"vegetarian"%'),
+              like(officialRecipes.scenarioTagsUser ?? "", '%"vegetarian"%')
+            ));
+            customConditions.push(or(
+              like(customRecipes.scenarioTags ?? "", '%"vegetarian"%'),
+              like(customRecipes.scenarioTagsUser ?? "", '%"vegetarian"%')
+            ));
           }
           if (chip === "light") {
             officialConditions.push(or(
@@ -3148,9 +3155,15 @@ ${TAGS_RULE}`;
             customConditions.push(lte(customRecipes.servings, 2));
           }
           if (chip === "high-protein") {
-            // 用推導出嚟嘅 scenario tag（≥2 個蛋白組），唔再用 ingredient keyword 列表
-            officialConditions.push(like(officialRecipes.scenarioTags ?? "", '%"highProtein"%'));
-            customConditions.push(like(customRecipes.scenarioTags ?? "", '%"highProtein"%'));
+            // union：derived tag 或 用戶自訂 tag 都要命中（同 aiRecipe 一致）
+            officialConditions.push(or(
+              like(officialRecipes.scenarioTags ?? "", '%"highProtein"%'),
+              like(officialRecipes.scenarioTagsUser ?? "", '%"highProtein"%')
+            ));
+            customConditions.push(or(
+              like(customRecipes.scenarioTags ?? "", '%"highProtein"%'),
+              like(customRecipes.scenarioTagsUser ?? "", '%"highProtein"%')
+            ));
           }
           if (chip === "soup") {
             officialConditions.push(or(
