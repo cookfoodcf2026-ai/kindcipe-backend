@@ -257,6 +257,12 @@ function hardFilter(
   if (dishTypeIsTheAsk && !matchesDishType(recipe, slots.dishType)) return false;
   if (!matchesKeyword(recipe, slots.keyword)) return false;
   if (requiresVegetarian(slots) && !(recipe.derivedTags ?? []).includes("diet:vegetarian")) return false;
+  // Breakfast is a light, mild meal: heavy/spicy dishes must never fill it even if
+  // someone tagged them 早餐 (涼拌酸辣飯 was exactly that).
+  if (keys.includes("breakfast")) {
+    const hay = `${recipe.name} ${(recipe.tags ?? []).join(" ")}`;
+    if (/辣|麻辣|酸辣|重口味|spicy|chilli|chili/i.test(hay) || (recipe.derivedTags ?? []).includes("tag:spicy")) return false;
+  }
   if (relaxLevel < 3 && !matchesProtein(recipe, slots.protein)) return false;
   if (avoid.length > 0) {
     const haystack = recipeText(recipe);
