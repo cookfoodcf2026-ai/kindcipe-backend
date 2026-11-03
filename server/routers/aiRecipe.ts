@@ -4964,7 +4964,9 @@ async function processAIChefChatCore(
 
     const explicitTermCandidate = extractMealIngredients(lastUserText)[0] ?? "";
     const explicitTerm = isSpecificFoodTerm(explicitTermCandidate) ? explicitTermCandidate : "";
-    if (explicitTerm) {
+    // A hotkey already carries a scenario (素食/高蛋白): the prompt text is a canned
+    // sentence, so treating a word from it as an "explicit dish" produced 0 cards.
+    if (explicitTerm && !search?.scenario) {
       const semanticRows = safeRows.filter((row) => rowMatchesFoodQuery(row, explicitTerm));
       const scenarioRank = (row: Record<string, unknown>) =>
         search?.scenario && safeParseJsonArray((row as any).scenarioTags).map(String).includes(search.scenario) ? 0 : 1;
