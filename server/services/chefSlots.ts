@@ -187,7 +187,10 @@ export function normalizeChefSlots(raw: unknown): ChefSlots | null {
     ...(keyword ? { keyword } : {}),
     // Asking for a protein / keyword / tag is a card request even if the model
     // said wantsCards:false; otherwise the pipeline skips it entirely.
-    wantsCards: v.wantsCards || Boolean(keyword) || Boolean(asEnum(v.protein, PROTEINS)) || tags.length > 0,
+    // Any concrete food facet means the caller wants cards, even if the model
+    // said no (it often does for "有咩蒸嘅餸" style method-only questions).
+    wantsCards: v.wantsCards || Boolean(keyword) || Boolean(asEnum(v.protein, PROTEINS))
+      || Boolean(asEnum(v.dishType, DISH_TYPES)) || Boolean(asEnum(v.method, METHODS)) || tags.length > 0,
     ...(clampInt(v.servingsHint, 1, 20) ? { servingsHint: clampInt(v.servingsHint, 1, 20) } : {}),
   };
   return reinterpretCategoryKeyword(parsed);

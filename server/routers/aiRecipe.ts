@@ -2678,6 +2678,9 @@ function parseMealIntent(messages: Message[]): { isMeal: boolean; dishCount: num
 // 由 prompt/文字抽「幾多人食」（適合 N 人食用 / N 人份）→ 用作卡片 servings 覆蓋
 function mealShapeFromIntent(intent: ChefIntent): { dishCount: number; soupCount: number; total: number } | null {
   if (intent.requested.total <= 1) return null;
+  // Only an explicit multi-card meal request may shape the answer. A plain
+  // 「有咩湯水」used to inherit a 3+1 default and came back with rice and shrimp.
+  if (!/explicit_meal|meal_followup/.test(String(intent.reason ?? ""))) return null;
   const soupCount = intent.requested.roles.filter((role) => role === "soup").length;
   if (soupCount <= 0) return null;
   return { dishCount: Math.max(0, intent.requested.total - soupCount), soupCount, total: intent.requested.total };
