@@ -4897,7 +4897,10 @@ async function processAIChefChatCore(
       const dishSetLabel = dishLabel(dishCount, soupCount, lang);
       const cards = applyServings(assembled.cards);
       const missingIngredient = missingIngredients[0];
-      const content = assembled.missingRoles.length > 0
+      // "I found 3 of the 6 you asked for" only makes sense when the user actually
+      // asked for a multi-dish set; for 「有咩早餐」it read like a broken promise.
+      const explicitMealRequest = Boolean(detectMealShapeLoose(lastUserText(inputMessages)));
+      const content = assembled.missingRoles.length > 0 && explicitMealRequest
         ? aiReply(lang, "partialSet", { served: assembled.served, total: assembled.requested })
         : missingIngredient && assembled.sources.ai === 0
           ? ingredientMissReply(lang, missingIngredient.term, cards.map((recipe) => recipe.name))
