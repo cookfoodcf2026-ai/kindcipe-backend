@@ -215,7 +215,9 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
   // Difficulty alone must never imply a kids meal.
   if (KIDS_TAGS.some((t) => tagsText.includes(t))) out.add("kids");
   if (KIDS_NAME_RE.test(name)) out.add("kids");
-  if ((dishType === "dessert" || dishType === "drink") && !SPICY_RE.test(bodyText)) out.add("kids");
+  // A non-spicy dessert is NOT automatically a kids meal: that label used to make
+  // every sugary dish answer a 小朋友 request. Kids must come from tags or a
+  // kid-named dish, never from "it happens to be sweet".
 
   // guest: explicit tags, or festive name
   if (GUEST_TAGS.some((t) => tagsText.includes(t))) out.add("guest");
