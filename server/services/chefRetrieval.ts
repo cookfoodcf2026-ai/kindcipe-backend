@@ -255,6 +255,10 @@ function hardFilter(
   const dishTypeIsTheAsk = Boolean(slots.dishType)
     && !slots.protein && !slots.keyword && !slots.method && (slots.tags?.length ?? 0) === 0;
   if (dishTypeIsTheAsk && !matchesDishType(recipe, slots.dishType)) return false;
+  // Same idea for cooking method: 「有咩蒸嘅餸」must not return 蔥油雞.
+  const methodIsTheAsk = Boolean(slots.method) && !slots.protein && !slots.keyword
+    && !slots.dishType && (slots.tags?.length ?? 0) === 0;
+  if (methodIsTheAsk && !matchesMethod(recipe, slots.method)) return false;
   if (!matchesKeyword(recipe, slots.keyword)) return false;
   if (requiresVegetarian(slots) && !(recipe.derivedTags ?? []).includes("diet:vegetarian")) return false;
   // Breakfast is a light, mild meal: heavy/spicy dishes must never fill it even if
