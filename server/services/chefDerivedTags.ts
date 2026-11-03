@@ -83,6 +83,13 @@ const PROTEIN_FALSE_POSITIVES: Array<[string, RegExp]> = [
   ["seafood", /蠔油|蚝油|蝦米|虾米|瑤柱|瑶柱|蠔豉|蚝豉/i],
 ];
 
+/** 菇／菌／素肉 呢類字會帶出「海鮮／雞」等假訊號，先剝走。 */
+function neutraliseProteinNoise(text: string): string {
+  return String(text ?? "")
+    .replace(/[^\s，、]{0,3}(?:菇|菌)/g, " ")
+    .replace(/素肉|素雞|素蠔|植物肉/g, " ");
+}
+
 function hasProtein(text: string, protein: string): boolean {
   const pattern = PROTEIN_PATTERNS.find(([key]) => key === protein)?.[1];
   if (!pattern || !pattern.test(text)) return false;
@@ -143,8 +150,13 @@ export function deriveRecipeFacets(input: DerivedTagInput): DerivedTagFacets {
 
   // Protein must be supported by ingredients or the dish name, not by prose
   // alone (a description can mention a dish it is not).
-  const proteinText = `${name} ${ingredientText}`;
-  const protein = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinText, key)));
+  // Name wins: 「煎雞胸」must stay chicken even if an ingredient says 海鮮菇.
+  // Mushroom / plant-based words never carry protein on their own.
+  const proteinName = neutraliseProteinNoise(name);
+  const proteinIngredients = neutraliseProteinNoise(ingredientText);
+  const fromName = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinName, key)));
+  const fromIngredients = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinIngredients, key)));
+  const protein = fromName.length > 0 ? fromName : fromIngredients;
   const method = uniq(METHOD_PATTERNS.filter(([, pattern]) => pattern.test(body)).map(([key]) => key));
   const scenarios = deriveScenarios({
     name,
