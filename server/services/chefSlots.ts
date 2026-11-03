@@ -114,6 +114,10 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
 9. 粵語口語、錯字、中英夾雜、省略都要理解；唔確定就寧願欄位留 null，唔准猜。
 10. 只輸出 JSON，唔准加解釋或 markdown。`;
 
+/** Bump whenever the prompt or the slot semantics change: cached parses from an
+ *  older parser must never be reused (stale maxMinutes/wantsCards bit us badly). */
+export const CHEF_SLOT_PARSER_VERSION = "2026-11-03b";
+
 /** Stable cache key: NFKC, lowercase, drop whitespace/punctuation. */
 export function normalizeChefText(text: string): string {
   return String(text ?? "")
@@ -212,10 +216,11 @@ export async function parseChefQuery(
 ): Promise<ParsedChefQuery> {
   const normalizedText = normalizeChefText(text);
   if (!normalizedText) return { slots: null, source: "failed", llmCalls: 0, normalizedText };
+  const cacheKey = `${CHEF_SLOT_PARSER_VERSION}:${normalizedText}`;
 
   if (options.cache) {
     try {
-      const cached = await options.cache.get(normalizedText);
+      const cached = await options.cache.get(cacheKey);
       if (cached) return { slots: cached, source: "cache", llmCalls: 0, normalizedText };
     } catch (error) {
       console.warn("[Chef] slot cache read failed:", (error as Error)?.message || error);
@@ -251,7 +256,7 @@ export async function parseChefQuery(
       if (!parsed) continue;
       if (options.cache) {
         try {
-          await options.cache.set(normalizedText, parsed);
+          await options.cache.set(cacheKey, parsed);
         } catch (error) {
           console.warn("[Chef] slot cache write failed:", (error as Error)?.message || error);
         }
