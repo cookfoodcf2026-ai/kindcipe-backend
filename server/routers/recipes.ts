@@ -2607,6 +2607,21 @@ export const recipesRouter = router({
         });
         throw error;
       }
+      // Grounding rule (product): never invent steps the source did not have.
+      // A "Directions" header or ≥2 numbered steps is the only licence to keep
+      // LLM-written steps; otherwise the import must come back as stepsMissing.
+      const hasDirectionsHeader = /做法|步驟|步骤|Directions|Instructions|Method/i.test(input.text);
+      const numberedSteps = (input.text.match(/^\s*(?:\d+|[一二三四五六七八九十])[\.\)、:：]/gm) ?? []).length;
+      if (!hasDirectionsHeader && numberedSteps < 2) {
+        parsed.steps = [];
+        parsed.stepsEn = undefined;
+        parsed.stepsFil = undefined;
+        parsed.stepsId = undefined;
+        parsed.missing = ["steps"];
+        parsed.stepsMissingMessage = String(input.language ?? "zh-TW").startsWith("en")
+          ? `Found ${Array.isArray(parsed.ingredients) ? parsed.ingredients.length : 0} ingredient(s), but the source has no steps. Paste the steps, or let AI draft them (marked as AI).`
+          : `已抽到材料（${Array.isArray(parsed.ingredients) ? parsed.ingredients.length : 0} 項），但來源冇做法。可以貼上步驟，或者叫 AI 補寫（會標明 AI 補寫）。`;
+      }
       const parsedResult = {
         ...parsed,
         sourceUrl: "",
