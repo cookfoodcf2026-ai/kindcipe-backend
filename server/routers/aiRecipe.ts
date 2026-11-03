@@ -5150,6 +5150,14 @@ async function processAIChefChatCore(
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
+      if (picked.length === 0) {
+        // Last resort: the 7-day "already seen" list can empty a narrow scenario
+        // pool (素食 has ~27 mains). Serve a card the user has seen rather than 0.
+        picked = rowsToSuggested(filteredRows, mkExcludeSets(excludeNames, []), searchCount);
+        if (picked.length > 0) {
+          console.log(`[AI Chef] library structured fallback: ignored 7d seen (${picked.length})`);
+        }
+      }
       if (picked.length > 0) {
         console.log(`[AI Chef] library structured fallback: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
         await recordFamilySeenNames(familyId, picked.map(r => r.name));
