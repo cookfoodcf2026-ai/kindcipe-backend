@@ -7608,6 +7608,19 @@ export const aiRecipeRouter = router({
         finalResponse.recipes = (finalResponse.recipes as any[]).slice(0, 3);
       }
 
+      // 清淡 / 親子 must not be answered with heavy or spicy dishes.
+      const heavyText = lastUserText(input.messages) ?? "";
+      const HEAVY_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒/;
+      const wantsLight = /清淡|少油|輕盈|輕食/i.test(heavyText);
+      const wantsKid = /親子|小朋友|細路|孩子/i.test(heavyText);
+      if ((wantsLight || wantsKid) && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
+        const filtered = (finalResponse.recipes as any[]).filter((recipe) => !HEAVY_RE.test(String(recipe?.name ?? "")));
+        if (filtered.length > 0 && filtered.length !== finalResponse.recipes.length) {
+          console.log(`[AI Chef] ${wantsLight ? "light" : "kid"} postcondition removed=${finalResponse.recipes.length - filtered.length}`);
+          finalResponse.recipes = filtered;
+        }
+      }
+
       // Red line, every path: a 素食 ask must never get meat/seafood cards.
       // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
       // so match the ingredient text directly.
