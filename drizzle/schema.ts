@@ -299,6 +299,7 @@ export const customRecipes = pgTable("custom_recipes", {
   tags: text("tags"),
   scenarioTags: text("scenario_tags"),
   scenarioTagsUser: text("scenario_tags_user").default(""),
+  derivedTags: text("derived_tags").default("[]").notNull(),
   sourceType: sourceTypeEnum("source_type").default("manual"),
   sourceUrl: text("source_url"),
   sourceUrlHash: varchar("source_url_hash", { length: 64 }),
@@ -352,6 +353,7 @@ export const officialRecipes = pgTable("official_recipes", {
   tags: text("tags"),
   scenarioTags: text("scenario_tags"),
   scenarioTagsUser: text("scenario_tags_user").default(""),
+  derivedTags: text("derived_tags").default("[]").notNull(),
   sourceType: sourceTypeEnum("source_type").default("manual"),
   sourceUrl: text("source_url"),
   sourceUrlHash: varchar("source_url_hash", { length: 64 }),
@@ -714,6 +716,19 @@ export const aiChefSeenRecipes = pgTable("ai_chef_seen_recipes", {
 
 export type AiChefSeenRecipe = typeof aiChefSeenRecipes.$inferSelect;
 export type InsertAiChefSeenRecipe = typeof aiChefSeenRecipes.$inferInsert;
+
+// ─── AI Chef Query Slot Cache ────────────────────────────────────────────────
+// One cheap parse per normalized sentence; repeated queries never re-call the LLM.
+export const chefQueryCache = pgTable("chef_query_cache", {
+  normalizedText: text("normalized_text").primaryKey(),
+  slots: jsonb("slots").$type<Record<string, unknown>>().notNull(),
+  hitCount: integer("hit_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastHitAt: timestamp("last_hit_at").defaultNow().notNull(),
+});
+
+export type ChefQueryCacheRow = typeof chefQueryCache.$inferSelect;
 
 // ─── AI Chef Family Allergen Safety (family-level, v1) ───────────────────────
 export const aiChefFamilySafety = pgTable("ai_chef_family_safety", {

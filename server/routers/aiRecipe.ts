@@ -14,6 +14,9 @@ import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, filter
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
+import { runChefSlotPipeline } from "../services/chefPipeline";
+import { dbChefSlotsCache } from "../services/chefQueryCache";
+import type { ParsedChefQuery } from "../services/chefSlots";
 import { getLlmMeter } from "../_core/llm";
 import { lookupFaqAnswer } from "../services/chefFaq";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
@@ -3633,6 +3636,15 @@ async function applyMealShapePostcondition(
 
 const FOOD_INTENT_RE = /食|煮|整|整返|想|要|菜|餸|餐|湯|飯|麵/;
 
+/** CHEF_SLOT_PIPELINE is default OFF; OFF must keep the a5a9648 behaviour. */
+export function isChefSlotPipelineEnabled(): boolean {
+  return (process.env.CHEF_SLOT_PIPELINE ?? "false") === "true";
+}
+
+export type ChefSlotPipelineOverride = {
+  parsed?: ParsedChefQuery;
+};
+
 /**
  * 靜默 0 卡 invariant：有食物意圖但一張卡都冇、又冇 clarifyReason，
  * 一定要俾用戶一個追問，唔可以靜靜回一段字。
@@ -3677,6 +3689,7 @@ async function processAIChefChatCore(
   dispatchOverride?: (messages: Array<{ role: string; content: string }>) => Promise<ChefDispatch | null>,
   stateUserId?: string,
   knownAllergens?: string[],
+  slotPipelineOverride?: ChefSlotPipelineOverride,
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -3998,6 +4011,66 @@ async function processAIChefChatCore(
         },
       };
     }
+  }
+
+  // Slot pipeline (default OFF): one cheap slot parse + deterministic library
+  // retrieval. It only short-circuits when the library actually has cards; a
+  // miss falls through to the existing dispatcher / AI generation path.
+  const slotPipelineEligible = isChefSlotPipelineEnabled()
+    && mode === "chat"
+    && Boolean(db || searchOverride)
+    && !hasImage
+    && !forceText
+    && !plannedTurn
+    && !smallTalk
+    && !ambiguousFood
+    && !isCannedMealPrompt(lastUserText)
+    && slotPipelineOverride?.parsed?.slots?.wantsCards !== false
+    && (chefIntent.kind === "chat" || chefIntent.kind === "recipe")
+    && chefIntent.requested.total <= 1
+    && !/(?:^|[\s，,])ai(?:\s|$|煮|生成)|ai\s*煮|用\s*ai/i.test(lastUserText)
+    && Boolean(lastUserText);
+  let slotParsed: ParsedChefQuery | undefined = slotPipelineOverride?.parsed;
+  if (slotPipelineEligible) {
+    const slotStartedAt = Date.now();
+    const slotResult = await runChefSlotPipeline<SuggestedRecipe>(lastUserText, {
+      loadPool: () => loadMealPool(familyId, searchOverride),
+      toCard: (recipe) => {
+        const raw = recipe.raw as Record<string, unknown> | undefined;
+        if (!raw) return null;
+        return rowsToSuggested([raw], excludeSets, 1)[0] ?? null;
+      },
+      avoid: avoidIngredients,
+      count: 3,
+      lang,
+      previousText,
+      cache: dbChefSlotsCache,
+      parsed: slotParsed,
+    });
+    slotParsed = {
+      slots: slotResult.slots,
+      source: slotResult.debug.parseSource,
+      llmCalls: slotResult.debug.llmCalls,
+      normalizedText: slotResult.debug.normalizedText,
+    };
+    if (slotResult.status === "cards" && slotResult.cards.length > 0) {
+      const cards = slotResult.cards;
+      await recordServedLibraryCards(familyId, cards);
+      console.log(`[AI Chef] slot_pipeline layer=library cards=${cards.length} relax=${slotResult.relaxLevel} llmCalls=${slotResult.debug.llmCalls} ms=${Date.now() - slotStartedAt}`);
+      return {
+        content: slotResult.content,
+        recipes: cards,
+        llmUsed: slotResult.debug.llmCalls > 0,
+        intentOverride: {
+          kind: "recipe",
+          wantsCards: true,
+          requested: { total: cards.length, roles: cards.map(() => "any" as RequestedRole) },
+          confidence: 0.9,
+          reason: "chef_slot_library",
+        },
+      };
+    }
+    console.log(`[AI Chef] slot_pipeline miss reason=${slotResult.debug.reason} relax=${slotResult.relaxLevel} llmCalls=${slotResult.debug.llmCalls} -> existing path`);
   }
 
   // Dispatcher path: free-text chat is understood by the model first; this
@@ -4408,6 +4481,26 @@ async function processAIChefChatCore(
   // Chat budget/quota exhausted: do not call the LLM. The raw/library fallback
   // above may already have turned this into a free library-card response.
   if (!allowChatLlm && !wantCards) {
+    // Never answer a food request with the generic "free AI unavailable" prose:
+    // that reads like a dead end. Ask a short library-first question instead.
+    if (isChefSlotPipelineEnabled() && FOOD_INTENT_RE.test(lastUserText)) {
+      console.log(`[AI Chef] chat fallback reason=quota_library_first`);
+      return {
+        content: lang.startsWith("en")
+          ? "Free AI chat is unavailable right now. Tell me which ingredient or dish you want, and I'll search the recipe library. No credit was used."
+          : "我暫時用唔到 AI 生成；你可以話我知想食咩食材或者菜名，我幫你喺食譜庫搵。冇扣 credit。",
+        recipes: [],
+        llmUsed: false,
+        clarifyReason: "ambiguous_food",
+        intentOverride: {
+          kind: "clarify",
+          wantsCards: false,
+          requested: { total: 0, roles: [] },
+          confidence: 0.6,
+          reason: "quota_library_first",
+        },
+      };
+    }
     console.log(`[AI Chef] chat fallback reason=daily_or_monthly_quota_or_budget`);
     return {
       content: lang.startsWith("en")
