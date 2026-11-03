@@ -4126,7 +4126,15 @@ async function processAIChefChatCore(
     if (slotResult.status === "skipped") {
       console.log(`[AI Chef] slot_pipeline skip reason=${slotResult.debug.reason}`);
     }
-    if (slotResult.status === "cards" && slotResult.cards.length > 0) {
+    // Constraint that was relaxed away is worse than an honest ask: if the user
+    // asked for a hard facet (protein / tag) and retrieval had to drop it, do not
+    // serve unrelated popular cards.
+    const droppedHardFacet = (slotResult.slots?.protein && slotResult.relaxLevel >= 3)
+      || ((slotResult.slots?.tags?.length ?? 0) > 0 && slotResult.relaxLevel >= 2);
+    if (droppedHardFacet && slotResult.cards.length > 0) {
+      console.log(`[AI Chef] slot_pipeline reject reason=dropped_hard_facet relax=${slotResult.relaxLevel}`);
+    }
+    if (slotResult.status === "cards" && slotResult.cards.length > 0 && !droppedHardFacet) {
       const cards = slotResult.cards;
       await recordServedLibraryCards(familyId, cards);
       console.log(`[AI Chef] slot_pipeline layer=library cards=${cards.length} relax=${slotResult.relaxLevel} llmCalls=${slotResult.debug.llmCalls} ms=${Date.now() - slotStartedAt}`);
