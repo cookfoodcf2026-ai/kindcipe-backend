@@ -7599,6 +7599,12 @@ export const aiRecipeRouter = router({
         servedSources: sources,
       });
 
+      // Single-dish questions must not return a pile of cards (隨機抽 sent 6).
+      if (!detectMealShapeLoose(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 3) {
+        console.log(`[AI Chef] capped cards ${finalResponse.recipes.length} -> 3 (no meal shape)`);
+        finalResponse.recipes = (finalResponse.recipes as any[]).slice(0, 3);
+      }
+
       // Red line, every path: a 素食 ask must never get meat/seafood cards.
       // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
       // so match the ingredient text directly.
