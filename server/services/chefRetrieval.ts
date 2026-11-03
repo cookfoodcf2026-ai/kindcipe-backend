@@ -161,11 +161,13 @@ function requiresVegetarian(slots: ChefSlots): boolean {
   return (slots.tags ?? []).some((tag) => /素食|吃素|食素|vegan|vegetarian/i.test(tag));
 }
 
+const NOODLE_NAME_RE = /麵|面|米線|米线|河粉|烏冬|乌冬|意粉|通粉|米粉|粉絲|粉丝|寬粉|宽粉|粿條|粿条|銀針粉|银针粉|noodle|ramen|udon|pasta/i;
+
 /** Name-only shape check, shared with the router's constraint layer. */
 export function matchesDishTypeName(name: string, dishType: string): boolean {
   const value = normalize(name);
   const N: Record<string, RegExp> = {
-    noodle: /麵|面|米線|米线|河粉|烏冬|乌冬|意粉|通粉|米線|河粉|noodle|ramen|udon|pasta/i,
+    noodle: NOODLE_NAME_RE,
     rice: /飯|饭|炒飯|炒饭|丼|rice/i,
     soup: /湯|汤|羹|soup|broth/i,
     stirfry: /炒|煎|爆炒|stir.?fry/i,
@@ -184,7 +186,7 @@ function matchesDishType(recipe: ChefLibraryRecipe, dishType?: ChefDishType): bo
   // Shape must come from the dish NAME: ingredient text contains starch words
   // (生粉/粟粉/麵粉) that would otherwise make every dish look like a noodle.
   const name = normalize(recipe.name);
-  if (dishType === "noodle") return derived.has("noodle") || /麵|面|米線|米线|河粉|烏冬|乌冬|意粉|通粉|noodle|ramen|udon|pasta/i.test(name);
+  if (dishType === "noodle") return derived.has("noodle") || NOODLE_NAME_RE.test(name);
   if (dishType === "rice") return derived.has("rice") || /飯|饭|炒飯|炒饭|丼|rice/i.test(name);
   if (dishType === "snack") return /appetizer|dessert|drink/.test(value) || derived.has("snack") || /小食|小吃|點心|点心|早餐|甜品|糖水|snack|dessert|breakfast/i.test(recipeText(recipe));
   if (dishType === "soup") return value === "soup" || derived.has("soup") || /湯|汤|羹|soup|broth/i.test(name);
