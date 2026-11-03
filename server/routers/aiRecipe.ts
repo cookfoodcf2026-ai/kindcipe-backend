@@ -15,7 +15,7 @@ import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb,
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
 import { runChefSlotPipeline } from "../services/chefPipeline";
-import { deriveTagsFromText } from "../services/chefRetrieval";
+import { deriveTagsFromText, matchesDishTypeName } from "../services/chefRetrieval";
 import { deriveRecipeTags } from "../services/chefDerivedTags";
 import { dbChefSlotsCache } from "../services/chefQueryCache";
 import { logChefQuery } from "../services/chefQueryLog";
@@ -5889,7 +5889,7 @@ function applyChefCardConstraint(
   const hasParsedFacet = Boolean(parsedSlots && (parsedSlots.protein || parsedSlots.dishType || parsedSlots.method || parsedSlots.keyword || (parsedSlots.tags?.length ?? 0) > 0));
   const safeSlots = hasParsedFacet ? parsedSlots : inferInsuranceSlots(text, parsedSlots);
   if (!safeSlots) return result;
-  const constrained = result.recipes.filter((card) => validateGeneratedCard(
+  const constrained = result.recipes.filter((card) => (!safeSlots.dishType || matchesDishTypeName(card.name, safeSlots.dishType)) && validateGeneratedCard(
     {
       name: card.name,
       cookTime: card.cookTime,

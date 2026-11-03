@@ -161,6 +161,22 @@ function requiresVegetarian(slots: ChefSlots): boolean {
   return (slots.tags ?? []).some((tag) => /素食|吃素|食素|vegan|vegetarian/i.test(tag));
 }
 
+/** Name-only shape check, shared with the router's constraint layer. */
+export function matchesDishTypeName(name: string, dishType: string): boolean {
+  const value = normalize(name);
+  const N: Record<string, RegExp> = {
+    noodle: /麵|面|米線|米线|河粉|烏冬|乌冬|意粉|通粉|米線|河粉|noodle|ramen|udon|pasta/i,
+    rice: /飯|饭|炒飯|炒饭|丼|rice/i,
+    soup: /湯|汤|羹|soup|broth/i,
+    stirfry: /炒|煎|爆炒|stir.?fry/i,
+    steam: /蒸|steam/i,
+    braise: /炆|燜|焖|燉|炖|滷|卤|紅燒|红烧|braise|stew/i,
+    snack: /小食|小吃|點心|点心|甜品|糖水|snack|dessert/i,
+  };
+  const pattern = N[dishType];
+  return pattern ? pattern.test(value) : true;
+}
+
 function matchesDishType(recipe: ChefLibraryRecipe, dishType?: ChefDishType): boolean {
   if (!dishType) return true;
   const value = normalize(recipe.dishType ?? "");
