@@ -5934,10 +5934,20 @@ function applyChefCardConstraint(
   const enforceDishType = Boolean(safeSlots.dishType) && (safeSlots.tags?.length ?? 0) === 0;
   // Explicit exclusions from the parse ("唔要牛") must drop those cards here too.
   const slotAvoid = (safeSlots.avoid ?? []).map((term) => normalizeName(term)).filter(Boolean);
+  // Taste words are attributes, not ingredients: 「走辣」 must drop spicy cards.
+  const TASTE_AVOID: Record<string, RegExp> = {
+    "辣": /辣|麻辣|酸辣|spicy|chilli|chili/i,
+    "甜": /甜|糖|dessert|甜品/i,
+    "炸": /炸|deep.?fry/i,
+  };
   const violatesAvoid = (card: any) => {
     if (slotAvoid.length === 0) return false;
     const hay = normalizeName([card.name, ...(Array.isArray(card.ingredients) ? card.ingredients.map((i: any) => String(i?.name ?? i)) : [])].join(" "));
-    return slotAvoid.some((term) => hay.includes(term));
+    return slotAvoid.some((term) => {
+      const taste = Object.keys(TASTE_AVOID).find((key) => term.includes(key));
+      if (taste) return TASTE_AVOID[taste].test(String(card.name ?? "")) || (card.tags ?? []).some((tag: string) => TASTE_AVOID[taste].test(String(tag)));
+      return hay.includes(term);
+    });
   };
   const constrained = result.recipes.filter((card) => !violatesAvoid(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
     {
