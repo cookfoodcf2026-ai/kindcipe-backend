@@ -70,7 +70,7 @@ const PROTEIN_PATTERNS: Array<[string, RegExp]> = [
   ["chicken", /雞肉|鸡肉|雞扒|鸡扒|雞排|鸡排|雞腿|鸡腿|雞髀|鸡髀|雞翼|鸡翼|雞翅|鸡翅|雞胸|鸡胸|三黃雞|三黄鸡|雞|chicken|poultry/i],
   ["fish", /三文魚|三文鱼|鱸魚|鲈鱼|石斑|紅衫魚|红衫鱼|鯪魚|鲮鱼|鰂魚|鲗鱼|鯇魚|鲩鱼|桂花魚|桂花鱼|黃花魚|黄花鱼|白身魚|白身鱼|魚柳|鱼柳|魚扒|鱼扒|魚片|鱼片|魚塊|鱼块|魚|fish|salmon|bass|grouper|tilapia|sole|cod/i],
   ["seafood", /海鮮|海鲜|蝦|虾|蟹|蜆|蚬|蠔|蚝|帶子|带子|扇貝|扇贝|青口|魷魚|鱿鱼|墨魚|墨鱼|八爪魚|八爪鱼|龍蝦|龙虾|鮑魚|鲍鱼|海參|海参|花甲|蟶子|蛏子|seafood|shrimp|prawn|crab|squid|octopus|scallop|oyster|clam|mussel/i],
-  ["egg", /雞蛋|鸡蛋|鴨蛋|鸭蛋|鵪鶉蛋|鹌鹑蛋|皮蛋|鹹蛋|咸蛋|蛋黃|蛋黄|蛋白(?!粉|霜|質|质)|egg/i],
+  ["egg", /雞蛋|鸡蛋|鴨蛋|鸭蛋|鵪鶉蛋|鹌鹑蛋|皮蛋|鹹蛋|咸蛋|蛋黃|蛋黄|(?<!高)蛋白(?!粉|霜|質|质)|egg/i],
   ["soy", /豆腐|豆卜|豆乾|豆干|腐竹|腐皮|豆皮|毛豆|黃豆|黄豆|豆漿|豆浆|豆奶|素雞|素鸡|天貝|天贝|tofu|soy|edamame|tempeh/i],
 ];
 
@@ -90,6 +90,20 @@ function neutraliseProteinNoise(text: string): string {
     .replace(/素肉|素雞|素蠔|植物肉/g, " ")
     // 「高蛋白」係營養標籤，唔係蛋類食材
     .replace(/高蛋白|蛋白質|蛋白质|蛋白粉|蛋白霜/g, " ");
+}
+
+const PROTEIN_INGREDIENT_CATEGORIES = new Set(["肉類", "海鮮", "蛋奶"]);
+
+type IngredientRow = { name: string; category: string };
+
+function ingredientRows(ingredients: unknown): IngredientRow[] {
+  const list = Array.isArray(ingredients) ? ingredients : [];
+  return list
+    .map((item: any) => ({
+      name: String(item?.name ?? item ?? "").trim(),
+      category: String(item?.category ?? "").trim(),
+    }))
+    .filter((row) => row.name.length > 0);
 }
 
 function hasProtein(text: string, protein: string): boolean {
@@ -155,9 +169,16 @@ export function deriveRecipeFacets(input: DerivedTagInput): DerivedTagFacets {
   // Name wins: 「煎雞胸」must stay chicken even if an ingredient says 海鮮菇.
   // Mushroom / plant-based words never carry protein on their own.
   const proteinName = neutraliseProteinNoise(name);
-  const proteinIngredients = neutraliseProteinNoise(ingredientText);
+  // Structural, not lexical: an ingredient only counts as protein when its own
+  // category says so (肉類 / 海鮮 / 蛋奶). Condiments, mushrooms, dried goods and
+  // plant-based items are excluded by data, not by a word list.
+  const proteinCategoryText = ingredientRows(input.ingredients)
+    .filter((row) => PROTEIN_INGREDIENT_CATEGORIES.has(row.category))
+    .map((row) => row.name)
+    .join(" ");
   const fromName = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinName, key)));
-  const fromIngredients = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinIngredients, key)));
+  const proteinSource = proteinCategoryText || neutraliseProteinNoise(ingredientText);
+  const fromIngredients = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinSource, key)));
   const protein = fromName.length > 0 ? fromName : fromIngredients;
   const method = uniq(METHOD_PATTERNS.filter(([, pattern]) => pattern.test(body)).map(([key]) => key));
   const scenarios = deriveScenarios({
