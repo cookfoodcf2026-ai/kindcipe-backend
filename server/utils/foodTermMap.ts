@@ -5,6 +5,8 @@
  * 唔應該用全文搜尋（會撈到「魚柳條」因為成份有蛋漿），而係按詞分類精準揀卡。
  */
 
+import { VEGETABLE_NAME_RE, isGenericDishTerm, stripFoodTermNeutral } from "./foodTermGuard";
+
 export type FoodTermPattern = {
   keys: string[];
   name: RegExp;
@@ -23,14 +25,17 @@ export const FOOD_TERM_PATTERNS: FoodTermPattern[] = [
   { keys: ["豬", "猪", "排骨", "豬肉"], name: /豬|猪|排骨|腩|叉燒/, ingredient: /豬|猪|排骨|腩/ },
   { keys: ["羊", "羊肉"], name: /羊/, ingredient: /羊/ },
   { keys: ["菇", "菇類", "蘑菇"], name: /菇|菌/, ingredient: /菇|菌/ },
-  { keys: ["菜", "蔬菜", "青菜"], name: /菜|苗|蘭/, ingredient: /菜|苗|蘭/ },
+  { keys: ["菜", "蔬菜", "青菜"], name: VEGETABLE_NAME_RE, ingredient: VEGETABLE_NAME_RE },
   { keys: ["湯", "湯水"], name: /湯|汤/, ingredient: /湯|汤/ },
   { keys: ["麵", "面", "粉麵"], name: /麵|面|粉|意粉/, ingredient: /麵|面|粉/ },
   { keys: ["飯"], name: /飯|饭/, ingredient: /飯|饭/ },
 ];
 
 export function findFoodTermPattern(term: string): FoodTermPattern | null {
-  const t = String(term ?? "").trim();
+  const raw = String(term ?? "").trim();
+  if (!raw || isGenericDishTerm(raw)) return null;
+  // 先清走「有味但唔係該食材」嘅詞（魚香／牛油果／湯圓／豬仔包／蟹味菇…）
+  const t = stripFoodTermNeutral(raw);
   if (!t) return null;
   // 最長 key 優先（「豆腐」先於「豆」）
   const sorted = [...FOOD_TERM_PATTERNS].sort((a, b) => {
@@ -51,13 +56,17 @@ function ingredientNames(card: any): string {
 
 /** 菜名命中（最準） */
 export function matchesByTermName(card: any, pattern: FoodTermPattern): boolean {
-  return pattern.name.test(String(card?.name ?? ""));
+  const rawName = String(card?.name ?? "");
+  if (!rawName || isGenericDishTerm(rawName)) return false;
+  return pattern.name.test(stripFoodTermNeutral(rawName));
 }
 
 /** 菜名唔中時，用主食材判斷 */
 export function matchesByTermIngredient(card: any, pattern: FoodTermPattern): boolean {
   if (!pattern.ingredient) return false;
-  return pattern.ingredient.test(ingredientNames(card));
+  const ing = stripFoodTermNeutral(ingredientNames(card));
+  if (!ing) return false;
+  return pattern.ingredient.test(ing);
 }
 
 /**

@@ -92,3 +92,9 @@ test("已經多樣時唔會改動", () => {
   assert.deepEqual(r.dishes.map((d) => d.name), ["豉汁蒸排骨", "蝦仁炒蛋", "蒜蓉炒菜心"]);
   assert.equal(r.swapped, 0);
 });
+
+test("詞語守衛：湯圓／豬仔包／蟹味菇 唔會被當湯／豬／蟹", () => {
+  assert.equal(proteinGroup("湯圓"), "veg");
+  assert.equal(proteinGroup("豬仔包"), "veg");
+  assert.equal(proteinGroup("蟹味菇"), "veg");
+});

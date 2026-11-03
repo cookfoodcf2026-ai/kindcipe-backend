@@ -24,6 +24,8 @@ import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } f
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity, collisionScore } from "../utils/mealDiversity";
 import { findFoodTermPattern, matchesByTermName, matchesByTermIngredient, pickDishesByTerm } from "../utils/foodTermMap";
+import { maybeDerivedTags } from "../services/deriveRecipeTags";
+import { parseQuerySlots, slotsToDispatchItems, filterRecipesBySlots, rankRecipesBySlots, type QuerySlots } from "../services/querySlots";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
@@ -3631,6 +3633,20 @@ async function applyMealShapePostcondition(
   };
 }
 
+function logChefZeroCard(input: {
+  reason: string;
+  term?: string;
+  conditions?: string;
+  timeLimit?: number;
+  familyId?: number;
+}): void {
+  const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").slice(0, 160) || "none";
+  console.log(
+    `[AI Chef] zero_card reason=${clean(input.reason)} term=${clean(input.term)} ` +
+      `conditions=${clean(input.conditions)} timeLimit=${input.timeLimit ?? "none"} familyId=${input.familyId ?? "none"}`,
+  );
+}
+
 async function processAIChefChatCore(
   inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
   familyId?: number,
@@ -4016,6 +4032,31 @@ async function processAIChefChatCore(
         clarifyReason: "ai_failed",
       };
     }
+    // P0 slot parser (flag OFF by default): deterministic rescue only when the
+    // dispatcher could not produce items. Never called when the flag is OFF.
+    const slotParserEnabled = getFeatureFlags().ai_chef_slot_parser === true;
+    const querySlots: QuerySlots | null = slotParserEnabled
+      ? await parseQuerySlots(lastUserText).catch(() => null)
+      : null;
+    const slotDerivedLabels = new Set<string>();
+    if (
+      querySlots
+      && dispatch.items.length === 0
+      && querySlots.wantsCards
+      && dispatch.intent !== "non_food"
+      && dispatch.intent !== "technique"
+      && dispatch.intent !== "action"
+    ) {
+      const slotItems = slotsToDispatchItems(querySlots);
+      if (slotItems.length > 0) {
+        dispatch.items.push(...slotItems);
+        for (const item of slotItems) slotDerivedLabels.add(item.label);
+        dispatch.ask = { needed: false, question: "" };
+        dispatch.intent = "cards";
+        dispatch.confidence = Math.max(dispatch.confidence, 0.8);
+        console.log(`[AI Chef] slot_parser rescued foodTerm=${querySlots.foodTerm ?? "none"} protein=${querySlots.protein ?? "none"} maxMinutes=${querySlots.maxMinutes ?? "none"} items=${slotItems.map((item) => item.label).join("|")}`);
+      }
+    }
     const dispatchItems = dispatch.items;
     const dispatchTotal = Math.max(1, dispatchItems.reduce((sum, item) => sum + item.qty, 0));
     const dispatchRoles: RequestedRole[] = [];
@@ -4238,6 +4279,7 @@ async function processAIChefChatCore(
     const usedNames = new Set<string>();
     // 時間約束：用戶講「20 分鐘內」→ 單卡搜尋要 deterministic 過濾（唔靠 AI）
     const dispatchTimeLimit = (() => {
+      if (querySlots?.maxMinutes) return querySlots.maxMinutes;
       const m = String(lastUserText ?? "").match(/(\d{1,3})\s*分鐘/);
       const v = m ? parseInt(m[1], 10) : 0;
       return v > 0 && v <= 120 ? v : undefined;
@@ -4273,16 +4315,36 @@ async function processAIChefChatCore(
           intentOverride: { ...finalDispatchIntent, kind: "clarify", wantsCards: false, requested: { total: 0, roles: [] } },
         };
       }
+      if (querySlots) {
+        // Hard constraints (time / avoid / foodTerm / protein) + soft ranking
+        // (light / easy / quick) only. For multi-item meals, foodTerm/protein
+        // apply only to the single-item case so one item cannot filter another.
+        const slotScope: QuerySlots = dispatchItems.length === 1
+          ? querySlots
+          : { ...querySlots, foodTerm: null, protein: null };
+        search = {
+          ...search,
+          rows: rankRecipesBySlots(
+            filterRecipesBySlots(search.rows as any[], slotScope, {
+              avoid: [...avoidIngredients, ...(knownAllergens ?? [])],
+            }),
+            slotScope,
+          ) as any,
+        };
+        console.log(`[AI Chef] slot_filter item="${item.label}" rows=${search.rows.length} maxMinutes=${slotScope.maxMinutes ?? "none"} tags=${slotScope.tags.join(",") || "none"}`);
+      }
       const normalizedLabel = normalizeName(item.label);
       const exact = search.rows.filter((row) => normalizeName(String(row.name ?? "")) === normalizedLabel);
-      const candidates = item.kind === "category"
+      const candidates = slotDerivedLabels.has(item.label)
         ? search.rows
-        : exact.length > 0
-          ? exact
-          : search.rows.filter((row) => {
-              const rowName = normalizeName(String(row.name ?? ""));
-              return normalizedLabel.length >= 2 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
-            });
+        : item.kind === "category"
+          ? search.rows
+          : exact.length > 0
+            ? exact
+            : search.rows.filter((row) => {
+                const rowName = normalizeName(String(row.name ?? ""));
+                return normalizedLabel.length >= 2 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
+              });
       if (candidates.length === 0) {
         const alternatives = search.rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3);
         if (item.kind === "dish") {
@@ -5583,7 +5645,7 @@ export async function processAIChefChat(
 ): Promise<CoreResult> {
   const [inputMessages, familyId, , mode = "chat", , , lang = "zh-TW", avoidIngredients = [], forceText = false, , , , , searchOverride, , , knownAllergens] = args;
   const result = await processAIChefChatCore(...args);
-  return applyMealShapePostcondition(result, {
+  const finalResult = await applyMealShapePostcondition(result, {
     text: lastUserText(inputMessages as any),
     mode,
     familyId,
@@ -5593,6 +5655,20 @@ export async function processAIChefChat(
     searchOverride,
     forceText,
   });
+  if ((finalResult.recipes?.length ?? 0) === 0 || finalResult.clarifyReason) {
+    const text = lastUserText(inputMessages as any);
+    const timeMatch = String(text ?? "").match(/(\d{1,3})\s*分鐘/);
+    logChefZeroCard({
+      reason: finalResult.clarifyReason ?? "no_cards",
+      term: text,
+      conditions: finalResult.intentOverride
+        ? JSON.stringify({ kind: finalResult.intentOverride.kind, requested: finalResult.intentOverride.requested })
+        : "none",
+      timeLimit: timeMatch ? Number(timeMatch[1]) : undefined,
+      familyId,
+    });
+  }
+  return finalResult;
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──
@@ -5650,6 +5726,7 @@ export async function* streamAIChefChat(
     ));
   } catch (e) {
     console.warn("[AI Chef] stream chat timed out or failed:", e);
+    logChefZeroCard({ reason: "stream_failed", term: lastUserText(inputMessages as any), conditions: "stream", familyId });
     yield { type: "text", value: AI_RECIPE_FALLBACK_CONTENT };
     yield { type: "done" };
     return;
@@ -5673,6 +5750,17 @@ export async function* streamAIChefChat(
     r.source = "ai";
   }
   
+  if (streamRecipes.length === 0) {
+    const text = lastUserText(inputMessages as any);
+    const timeMatch = String(text ?? "").match(/(\d{1,3})\s*分鐘/);
+    logChefZeroCard({
+      reason: "no_cards",
+      term: text,
+      conditions: "stream",
+      timeLimit: timeMatch ? Number(timeMatch[1]) : undefined,
+      familyId,
+    });
+  }
   yield { type: "recipes", value: streamRecipes };
   yield { type: "done" };
 }
@@ -6241,6 +6329,12 @@ export const aiRecipeRouter = router({
         ...(parsed.tags ?? []),
         "AI 生成",
       ]));
+      const derivedTags = maybeDerivedTags({
+        name: parsed.name,
+        ingredients: parsed.ingredients,
+        difficulty: normalizeDifficulty(parsed.difficulty),
+        cookTime: parsed.cookTime,
+      });
 
       // 改「我嘅食譜」→ 原地更新（唔會產生重複卡、唔扣 custom recipe 額度）
       if (input.sourceRecipeId) {
@@ -6276,6 +6370,7 @@ export const aiRecipeRouter = router({
             stepsFil: parsed.stepsFil ? JSON.stringify(parsed.stepsFil) : undefined,
             stepsId: parsed.stepsId ? JSON.stringify(parsed.stepsId) : undefined,
             tags: JSON.stringify(mergedTags),
+            ...(derivedTags !== undefined ? { derivedTags } : {}),
             updatedAt: new Date(),
           })
           .where(eq(customRecipes.id, input.sourceRecipeId));

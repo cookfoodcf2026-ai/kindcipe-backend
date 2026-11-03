@@ -35,6 +35,8 @@ export function getFeatureFlags(): Record<string, boolean> {
     ai_chef_client_message_id: flagDefault("AI_CHEF_CLIENT_MESSAGE_ID", false),
     ai_chef_single_card_library: flagDefault("AI_CHEF_SINGLE_CARD_LIBRARY", false),
     ai_chef_any_library_miss_offer: flagDefault("AI_CHEF_ANY_LIBRARY_MISS_OFFER", false),
+    ai_chef_slot_parser: flagDefault("AI_CHEF_SLOT_PARSER", false),
+    ai_chef_derived_tags: flagDefault("AI_CHEF_DERIVED_TAGS", false),
   };
 }
 

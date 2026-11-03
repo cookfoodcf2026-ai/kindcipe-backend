@@ -1,4 +1,5 @@
 import { invokeLLM, extractJSON, type Message } from "../_core/llm";
+import { isGenericDishTerm, stripFoodTermNoise } from "../utils/foodTermGuard";
 
 export type DispatcherItemKind = "dish" | "category" | "ingredient";
 export type DispatcherIntent = "cards" | "technique" | "chat" | "action" | "non_food";
@@ -87,11 +88,14 @@ export function normalizeDispatchContract(input: ChefDispatch): ChefDispatch {
 }
 
 export function categoryRolesForDispatch(label: string, qty: number): Array<"meat" | "seafood" | "vegetable" | "soup" | "noodle" | "any"> | null {
-  const raw = String(label ?? "").trim();
+  const original = String(label ?? "").trim();
   const count = Math.max(1, Math.min(10, Math.round(qty)));
+  if (isGenericDishTerm(original)) return null; // 家常菜／小菜／菜式 唔係 vegetable role
+  const raw = stripFoodTermNoise(original);
+  if (!raw) return null;
   if (/湯|soup/i.test(raw)) return Array.from({ length: count }, () => "soup");
   if (/海鮮|海鲜|魚|鱼|蝦|虾|蟹|seafood|fish|shrimp/i.test(raw)) return Array.from({ length: count }, () => "seafood");
-  if (/蔬菜|veg/i.test(raw)) return Array.from({ length: count }, () => "vegetable");
+  if (/蔬菜|veg|南瓜|茄子|番茄|蕃茄|菇|菌|青椒|瓜|豆苗|豆芽|豆角|苗|蘭/i.test(raw)) return Array.from({ length: count }, () => "vegetable");
   if (/餸|dish/i.test(raw)) {
     const base: Array<"meat" | "seafood" | "vegetable"> = ["meat", "seafood", "vegetable"];
     return Array.from({ length: count }, (_, i) => base[i % base.length]);
