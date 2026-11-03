@@ -212,6 +212,11 @@ export async function runChefSlotPipeline<T>(
   // fallback: parser sometimes drops a pure tag phrase ("一鍋到底"); recover the
   // one-pot constraint before retrieval so it filters instead of returning popular
   // cards. Scoped to equipment words only — remove once the parser is stable.
+  // Safety net only for the one tag the model keeps dropping (breakfast).
+  if ((slots.tags?.length ?? 0) === 0 && /早餐|早點|早点|breakfast/i.test(text)) {
+    slots = { ...slots, tags: ["breakfast"] };
+    console.log("[AI Chef] slot_pipeline tag_fallback=breakfast");
+  }
   if ((slots.tags?.length ?? 0) === 0) {
     const fallbackTags = recoverDroppedTags(text);
     if (fallbackTags.length > 0) {
