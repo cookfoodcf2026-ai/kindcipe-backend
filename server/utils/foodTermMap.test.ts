@@ -50,6 +50,26 @@ test("認唔到嘅詞回空（唔會亂出卡）", () => {
   assert.deepEqual(pickDishesByTerm(POOL, "哈利波特", { max: 3 }), []);
 });
 
+test("食物詞守衛：含食物字但唔代表該食物嘅詞回 null／空", () => {
+  const guarded = ["高蛋白", "蛋白質", "蛋白粉", "魚香", "牛油果", "牛油", "牛奶", "湯圓", "豬仔包", "蟹味菇"];
+  for (const term of guarded) {
+    assert.equal(findFoodTermPattern(term), null, `${term} 唔應該命中食物詞`);
+    assert.deepEqual(pickDishesByTerm(POOL, term, { max: 3 }), [], `${term} 唔應該出卡`);
+  }
+});
+
+test("蛋類：菜名含「高蛋白」唔會被當蛋", () => {
+  const pool = [
+    ...POOL,
+    { name: "高蛋白豐盛熱蜜汁牛肉烤地瓜", cookTime: 25, ingredients: [{ name: "蛋白粉" }] },
+    { name: "蛋白質能量碗", cookTime: 10, ingredients: [{ name: "蛋白質" }] },
+  ];
+  const r = pickDishesByTerm(pool, "蛋類", { max: 10 });
+  assert.ok(r.length > 0);
+  assert.ok(!r.some((x) => String(x.name).includes("高蛋白")), "高蛋白菜名唔應該入選");
+  assert.ok(!r.some((x) => String(x.name).includes("蛋白質")), "蛋白質菜名唔應該入選");
+});
+
 test("時間全部超標時保留原集（唔會回空）", () => {
   const r = pickDishesByTerm(POOL, "魚", { timeLimit: 1, max: 3 });
   assert.ok(r.length > 0, "寧願超時都唔應該 0 卡");

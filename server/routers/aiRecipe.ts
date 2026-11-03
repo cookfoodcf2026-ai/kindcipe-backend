@@ -3631,6 +3631,31 @@ async function applyMealShapePostcondition(
   };
 }
 
+const FOOD_INTENT_RE = /食|煮|整|整返|想|要|菜|餸|餐|湯|飯|麵/;
+
+/**
+ * 靜默 0 卡 invariant：有食物意圖但一張卡都冇、又冇 clarifyReason，
+ * 一定要俾用戶一個追問，唔可以靜靜回一段字。
+ * 排除 safety／non_food／technique／chat／clarify 分支。
+ */
+export function applySilentZeroCardClarify(
+  result: CoreResult,
+  inputMessages: Parameters<typeof lastUserText>[0],
+  forceText = false,
+): CoreResult {
+  if (result.recipes.length !== 0 || result.clarifyReason) return result;
+  if (forceText) return result;
+  const intent = result.intentOverride;
+  if (intent && (intent.wantsCards === false || intent.kind === "technique" || intent.kind === "chat" || intent.kind === "clarify")) {
+    return result;
+  }
+  const text = lastUserText(inputMessages);
+  if (!FOOD_INTENT_RE.test(text)) return result;
+  result.clarifyReason = "ambiguous_food";
+  result.content = result.content?.trim() || "你想食邊一類？講個食材或者菜名，我幫你搵。";
+  return result;
+}
+
 async function processAIChefChatCore(
   inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
   familyId?: number,
@@ -5583,7 +5608,7 @@ export async function processAIChefChat(
 ): Promise<CoreResult> {
   const [inputMessages, familyId, , mode = "chat", , , lang = "zh-TW", avoidIngredients = [], forceText = false, , , , , searchOverride, , , knownAllergens] = args;
   const result = await processAIChefChatCore(...args);
-  return applyMealShapePostcondition(result, {
+  const shaped = await applyMealShapePostcondition(result, {
     text: lastUserText(inputMessages as any),
     mode,
     familyId,
@@ -5593,6 +5618,7 @@ export async function processAIChefChat(
     searchOverride,
     forceText,
   });
+  return applySilentZeroCardClarify(shaped, inputMessages as any, forceText);
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──

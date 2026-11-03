@@ -12,6 +12,29 @@ export type FoodTermPattern = {
   ingredient?: RegExp;
 };
 
+/** 含食物字但唔代表該食物嘅詞（最長優先），避免「高蛋白」當蛋、「牛油果」當牛。 */
+const NEUTRAL_FOOD_TOKENS = [
+  "高蛋白粉",
+  "高蛋白質",
+  "高蛋白",
+  "蛋白質",
+  "蛋白粉",
+  "魚香",
+  "牛油果",
+  "牛油",
+  "牛奶",
+  "湯圓",
+  "豬仔包",
+  "蟹味菇",
+].sort((a, b) => b.length - a.length);
+
+/** 移除中性詞後再比對，唔會改動原本輸入。 */
+export function stripNeutralFoodTokens(text: string): string {
+  let out = String(text ?? "");
+  for (const token of NEUTRAL_FOOD_TOKENS) out = out.split(token).join(" ");
+  return out.replace(/\s+/g, " ").trim();
+}
+
 export const FOOD_TERM_PATTERNS: FoodTermPattern[] = [
   { keys: ["蛋", "雞蛋"], name: /蛋/, ingredient: /蛋/ },
   { keys: ["豆腐", "豆卜", "腐竹", "豆乾", "豆干"], name: /豆腐|豆卜|腐竹|豆乾|豆干/, ingredient: /豆腐|豆卜|腐竹|豆乾|豆干/ },
@@ -30,7 +53,7 @@ export const FOOD_TERM_PATTERNS: FoodTermPattern[] = [
 ];
 
 export function findFoodTermPattern(term: string): FoodTermPattern | null {
-  const t = String(term ?? "").trim();
+  const t = stripNeutralFoodTokens(term);
   if (!t) return null;
   // 最長 key 優先（「豆腐」先於「豆」）
   const sorted = [...FOOD_TERM_PATTERNS].sort((a, b) => {
@@ -51,13 +74,13 @@ function ingredientNames(card: any): string {
 
 /** 菜名命中（最準） */
 export function matchesByTermName(card: any, pattern: FoodTermPattern): boolean {
-  return pattern.name.test(String(card?.name ?? ""));
+  return pattern.name.test(stripNeutralFoodTokens(String(card?.name ?? "")));
 }
 
 /** 菜名唔中時，用主食材判斷 */
 export function matchesByTermIngredient(card: any, pattern: FoodTermPattern): boolean {
   if (!pattern.ingredient) return false;
-  return pattern.ingredient.test(ingredientNames(card));
+  return pattern.ingredient.test(stripNeutralFoodTokens(ingredientNames(card)));
 }
 
 /**

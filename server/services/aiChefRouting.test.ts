@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, ingredientMissReply, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applySilentZeroCardClarify, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, ingredientMissReply, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { claimsRecipeCards } from "./chefResponse";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
@@ -105,6 +105,63 @@ test("flag ON text/technique still allows LLM text", () => {
   assert.equal(contract.status, "text");
   assert.equal(contract.replyText, "大約蒸 8 分鐘。");
   assert.deepEqual(contract.recipes, []);
+});
+
+test("silent zero-card invariant: 有食物意圖但 0 卡 → 一定有位 clarifyReason", () => {
+  const result = applySilentZeroCardClarify(
+    { content: "  ", recipes: [], llmUsed: false },
+    [{ role: "user", content: "20分鐘可完成的減肥餐" }],
+  );
+  assert.equal(result.clarifyReason, "ambiguous_food");
+  assert.ok(result.content.trim().length > 0);
+});
+
+test("silent zero-card invariant: 已有 clarifyReason 唔會被覆蓋", () => {
+  const result = applySilentZeroCardClarify(
+    { content: "原本提示", recipes: [], llmUsed: false, clarifyReason: "library_miss" },
+    [{ role: "user", content: "想食蛋類" }],
+  );
+  assert.equal(result.clarifyReason, "library_miss");
+  assert.equal(result.content, "原本提示");
+});
+
+test("silent zero-card invariant: safety／non_food／technique 分支唔受影響", () => {
+  const safety = applySilentZeroCardClarify(
+    { content: "安全提示", recipes: [], llmUsed: false, clarifyReason: "safety" },
+    [{ role: "user", content: "想食蛋類" }],
+  );
+  assert.equal(safety.clarifyReason, "safety");
+
+  const nonFood = applySilentZeroCardClarify(
+    {
+      content: "我只幫煮食",
+      recipes: [],
+      llmUsed: true,
+      intentOverride: { kind: "chat", wantsCards: false, requested: { total: 0, roles: [] }, confidence: 0.99, reason: "non_food" },
+    },
+    [{ role: "user", content: "想訂機票" }],
+  );
+  assert.equal(nonFood.clarifyReason, undefined);
+
+  const technique = applySilentZeroCardClarify(
+    {
+      content: "蒸 8 分鐘",
+      recipes: [],
+      llmUsed: true,
+      intentOverride: { kind: "technique", wantsCards: false, requested: { total: 0, roles: [] }, confidence: 0.99, reason: "technique" },
+    },
+    [{ role: "user", content: "想問點煮蛋" }],
+  );
+  assert.equal(technique.clarifyReason, undefined);
+});
+
+test("silent zero-card invariant: 冇食物意圖唔會亂加 clarify", () => {
+  const result = applySilentZeroCardClarify(
+    { content: "你好", recipes: [], llmUsed: false },
+    [{ role: "user", content: "你好" }],
+  );
+  assert.equal(result.clarifyReason, undefined);
+  assert.equal(result.content, "你好");
 });
 
 test("flag ON cards never use an LLM claim as user-visible text", () => {
