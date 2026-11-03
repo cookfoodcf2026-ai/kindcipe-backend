@@ -236,9 +236,13 @@ function hardFilter(
   return true;
 }
 
+/** Dietary tags are correctness; lifestyle tags (kids/quick/light/spicy) only rank. */
+const HARD_TAGS = new Set(["vegetarian", "vegan", "high-protein"]);
+
 function softFilter(recipe: ChefLibraryRecipe, slots: ChefSlots, keys: string[], relaxLevel: number): boolean {
   if (relaxLevel < 1) {
-    if (keys.length > 0 && !hasTags(recipe, keys)) return false;
+    const hardKeys = keys.filter((key) => HARD_TAGS.has(key));
+    if (hardKeys.length > 0 && !hasTags(recipe, hardKeys)) return false;
     if (slots.difficulty && !matchesDifficulty(recipe, slots.difficulty)) return false;
   }
   if (relaxLevel < 2 && slots.dishType && !matchesDishType(recipe, slots.dishType)) return false;
