@@ -227,11 +227,17 @@ function scoreRecipe(recipe: ChefLibraryRecipe, slots: ChefSlots, keys: string[]
   const wantsDessert = keys.some((key) => key === "dessert" || key === "snack");
   const wantsMainDish = !wantsDessert
     && keys.some((key) => ["vegetarian", "light", "healthy", "high-protein", "kids", "quick", "one-pot"].includes(key));
+  // Structural facets, not text regex: a "main" is something with a protein
+  // facet; a "sweet/side" is a dessert/drink/appetizer/snack dish type.
+  const derivedSet = new Set(recipe.derivedTags ?? []);
+  const isSweet = ["dessert", "drink", "appetizer", "snack"].includes(normalize(recipe.dishType ?? ""))
+    || derivedSet.has("tag:snack");
+  const hasProteinFacet = [...derivedSet].some((tag) => tag.startsWith("protein:"));
   if (wantsMainDish) {
-    const shape = `${recipe.dishType ?? ""} ${(recipe.tags ?? []).join(" ")}`;
-    if (/蔬菜|vegetable|炒|stirfry|炆|braise|蒸|steam|湯|soup|meat|seafood/i.test(shape)) score += 18;
-    if (/甜品|糖水|dessert|appetizer|小食|snack/i.test(shape)) score -= 25;
+    if (hasProteinFacet && !isSweet) score += 20;
+    if (isSweet) score -= 40;
   }
+  if (wantsDessert && isSweet) score += 40;
   if (slots.maxMinutes && recipe.cookTime) score += Math.max(0, 10 - Math.abs(slots.maxMinutes - recipe.cookTime) / 10);
   score += Math.min(10, Math.max(0, (recipe.popularity ?? 50) / 10));
   return score;
