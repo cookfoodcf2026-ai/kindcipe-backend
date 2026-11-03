@@ -6641,13 +6641,24 @@ export const aiRecipeRouter = router({
           if (!salvageDb) throw new Error("no db");
           const rawText = lastUserText(input.messages);
           const terms = extractMealIngredients(rawText);
-          const foodTerm = (terms.find((t) => isSpecificFoodTerm(t)) ?? "").trim();
+          const foodTerm = (
+            terms.find((t) => isSpecificFoodTerm(t) || (t.length <= 2 && !!findFoodTerm(normalizeName(t)))) ?? ""
+          ).trim();
+          const timeLimit = (() => {
+            const m = rawText.match(/(\d{1,3})\s*分鐘/);
+            const v = m ? parseInt(m[1], 10) : 0;
+            return v > 0 && v <= 120 ? v : 0;
+          })();
           if (foodTerm) {
             const found = await execSearchRecipes(salvageDb, { query: foodTerm, limit: 40 }, familyId);
             const banned = [...avoidIngredients, ...familyAllergens];
-            const picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 3, 0)
-              .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)))
-              .slice(0, 3);
+            let picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 3, 0)
+              .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)));
+            if (timeLimit > 0) {
+              const within = picked.filter((card) => Number(card.cookTime ?? 0) <= timeLimit);
+              if (within.length > 0) picked = within;
+            }
+            picked = picked.slice(0, 3);
             if (picked.length > 0) {
               result.recipes = picked;
               result.clarifyReason = undefined;
