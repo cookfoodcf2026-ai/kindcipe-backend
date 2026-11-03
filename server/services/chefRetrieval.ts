@@ -196,6 +196,23 @@ function matchesDishType(recipe: ChefLibraryRecipe, dishType?: ChefDishType): bo
   return true;
 }
 
+/** Strict name-only method check, used when the method is the whole question. */
+const METHOD_NAME_RE: Record<string, RegExp> = {
+  steam: /蒸|steam/i,
+  stirfry: /炒|煎|爆炒|stir.?fry/i,
+  boil: /白灼|烚|灼|滾|滚|煲|煮|boil|poach/i,
+  braise: /炆|燜|焖|燉|炖|滷|卤|紅燒|红烧|braise|stew/i,
+  bake: /焗|烤|烘|bake|roast|grill/i,
+  deepfry: /炸|deep.?fry/i,
+  cold: /涼拌|凉拌|冷盤|沙律|沙拉|cold|salad/i,
+};
+
+function methodNameMatches(name: string, method?: string): boolean {
+  if (!method) return true;
+  const pattern = METHOD_NAME_RE[method];
+  return pattern ? pattern.test(String(name ?? "")) : true;
+}
+
 function matchesMethod(recipe: ChefLibraryRecipe, method?: ChefMethod): boolean {
   if (!method) return true;
   return (recipe.derivedTags ?? []).includes(`method:${method}`) || hasDerived(recipe, "tag:").includes(method);
@@ -258,7 +275,7 @@ function hardFilter(
   // Same idea for cooking method: 「有咩蒸嘅餸」must not return 蔥油雞.
   const methodIsTheAsk = Boolean(slots.method) && !slots.protein && !slots.keyword
     && !slots.dishType && (slots.tags?.length ?? 0) === 0;
-  if (methodIsTheAsk && !matchesMethod(recipe, slots.method)) return false;
+  if (methodIsTheAsk && !methodNameMatches(recipe.name, slots.method)) return false;
   if (!matchesKeyword(recipe, slots.keyword)) return false;
   if (requiresVegetarian(slots) && !(recipe.derivedTags ?? []).includes("diet:vegetarian")) return false;
   // Breakfast is a light, mild meal: heavy/spicy dishes must never fill it even if

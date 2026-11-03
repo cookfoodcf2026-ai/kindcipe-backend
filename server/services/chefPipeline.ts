@@ -6,6 +6,7 @@ import {
 } from "./chefSlots";
 import {
   retrieveChefCards,
+  deriveTagsFromText,
   toChefLibraryRecipe,
   validateGeneratedCard,
   type ChefLibraryRecipe,
@@ -152,7 +153,7 @@ export async function runChefSlotPipeline<T>(
     cache: deps.cache,
     invoke: deps.invoke,
   });
-  const slots = parsed.slots;
+  let slots = parsed.slots;
 
   const build = (
     status: ChefPipelineResult<T>["status"],
@@ -208,6 +209,15 @@ export async function runChefSlotPipeline<T>(
     pool = [];
   }
 
+  // Parser sometimes drops a pure tag phrase ("一鍋到底"); recover it before
+  // retrieval so the constraint actually filters instead of returning popular cards.
+  if ((slots.tags?.length ?? 0) === 0) {
+    const fallbackTags = deriveTagsFromText(text);
+    if (fallbackTags.length > 0) {
+      slots = { ...slots, tags: fallbackTags };
+      console.log(`[AI Chef] slot_pipeline tag_fallback=${fallbackTags.join("|")}`);
+    }
+  }
   const retrieval = retrieveChefCards(slots, pool, { count: deps.count ?? 3, avoid: deps.avoid });
   // Level 3 relaxes protein for recall, but serving the wrong protein would be a
   // correctness bug. Keep only matching cards; if none remain, generate/clarify.
