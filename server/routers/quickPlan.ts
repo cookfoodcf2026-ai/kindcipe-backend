@@ -8,6 +8,7 @@ import { getDb } from "../db";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
 import { categorizeIngredientName, hasUsableMainIngredient, isUsableIngredientName, normalizeRecipeIngredients } from "../utils/ingredientNormalize";
+import { enforceDiversity } from "../utils/mealDiversity";
 import {
   execSearchRecipes,
   getFamilySeenNamesSplit,
@@ -206,10 +207,20 @@ export const quickPlanRouter = router({
             message: `食譜庫不足，無法為 ${date} 安排 3 餸 1 湯`,
           });
         }
-        allNames.push(...picked.map((r) => r.name));
+        // 結構規則：3 道餸唔可以撞蛋白 + 撞煮法（湯唔計）
+        const dishes = picked.filter((r) => String((r as any).dishType ?? "") !== "soup");
+        const soup = picked.find((r) => String((r as any).dishType ?? "") === "soup");
+        const poolCandidates = rows.filter((r) => String((r as any).dishType ?? "") !== "soup");
+        const div = enforceDiversity(dishes as any[], poolCandidates as any[], 2);
+        if (div.swapped > 0) {
+          console.log(`[quickPlan] diversity swapped=${div.swapped} ${div.reasons.join(" | ")}`);
+        }
+        const finalPicked = soup ? [...div.dishes, soup] : div.dishes;
+
+        allNames.push(...finalPicked.map((r: any) => r.name));
         days.push({
           date,
-          recipes: picked.slice(0, 4).map((r) => toPlanRecipe(r)),
+          recipes: finalPicked.slice(0, 4).map((r: any) => toPlanRecipe(r)),
         });
       }
 
