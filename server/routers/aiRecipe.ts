@@ -4151,6 +4151,15 @@ async function processAIChefChatCore(
     if (droppedHardFacet && slotResult.cards.length > 0) {
       console.log(`[AI Chef] slot_pipeline reject reason=dropped_hard_facet relax=${slotResult.relaxLevel}`);
     }
+    // Safety net for a parser miss on a pure tag phrase ("一鍋到底"): if the model
+    // returned no tags but the sentence carries one, keep the user's constraint.
+    if (slotResult.slots && (slotResult.slots.tags?.length ?? 0) === 0) {
+      const fallbackTags = deriveTagsFromText(lastUserText);
+      if (fallbackTags.length > 0) {
+        slotResult.slots = { ...slotResult.slots, tags: fallbackTags };
+        console.log(`[AI Chef] slot_pipeline tag_fallback=${fallbackTags.join("|")}`);
+      }
+    }
     if (slotResult.status === "cards" && slotResult.cards.length > 0 && !droppedHardFacet) {
       const cards = slotResult.cards;
       await recordServedLibraryCards(familyId, cards);

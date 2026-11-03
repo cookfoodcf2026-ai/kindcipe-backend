@@ -180,7 +180,12 @@ export function deriveRecipeFacets(input: DerivedTagInput): DerivedTagFacets {
   const proteinSource = proteinCategoryText || neutraliseProteinNoise(ingredientText);
   const fromIngredients = uniq(PROTEIN_PATTERNS.map(([key]) => key).filter((key) => hasProtein(proteinSource, key)));
   const protein = fromName.length > 0 ? fromName : fromIngredients;
-  const method = uniq(METHOD_PATTERNS.filter(([, pattern]) => pattern.test(body)).map(([key]) => key));
+  // Method comes from the dish name first (蔥油雞 is poached, not steamed just
+  // because a step mentions 蒸); body text is only the fallback.
+  const fromNameMethod = uniq(METHOD_PATTERNS.filter(([, pattern]) => pattern.test(name)).map(([key]) => key));
+  const method = fromNameMethod.length > 0
+    ? fromNameMethod
+    : uniq(METHOD_PATTERNS.filter(([, pattern]) => pattern.test(body)).map(([key]) => key));
   const scenarios = deriveScenarios({
     name,
     description: input.description,
