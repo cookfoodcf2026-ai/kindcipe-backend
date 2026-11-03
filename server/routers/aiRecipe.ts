@@ -6015,6 +6015,9 @@ async function applyZeroCardInsurance(
   if (params.forceText) return result;
   if (params.mode !== "chat" && params.mode !== "ai") return result;
   if (result.clarifyReason === "safety") return result;
+  // Pantry-first already answered with a card that uses the user's ingredients;
+  // topping it up with popular cards is what produced 抹茶優格杯 after 青菜/洋蔥/豆腐.
+  if (result.intentOverride?.reason === "pantry_first") return result;
 
   const text = lastUserText(params.inputMessages as any).trim();
   if (!text) return result;
