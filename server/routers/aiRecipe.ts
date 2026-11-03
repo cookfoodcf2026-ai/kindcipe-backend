@@ -23,7 +23,7 @@ import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity, collisionScore } from "../utils/mealDiversity";
-import { findFoodTermPattern, matchesByTermName, matchesByTermIngredient } from "../utils/foodTermMap";
+import { findFoodTermPattern, matchesByTermName, matchesByTermIngredient, pickDishesByTerm } from "../utils/foodTermMap";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
@@ -4257,16 +4257,9 @@ async function processAIChefChatCore(
       let search: RecipeSearchResult;
       if (termPattern) {
         const pool = await getDispatchPool();
-        const byName = pool.filter((r: any) => matchesByTermName(r, termPattern));
-        const base = byName.length > 0 ? byName : pool.filter((r: any) => matchesByTermIngredient(r, termPattern));
-        const withinTime = dispatchTimeLimit
-          ? (() => {
-              const ok = base.filter((r: any) => Number(r.cookTime ?? 0) <= dispatchTimeLimit!);
-              return ok.length > 0 ? ok : base;
-            })()
-          : base;
-        search = { ok: true, rows: withinTime.slice(0, 80) as any };
-        console.log(`[AI Chef] dispatch term-pool item="${item.label}" name=${byName.length} base=${base.length} chosen=${search.rows.length}`);
+        const picked = pickDishesByTerm(pool as any[], item.label, { timeLimit: dispatchTimeLimit, max: 80 });
+        search = { ok: true, rows: picked as any };
+        console.log(`[AI Chef] dispatch term-pool item="${item.label}" pool=${pool.length} chosen=${picked.length}`);
       } else {
         search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
       }

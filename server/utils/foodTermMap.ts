@@ -59,3 +59,26 @@ export function matchesByTermIngredient(card: any, pattern: FoodTermPattern): bo
   if (!pattern.ingredient) return false;
   return pattern.ingredient.test(ingredientNames(card));
 }
+
+/**
+ * 由 pool 揀符合食物詞嘅菜（純函數，方便測試）
+ * 1. 菜名命中優先
+ * 2. 冇菜名命中 → 用主食材
+ * 3. 有時間限制 → 只留 ≤ 限制（若全部超時則保留原集，避免回空）
+ * 4. 最後最多回 max 張
+ */
+export function pickDishesByTerm<T extends { name?: string; ingredients?: unknown; cookTime?: number }>(
+  pool: T[],
+  term: string,
+  opts: { timeLimit?: number; max?: number } = {},
+): T[] {
+  const pattern = findFoodTermPattern(term);
+  if (!pattern) return [];
+  const byName = pool.filter((c) => matchesByTermName(c, pattern));
+  let base = byName.length > 0 ? byName : pool.filter((c) => matchesByTermIngredient(c, pattern));
+  if (opts.timeLimit && opts.timeLimit > 0) {
+    const within = base.filter((c) => Number(c.cookTime ?? 0) <= opts.timeLimit!);
+    if (within.length > 0) base = within;
+  }
+  return base.slice(0, opts.max ?? 3);
+}
