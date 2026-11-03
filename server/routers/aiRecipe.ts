@@ -6629,6 +6629,37 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // 0 卡 salvage：自然問法（「有咩豆腐菜式」「想食蛋類」）唔應該出 clarify。
+      // 只喺已有 food term + library 有貨時生效；純 library 卡、0 credit、0 LLM。
+      if (
+        (process.env.AI_CHEF_LIBRARY_SALVAGE ?? "true") !== "false" &&
+        (result.recipes?.length ?? 0) === 0 &&
+        (result.clarifyReason === "ambiguous_food" || result.clarifyReason === "ingredient_miss")
+      ) {
+        try {
+          const salvageDb = await getDb();
+          if (!salvageDb) throw new Error("no db");
+          const rawText = lastUserText(input.messages);
+          const terms = extractMealIngredients(rawText);
+          const foodTerm = (terms.find((t) => isSpecificFoodTerm(t)) ?? "").trim();
+          if (foodTerm) {
+            const found = await execSearchRecipes(salvageDb, { query: foodTerm, limit: 40 }, familyId);
+            const banned = [...avoidIngredients, ...familyAllergens];
+            const picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 3, 0)
+              .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)))
+              .slice(0, 3);
+            if (picked.length > 0) {
+              result.recipes = picked;
+              result.clarifyReason = undefined;
+              result.content = aiReply(input.lang ?? "zh-TW", "libByKeyword", { kw: foodTerm });
+              console.log(`[AI Chef] salvage_zero_card term=${foodTerm} cards=${picked.length}`);
+            }
+          }
+        } catch (err) {
+          console.warn("[AI Chef] salvage failed:", (err as Error)?.message);
+        }
+      }
+
       const effectiveIntent = result.intentOverride ?? intent;
       const served = result.recipes?.length ?? 0;
       const requested = effectiveIntent.requested.total;
