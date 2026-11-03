@@ -4087,6 +4087,9 @@ async function processAIChefChatCore(
     if (plannedTurn) return "planned_turn";
     if (smallTalk) return "small_talk";
     if (isCannedMealPrompt(lastUserText)) return "canned_meal";
+    // Multi-card meal shapes (三餸一湯) are owned by the meal-shape postcondition;
+    // serving 3 random cards from the single-card pipeline was breaking them.
+    if (detectMealShapeLoose(lastUserText)) return "meal_shape";
     if (slotPipelineOverride?.parsed?.slots?.wantsCards === false) return "not_wants_cards";
     if (chefIntent.kind === "technique") return "technique";
     if (chefIntent.requested.total > 1) return "multi_card";
