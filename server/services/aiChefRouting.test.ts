@@ -705,7 +705,8 @@ test("chat quota exhaustion returns deterministic fallback without LLM", async (
   );
   assert.equal(result.llmUsed, false);
   assert.equal(result.recipes.length, 0);
-  assert.match(result.content, /食譜庫|FAQ/);
+  // Non-food greetings get a neutral "cooking assistant" reply, never billing copy.
+  assert.match(result.content, /煮食助手|食譜/);
 });
 
 test("library miss uses clarify status without cards", () => {

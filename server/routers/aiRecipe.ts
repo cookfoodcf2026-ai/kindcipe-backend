@@ -4593,6 +4593,17 @@ async function processAIChefChatCore(
       };
     }
     console.log(`[AI Chef] chat fallback reason=daily_or_monthly_quota_or_budget`);
+    // A non-food sentence must never be told "free AI chat is unavailable": that
+    // copy is about billing and confuses people asking a normal question.
+    if (!FOOD_INTENT_RE.test(earlyUserText)) {
+      return {
+        content: lang.startsWith("en")
+          ? "I'm a cooking assistant — ask me for recipes or cooking times."
+          : "我係煮食助手，只可以幫你搵食譜同煮食；其他嘢幫唔到。",
+        recipes: [],
+        llmUsed: false,
+      };
+    }
     return {
       content: lang.startsWith("en")
         ? "I can't use free AI chat right now, but you can still search the recipe library or ask me a cooking-time FAQ. No credit was used."
