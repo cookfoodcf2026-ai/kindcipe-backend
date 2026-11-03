@@ -242,6 +242,11 @@ function hardFilter(
   relaxLevel: number,
 ): boolean {
   if (slots.maxMinutes && (!Number.isFinite(recipe.cookTime) || Number(recipe.cookTime) > slots.maxMinutes)) return false;
+  // When the shape IS the ask (「想食粉麵」has no other facet), relaxing it away
+  // yields random dishes; keep it hard at every relax level.
+  const dishTypeIsTheAsk = Boolean(slots.dishType)
+    && !slots.protein && !slots.keyword && !slots.method && (slots.tags?.length ?? 0) === 0;
+  if (dishTypeIsTheAsk && !matchesDishType(recipe, slots.dishType)) return false;
   if (!matchesKeyword(recipe, slots.keyword)) return false;
   if (requiresVegetarian(slots) && !(recipe.derivedTags ?? []).includes("diet:vegetarian")) return false;
   if (relaxLevel < 3 && !matchesProtein(recipe, slots.protein)) return false;
