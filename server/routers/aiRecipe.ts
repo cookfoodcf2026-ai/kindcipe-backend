@@ -5615,7 +5615,9 @@ async function processAIChefChatCore(
         ? aiReply(lang, "libPlusAi", { lib: cards.filter((r) => r.source === "official" || r.source === "custom").length, ai: cards.filter((r) => r.source === "ai").length })
         : aiReply(lang, "madeTonight", { dish: roleDishLabel });
     } else if (cards.length > 0) {
-      parallelContent = aiReply(lang, "partialSet", { served: cards.length, total: requested.total });
+      parallelContent = detectMealShapeLoose(lastUserText)
+        ? aiReply(lang, "partialSet", { served: cards.length, total: requested.total })
+        : aiReply(lang, "libPlusAi", { lib: cards.length, ai: 0 });
     } else {
       parallelContent = aiReply(lang, "cantRecommend");
     }
