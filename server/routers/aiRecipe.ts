@@ -5799,7 +5799,7 @@ async function processAIChefChatCore(
 
   if (!forceNoCards && recipes.length === 0) {
     content = aiReply(lang, "cantRecommend");
-  } else if (!forceNoCards && (mealIntent.isMeal || requestedCount !== null) && recipes.length < totalWanted) {
+  } else if (!forceNoCards && mealIntent.isMeal && recipes.length < totalWanted) {
     content = lang.startsWith("en")
       ? `I found ${recipes.length} recipe(s), but could not complete the requested ${totalWanted}.`
       : `我只搵到 ${recipes.length} 道食譜，未能完成你要求嘅 ${totalWanted} 道。`;
