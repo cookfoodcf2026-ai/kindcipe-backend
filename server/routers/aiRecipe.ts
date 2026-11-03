@@ -6656,8 +6656,16 @@ export const aiRecipeRouter = router({
           if (foodTerm) {
             const found = await execSearchRecipes(salvageDb, { query: foodTerm, limit: 40 }, familyId);
             const banned = [...avoidIngredients, ...familyAllergens];
-            let picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 3, 0)
-              .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)));
+            const termHit = (card: any) => {
+              const t = String(foodTerm);
+              if (!t) return true;
+              if (String(card?.name ?? "").includes(t)) return true;
+              const ings = Array.isArray(card?.ingredients) ? card.ingredients : [];
+              return ings.some((i: any) => String(i?.name ?? i?.nameEn ?? "").includes(t));
+            };
+            let picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 6, 0)
+              .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)))
+              .filter(termHit);
             if (timeLimit > 0) {
               const within = picked.filter((card) => Number(card.cookTime ?? 0) <= timeLimit);
               if (within.length > 0) picked = within;
