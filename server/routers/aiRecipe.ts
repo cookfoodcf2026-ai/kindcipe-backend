@@ -5952,7 +5952,15 @@ function applyChefCardConstraint(
       return hay.includes(term);
     });
   };
-  const constrained = result.recipes.filter((card) => !violatesAvoid(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
+  // A named dish ("韓國炸雞") must appear in the card; otherwise the answer is a
+  // different dish that merely shares a word (薑蔥滑雞 for Korean fried chicken).
+  const slotKeyword = safeSlots.keyword ? normalizeName(safeSlots.keyword) : "";
+  const missingKeyword = (card: any) => {
+    if (!slotKeyword) return false;
+    const hay = normalizeName([card.name, ...(Array.isArray(card.ingredients) ? card.ingredients.map((i: any) => String(i?.name ?? i)) : [])].join(" "));
+    return !hay.includes(slotKeyword);
+  };
+  const constrained = result.recipes.filter((card) => !violatesAvoid(card) && !missingKeyword(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
     {
       name: card.name,
       cookTime: card.cookTime,
