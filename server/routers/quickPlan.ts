@@ -208,13 +208,36 @@ export const quickPlanRouter = router({
           });
         }
         // 結構規則：3 道餸唔可以撞蛋白 + 撞煮法（湯唔計）
-        const dishes = picked.filter((r) => String((r as any).dishType ?? "") !== "soup");
-        const soup = picked.find((r) => String((r as any).dishType ?? "") === "soup");
-        const poolCandidates = rows.filter((r) => String((r as any).dishType ?? "") !== "soup");
-        const div = enforceDiversity(dishes as any[], poolCandidates as any[], 2);
-        if (div.swapped > 0) {
-          console.log(`[quickPlan] diversity swapped=${div.swapped} ${div.reasons.join(" | ")}`);
-        }
+        const isSoup = (r: any) => {
+          const dt = String(r?.dishType ?? "").toLowerCase();
+          return dt === "soup" || /湯|汤|soup/i.test(String(r?.name ?? ""));
+        };
+        const BANNED_TYPES = new Set(["soup", "dessert", "drink", "carb"]);
+        const hasStepsRow = (r: any) => {
+          const s = Array.isArray(r?.steps) ? r.steps : [];
+          return s.length > 0;
+        };
+        const takenNames = new Set([
+          ...seen.seen7d.map((n) => String(n)),
+          ...seen.seen1d.map((n) => String(n)),
+          ...allNames,
+        ]);
+        const dishes = picked.filter((r) => !isSoup(r));
+        const soup = picked.find((r) => isSoup(r));
+        const poolCandidates = rows.filter(
+          (r: any) =>
+            !isSoup(r) &&
+            !BANNED_TYPES.has(String(r?.dishType ?? "").toLowerCase()) &&
+            hasStepsRow(r) &&
+            !takenNames.has(String(r?.name ?? "")),
+        );
+        const diversityEnabled = (process.env.MEAL_DIVERSITY_ENABLED ?? "true") !== "false";
+        const div = diversityEnabled
+          ? enforceDiversity(dishes as any[], poolCandidates as any[], 2)
+          : { dishes: dishes as any[], swapped: 0, collisionsBefore: 0, collisionsAfter: 0, reasons: [] as string[] };
+        console.log(
+          `[quickPlan] diversity enabled=${diversityEnabled} swapped=${div.swapped} collisions=${div.collisionsBefore}->${div.collisionsAfter}`,
+        );
         const finalPicked = soup ? [...div.dishes, soup] : div.dishes;
 
         allNames.push(...finalPicked.map((r: any) => r.name));
