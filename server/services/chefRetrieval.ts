@@ -201,6 +201,16 @@ function scoreRecipe(recipe: ChefLibraryRecipe, slots: ChefSlots, keys: string[]
     score += Math.min(45, hits * 15);
   }
   if (slots.difficulty && matchesDifficulty(recipe, slots.difficulty)) score += 10;
+  // When the ask is for a proper dish (素食 / 清淡 / 高蛋白), mains should beat
+  // desserts, snacks and sides. The reverse holds when 甜品/小食 is explicitly asked.
+  const wantsDessert = keys.some((key) => key === "dessert" || key === "snack");
+  const wantsMainDish = !wantsDessert
+    && keys.some((key) => key === "vegetarian" || key === "light" || key === "healthy" || key === "high-protein");
+  if (wantsMainDish) {
+    const shape = `${recipe.dishType ?? ""} ${(recipe.tags ?? []).join(" ")}`;
+    if (/蔬菜|vegetable|炒|stirfry|炆|braise|蒸|steam|湯|soup|meat|seafood/i.test(shape)) score += 18;
+    if (/甜品|糖水|dessert|appetizer|小食|snack/i.test(shape)) score -= 25;
+  }
   if (slots.maxMinutes && recipe.cookTime) score += Math.max(0, 10 - Math.abs(slots.maxMinutes - recipe.cookTime) / 10);
   score += Math.min(10, Math.max(0, (recipe.popularity ?? 50) / 10));
   return score;
