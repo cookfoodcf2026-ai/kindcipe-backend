@@ -4242,8 +4242,34 @@ async function processAIChefChatCore(
       const v = m ? parseInt(m[1], 10) : 0;
       return v > 0 && v <= 120 ? v : undefined;
     })();
+    // 食物詞 → 大 pool 精準過濾（菜名優先、食材 fallback），唔靠全文搜尋
+    let dispatchPool: SuggestedRecipe[] | null = null;
+    const getDispatchPool = async (): Promise<SuggestedRecipe[]> => {
+      if (dispatchPool) return dispatchPool;
+      if (!db) { dispatchPool = []; return dispatchPool; }
+      const res = await execSearchRecipes(db, { query: "", limit: 400 }, familyId);
+      dispatchPool = (res.recipes ?? []) as SuggestedRecipe[];
+      return dispatchPool;
+    };
+
     for (const item of dispatchItems) {
-      const search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
+      const termPattern = findFoodTermPattern(item.label);
+      let search: RecipeSearchResult;
+      if (termPattern) {
+        const pool = await getDispatchPool();
+        const byName = pool.filter((r: any) => matchesByTermName(r, termPattern));
+        const base = byName.length > 0 ? byName : pool.filter((r: any) => matchesByTermIngredient(r, termPattern));
+        const withinTime = dispatchTimeLimit
+          ? (() => {
+              const ok = base.filter((r: any) => Number(r.cookTime ?? 0) <= dispatchTimeLimit!);
+              return ok.length > 0 ? ok : base;
+            })()
+          : base;
+        search = { ok: true, rows: withinTime.slice(0, 80) as any };
+        console.log(`[AI Chef] dispatch term-pool item="${item.label}" name=${byName.length} base=${base.length} chosen=${search.rows.length}`);
+      } else {
+        search = await trySearch(item.label, Math.max(20, item.qty * 5), dispatchTimeLimit, buildQueryPlan(item.label));
+      }
       if (!search.ok) {
         return {
           content: searchFailureReply(lang),

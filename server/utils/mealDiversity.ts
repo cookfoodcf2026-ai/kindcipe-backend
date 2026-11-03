@@ -161,3 +161,15 @@ export function enforceDiversity<T extends DiversityDish>(
     reasons,
   };
 }
+
+/** 回傳所有命中的蛋白組（多蛋白菜例如蝦仁豆腐蒸水蛋 → seafood + soy） */
+export function proteinTags(dish: string | { name: string; ingredients?: unknown }): ProteinGroup[] {
+  const name = stripNeutral(dishName(dish));
+  const ing = stripNeutral(ingredientText(dish));
+  const hits: ProteinGroup[] = [];
+  for (const [g, re] of PROTEIN_RULES) {
+    if (re.test(name) || (ing && re.test(ing))) hits.push(g);
+  }
+  if (hits.length === 0) hits.push("veg");
+  return hits;
+}
