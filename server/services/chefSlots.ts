@@ -144,12 +144,21 @@ const CATEGORY_KEYWORD_PROTEIN: Array<[RegExp, "egg" | "soy" | "seafood" | "fish
   [/^(菜|菜類|蔬菜|青菜)$/, "veg"],
 ];
 
+const CATEGORY_KEYWORD_DISHTYPE: Array<[RegExp, "noodle" | "rice" | "soup" | "snack">] = [
+  [/^(麵|面|麵類|粉麵|粉|米線|意粉)$/, "noodle"],
+  [/^(飯|飯類|米飯)$/, "rice"],
+  [/^(湯|湯水|湯類|羹)$/, "soup"],
+  [/^(早餐|早點|小食|點心)$/, "snack"],
+];
+
 function reinterpretCategoryKeyword(slots: ChefSlots): ChefSlots {
   const keyword = slots.keyword?.trim();
   if (!keyword) return slots;
-  const hit = CATEGORY_KEYWORD_PROTEIN.find(([re]) => re.test(keyword));
-  if (!hit) return slots;
-  return { ...slots, keyword: undefined, protein: slots.protein ?? hit[1] };
+  const proteinHit = CATEGORY_KEYWORD_PROTEIN.find(([re]) => re.test(keyword));
+  if (proteinHit) return { ...slots, keyword: undefined, protein: slots.protein ?? proteinHit[1] };
+  const dishHit = CATEGORY_KEYWORD_DISHTYPE.find(([re]) => re.test(keyword));
+  if (dishHit) return { ...slots, keyword: undefined, dishType: slots.dishType ?? dishHit[1] };
+  return slots;
 }
 
 export function normalizeChefSlots(raw: unknown): ChefSlots | null {
