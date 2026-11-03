@@ -3823,7 +3823,11 @@ async function processAIChefChatCore(
   const storedMeal = canUseState
     ? (await getLastMealState(familyId as number, stateKey as string))?.shape
     : undefined;
-  const plannedTurn = planChefTurn(lastUserText, { previousText, previousTexts, previousMeal: storedMeal });
+  const plannedTurnRaw = planChefTurn(lastUserText, { previousText, previousTexts, previousMeal: storedMeal });
+  // A modifier-only turn ("清淡啲" / "快啲" / "辣啲") carries semantics the planner
+  // throws away (it only re-serves the previous meal shape). Let the slot pipeline
+  // read the sentence instead, so the modifier actually filters the cards.
+  const plannedTurn = plannedTurnRaw?.reason === "context_modifier" ? null : plannedTurnRaw;
   let chefIntent: ChefIntent = resolveChefIntent(lastUserText, {
     hasImage,
     mode,
