@@ -195,7 +195,7 @@ export function deriveRecipeFacets(input: DerivedTagInput): DerivedTagFacets {
   const diet: string[] = [];
   if (scenarios.includes("vegetarian")) diet.push("vegetarian");
   const semanticTags = uniq([
-    ...scenarios.map((scenario) => scenario === "ricecooker" ? "one-pot" : scenario === "highProtein" ? "high-protein" : scenario),
+    ...scenarios.map((scenario) => scenario === "highProtein" ? "high-protein" : scenario),
     ...TAG_ALIASES.filter(([, pattern]) => pattern.test(body)).map(([key]) => key),
   ]);
   const dishType = detectDishType(input, body);

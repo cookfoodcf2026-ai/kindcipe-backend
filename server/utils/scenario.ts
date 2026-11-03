@@ -77,7 +77,9 @@ const isQuick = (cookTime?: number | null, slowText = ""): boolean =>
   && !SLOW_COOK_RE.test(slowText);
 
 const HEALTHY_TAGS = ["清淡", "少油", "低脂", "健康", "輕食", "轻食", "少鹽", "少盐", "蒸", "水煮", "清蒸", "白灼"];
-const RICECOOKER_RE = /電飯煲|电饭煲|電子鍋|电子锅|一鍋|一锅|煲仔|燜|焖|炆|慢煮|慢燉|慢炖|壓力鍋|压力锅|氣炸|气炸/;
+// Equipment only. Braise words (燜/炆/慢燉) are a COOKING METHOD, not a one-pot
+// dish; merging them is why 「慢燉牛肉寬粉」answered 「一鍋到底」.
+const RICECOOKER_RE = /電飯煲|电饭煲|電子鍋|电子锅|壓力鍋|压力锅|一鍋|一锅|一鑊|一镬|煲仔/;
 const SLOW_COOK_RE = /炆|燜|焖|燉|炖|煲|慢煮|醃過夜|腌过夜/;
 const KIDS_TAGS = ["小朋友", "幼兒", "幼儿", "兒童", "儿童", "不辣", "親子", "亲子", "BB", "bb"];
 const KIDS_NAME_RE = /兒童|儿童|親子|亲子/;
@@ -209,7 +211,6 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
 
   // ricecooker / one-pot: tags, name, steps, or a soup
   if (RICECOOKER_RE.test(bodyText)) out.add("ricecooker");
-  if (dishType === "soup") out.add("ricecooker");
 
   // kids: explicit tags, kid-named dishes, or non-spicy dessert/drink.
   // Difficulty alone must never imply a kids meal.
