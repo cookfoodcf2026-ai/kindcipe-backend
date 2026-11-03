@@ -165,10 +165,13 @@ function matchesDishType(recipe: ChefLibraryRecipe, dishType?: ChefDishType): bo
   if (!dishType) return true;
   const value = normalize(recipe.dishType ?? "");
   const derived = new Set(hasDerived(recipe, "tag:"));
-  if (dishType === "noodle") return value === "carb" || derived.has("noodle") || /麵|面|粉|米線|米线|河粉|烏冬|乌冬|意粉|noodle|ramen|udon|pasta/i.test(recipeText(recipe));
-  if (dishType === "rice") return value === "carb" || derived.has("rice") || /飯|饭|炒飯|炒饭|丼|rice/i.test(recipeText(recipe));
+  // Shape must come from the dish NAME: ingredient text contains starch words
+  // (生粉/粟粉/麵粉) that would otherwise make every dish look like a noodle.
+  const name = normalize(recipe.name);
+  if (dishType === "noodle") return derived.has("noodle") || /麵|面|米線|米线|河粉|烏冬|乌冬|意粉|通粉|noodle|ramen|udon|pasta/i.test(name);
+  if (dishType === "rice") return derived.has("rice") || /飯|饭|炒飯|炒饭|丼|rice/i.test(name);
   if (dishType === "snack") return /appetizer|dessert|drink/.test(value) || derived.has("snack") || /小食|小吃|點心|点心|早餐|甜品|糖水|snack|dessert|breakfast/i.test(recipeText(recipe));
-  if (dishType === "soup") return value === "soup" || derived.has("soup") || /湯|汤|羹|soup|broth/i.test(recipeText(recipe));
+  if (dishType === "soup") return value === "soup" || derived.has("soup") || /湯|汤|羹|soup|broth/i.test(name);
   if (dishType === "steam") return derived.has("steam") || /蒸/i.test(recipeText(recipe));
   if (dishType === "stirfry") return /meat|seafood|vegetable|other/.test(value) || derived.has("stirfry") || /炒|煎|stir.?fry/i.test(recipeText(recipe));
   if (dishType === "braise") return derived.has("braise") || /炆|燜|焖|燉|炖|滷|卤|紅燒|红烧|braise|stew/i.test(recipeText(recipe));
