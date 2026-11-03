@@ -6,7 +6,7 @@ import {
 } from "./chefSlots";
 import {
   retrieveChefCards,
-  deriveTagsFromText,
+  recoverDroppedTags,
   toChefLibraryRecipe,
   validateGeneratedCard,
   type ChefLibraryRecipe,
@@ -209,10 +209,11 @@ export async function runChefSlotPipeline<T>(
     pool = [];
   }
 
-  // Parser sometimes drops a pure tag phrase ("一鍋到底"); recover it before
-  // retrieval so the constraint actually filters instead of returning popular cards.
+  // fallback: parser sometimes drops a pure tag phrase ("一鍋到底"); recover the
+  // one-pot constraint before retrieval so it filters instead of returning popular
+  // cards. Scoped to equipment words only — remove once the parser is stable.
   if ((slots.tags?.length ?? 0) === 0) {
-    const fallbackTags = deriveTagsFromText(text);
+    const fallbackTags = recoverDroppedTags(text);
     if (fallbackTags.length > 0) {
       slots = { ...slots, tags: fallbackTags };
       console.log(`[AI Chef] slot_pipeline tag_fallback=${fallbackTags.join("|")}`);

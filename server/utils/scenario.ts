@@ -209,8 +209,10 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
   if (dishType === "vegetable" && !FRIED_RE.test(bodyText)) out.add("healthy");
   if (dishType === "seafood" && /蒸|灼|白灼|清蒸|水煮/.test(bodyText)) out.add("healthy");
 
-  // ricecooker / one-pot: tags, name, steps, or a soup
-  if (RICECOOKER_RE.test(bodyText)) out.add("ricecooker");
+  // ricecooker / one-pot: equipment is only inferred from the dish NAME (or an
+  // explicit one-pot tag), never from steps/prose. A braised/stewed dish that
+  // happens to use a pot for a step (慢燉牛肉寬粉) is NOT a one-pot meal.
+  if (RICECOOKER_RE.test(name) || tags.some((t) => RICECOOKER_RE.test(t))) out.add("ricecooker");
 
   // kids: explicit tags, kid-named dishes, or non-spicy dessert/drink.
   // Difficulty alone must never imply a kids meal.

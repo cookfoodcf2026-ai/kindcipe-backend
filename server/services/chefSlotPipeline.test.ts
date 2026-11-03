@@ -12,6 +12,7 @@ import {
   type ChefLibraryRecipe,
 } from "./chefRetrieval";
 import { runChefSlotPipeline } from "./chefPipeline";
+import { deriveRecipeTags } from "./chefDerivedTags";
 
 const wantsCards: ChefSlots = { wantsCards: true };
 
@@ -369,7 +370,10 @@ test("zero-card insurance serves the closest 3 quality cards", async () => {
   try {
     const { processAIChefChat } = await import("../routers/aiRecipe");
     const parsed: ParsedChefQuery = {
-      slots: { keyword: "唔存在嘅菜", wantsCards: true },
+      // Tag intent now comes from the LLM parser (not a text keyword table);
+      // the dead keyword is deliberate to prove insurance still serves 3 cards
+      // on the tag alone.
+      slots: { keyword: "唔存在嘅菜", tags: ["kids"], wantsCards: true },
       source: "cache",
       llmCalls: 0,
       normalizedText: "小朋友食咩好",
@@ -449,17 +453,34 @@ test("chef query log never throws when the DB is unavailable", async () => {
   });
 });
 
-test("normalizeChefSlots: category word becomes protein, not keyword", () => {
-  const egg = normalizeChefSlots({ keyword: "蛋類", wantsCards: false });
-  assert.ok(egg);
-  assert.equal(egg.keyword, undefined);
-  assert.equal(egg.protein, "egg");
-  assert.equal(egg.wantsCards, true);
+test("derived tags: braised noodle never gets tag:one-pot from its steps", () => {
+  const braised = deriveRecipeTags({
+    name: "慢燉牛肉蘿蔔寬粉",
+    dishType: "noodle",
+    cookTime: 60,
+    ingredients: [{ name: "牛肉" }, { name: "白蘿蔔" }, { name: "寬粉" }],
+    steps: ["牛肉汆水", "加入白蘿蔔炆 30 分鐘", "加入寬粉煲至軟"],
+  });
+  assert.equal(braised.includes("tag:one-pot"), false, braised.join(","));
 
-  const seafood = normalizeChefSlots({ keyword: "海鮮類", wantsCards: true });
-  assert.equal(seafood?.protein, "seafood");
+  const cooker = deriveRecipeTags({
+    name: "電飯煲臘味飯",
+    dishType: "rice",
+    cookTime: 30,
+    ingredients: [{ name: "米" }, { name: "臘腸" }],
+    steps: ["全部放入電飯煲", "按煮飯"],
+  });
+  assert.equal(cooker.includes("tag:one-pot"), true, cooker.join(","));
+});
 
+test("normalizeChefSlots: category word stays a keyword (LLM owns the mapping)", () => {
+  // 蛋類 is now mapped to protein by the LLM (see CHEF_SLOT_PROMPT), not by a
+  // keyword table here. A stray keyword should pass through untouched.
   const dish = normalizeChefSlots({ keyword: "番茄炒蛋", wantsCards: true });
   assert.equal(dish?.keyword, "番茄炒蛋");
   assert.equal(dish?.protein, undefined);
+
+  const category = normalizeChefSlots({ keyword: "蛋類", wantsCards: true });
+  assert.equal(category?.keyword, "蛋類");
+  assert.equal(category?.protein, undefined);
 });

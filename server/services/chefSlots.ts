@@ -105,10 +105,12 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
 
 判斷規則：
 1. protein = 主角蛋白質。蛋/雞蛋 → egg；雞/鴨/鵝 → chicken；豬/排骨/叉燒 → pork；牛 → beef；魚/魚柳 → fish；蝦/蟹/蜆/蠔/海鮮 → seafood；豆腐/豆卜/腐竹 → soy；純蔬菜/素食 → veg。
+   類別詞都要落到呢欄：蛋類/雞蛋 → protein egg；豆腐類/豆類 → protein soy；海鮮類/水產 → protein seafood；魚類 → protein fish；雞類 → chicken；牛類 → beef；豬類 → pork；菜類/蔬菜 → veg。
 2. dishType = 用戶想要嘅菜式形態。湯 → soup；炒 → stirfry；蒸 → steam；炆/燉/滷 → braise；粉麵/米線/意粉 → noodle；飯/炒飯 → rice；小食/早餐/點心 → snack。
+   類別詞都要落到呢欄：粉麵/米線/意粉 → dishType noodle；飯/米飯 → rice；湯/湯水/羹 → soup；早餐/點心/小食 → snack。
 3. method = 煮法。蒸 → steam；炒/煎 → stirfry；烚/白灼/煲 → boil；炆/燉 → braise；焗/烤 → bake；炸 → deepfry；涼拌 → cold。
 4. maxMinutes = 用戶明確講嘅時間上限（「20分鐘」「半個鐘」= 30）。冇講就 null。
-5. tags = 語意條件，例如 清淡、低卡、高蛋白、素食、辣、一鍋到底、小朋友、健康、快手、宴客、早餐。保留用戶原意，唔好發明。
+5. tags = 語意條件，必須用以下英文 key（唔准用中文）：light（清淡/低卡/健康）、spicy（辣）、kids（小朋友）、one-pot（一鍋到底/電飯煲）、breakfast（早餐）、high-protein（高蛋白/增肌）、vegetarian（素食）、vegan、guest（宴客）、quick（快手）。保留用戶原意，唔好發明；冇就省略。
 6. keyword = 用戶明確講嘅具體菜名或食材（例如 番茄、排骨、豆腐、蛋、牛肉）。如果已用 protein/dishType 表達類別，可以將最具體嘅食材放入 keyword；純類別（「想食肉」「有咩湯」）keyword = null。
 7. wantsCards = 用戶想要食譜卡 → true。純打招呼、問煮食技巧、問營養/醫療、投訴、非食物 → false。
    「有咩 X」「想食 X」「有無 X 食譜」一律 wantsCards=true，即使 X 只係類別詞（湯水／餸／早餐／小食）。
@@ -120,7 +122,7 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
 
 /** Bump whenever the prompt or the slot semantics change: cached parses from an
  *  older parser must never be reused (stale maxMinutes/wantsCards bit us badly). */
-export const CHEF_SLOT_PARSER_VERSION = "2026-11-03b";
+export const CHEF_SLOT_PARSER_VERSION = "2026-11-04a";
 
 /** Stable cache key: NFKC, lowercase, drop whitespace/punctuation. */
 export function normalizeChefText(text: string): string {
@@ -141,36 +143,9 @@ function clampInt(value: unknown, min: number, max: number): number | undefined 
   return Math.max(min, Math.min(max, Math.round(n)));
 }
 
-/** Validate + clamp model output. Returns null when the contract is unusable. */
-/** 「蛋類／豆腐類／海鮮類」係類別，唔係菜名：轉成 protein，唔好當 keyword 硬過濾。 */
-const CATEGORY_KEYWORD_PROTEIN: Array<[RegExp, "egg" | "soy" | "seafood" | "fish" | "chicken" | "beef" | "pork" | "veg"]> = [
-  [/^(蛋|蛋類|雞蛋)$/, "egg"],
-  [/^(豆腐|豆腐類|豆類|豆製品)$/, "soy"],
-  [/^(海鮮|海鮮類|水產)$/, "seafood"],
-  [/^(魚|魚類)$/, "fish"],
-  [/^(雞|雞類|雞肉|家禽)$/, "chicken"],
-  [/^(牛|牛類|牛肉)$/, "beef"],
-  [/^(豬|豬類|豬肉)$/, "pork"],
-  [/^(菜|菜類|蔬菜|青菜)$/, "veg"],
-];
-
-const CATEGORY_KEYWORD_DISHTYPE: Array<[RegExp, "noodle" | "rice" | "soup" | "snack"]> = [
-  [/^(麵|面|麵類|粉麵|粉|米線|意粉)$/, "noodle"],
-  [/^(飯|飯類|米飯)$/, "rice"],
-  [/^(湯|湯水|湯類|羹)$/, "soup"],
-  [/^(早餐|早點|小食|點心)$/, "snack"],
-];
-
-function reinterpretCategoryKeyword(slots: ChefSlots): ChefSlots {
-  const keyword = slots.keyword?.trim();
-  if (!keyword) return slots;
-  const proteinHit = CATEGORY_KEYWORD_PROTEIN.find(([re]) => re.test(keyword));
-  if (proteinHit) return { ...slots, keyword: undefined, protein: slots.protein ?? proteinHit[1] };
-  const dishHit = CATEGORY_KEYWORD_DISHTYPE.find(([re]) => re.test(keyword));
-  if (dishHit) return { ...slots, keyword: undefined, dishType: slots.dishType ?? dishHit[1] };
-  return slots;
-}
-
+/** Validate + clamp model output. Returns null when the contract is unusable.
+ *  Category words (蛋類 / 粉麵 / 湯水 / 海鮮類 …) are the LLM's job: the prompt
+ *  maps them to protein / dishType, so this layer keeps no keyword->facet table. */
 export function normalizeChefSlots(raw: unknown): ChefSlots | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const v = raw as Record<string, unknown>;
@@ -206,7 +181,7 @@ export function normalizeChefSlots(raw: unknown): ChefSlots | null {
       ? { avoid: [...new Set(v.avoid.map((x: unknown) => String(x ?? "").trim()).filter((x) => x.length > 0 && x.length <= 12))].slice(0, 6) }
       : {}),
   };
-  return reinterpretCategoryKeyword(parsed);
+  return parsed;
 }
 
 /**

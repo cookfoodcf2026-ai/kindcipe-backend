@@ -45,6 +45,29 @@ test("kid friendly dessert still tagged", () => {
   assert.equal(scenarios.includes("kids"), true, scenarios.join(","));
 });
 
+test("ricecooker: braised noodle with pot-only steps is NOT one-pot", () => {
+  const scenarios = deriveScenarios({
+    name: "慢燉牛肉蘿蔔寬粉",
+    description: "慢火燉煮嘅寬粉",
+    dishType: "noodle",
+    cookTime: 60,
+    ingredients: [{ name: "牛肉" }, { name: "白蘿蔔" }, { name: "寬粉" }],
+    steps: ["牛肉汆水", "加入白蘿蔔炆 30 分鐘", "加入寬粉煲至軟"],
+  });
+  assert.equal(scenarios.includes("ricecooker"), false, scenarios.join(","));
+});
+
+test("ricecooker: electric-cooker dish in the name IS one-pot", () => {
+  const scenarios = deriveScenarios({
+    name: "電飯煲臘味飯",
+    dishType: "rice",
+    cookTime: 30,
+    ingredients: [{ name: "米" }, { name: "臘腸" }],
+    steps: ["全部放入電飯煲", "按煮飯"],
+  });
+  assert.equal(scenarios.includes("ricecooker"), true, scenarios.join(","));
+});
+
 test("recompute detects drift for braised dish losing quick tag", () => {
   const diff = diffScenarioTags({
     source: "custom",

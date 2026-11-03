@@ -115,6 +115,10 @@ function hasProtein(text: string, protein: string): boolean {
   return pattern.test(cleaned);
 }
 
+// Equipment-only one-pot signal. Braise words (燜/炆/慢燉) are a COOKING METHOD,
+// not a one-pot dish; they must never imply one-pot. Applied to the name only.
+const ONE_POT_NAME_RE = /電飯煲|电饭煲|電子鍋|电子锅|壓力鍋|压力锅|一鍋|一锅|一鑊|一镬|煲仔|one.?pot|rice.?cooker/i;
+
 const METHOD_PATTERNS: Array<[string, RegExp]> = [
   ["steam", /清蒸|蒸|steam/i],
   ["stirfry", /炒|煎|爆炒|快炒|stir.?fry|pan.?fry|saut[eé]/i],
@@ -146,7 +150,6 @@ const TAG_ALIASES: Array<[string, RegExp]> = [
   ["light", /清淡|清湯|清汤|少油|低脂|低卡|輕食|轻食|健康|少鹽|少盐|light|healthy/i],
   ["spicy", /辣|麻辣|辣椒|花椒|芥末|wasabi|chilli|chili|spicy/i],
   ["kids", /小朋友|細路|儿童|兒童|親子|亲子|幼兒|幼儿|kids|children/i],
-  ["one-pot", /一鍋|一锅|電飯煲|电饭煲|電子鍋|电子锅|煲仔|燜|焖|炆|慢煮|壓力鍋|压力锅|one.?pot|rice.?cooker/i],
   ["high-protein", /高蛋白|蛋白質|蛋白质|增肌|健身|high.?protein|protein/i],
   ["guest", /宴客|大菜|喜慶|喜庆|節慶|节庆|招待|派對|派对|guest|party/i],
   ["breakfast", /早餐|早點|早点|breakfast|brunch/i],
@@ -202,6 +205,10 @@ export function deriveRecipeFacets(input: DerivedTagInput): DerivedTagFacets {
   const semanticTags = uniq([
     ...scenarios.map((scenario) => scenario === "highProtein" ? "high-protein" : scenario),
     ...TAG_ALIASES.filter(([, pattern]) => pattern.test(body)).map(([key]) => key),
+    // One-pot is an equipment signal: it only comes from the dish NAME (or an
+    // explicit tag), never from steps/prose. Braise words (炆/燜/燉/慢煮) are a
+    // cooking method, so 「慢燉牛肉寬粉」must not be tagged one-pot.
+    ...(ONE_POT_NAME_RE.test(name) ? ["one-pot"] : []),
   ]);
   const dishType = detectDishType(input, body);
   if (dishType) semanticTags.push(dishType);

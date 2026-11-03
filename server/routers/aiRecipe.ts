@@ -15,7 +15,7 @@ import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb,
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
 import { runChefSlotPipeline } from "../services/chefPipeline";
-import { deriveTagsFromText, matchesDishTypeName } from "../services/chefRetrieval";
+import { recoverDroppedTags, matchesDishTypeName } from "../services/chefRetrieval";
 import { deriveRecipeTags } from "../services/chefDerivedTags";
 import { dbChefSlotsCache } from "../services/chefQueryCache";
 import { logChefQuery } from "../services/chefQueryLog";
@@ -4151,10 +4151,10 @@ async function processAIChefChatCore(
     if (droppedHardFacet && slotResult.cards.length > 0) {
       console.log(`[AI Chef] slot_pipeline reject reason=dropped_hard_facet relax=${slotResult.relaxLevel}`);
     }
-    // Safety net for a parser miss on a pure tag phrase ("一鍋到底"): if the model
-    // returned no tags but the sentence carries one, keep the user's constraint.
+    // fallback: safety net for a parser miss on the one-pot phrase ("一鍋到底").
+    // Scoped to equipment words only — remove once the parser is stable.
     if (slotResult.slots && (slotResult.slots.tags?.length ?? 0) === 0) {
-      const fallbackTags = deriveTagsFromText(lastUserText);
+      const fallbackTags = recoverDroppedTags(lastUserText);
       if (fallbackTags.length > 0) {
         slotResult.slots = { ...slotResult.slots, tags: fallbackTags };
         console.log(`[AI Chef] slot_pipeline tag_fallback=${fallbackTags.join("|")}`);
@@ -5847,8 +5847,11 @@ function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots 
   if (parsed?.protein) return { wantsCards: true, protein: parsed.protein };
   // Tag-only queries (早餐 / 辣 / 小朋友 / 一鍋到底 / 高蛋白 …) have no food noun
   // but do carry a real constraint; a tag beats a vague dishType ("早餐" is not
-  // "any snack"), so this must come first.
-  const tagHits = deriveTagsFromText(text);
+  // "any snack"), so this must come first. Tags come from the parser (LLM) now;
+  // only the one-pot phrase is recovered defensively when the parser dropped it.
+  const parsedTags = (parsed?.tags ?? []).filter((tag) => String(tag ?? "").trim().length > 0);
+  if (parsedTags.length > 0) return { wantsCards: true, tags: parsedTags };
+  const tagHits = recoverDroppedTags(text);
   if (tagHits.length > 0) return { wantsCards: true, tags: tagHits };
   // A concrete keyword the user named ("墨西哥菜", "韓國炸雞") is the strongest
   // signal; without this the fallback drifted to findFoodTerm and served 菜心.

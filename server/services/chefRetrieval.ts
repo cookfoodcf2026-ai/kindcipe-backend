@@ -85,35 +85,34 @@ export function toChefLibraryRecipe(row: Record<string, unknown>): ChefLibraryRe
   };
 }
 
-const TAG_RULES: Array<[RegExp, string[]]> = [
-  [/清淡|清湯|清汤|少油|低脂|低卡|輕食|轻食|健康|少鹽|少盐|減肥|减肥|light|healthy/i, ["light", "healthy"]],
-  [/辣|麻辣|辣椒|花椒|spicy|chilli|chili/i, ["spicy"]],
-  [/小朋友|細路|儿童|兒童|親子|亲子|幼兒|幼儿|kids|children/i, ["kids"]],
-  [/一鍋|一锅|電飯煲|电饭煲|電子鍋|电子锅|煲仔|燜|焖|炆|慢煮|壓力鍋|压力锅|one.?pot|rice.?cooker/i, ["one-pot", "ricecooker"]],
-  [/高蛋白|蛋白質|蛋白质|增肌|健身|high.?protein/i, ["high-protein", "highProtein"]],
-  [/宴客|大菜|喜慶|喜庆|節慶|节庆|招待|派對|派对|guest|party/i, ["guest"]],
-  [/早餐|早點|早点|breakfast|brunch/i, ["breakfast"]],
-  [/快煮|快手|快速|簡單|简单|quick|easy/i, ["quick"]],
-  [/素食|吃素|食素|vegan|vegetarian/i, ["vegetarian"]],
-];
+/** fallback: recover the one structural tag the parser historically drops
+ *  ("一鍋到底" → one-pot). Remove once CHEF_SLOT_PROMPT is proven to always
+ *  emit it. Scoped to equipment words only; braise words must NOT count. */
+const ONE_POT_TEXT_RE = /一鍋到底|一鍋|一锅|電飯煲|电饭煲|電子鍋|电子锅|煲仔|one.?pot|rice.?cooker/i;
 
-/** Canonical tag keys implied by a raw user sentence (breakfast / spicy / kids / one-pot …). */
-export function deriveTagsFromText(text: string): string[] {
-  const hits: string[] = [];
-  for (const [pattern, values] of TAG_RULES) {
-    if (pattern.test(text)) hits.push(...values);
-  }
-  return [...new Set(hits)];
+export function recoverDroppedTags(text: string): string[] {
+  return ONE_POT_TEXT_RE.test(String(text ?? "")) ? ["one-pot"] : [];
 }
+
+/** Canonical tag keys the retrieval layer understands. The LLM emits these keys
+ *  directly (see CHEF_SLOT_PROMPT); the map below only bridges legacy Chinese
+ *  spellings for the correctness tags (vegetarian / spicy) so an old cached
+ *  parse can never let a meat dish through a 素食 request. */
+const TAG_KEY_ALIASES: Record<string, string> = {
+  "素食": "vegetarian",
+  "吃素": "vegetarian",
+  "食素": "vegetarian",
+  "純素": "vegan",
+  "辣": "spicy",
+  "麻辣": "spicy",
+};
 
 function tagKeysFor(slotTags: string[]): string[] {
   const keys: string[] = [];
   for (const raw of slotTags) {
     const tag = String(raw ?? "").trim();
     if (!tag) continue;
-    const matched = TAG_RULES.filter(([pattern]) => pattern.test(tag)).flatMap(([, values]) => values);
-    if (matched.length > 0) keys.push(...matched);
-    else keys.push(normalize(tag));
+    keys.push(TAG_KEY_ALIASES[tag] ?? normalize(tag));
   }
   return [...new Set(keys)];
 }
