@@ -144,7 +144,7 @@ const CATEGORY_KEYWORD_PROTEIN: Array<[RegExp, "egg" | "soy" | "seafood" | "fish
   [/^(菜|菜類|蔬菜|青菜)$/, "veg"],
 ];
 
-const CATEGORY_KEYWORD_DISHTYPE: Array<[RegExp, "noodle" | "rice" | "soup" | "snack">] = [
+const CATEGORY_KEYWORD_DISHTYPE: Array<[RegExp, "noodle" | "rice" | "soup" | "snack"]> = [
   [/^(麵|面|麵類|粉麵|粉|米線|意粉)$/, "noodle"],
   [/^(飯|飯類|米飯)$/, "rice"],
   [/^(湯|湯水|湯類|羹)$/, "soup"],
