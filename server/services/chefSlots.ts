@@ -132,6 +132,26 @@ function clampInt(value: unknown, min: number, max: number): number | undefined 
 }
 
 /** Validate + clamp model output. Returns null when the contract is unusable. */
+/** 「蛋類／豆腐類／海鮮類」係類別，唔係菜名：轉成 protein，唔好當 keyword 硬過濾。 */
+const CATEGORY_KEYWORD_PROTEIN: Array<[RegExp, "egg" | "soy" | "seafood" | "fish" | "chicken" | "beef" | "pork" | "veg"]> = [
+  [/^(蛋|蛋類|雞蛋)$/, "egg"],
+  [/^(豆腐|豆腐類|豆類|豆製品)$/, "soy"],
+  [/^(海鮮|海鮮類|水產)$/, "seafood"],
+  [/^(魚|魚類)$/, "fish"],
+  [/^(雞|雞類|雞肉|家禽)$/, "chicken"],
+  [/^(牛|牛類|牛肉)$/, "beef"],
+  [/^(豬|豬類|豬肉)$/, "pork"],
+  [/^(菜|菜類|蔬菜|青菜)$/, "veg"],
+];
+
+function reinterpretCategoryKeyword(slots: ChefSlots): ChefSlots {
+  const keyword = slots.keyword?.trim();
+  if (!keyword) return slots;
+  const hit = CATEGORY_KEYWORD_PROTEIN.find(([re]) => re.test(keyword));
+  if (!hit) return slots;
+  return { ...slots, keyword: undefined, protein: slots.protein ?? hit[1] };
+}
+
 export function normalizeChefSlots(raw: unknown): ChefSlots | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const v = raw as Record<string, unknown>;
@@ -146,7 +166,7 @@ export function normalizeChefSlots(raw: unknown): ChefSlots | null {
   const keywordRaw = v.keyword == null ? "" : String(v.keyword).trim();
   const keyword = keywordRaw && keywordRaw.length <= 40 ? keywordRaw : undefined;
 
-  return {
+  const parsed: ChefSlots = {
     ...(asEnum(v.protein, PROTEINS) ? { protein: asEnum(v.protein, PROTEINS) } : {}),
     ...(asEnum(v.dishType, DISH_TYPES) ? { dishType: asEnum(v.dishType, DISH_TYPES) } : {}),
     ...(asEnum(v.method, METHODS) ? { method: asEnum(v.method, METHODS) } : {}),
@@ -161,6 +181,7 @@ export function normalizeChefSlots(raw: unknown): ChefSlots | null {
     wantsCards: v.wantsCards || Boolean(keyword) || Boolean(asEnum(v.protein, PROTEINS)) || tags.length > 0,
     ...(clampInt(v.servingsHint, 1, 20) ? { servingsHint: clampInt(v.servingsHint, 1, 20) } : {}),
   };
+  return reinterpretCategoryKeyword(parsed);
 }
 
 /**

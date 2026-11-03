@@ -448,3 +448,18 @@ test("chef query log never throws when the DB is unavailable", async () => {
     servedSources: { library: 1, ai: 0 },
   });
 });
+
+test("normalizeChefSlots: category word becomes protein, not keyword", () => {
+  const egg = normalizeChefSlots({ keyword: "蛋類", wantsCards: false });
+  assert.ok(egg);
+  assert.equal(egg.keyword, undefined);
+  assert.equal(egg.protein, "egg");
+  assert.equal(egg.wantsCards, true);
+
+  const seafood = normalizeChefSlots({ keyword: "海鮮類", wantsCards: true });
+  assert.equal(seafood?.protein, "seafood");
+
+  const dish = normalizeChefSlots({ keyword: "番茄炒蛋", wantsCards: true });
+  assert.equal(dish?.keyword, "番茄炒蛋");
+  assert.equal(dish?.protein, undefined);
+});
