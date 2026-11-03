@@ -127,7 +127,7 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
 
 /** Bump whenever the prompt or the slot semantics change: cached parses from an
  *  older parser must never be reused (stale maxMinutes/wantsCards bit us badly). */
-export const CHEF_SLOT_PARSER_VERSION = "2026-11-04a";
+export const CHEF_SLOT_PARSER_VERSION = "2026-11-04b";
 
 /** Stable cache key: NFKC, lowercase, drop whitespace/punctuation. */
 export function normalizeChefText(text: string): string {
