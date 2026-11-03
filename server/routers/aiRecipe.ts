@@ -5980,7 +5980,9 @@ async function applyZeroCardInsurance(
       }
       const retrieval = retrieveChefCards(safeSlots, libraryPool, { count: 3, avoid: banned });
       let chosen = retrieval.cards;
-      if ((safeSlots.tags?.length ?? 0) > 0 && retrieval.relaxLevel >= 3) {
+      // A tag the user actually named must be honoured at relax 0; serving a
+      // relaxed (tag-dropped) set is how 小朋友 ended up with sugary desserts.
+      if ((safeSlots.tags?.length ?? 0) > 0 && retrieval.relaxLevel >= 1) {
         chosen = [];
       }
       if (safeSlots?.protein && retrieval.relaxLevel >= 3) {
