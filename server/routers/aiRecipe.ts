@@ -4095,9 +4095,6 @@ async function processAIChefChatCore(
     // Multi-card meal shapes (三餸一湯) are owned by the meal-shape postcondition;
     // serving 3 random cards from the single-card pipeline was breaking them.
     if (detectMealShapeLoose(lastUserText)) return "meal_shape";
-    // Follow-up commands (換走個湯 / 再加辣 / 唔要牛) belong to the meal editor,
-    // not to a fresh single-card search.
-    if (historyHasMealShape && /換走|唔要|去走|加多|再加|走湯|加辣/.test(lastUserText)) return "followup_command";
     if (slotPipelineOverride?.parsed?.slots?.wantsCards === false) return "not_wants_cards";
     if (chefIntent.kind === "technique") return "technique";
     // Only an explicit multi-card ask ("三餸一湯", "4 道菜") may skip the pipeline.
