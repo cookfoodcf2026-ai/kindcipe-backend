@@ -118,15 +118,24 @@ function tagKeysFor(slotTags: string[]): string[] {
   return [...new Set(keys)];
 }
 
+/** Tags that mean the same thing to a user asking for them. */
+const TAG_EQUIVALENTS: Record<string, string[]> = {
+  "one-pot": ["ricecooker"],
+  ricecooker: ["one-pot"],
+};
+
 function hasTags(recipe: ChefLibraryRecipe, keys: string[]): boolean {
   if (keys.length === 0) return true;
   const derived = new Set(recipe.derivedTags ?? []);
   const haystack = normalize([...recipe.tags, ...(recipe.derivedTags ?? [])].join(" "));
-  return keys.some((key) =>
-    derived.has(`tag:${key}`)
-    || derived.has(`diet:${key}`)
-    || haystack.includes(normalize(key)),
-  );
+  return keys.some((key) => {
+    const candidates = [key, ...(TAG_EQUIVALENTS[key] ?? [])];
+    return candidates.some((candidate) =>
+      derived.has(`tag:${candidate}`)
+      || derived.has(`diet:${candidate}`)
+      || haystack.includes(normalize(candidate)),
+    );
+  });
 }
 
 function recipeText(recipe: ChefLibraryRecipe): string {
