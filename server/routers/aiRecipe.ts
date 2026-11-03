@@ -4261,7 +4261,8 @@ async function processAIChefChatCore(
           ? exact
           : search.rows.filter((row) => {
               const rowName = normalizeName(String(row.name ?? ""));
-              return normalizedLabel.length >= 2 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
+              // 中文單字食物詞（魚／蛋／蝦）都要命中，唔可以要求 >= 2 字
+            return normalizedLabel.length >= 1 && (rowName.includes(normalizedLabel) || normalizedLabel.includes(rowName));
             });
       if (candidates.length === 0) {
         const alternatives = search.rows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3);
