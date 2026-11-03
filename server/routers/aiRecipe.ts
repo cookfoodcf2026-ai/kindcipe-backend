@@ -16,6 +16,7 @@ import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
 import { runChefSlotPipeline } from "../services/chefPipeline";
 import { deriveTagsFromText } from "../services/chefRetrieval";
+import { deriveRecipeTags } from "../services/chefDerivedTags";
 import { dbChefSlotsCache } from "../services/chefQueryCache";
 import { logChefQuery } from "../services/chefQueryLog";
 import { retrieveChefCards, toChefLibraryRecipe, validateGeneratedCard } from "../services/chefRetrieval";
@@ -7115,6 +7116,30 @@ export const aiRecipeRouter = router({
         if (safeRecipes.length !== result.recipes.length) {
           console.warn(`[AI Chef] removed ${result.recipes.length - safeRecipes.length} recipe(s) containing avoid ingredients`);
           result.recipes = safeRecipes;
+        }
+      }
+
+      // Red line: a 素食 ask must never serve meat/seafood cards, whichever path
+      // produced them. Enforced once, here, as a postcondition.
+      const vegetarianAsk = /素食|吃素|食素|vegan|vegetarian/i.test(lastUserText(input.messages));
+      const MEAT_TAGS = ["protein:pork", "protein:chicken", "protein:beef", "protein:fish", "protein:seafood"];
+      if (vegetarianAsk && result.recipes.length > 0) {
+        const kept = result.recipes.filter((recipe) => {
+          const tags = deriveRecipeTags({
+            name: recipe.name,
+            ingredients: (recipe.ingredients ?? []).map((item: any) => ({
+              name: typeof item === "string" ? item : String(item?.name ?? ""),
+            })),
+          }) as string[];
+          return !tags.some((tag) => MEAT_TAGS.includes(tag));
+        });
+        if (kept.length !== result.recipes.length) {
+          console.log(`[AI Chef] vegetarian guard removed=${result.recipes.length - kept.length}`);
+          result.recipes = kept;
+          if (kept.length === 0) {
+            result.content = "我搵唔到合適嘅素食主菜，試下：紅燒豆腐、素麻婆豆腐、蒜蓉炒雜菌？";
+            result.clarifyReason = "ambiguous_food";
+          }
         }
       }
 
