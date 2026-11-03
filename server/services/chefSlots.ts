@@ -150,11 +150,15 @@ export function normalizeChefSlots(raw: unknown): ChefSlots | null {
     ...(asEnum(v.protein, PROTEINS) ? { protein: asEnum(v.protein, PROTEINS) } : {}),
     ...(asEnum(v.dishType, DISH_TYPES) ? { dishType: asEnum(v.dishType, DISH_TYPES) } : {}),
     ...(asEnum(v.method, METHODS) ? { method: asEnum(v.method, METHODS) } : {}),
-    ...(clampInt(v.maxMinutes, 1, 240) ? { maxMinutes: clampInt(v.maxMinutes, 1, 240) } : {}),
+    // A 1–4 minute "limit" is almost always parser noise (e.g. 「蛋類」→ 1),
+    // and a hard filter on it empties the pool. Treat it as "no time limit".
+    ...(clampInt(v.maxMinutes, 5, 240) ? { maxMinutes: clampInt(v.maxMinutes, 5, 240) } : {}),
     ...(asEnum(v.difficulty, DIFFICULTIES) ? { difficulty: asEnum(v.difficulty, DIFFICULTIES) } : {}),
     ...(tags.length > 0 ? { tags } : {}),
     ...(keyword ? { keyword } : {}),
-    wantsCards: v.wantsCards,
+    // Asking for a protein / keyword / tag is a card request even if the model
+    // said wantsCards:false; otherwise the pipeline skips it entirely.
+    wantsCards: v.wantsCards || Boolean(keyword) || Boolean(asEnum(v.protein, PROTEINS)) || tags.length > 0,
     ...(clampInt(v.servingsHint, 1, 20) ? { servingsHint: clampInt(v.servingsHint, 1, 20) } : {}),
   };
 }

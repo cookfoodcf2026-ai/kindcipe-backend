@@ -83,7 +83,8 @@ test("normalizeChefSlots: invalid protein is dropped and maxMinutes=-1 is clampe
   assert.ok(slots);
   assert.equal(slots.protein, undefined);
   assert.equal(slots.dishType, "soup");
-  assert.equal(slots.maxMinutes, 1);
+  // floor is 5: anything below is treated as parser noise, not a real limit
+  assert.equal(slots.maxMinutes, 5);
 });
 
 test("normalizeChefSlots: missing wantsCards or non-object returns null", () => {
