@@ -4007,7 +4007,9 @@ async function processAIChefChatCore(
   // concrete library card instead of asking "what do you want to cook?".
   const pantryTerms = extractMealIngredients(lastUserText);
   const pantryRequest = !plannedTurn && mode === "chat" && Boolean(db)
-    && /雪櫃|冰箱|pantry|剩|得/i.test(lastUserText)
+    // The app's 雪櫃食材 tab sends a canned "用以下食材煮餸：青菜、洋蔥、豆腐" prompt,
+    // which never contains 雪櫃 — match the list form too.
+    && /雪櫃|冰箱|pantry|剩|得|用以下食材|以下食材|用呢啲食材|食材[：:]/i.test(lastUserText)
     && pantryTerms.length >= 2;
   if (pantryRequest) {
     for (const term of pantryTerms.slice(0, 4)) {
