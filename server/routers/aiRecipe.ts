@@ -23,6 +23,7 @@ import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity, collisionScore } from "../utils/mealDiversity";
+import { findFoodTermPattern, matchesByTermName, matchesByTermIngredient } from "../utils/foodTermMap";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
@@ -6630,7 +6631,7 @@ export const aiRecipeRouter = router({
       }
 
       // 0 卡 salvage：自然問法（「有咩豆腐菜式」「想食蛋類」）唔應該出 clarify。
-      // 只喺已有 food term + library 有貨時生效；純 library 卡、0 credit、0 LLM。
+      // 用「食物詞對應表」精準揀卡（菜名優先，主食材做 fallback），唔用全文搜尋。
       if (
         (process.env.AI_CHEF_LIBRARY_SALVAGE ?? "true") !== "false" &&
         (result.recipes?.length ?? 0) === 0 &&
@@ -6641,41 +6642,32 @@ export const aiRecipeRouter = router({
           if (!salvageDb) throw new Error("no db");
           const rawText = lastUserText(input.messages);
           const terms = extractMealIngredients(rawText);
-          const FOOD_HINTS = ["豆腐", "雞蛋", "蛋", "魚", "蝦", "蟹", "雞", "牛", "豬", "羊", "菜", "湯", "麵", "飯", "豆腐", "菇", "瓜"];
-          const hintTerm = FOOD_HINTS.find((h) => rawText.includes(h)) ?? "";
-          const foodTerm = (
-            terms.find((t) => isSpecificFoodTerm(t) || (t.length <= 2 && !!findFoodTerm(normalizeName(t)))) ??
-            hintTerm ??
-            ""
-          ).trim();
-          const timeLimit = (() => {
-            const m = rawText.match(/(\d{1,3})\s*分鐘/);
-            const v = m ? parseInt(m[1], 10) : 0;
-            return v > 0 && v <= 120 ? v : 0;
-          })();
-          if (foodTerm) {
-            const found = await execSearchRecipes(salvageDb, { query: foodTerm, limit: 40 }, familyId);
+          const FOOD_HINTS = ["豆腐", "雞蛋", "蛋", "魚", "蝦", "蟹", "雞", "牛", "豬", "羊", "菇", "菜", "湯", "麵", "飯"];
+          const term =
+            terms.find((t) => !!findFoodTermPattern(t)) ??
+            FOOD_HINTS.find((h) => rawText.includes(h)) ??
+            "";
+          const pattern = findFoodTermPattern(term);
+          if (pattern) {
+            const timeLimit = (() => {
+              const m = rawText.match(/(\d{1,3})\s*分鐘/);
+              const v = m ? parseInt(m[1], 10) : 0;
+              return v > 0 && v <= 120 ? v : 0;
+            })();
             const banned = [...avoidIngredients, ...familyAllergens];
-            const termHit = (card: any) => {
-              const t = String(foodTerm);
-              if (!t) return true;
-              if (String(card?.name ?? "").includes(t)) return true;
-              const ings = Array.isArray(card?.ingredients) ? card.ingredients : [];
-              return ings.some((i: any) => String(i?.name ?? i?.nameEn ?? "").includes(t));
-            };
-            let picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 6, 0)
-              .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)))
-              .filter(termHit);
-            if (timeLimit > 0) {
-              const within = picked.filter((card) => Number(card.cookTime ?? 0) <= timeLimit);
-              if (within.length > 0) picked = within;
-            }
-            picked = picked.slice(0, 3);
-            if (picked.length > 0) {
-              result.recipes = picked;
+            const pool = await execSearchRecipes(salvageDb, { query: "", limit: 400 }, familyId);
+            const rows = (pool.recipes ?? []).filter((card: any) => {
+              if (banned.length > 0 && recipeContainsAvoid(card, banned)) return false;
+              if (timeLimit > 0 && Number(card.cookTime ?? 0) > timeLimit) return false;
+              return true;
+            });
+            const byName = rows.filter((c: any) => matchesByTermName(c, pattern));
+            const chosen = (byName.length > 0 ? byName : rows.filter((c: any) => matchesByTermIngredient(c, pattern))).slice(0, 3);
+            if (chosen.length > 0) {
+              result.recipes = chosen as any;
               result.clarifyReason = undefined;
-              result.content = aiReply(input.lang ?? "zh-TW", "libByKeyword", { kw: foodTerm });
-              console.log(`[AI Chef] salvage_zero_card term=${foodTerm} cards=${picked.length}`);
+              result.content = aiReply(input.lang ?? "zh-TW", "libByKeyword", { kw: String(term) });
+              console.log(`[AI Chef] salvage_zero_card term=${term} byName=${byName.length} cards=${chosen.length}`);
             }
           }
         } catch (err) {
