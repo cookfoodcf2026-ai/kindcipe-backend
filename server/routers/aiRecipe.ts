@@ -4963,7 +4963,12 @@ async function processAIChefChatCore(
       : rows;
 
     const explicitTermCandidate = extractMealIngredients(lastUserText)[0] ?? "";
-    const explicitTerm = isSpecificFoodTerm(explicitTermCandidate) ? explicitTermCandidate : "";
+    // Scenario words are not dishes: 「素食」「高蛋白」 would otherwise be treated as
+    // an explicit item and dead-end at 0 cards on the hotkey path.
+    const SCENARIO_WORDS_RE = /素食|吃素|高蛋白|蛋白質|快手|清淡|電飯煲|親子|宴客|一鍋到底/;
+    const explicitTerm = isSpecificFoodTerm(explicitTermCandidate) && !SCENARIO_WORDS_RE.test(explicitTermCandidate)
+      ? explicitTermCandidate
+      : "";
     if (explicitTerm) {
       const semanticRows = safeRows.filter((row) => rowMatchesFoodQuery(row, explicitTerm));
       const scenarioRank = (row: Record<string, unknown>) =>
