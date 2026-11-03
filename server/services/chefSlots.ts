@@ -40,6 +40,8 @@ export type ChefSlots = {
   keyword?: string;
   wantsCards: boolean;
   servingsHint?: number;
+  /** Things the user explicitly rejected ("唔要牛", "走辣") — hard exclusions. */
+  avoid?: string[];
 };
 
 export type ChefSlotsSource = "llm" | "cache" | "failed";
@@ -97,7 +99,8 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
   "tags": string[],
   "keyword": string | null,
   "wantsCards": boolean,
-  "servingsHint": integer | null
+  "servingsHint": integer | null,
+  "avoid": string[]
 }
 
 判斷規則：
@@ -112,7 +115,8 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
    例：「有咩湯水」→ { "dishType": "soup", "wantsCards": true }；「有咩蒸嘅餸」→ { "method": "steam", "wantsCards": true }。
 8. servingsHint = 用戶講幾多人食；冇講就 null。
 9. 粵語口語、錯字、中英夾雜、省略都要理解；唔確定就寧願欄位留 null，唔准猜。
-10. 只輸出 JSON，唔准加解釋或 markdown。`;
+10. avoid = 用戶明確唔想要嘅食材或條件（「唔要牛」「走辣」「唔食海鮮」→ ["牛"]/["辣"]/["海鮮"]）。冇就 []。
+11. 只輸出 JSON，唔准加解釋或 markdown。`;
 
 /** Bump whenever the prompt or the slot semantics change: cached parses from an
  *  older parser must never be reused (stale maxMinutes/wantsCards bit us badly). */
@@ -198,6 +202,9 @@ export function normalizeChefSlots(raw: unknown): ChefSlots | null {
     wantsCards: v.wantsCards || Boolean(keyword) || Boolean(asEnum(v.protein, PROTEINS))
       || Boolean(asEnum(v.dishType, DISH_TYPES)) || Boolean(asEnum(v.method, METHODS)) || tags.length > 0,
     ...(clampInt(v.servingsHint, 1, 20) ? { servingsHint: clampInt(v.servingsHint, 1, 20) } : {}),
+    ...(Array.isArray(v.avoid) && v.avoid.length > 0
+      ? { avoid: [...new Set(v.avoid.map((x: unknown) => String(x ?? "").trim()).filter((x) => x.length > 0 && x.length <= 12))].slice(0, 6) }
+      : {}),
   };
   return reinterpretCategoryKeyword(parsed);
 }

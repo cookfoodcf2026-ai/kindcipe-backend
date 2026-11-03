@@ -5932,7 +5932,14 @@ function applyChefCardConstraint(
   // A tag the user named is the stronger constraint; re-checking a vague
   // dishType (breakfast → snack) on top of it deleted 燕麥/粥.
   const enforceDishType = Boolean(safeSlots.dishType) && (safeSlots.tags?.length ?? 0) === 0;
-  const constrained = result.recipes.filter((card) => (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
+  // Explicit exclusions from the parse ("唔要牛") must drop those cards here too.
+  const slotAvoid = (safeSlots.avoid ?? []).map((term) => normalizeName(term)).filter(Boolean);
+  const violatesAvoid = (card: any) => {
+    if (slotAvoid.length === 0) return false;
+    const hay = normalizeName([card.name, ...(Array.isArray(card.ingredients) ? card.ingredients.map((i: any) => String(i?.name ?? i)) : [])].join(" "));
+    return slotAvoid.some((term) => hay.includes(term));
+  };
+  const constrained = result.recipes.filter((card) => !violatesAvoid(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
     {
       name: card.name,
       cookTime: card.cookTime,

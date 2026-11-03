@@ -218,7 +218,9 @@ export async function runChefSlotPipeline<T>(
       console.log(`[AI Chef] slot_pipeline tag_fallback=${fallbackTags.join("|")}`);
     }
   }
-  const retrieval = retrieveChefCards(slots, pool, { count: deps.count ?? 3, avoid: deps.avoid });
+  // User-stated exclusions ("唔要牛") are hard: fold them into the avoid list.
+  const avoidAll = [...(deps.avoid ?? []), ...(slots.avoid ?? [])];
+  const retrieval = retrieveChefCards(slots, pool, { count: deps.count ?? 3, avoid: avoidAll });
   // Level 3 relaxes protein for recall, but serving the wrong protein would be a
   // correctness bug. Keep only matching cards; if none remain, generate/clarify.
   const libraryRecipes = slots.protein && retrieval.relaxLevel >= 3
