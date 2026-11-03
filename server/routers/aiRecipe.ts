@@ -11,12 +11,14 @@ import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
 import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, filterAllergenCards, getFamilyAllergens } from "../services/chefAllergens";
-import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, roleForFoodTerm } from "../services/foodLexicon";
+import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, proteinFamilyForTerm, roleForFoodTerm } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
 import { runChefSlotPipeline } from "../services/chefPipeline";
 import { dbChefSlotsCache } from "../services/chefQueryCache";
-import type { ParsedChefQuery } from "../services/chefSlots";
+import { logChefQuery } from "../services/chefQueryLog";
+import { retrieveChefCards, toChefLibraryRecipe, validateGeneratedCard } from "../services/chefRetrieval";
+import type { ChefSlots, ParsedChefQuery } from "../services/chefSlots";
 import { getLlmMeter } from "../_core/llm";
 import { lookupFaqAnswer } from "../services/chefFaq";
 import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAssembler";
@@ -3641,6 +3643,41 @@ export function isChefSlotPipelineEnabled(): boolean {
   return (process.env.CHEF_SLOT_PIPELINE ?? "false") === "true";
 }
 
+export type ChefPipelineTelemetry = {
+  eligible: boolean;
+  skipReason?: string;
+  slots: ChefSlots | null;
+  relaxLevel: number | null;
+  candidates: number;
+  reason: string;
+};
+
+// Keyed by the caller's inputMessages array so the wrapper can read the same
+// telemetry without changing the core function signature. The final result also
+// gets a non-enumerable copy for the router log (never leaks into the response).
+const CHEF_PIPELINE_TELEMETRY = new WeakMap<object, ChefPipelineTelemetry>();
+const CHEF_PIPELINE_RESULT_META = Symbol("chefPipelineTelemetry");
+
+function setChefPipelineTelemetry(messages: object, telemetry: ChefPipelineTelemetry): void {
+  CHEF_PIPELINE_TELEMETRY.set(messages, telemetry);
+}
+
+function getChefPipelineTelemetry(messages: object): ChefPipelineTelemetry | undefined {
+  return CHEF_PIPELINE_TELEMETRY.get(messages);
+}
+
+function attachChefPipelineTelemetry(result: object, telemetry: ChefPipelineTelemetry): void {
+  Object.defineProperty(result, CHEF_PIPELINE_RESULT_META, {
+    value: telemetry,
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+function readChefPipelineTelemetry(result: object): ChefPipelineTelemetry | undefined {
+  return (result as Record<symbol, ChefPipelineTelemetry | undefined>)[CHEF_PIPELINE_RESULT_META];
+}
+
 export type ChefSlotPipelineOverride = {
   parsed?: ParsedChefQuery;
 };
@@ -3709,6 +3746,7 @@ async function processAIChefChatCore(
   const safetyIntent = detectSafetyIntent(earlyUserText);
   if (safetyIntent) {
     console.log(`[AI Chef] safety fail-closed kind=${safetyIntent.kind}`);
+    console.log(`[AI Chef] slot_pipeline skip reason=safety`);
     return {
       content: avoidRepeatedQuestion(safetyQuestion(lang, safetyIntent), inputMessages, lang),
       recipes: [],
@@ -3795,6 +3833,14 @@ async function processAIChefChatCore(
     previousMeal: storedMeal,
   });
   console.log(`[AI Chef] intent reason=${chefIntent.reason} kind=${chefIntent.kind} total=${chefIntent.requested.total} roles=${chefIntent.requested.roles.join(",") || "none"}`);
+  const pipelineTelemetry: ChefPipelineTelemetry = {
+    eligible: false,
+    slots: null,
+    relaxLevel: null,
+    candidates: 0,
+    reason: "not_run",
+  };
+  setChefPipelineTelemetry(inputMessages, pipelineTelemetry);
   let requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
   let forceNoCards = hasImage || !chefIntent.wantsCards;
   let isPlain = !chefIntent.wantsCards;
@@ -3802,9 +3848,18 @@ async function processAIChefChatCore(
   const smallTalk = !hasImage && SMALL_TALK_RE.test(lastUserText.trim());
   const ambiguousFood = !hasImage && !smallTalk && AMBIGUOUS_FOOD_RE.test(lastUserText.trim());
   if (smallTalk) {
+    pipelineTelemetry.skipReason = "small_talk";
+    pipelineTelemetry.reason = "skip:small_talk";
+    console.log(`[AI Chef] slot_pipeline skip reason=small_talk`);
     return { content: smallTalkReply(lang), recipes: [], llmUsed: false };
   }
-  if (ambiguousFood) {
+  // With the slot pipeline ON, ambiguous food prompts must reach the parser and
+  // retrieval (they are exactly the queries that need cards). OFF keeps the
+  // legacy clarify-only behaviour.
+  if (ambiguousFood && !isChefSlotPipelineEnabled()) {
+    pipelineTelemetry.skipReason = "flag_off";
+    pipelineTelemetry.reason = "skip:flag_off";
+    console.log(`[AI Chef] slot_pipeline skip reason=flag_off`);
     return { content: clarifyFoodReply(lang), recipes: [], llmUsed: false };
   }
   // Verified FAQ answers are always free and work even when chat quota is low.
@@ -4016,22 +4071,32 @@ async function processAIChefChatCore(
   // Slot pipeline (default OFF): one cheap slot parse + deterministic library
   // retrieval. It only short-circuits when the library actually has cards; a
   // miss falls through to the existing dispatcher / AI generation path.
-  const slotPipelineEligible = isChefSlotPipelineEnabled()
-    && mode === "chat"
-    && Boolean(db || searchOverride)
-    && !hasImage
-    && !forceText
-    && !plannedTurn
-    && !smallTalk
-    && !ambiguousFood
-    && !isCannedMealPrompt(lastUserText)
-    && slotPipelineOverride?.parsed?.slots?.wantsCards !== false
-    && (chefIntent.kind === "chat" || chefIntent.kind === "recipe")
-    && chefIntent.requested.total <= 1
-    && !/(?:^|[\s，,])ai(?:\s|$|煮|生成)|ai\s*煮|用\s*ai/i.test(lastUserText)
-    && Boolean(lastUserText);
+  const explicitAiRequest = /(?:^|[\s，,])ai(?:\s|$|煮|生成)|ai\s*煮|用\s*ai/i.test(lastUserText);
+  const slotPipelineSkipReason = (() => {
+    if (!isChefSlotPipelineEnabled()) return "flag_off";
+    if (mode !== "chat") return `mode_${mode}`;
+    if (!(db || searchOverride)) return "no_db";
+    if (hasImage) return "has_image";
+    if (forceText) return "force_text";
+    if (plannedTurn) return "planned_turn";
+    if (smallTalk) return "small_talk";
+    if (isCannedMealPrompt(lastUserText)) return "canned_meal";
+    if (slotPipelineOverride?.parsed?.slots?.wantsCards === false) return "not_wants_cards";
+    if (chefIntent.kind === "technique") return "technique";
+    if (chefIntent.requested.total > 1) return "multi_card";
+    if (explicitAiRequest) return "explicit_ai";
+    if (!lastUserText) return "empty_text";
+    return null;
+  })();
+  const slotPipelineEligible = slotPipelineSkipReason === null;
+  pipelineTelemetry.skipReason = slotPipelineSkipReason ?? undefined;
+  if (!slotPipelineEligible) {
+    pipelineTelemetry.reason = `skip:${slotPipelineSkipReason}`;
+    console.log(`[AI Chef] slot_pipeline skip reason=${slotPipelineSkipReason}`);
+  }
   let slotParsed: ParsedChefQuery | undefined = slotPipelineOverride?.parsed;
   if (slotPipelineEligible) {
+    pipelineTelemetry.eligible = true;
     const slotStartedAt = Date.now();
     const slotResult = await runChefSlotPipeline<SuggestedRecipe>(lastUserText, {
       loadPool: () => loadMealPool(familyId, searchOverride),
@@ -4053,6 +4118,13 @@ async function processAIChefChatCore(
       llmCalls: slotResult.debug.llmCalls,
       normalizedText: slotResult.debug.normalizedText,
     };
+    pipelineTelemetry.slots = slotResult.slots;
+    pipelineTelemetry.relaxLevel = slotResult.relaxLevel;
+    pipelineTelemetry.candidates = slotResult.debug.candidates;
+    pipelineTelemetry.reason = slotResult.debug.reason;
+    if (slotResult.status === "skipped") {
+      console.log(`[AI Chef] slot_pipeline skip reason=${slotResult.debug.reason}`);
+    }
     if (slotResult.status === "cards" && slotResult.cards.length > 0) {
       const cards = slotResult.cards;
       await recordServedLibraryCards(familyId, cards);
@@ -5696,11 +5768,248 @@ async function processAIChefChatCore(
   return { content, recipes, llmUsed, missingRoles: resultMissingRoles ?? undefined };
 }
 
+const INSURANCE_VEG_RE = /素食|吃素|食素|vegan|vegetarian/i;
+
+function insuranceReply(lang: string): string {
+  if (lang.startsWith("en")) return "I wasn't completely sure what you meant, so here are the closest choices.";
+  if (lang.startsWith("fil")) return "Hindi ako lubos na sigurado sa ibig mong sabihin, kaya ito ang pinakamalapit na pagpipilian.";
+  if (lang.startsWith("id")) return "Saya belum sepenuhnya paham, jadi ini pilihan yang paling dekat.";
+  return "我未完全明白，以下係最接近嘅選擇。";
+}
+
+/**
+ * Widest safe constraint for the zero-card fallback: keep only correctness
+ * constraints (protein / vegetarian / a named dish), ignore preferences such as
+ * tags, method, time and difficulty so the pool stays as wide as possible.
+ */
+function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots | null {
+  const vegetarian = (parsed?.tags ?? []).some((tag) => INSURANCE_VEG_RE.test(tag))
+    || INSURANCE_VEG_RE.test(text);
+  if (vegetarian) return { wantsCards: true, tags: ["素食"] };
+  if (parsed?.protein) return { wantsCards: true, protein: parsed.protein };
+
+  const term = findFoodTerm(text);
+  if (!term) return null;
+  if (foodItemType(term) === "dish") return { wantsCards: true, keyword: term };
+
+  const family = proteinFamilyForTerm(term);
+  if (family) {
+    if (family === "egg_tofu") return { wantsCards: true, protein: /豆/.test(term) ? "soy" : "egg" };
+    if (family === "lamb") return null;
+    return { wantsCards: true, protein: family };
+  }
+  const role = roleForFoodTerm(term);
+  if (role === "vegetable") return { wantsCards: true, protein: "veg" };
+  if (role === "seafood") return { wantsCards: true, protein: "seafood" };
+  return null;
+}
+
+function insurancePoolRows(
+  rows: Record<string, unknown>[],
+  banned: string[],
+): Record<string, unknown>[] {
+  return rows.filter((row) => {
+    if (banned.length > 0 && rowContainsAvoid(row, banned)) return false;
+    const ingredients = (Array.isArray(row.ingredients) ? row.ingredients : [])
+      .map((item: any) => String(item?.name ?? item ?? "").trim())
+      .filter(Boolean);
+    const steps = (Array.isArray(row.steps) ? row.steps : [])
+      .map((step: any) => typeof step === "string" ? step : String(step?.instruction ?? step?.text ?? step ?? ""))
+      .map((step: string) => step.trim())
+      .filter(Boolean);
+    const cookTime = Number(row.cookTime ?? 0);
+    return ingredients.length >= 3 && steps.length >= 2 && cookTime > 0;
+  });
+}
+
+function isFoodRelatedForInsurance(
+  result: CoreResult,
+  text: string,
+  mode: string,
+  forceText: boolean,
+  telemetry?: ChefPipelineTelemetry,
+): boolean {
+  if (detectSafetyIntent(text)) return false;
+  if (telemetry?.slots?.wantsCards) return true;
+  if (result.intentOverride?.wantsCards) return true;
+  const intent = result.intentOverride ?? resolveChefIntent(text, {
+    mode: mode as "chat" | "ai" | "library",
+    forceText,
+  });
+  if (intent.kind === "technique") return false;
+  if (result.clarifyReason && result.clarifyReason !== "safety") return true;
+  return FOOD_INTENT_RE.test(text) || Boolean(findFoodTerm(text)) || INSURANCE_VEG_RE.test(text);
+}
+
+/**
+ * Correctness guard for cards produced by any earlier path (library-first,
+ * dispatcher, AI). Protein / vegetarian / named-dish constraints must hold even
+ * when the card came from a path that did not understand the slots.
+ */
+function applyChefCardConstraint(
+  result: CoreResult,
+  text: string,
+  mode: string,
+  telemetry: ChefPipelineTelemetry | undefined,
+  lang: string,
+): CoreResult {
+  if ((result.recipes?.length ?? 0) === 0) return result;
+  if (mode !== "chat" && mode !== "ai") return result;
+  const safeSlots = inferInsuranceSlots(text, telemetry?.slots ?? null);
+  if (!safeSlots) return result;
+  const constrained = result.recipes.filter((card) => validateGeneratedCard(
+    {
+      name: card.name,
+      cookTime: card.cookTime,
+      ingredients: card.ingredients,
+      tags: card.tags,
+      dishType: card.dishType,
+      steps: card.steps,
+    },
+    safeSlots,
+  ));
+  if (constrained.length === result.recipes.length) return result;
+  console.log(`[AI Chef] card_constraint removed=${result.recipes.length - constrained.length} remaining=${constrained.length} protein=${safeSlots.protein ?? "none"} veg=${safeSlots.tags?.includes("素食") ? 1 : 0} keyword=${safeSlots.keyword ?? "none"}`);
+  return {
+    ...result,
+    recipes: constrained,
+    ...(constrained.length === 0
+      ? { content: clarifyFoodReply(lang), clarifyReason: "library_miss" as const }
+      : {}),
+  };
+}
+
+/**
+ * North-star fallback: a food question must never end with zero cards and a
+ * dead-end sentence. Only correctness constraints are kept; everything else is
+ * relaxed. Failures are swallowed so this can never fail the request.
+ */
+async function applyZeroCardInsurance(
+  result: CoreResult,
+  params: {
+    inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>;
+    familyId?: number;
+    mode: string;
+    lang: string;
+    forceText: boolean;
+    avoidIngredients: string[];
+    knownAllergens?: string[];
+    searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>;
+    telemetry?: ChefPipelineTelemetry;
+  },
+): Promise<CoreResult> {
+  if ((result.recipes?.length ?? 0) > 0) return result;
+  if (params.forceText) return result;
+  if (params.mode !== "chat" && params.mode !== "ai") return result;
+  if (result.clarifyReason === "safety") return result;
+
+  const text = lastUserText(params.inputMessages as any).trim();
+  if (!text) return result;
+  if (detectSafetyIntent(text)) return result;
+  // Multi-card meal shapes are owned by the postcondition; do not replace a
+  // requested 3-dish-1-soup set with three arbitrary cards.
+  if (detectMealShapeLoose(text)) return result;
+  if ((result.intentOverride?.requested.total ?? 0) > 1) return result;
+  if (!isFoodRelatedForInsurance(result, text, params.mode, params.forceText, params.telemetry)) {
+    return result;
+  }
+
+  try {
+    const pool = await loadMealPool(params.familyId, params.searchOverride);
+    const banned = [...params.avoidIngredients, ...(params.knownAllergens ?? [])];
+    const rows = insurancePoolRows(pool, banned);
+
+    if (rows.length > 0) {
+      let trendingNames: string[] = [];
+      try {
+        trendingNames = (await getTrendingRecipes(30, 30))
+          .map((item) => String(item.recipeName ?? ""))
+          .filter(Boolean);
+      } catch {
+        trendingNames = [];
+      }
+      const trendRank = new Map(trendingNames.map((name, index) => [normalizeName(name), index]));
+      const libraryPool = rows.map((row) => {
+        const recipe = toChefLibraryRecipe(row);
+        const rank = trendRank.get(normalizeName(recipe.name));
+        if (rank !== undefined) recipe.popularity = 100 - Math.min(99, rank);
+        return recipe;
+      });
+
+      const safeSlots = inferInsuranceSlots(text, params.telemetry?.slots ?? null);
+      const retrieval = retrieveChefCards(
+        safeSlots ?? { wantsCards: true },
+        libraryPool,
+        { count: 3, avoid: banned },
+      );
+      let chosen = retrieval.cards;
+      if (safeSlots?.protein && retrieval.relaxLevel >= 3) {
+        chosen = chosen.filter((card) => validateGeneratedCard(
+          {
+            name: card.name,
+            cookTime: card.cookTime,
+            ingredients: card.ingredients,
+            tags: card.tags,
+            dishType: card.dishType,
+          },
+          { ...safeSlots, keyword: undefined, maxMinutes: undefined },
+        ));
+      }
+
+      const cards: SuggestedRecipe[] = [];
+      const seen = new Set<string>();
+      for (const card of chosen) {
+        const raw = card.raw as Record<string, unknown> | undefined;
+        const suggested = raw ? rowToSuggestedRecipe(raw) : null;
+        if (!suggested) continue;
+        const key = normalizeName(suggested.name);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        cards.push(suggested);
+        if (cards.length >= 3) break;
+      }
+
+      if (cards.length > 0) {
+        await recordServedLibraryCards(params.familyId, cards);
+        result.recipes = cards;
+        result.content = insuranceReply(params.lang);
+        result.clarifyReason = undefined;
+        result.intentOverride = {
+          kind: "recipe",
+          wantsCards: true,
+          requested: { total: cards.length, roles: cards.map(() => "any" as RequestedRole) },
+          confidence: 0.5,
+          reason: "zero_card_insurance",
+        };
+        if (params.telemetry) {
+          params.telemetry.slots = params.telemetry.slots ?? safeSlots;
+          params.telemetry.relaxLevel = retrieval.relaxLevel;
+          params.telemetry.candidates = rows.length;
+          params.telemetry.reason = "zero_card_insurance";
+        }
+        console.log(`[AI Chef] zero_card_insurance served=${cards.length} pool=${pool.length} qualified=${rows.length} relax=${retrieval.relaxLevel}`);
+        return result;
+      }
+    }
+
+    // Even the widest pool is empty: never leave a dead-end sentence.
+    if (!result.content?.trim() || /暫時未能用免費 AI|can't use free AI chat/i.test(result.content)) {
+      result.content = clarifyFoodReply(params.lang);
+      result.clarifyReason = result.clarifyReason ?? "ambiguous_food";
+    }
+    return result;
+  } catch (error) {
+    console.warn("[AI Chef] zero_card_insurance failed:", (error as Error)?.message || error);
+    return result;
+  }
+}
+
 export async function processAIChefChat(
   ...args: Parameters<typeof processAIChefChatCore>
 ): Promise<CoreResult> {
   const [inputMessages, familyId, , mode = "chat", , , lang = "zh-TW", avoidIngredients = [], forceText = false, , , , , searchOverride, , , knownAllergens] = args;
   const result = await processAIChefChatCore(...args);
+  const telemetry = getChefPipelineTelemetry(inputMessages as any);
   const shaped = await applyMealShapePostcondition(result, {
     text: lastUserText(inputMessages as any),
     mode,
@@ -5711,7 +6020,27 @@ export async function processAIChefChat(
     searchOverride,
     forceText,
   });
-  return applySilentZeroCardClarify(shaped, inputMessages as any, forceText);
+  const clarified = applySilentZeroCardClarify(shaped, inputMessages as any, forceText);
+  const constrained = applyChefCardConstraint(
+    clarified,
+    lastUserText(inputMessages as any),
+    mode,
+    telemetry,
+    lang,
+  );
+  const insured = await applyZeroCardInsurance(constrained, {
+    inputMessages: inputMessages as any,
+    familyId,
+    mode,
+    lang,
+    forceText,
+    avoidIngredients,
+    knownAllergens,
+    searchOverride,
+    telemetry,
+  });
+  if (telemetry) attachChefPipelineTelemetry(insured, telemetry);
+  return insured;
 }
 
 // ─── Exported: streaming chat (yields text tokens, then recipes) ──
@@ -7035,6 +7364,21 @@ export const aiRecipeRouter = router({
       if (clientMessageIdEnabled) {
         finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }
+      const pipelineTelemetry = readChefPipelineTelemetry(result);
+      void logChefQuery({
+        familyId: familyId ?? null,
+        userId: ctx.user?.id != null ? String(ctx.user.id) : null,
+        rawText: lastUserText(input.messages),
+        slots: pipelineTelemetry?.slots ?? null,
+        relaxLevel: pipelineTelemetry?.relaxLevel ?? null,
+        candidates: pipelineTelemetry?.candidates ?? served,
+        served,
+        credits: creditsCharged,
+        llmCalls: meter.calls,
+        durationMs: Date.now() - reqStartedAt,
+        reason: result.clarifyReason ?? effectiveIntent.reason,
+        servedSources: sources,
+      });
       return finalResponse;
     }),
 });

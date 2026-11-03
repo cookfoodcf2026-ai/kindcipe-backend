@@ -730,6 +730,27 @@ export const chefQueryCache = pgTable("chef_query_cache", {
 
 export type ChefQueryCacheRow = typeof chefQueryCache.$inferSelect;
 
+// ─── AI Chef Query Log (one row per chef request; never stores full history) ──
+export const chefQueryLog = pgTable("chef_query_log", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id"),
+  userId: text("user_id"),
+  rawText: text("raw_text").notNull(),
+  slots: jsonb("slots"),
+  relaxLevel: integer("relax_level"),
+  candidates: integer("candidates"),
+  served: integer("served").default(0).notNull(),
+  credits: integer("credits").default(0).notNull(),
+  llmCalls: integer("llm_calls").default(0).notNull(),
+  durationMs: integer("duration_ms"),
+  reason: text("reason"),
+  servedSources: jsonb("served_sources"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ChefQueryLogRow = typeof chefQueryLog.$inferSelect;
+export type InsertChefQueryLog = typeof chefQueryLog.$inferInsert;
+
 // ─── AI Chef Family Allergen Safety (family-level, v1) ───────────────────────
 export const aiChefFamilySafety = pgTable("ai_chef_family_safety", {
   familyId: integer("family_id").primaryKey(),

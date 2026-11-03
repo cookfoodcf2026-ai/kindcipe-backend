@@ -314,3 +314,136 @@ test("flag: CHEF_SLOT_PIPELINE defaults OFF", async () => {
     else process.env.CHEF_SLOT_PIPELINE = previous;
   }
 });
+
+function insuranceRow(id: number, name: string, ingredients: string[], cookTime = 20) {
+  return {
+    source: "official",
+    id,
+    name,
+    description: "",
+    cookTime,
+    servings: 4,
+    difficulty: "easy",
+    category: "meat",
+    dishType: "meat",
+    ingredients: ingredients.map((ingredient) => ({ name: ingredient, quantity: "1", unit: "份" })),
+    steps: ["洗淨。", "煮熟。"],
+    tags: [],
+  };
+}
+
+test("ambiguous food enters the slot pipeline when the flag is ON", async () => {
+  process.env.DATABASE_URL = "";
+  process.env.DASHSCOPE_API_KEY = "";
+  process.env.GEMINI_API_KEY = "";
+  process.env.CHEF_SLOT_PIPELINE = "true";
+  try {
+    const { processAIChefChat } = await import("../routers/aiRecipe");
+    const parsed: ParsedChefQuery = {
+      slots: { protein: "chicken", wantsCards: true },
+      source: "cache",
+      llmCalls: 0,
+      normalizedText: "小朋友食咩好",
+    };
+    const result = await processAIChefChat(
+      [{ role: "user", content: "小朋友食咩好" }],
+      undefined, undefined, "chat", [], undefined, "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => [insuranceRow(1, "豉油雞", ["雞肉", "豉油", "糖"])],
+      undefined, undefined, undefined,
+      { parsed },
+    );
+    assert.equal(result.recipes.length, 1);
+    assert.equal(result.recipes[0].name, "豉油雞");
+  } finally {
+    delete process.env.CHEF_SLOT_PIPELINE;
+  }
+});
+
+test("zero-card insurance serves the closest 3 quality cards", async () => {
+  process.env.DATABASE_URL = "";
+  process.env.DASHSCOPE_API_KEY = "";
+  process.env.GEMINI_API_KEY = "";
+  process.env.CHEF_SLOT_PIPELINE = "true";
+  try {
+    const { processAIChefChat } = await import("../routers/aiRecipe");
+    const parsed: ParsedChefQuery = {
+      slots: { keyword: "唔存在嘅菜", wantsCards: true },
+      source: "cache",
+      llmCalls: 0,
+      normalizedText: "小朋友食咩好",
+    };
+    const pool = [
+      insuranceRow(1, "番茄炒蛋", ["番茄", "雞蛋", "蔥"]),
+      insuranceRow(2, "蒜蓉炒菜心", ["菜心", "蒜", "鹽"]),
+      insuranceRow(3, "豉汁蒸排骨", ["排骨", "豆豉", "薑"]),
+      insuranceRow(4, "清蒸鱸魚", ["鱸魚", "薑", "蔥"]),
+    ];
+    const result = await processAIChefChat(
+      [{ role: "user", content: "小朋友食咩好" }],
+      undefined, undefined, "chat", [], undefined, "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => pool,
+      undefined, undefined, undefined,
+      { parsed },
+    );
+    assert.equal(result.recipes.length, 3);
+    assert.equal(result.clarifyReason, undefined);
+    assert.match(result.content, /最接近/);
+  } finally {
+    delete process.env.CHEF_SLOT_PIPELINE;
+  }
+});
+
+test("zero-card insurance never serves the wrong protein", async () => {
+  process.env.DATABASE_URL = "";
+  process.env.DASHSCOPE_API_KEY = "";
+  process.env.GEMINI_API_KEY = "";
+  process.env.CHEF_SLOT_PIPELINE = "true";
+  try {
+    const { processAIChefChat } = await import("../routers/aiRecipe");
+    const parsed: ParsedChefQuery = {
+      slots: { protein: "egg", keyword: "蛋類", wantsCards: true },
+      source: "cache",
+      llmCalls: 0,
+      normalizedText: "蛋類",
+    };
+    const pool = [
+      insuranceRow(1, "黑椒牛柳", ["牛肉", "黑椒", "洋蔥"]),
+      insuranceRow(2, "番茄炒蛋", ["番茄", "雞蛋", "蔥"]),
+      insuranceRow(3, "蒸水蛋", ["雞蛋", "水", "鹽"]),
+      insuranceRow(4, "滷水豆腐", ["豆腐", "豉油", "糖"]),
+    ];
+    const result = await processAIChefChat(
+      [{ role: "user", content: "蛋類" }],
+      undefined, undefined, "chat", [], undefined, "zh-TW", [], false, {},
+      "replace", true, true,
+      async () => pool,
+      undefined, undefined, undefined,
+      { parsed },
+    );
+    assert.ok(result.recipes.length > 0);
+    assert.equal(result.recipes.some((recipe) => /牛|豆腐/.test(recipe.name)), false);
+  } finally {
+    delete process.env.CHEF_SLOT_PIPELINE;
+  }
+});
+
+test("chef query log never throws when the DB is unavailable", async () => {
+  process.env.DATABASE_URL = "";
+  const { logChefQuery } = await import("./chefQueryLog");
+  await logChefQuery({
+    familyId: null,
+    userId: null,
+    rawText: "蛋類",
+    slots: { protein: "egg", wantsCards: true },
+    relaxLevel: 0,
+    candidates: 1,
+    served: 1,
+    credits: 0,
+    llmCalls: 0,
+    durationMs: 1,
+    reason: "test",
+    servedSources: { library: 1, ai: 0 },
+  });
+});
