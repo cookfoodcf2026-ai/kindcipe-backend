@@ -6641,8 +6641,12 @@ export const aiRecipeRouter = router({
           if (!salvageDb) throw new Error("no db");
           const rawText = lastUserText(input.messages);
           const terms = extractMealIngredients(rawText);
+          const FOOD_HINTS = ["豆腐", "雞蛋", "蛋", "魚", "蝦", "蟹", "雞", "牛", "豬", "羊", "菜", "湯", "麵", "飯", "豆腐", "菇", "瓜"];
+          const hintTerm = FOOD_HINTS.find((h) => rawText.includes(h)) ?? "";
           const foodTerm = (
-            terms.find((t) => isSpecificFoodTerm(t) || (t.length <= 2 && !!findFoodTerm(normalizeName(t)))) ?? ""
+            terms.find((t) => isSpecificFoodTerm(t) || (t.length <= 2 && !!findFoodTerm(normalizeName(t)))) ??
+            hintTerm ??
+            ""
           ).trim();
           const timeLimit = (() => {
             const m = rawText.match(/(\d{1,3})\s*分鐘/);
