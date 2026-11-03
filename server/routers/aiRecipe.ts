@@ -6055,7 +6055,18 @@ export async function processAIChefChat(
   const [inputMessages, familyId, , mode = "chat", , , lang = "zh-TW", avoidIngredients = [], forceText = false, , , , , searchOverride, , , knownAllergens] = args;
   const result = await processAIChefChatCore(...args);
   const telemetry = getChefPipelineTelemetry(inputMessages as any);
-  const shaped = await applyMealShapePostcondition(result, {
+  // Order matters: relevance filtering must happen BEFORE the meal-shape top-up,
+  // otherwise the constraint layer deletes the soup the postcondition just added
+  // and a 三餸一湯 answer silently loses its soup.
+  const clarified = applySilentZeroCardClarify(result, inputMessages as any, forceText);
+  const constrained = applyChefCardConstraint(
+    clarified,
+    lastUserText(inputMessages as any),
+    mode,
+    telemetry,
+    lang,
+  );
+  const shaped = await applyMealShapePostcondition(constrained, {
     text: lastUserText(inputMessages as any),
     mode,
     familyId,
@@ -6065,15 +6076,7 @@ export async function processAIChefChat(
     searchOverride,
     forceText,
   });
-  const clarified = applySilentZeroCardClarify(shaped, inputMessages as any, forceText);
-  const constrained = applyChefCardConstraint(
-    clarified,
-    lastUserText(inputMessages as any),
-    mode,
-    telemetry,
-    lang,
-  );
-  const insured = await applyZeroCardInsurance(constrained, {
+  const insured = await applyZeroCardInsurance(shaped, {
     inputMessages: inputMessages as any,
     familyId,
     mode,
