@@ -5808,13 +5808,13 @@ function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots 
     || INSURANCE_VEG_RE.test(text);
   if (vegetarian) return { wantsCards: true, tags: ["素食"] };
   if (parsed?.protein) return { wantsCards: true, protein: parsed.protein };
-  if (parsed?.dishType) return { wantsCards: true, dishType: parsed.dishType };
-  if (parsed?.method) return { wantsCards: true, method: parsed.method };
-
   // Tag-only queries (早餐 / 辣 / 小朋友 / 一鍋到底 / 高蛋白 …) have no food noun
-  // but do carry a real constraint; keep it instead of falling back to popularity.
+  // but do carry a real constraint; a tag beats a vague dishType ("早餐" is not
+  // "any snack"), so this must come first.
   const tagHits = deriveTagsFromText(text);
   if (tagHits.length > 0) return { wantsCards: true, tags: tagHits };
+  if (parsed?.dishType) return { wantsCards: true, dishType: parsed.dishType };
+  if (parsed?.method) return { wantsCards: true, method: parsed.method };
 
   const term = findFoodTerm(text);
   if (!term) return null;
