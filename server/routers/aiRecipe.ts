@@ -6030,6 +6030,35 @@ async function applyZeroCardInsurance(
     const banned = [...params.avoidIngredients, ...(params.knownAllergens ?? [])];
     const rows = insurancePoolRows(pool, banned);
 
+    // A named dish the library does not have must NOT be answered with three
+    // unrelated popular cards — ask whether to design it instead (0 credit).
+    // Only dish-shaped names count (煲／麵／飯／糕…): ingredient words like 雞 or 牛
+    // appear in normal requests and must not trigger this guard.
+    const DISH_HINT_RE = /(煲|麵|粉|飯|粥|湯|糕|卷|餅|餃|丸|扒|盅|鍋)/;
+    const dishCandidate = (() => {
+      const cleaned = String(text ?? "").replace(/[，。！？、,.!?\s]/g, "");
+      const match = cleaned.match(/^(?:我)?(?:要|想食|想煮|想整|食)?(.{2,12})$/);
+      const candidate = (match?.[1] ?? "").trim();
+      if (candidate.length < 2 || !DISH_HINT_RE.test(candidate)) return "";
+      if (/素食|素菜|高蛋白|清淡|快手|小朋友|宴客|一鍋|有咩|推介|建議|邊個|食咩|幫我/.test(candidate)) return "";
+      return candidate;
+    })();
+    if (dishCandidate && params.mode !== "ai" && result.clarifyReason !== "lib_search_fail") {
+      const hasDish = pool.some((row) => {
+        const name = String((row as any).name ?? "");
+        return name.length > 0 && (name.includes(dishCandidate) || dishCandidate.includes(name));
+      });
+      if (!hasDish) {
+        console.log(`[AI Chef] named_dish_miss dish=${dishCandidate} — asking instead of serving popular cards`);
+        return {
+          ...result,
+          recipes: [],
+          content: libraryMissReply(params.lang, dishCandidate, []),
+          clarifyReason: "library_miss" as const,
+        };
+      }
+    }
+
     if (rows.length > 0) {
       let trendingNames: string[] = [];
       try {
@@ -6093,6 +6122,34 @@ async function applyZeroCardInsurance(
       }
 
       if (cards.length > 0) {
+        // Pantry ask ("用以下食材煮餸：青菜、洋蔥、豆腐") must serve recipes that
+        // actually use those ingredients — not popular cards that ignore them.
+        const pantryMatch = String(text ?? "").match(/食材[：:]\s*(.+)$/);
+        if (pantryMatch) {
+          const wanted = pantryMatch[1]
+            .split(/[、,，/\s]+/)
+            .map((item) => item.replace(/[。！？].*$/, "").trim())
+            .filter((item) => item.length >= 1)
+            .map((item) => item.slice(0, 2));
+          const usesWanted = (card: any) => {
+            const haystack = `${card.name ?? ""} ${(card.ingredients ?? [])
+              .map((ing: any) => (typeof ing === "string" ? ing : String(ing?.name ?? "")))
+              .join(" ")}`;
+            return wanted.some((kw) => kw && haystack.includes(kw));
+          };
+          const matched = cards.filter(usesWanted);
+          if (matched.length === 0) {
+            console.log(`[AI Chef] pantry_miss items=${wanted.join("|")} — asking instead of serving unrelated cards`);
+            return {
+              ...result,
+              recipes: [],
+              content: `我用你提供嘅食材（${pantryMatch[1].trim()}）喺食譜庫搵唔到合適食譜。要我用 AI 即場設計嗎？（1 credit）`,
+              clarifyReason: "ingredient_miss" as const,
+            };
+          }
+          cards.length = 0;
+          cards.push(...matched.slice(0, 3));
+        }
         await recordServedLibraryCards(params.familyId, cards);
         const existing = result.recipes ?? [];
         const seen = new Set(existing.map((card) => normalizeName(card.name)));
