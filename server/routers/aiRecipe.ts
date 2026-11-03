@@ -6666,9 +6666,6 @@ export const aiRecipeRouter = router({
             let picked = pickSoupMeal(found.recipes as any[], mkExcludeSets([], []), 6, 0)
               .filter((card) => (banned.length === 0 ? true : !recipeContainsAvoid(card, banned)))
               .filter(termHit);
-            // 名稱命中（真正係「蛋類菜式」）優先；有就唔要只靠食材撞嘅卡
-            const nameHit = picked.filter((c: any) => String(c?.name ?? "").includes(String(foodTerm)));
-            if (nameHit.length > 0) picked = nameHit;
             if (timeLimit > 0) {
               const within = picked.filter((card) => Number(card.cookTime ?? 0) <= timeLimit);
               if (within.length > 0) picked = within;
