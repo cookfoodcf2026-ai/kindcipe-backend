@@ -118,6 +118,10 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
    例：「有咩湯水」→ { "dishType": "soup", "wantsCards": true }；「有咩蒸嘅餸」→ { "method": "steam", "wantsCards": true }。
 8. servingsHint = 用戶講幾多人食；冇講就 null。
 9. 粵語口語、錯字、中英夾雜、省略都要理解；唔確定就寧願欄位留 null，唔准猜。
+10. **只解析最新一句。** 上一輪對話只可以用嚟理解代詞（「呢個」「嗰個」）或「同上／都要」，
+    唔可以繼承上一輪嘅 protein / dishType / method / tags。
+    例：上輪「小朋友想食蒸水蛋」，今輪「辛辣嘢呢」→ 只可以出 tags=["spicy"]，
+    唔可以有 kids / steam / egg。
 10. avoid = 用戶明確唔想要嘅食材或條件（「唔要牛」「走辣」「唔食海鮮」→ ["牛"]/["辣"]/["海鮮"]）。冇就 []。
 11. 只輸出 JSON，唔准加解釋或 markdown。`;
 
