@@ -15,7 +15,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
-import { invokeLLM, extractJSON, MessageContent, TextContent, ImageContent } from "../_core/llm";
+import { invokeLLM, extractJSON, startLlmMeter, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { classifyRecipeDishTypeLLM, guardDishTypeByName, guardDishTypeByIngredients, type DishKind } from "../utils/dishType";
 import { computeScenarioTags, serializeUserScenarioTags } from "../utils/scenario";
 import { dedupeIngredients, markQuantityProvenance } from "../services/ingredientQuality";
@@ -2536,11 +2536,23 @@ async function assertImportAvailable(familyId: number, userId: string): Promise<
   });
 }
 
+/** LLM 成本計量（只記錄成本，唔扣 credit） */
+function meterLlm(ctx: any, route: string): void {
+  if (!ctx?.activeFamilyId) return;
+  startLlmMeter({
+    familyId: ctx.activeFamilyId,
+    userId: String(ctx.user?.id ?? ""),
+    route,
+    requestId: crypto.randomUUID(),
+  });
+}
+
 export const recipesRouter = router({
   // ── Parse URL (AI extract recipe from IG/YouTube URL) ──────────────────────
   parseUrl: protectedProcedure
     .input(z.object({ url: z.string().url(), language: z.string().optional(), clientThumbnail: z.string().optional(), clientCaption: z.string().max(6000).optional() }))
     .mutation(async ({ ctx, input }) => {
+    meterLlm(ctx, "parse_url");
       // 🛑 Quota check BEFORE calling LLM
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
@@ -2575,6 +2587,7 @@ export const recipesRouter = router({
   parseText: protectedProcedure
     .input(z.object({ text: z.string().min(10).max(5000), language: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
+    meterLlm(ctx, "parse_text");
       // 🛑 Quota check BEFORE calling LLM
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
@@ -2663,6 +2676,7 @@ export const recipesRouter = router({
       storageKeys: z.array(z.string()).max(5).optional(), // 多張截圖（caption + 留言）
     }))
     .mutation(async ({ ctx, input }) => {
+    meterLlm(ctx, "parse_image");
       const parseImageStartedAt = Date.now();
       // 🛑 Quota check BEFORE calling LLM
       if (!ctx.activeFamilyId) {
@@ -3482,6 +3496,7 @@ ${TAGS_RULE}`;
       count: z.number().int().min(1).max(5).default(5),
     }))
     .mutation(async ({ ctx, input }) => {
+    meterLlm(ctx, "generate_official");
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
