@@ -266,7 +266,7 @@ function hardFilter(
 }
 
 /** Dietary tags are correctness; lifestyle tags (kids/quick/light/spicy) only rank. */
-const HARD_TAGS = new Set(["vegetarian", "vegan", "high-protein"]);
+const HARD_TAGS = new Set(["vegetarian", "vegan", "high-protein", "breakfast", "one-pot"]);
 
 function softFilter(recipe: ChefLibraryRecipe, slots: ChefSlots, keys: string[], relaxLevel: number): boolean {
   if (relaxLevel < 1) {
