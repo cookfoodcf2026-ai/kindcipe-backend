@@ -259,7 +259,7 @@ function hardFilter(
   if (requiresVegetarian(slots) && !(recipe.derivedTags ?? []).includes("diet:vegetarian")) return false;
   // Breakfast is a light, mild meal: heavy/spicy dishes must never fill it even if
   // someone tagged them 早餐 (涼拌酸辣飯 was exactly that).
-  if (keys.includes("breakfast")) {
+  if (tagKeysFor(slots.tags ?? []).includes("breakfast")) {
     const hay = `${recipe.name} ${(recipe.tags ?? []).join(" ")}`;
     if (/辣|麻辣|酸辣|重口味|spicy|chilli|chili/i.test(hay) || (recipe.derivedTags ?? []).includes("tag:spicy")) return false;
   }
