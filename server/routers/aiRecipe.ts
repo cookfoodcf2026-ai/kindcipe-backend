@@ -22,6 +22,7 @@ import { withIngredientTranslations, localizeIngredientNames } from "../utils/re
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
+import { enforceDiversity, collisionScore } from "../utils/mealDiversity";
 import { storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
@@ -4715,6 +4716,59 @@ async function processAIChefChatCore(
       };
     }
 
+    /**
+     * 三餸結構修正（只喺 library 卡之間換，唔會換走 AI 卡、唔會影響 credit／badge）
+     * OpenCode review 建議接入位：library-first meal（呢度）＋ chat library-first。
+     */
+    const diversifyLibraryMeal = (
+      picked: SuggestedRecipe[],
+      poolRows: Record<string, unknown>[],
+      opts: { scenario?: string; protectTerm?: string } = {},
+    ): SuggestedRecipe[] => {
+      if ((process.env.MEAL_DIVERSITY_ENABLED ?? "true") === "false") return picked;
+      // ricecooker 有自己嘅嚴格名稱排序規則（電飯煲／電子鍋 優先），唔好干擾
+      if (String(opts.scenario ?? "") === "ricecooker") return picked;
+      const isSoupR = (r: any) =>
+        String(r?.dishType ?? "").toLowerCase() === "soup" || /湯|汤|soup/i.test(String(r?.name ?? ""));
+      const dishes = picked.filter((r) => !isSoupR(r));
+      const soups = picked.filter((r) => isSoupR(r));
+      if (dishes.length < 2) return picked;
+      const BANNED = new Set(["soup", "dessert", "drink", "carb"]);
+      const taken = new Set(picked.map((r) => String(r.name)));
+      const scenarioKey = String(opts.scenario ?? "").trim();
+      const candRows = poolRows.filter(
+        (r: any) =>
+          !isSoupR(r) &&
+          !BANNED.has(String(r?.dishType ?? "").toLowerCase()) &&
+          !taken.has(String(r?.name ?? "")) &&
+          Array.isArray(r?.steps) &&
+          r.steps.length > 0 &&
+          // 唔可以破壞 scenario 約束（例如電飯煲）
+          (!scenarioKey || safeParseJsonArray(r?.scenarioTags).map(String).includes(scenarioKey)),
+      );
+      if (candRows.length === 0) return picked;
+      const candidates = rowsToSuggested(candRows, mkExcludeSets([], []), Math.min(60, candRows.length));
+      // 用戶明確要求嘅食材（explicit term）唔可以被換走
+      const protect = String(opts.protectTerm ?? "").trim();
+      const swapTargets = protect ? dishes.filter((d) => !String(d.name).includes(protect)) : dishes;
+      if (swapTargets.length < dishes.length && swapTargets.length === 0) return picked;
+      const div = enforceDiversity(swapTargets as any[], candidates as any[], 2);
+      if (swapTargets.length !== dishes.length) {
+        // 有受保護嘅菜：只換其餘嘅，最後按原本順序拼返
+        const replaced = new Map(div.dishes.map((d) => [String(d.name), d]));
+        const merged = dishes.map((d) =>
+          String(d.name).includes(protect) ? d : (replaced.get(String(d.name)) ?? d),
+        );
+        // 換入嘅新菜唔喺 merged 之中 → 補返
+        for (const d of div.dishes) if (!merged.some((m) => String(m.name) === String(d.name))) merged.push(d);
+        return [...(merged.slice(0, dishes.length) as SuggestedRecipe[]), ...soups];
+      }
+      console.log(
+        `[AI Chef] diversity swapped=${div.swapped} collisions=${div.collisionsBefore}->${div.collisionsAfter}`,
+      );
+      return [...(div.dishes as SuggestedRecipe[]), ...soups];
+    };
+
     if (isMealLib) {
       // 尊重前端指定嘅總卡數（例如「辛辣3餸1湯」= 4），否則用 intent；再否則 fallback 3餸1湯
       let dishCount = libMealIntent.dishCount;
@@ -4726,7 +4780,11 @@ async function processAIChefChatCore(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
-      const libPicked = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d);
+      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d);
+      const libPicked = diversifyLibraryMeal(libPickedRaw, safeRows, {
+        scenario: search?.scenario,
+        protectTerm: explicitTerm,
+      });
       const libNames = libPicked.map(r => r.name);
       await recordFamilySeenNames(familyId, libNames);
       // 問卷「N人」→ 覆蓋卡片 servings（library 卡 DB 預設 4 人，要跟用戶答嘅人數）
@@ -5156,7 +5214,27 @@ async function processAIChefChatCore(
       const safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
-      const libMeal = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d);
+      const libMealRaw = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d);
+      // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
+      let libMeal = libMealRaw;
+      if ((process.env.MEAL_DIVERSITY_ENABLED ?? "true") !== "false" && libMealRaw.length >= 2) {
+        const before = collisionScore(libMealRaw as any[]);
+        if (before > 0) {
+          const retry = pickSoupMeal(
+            safeLibRows,
+            mkExcludeSets([...seenSplit.seen7d, ...libMealRaw.map((r) => r.name)], [...seenSplit.seen1d]),
+            mealCount.dishCount,
+            mealCount.soupCount,
+            search?.scenario,
+            seenSplit.seen7d,
+          );
+          const after = collisionScore(retry as any[]);
+          if (retry.length >= libMealRaw.length && after < before) {
+            libMeal = retry;
+            console.log(`[AI Chef] diversity repick collisions=${before}->${after}`);
+          }
+        }
+      }
       if (libMeal.length > 0) {
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);
