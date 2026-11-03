@@ -108,6 +108,8 @@ export const CHEF_SLOT_PROMPT = `你只做一件事：把用戶最新一句說�
 5. tags = 語意條件，例如 清淡、低卡、高蛋白、素食、辣、一鍋到底、小朋友、健康、快手、宴客、早餐。保留用戶原意，唔好發明。
 6. keyword = 用戶明確講嘅具體菜名或食材（例如 番茄、排骨、豆腐、蛋、牛肉）。如果已用 protein/dishType 表達類別，可以將最具體嘅食材放入 keyword；純類別（「想食肉」「有咩湯」）keyword = null。
 7. wantsCards = 用戶想要食譜卡 → true。純打招呼、問煮食技巧、問營養/醫療、投訴、非食物 → false。
+   「有咩 X」「想食 X」「有無 X 食譜」一律 wantsCards=true，即使 X 只係類別詞（湯水／餸／早餐／小食）。
+   例：「有咩湯水」→ { "dishType": "soup", "wantsCards": true }；「有咩蒸嘅餸」→ { "method": "steam", "wantsCards": true }。
 8. servingsHint = 用戶講幾多人食；冇講就 null。
 9. 粵語口語、錯字、中英夾雜、省略都要理解；唔確定就寧願欄位留 null，唔准猜。
 10. 只輸出 JSON，唔准加解釋或 markdown。`;
