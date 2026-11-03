@@ -56,7 +56,6 @@ import {
 import { normalizeIngredientCandidates } from "./utils/ingredientResolve";
 import { computeScenarioTags } from "./utils/scenario";
 import { localizeIngredientNames } from "./utils/recipeTranslations";
-import { maybeDerivedTags } from "./services/deriveRecipeTags";
 
 let _pgClient: ReturnType<typeof postgres> | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1368,7 +1367,6 @@ export async function insertCustomRecipe(data: {
   sourceUrlHash?: string;
   sourceAuthor?: string;
   isAiGenerated?: boolean;
-  derivedTags?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -1382,16 +1380,9 @@ export async function insertCustomRecipe(data: {
       if (merged) ingredients = JSON.stringify(merged);
     } catch { /* keep original */ }
   }
-  const derivedTags = maybeDerivedTags({
-    name: (data as any).name,
-    ingredients,
-    difficulty: (data as any).difficulty,
-    cookTime: (data as any).cookTime,
-  });
   const [row] = await db.insert(customRecipes).values({
     ...data,
     ingredients,
-    ...(derivedTags !== undefined ? { derivedTags } : {}),
     visibility: "private",
     scenarioTags: computeScenarioTags({
       name: (data as any).name, description: (data as any).description, cookTime: (data as any).cookTime,
@@ -1417,7 +1408,6 @@ export async function updateCustomRecipeById(
     steps: string;
     tags: string;
     scenarioTagsUser: string;
-    derivedTags: string;
   }>
 ) {
   const db = await getDb();
@@ -1438,16 +1428,6 @@ export async function updateCustomRecipeById(
   );
   let [row] = await db.select().from(customRecipes).where(eq(customRecipes.id, id));
   if (row) {
-    const derivedTags = maybeDerivedTags({
-      name: row.name,
-      ingredients: row.ingredients,
-      difficulty: row.difficulty,
-      cookTime: row.cookTime,
-    });
-    if (derivedTags !== undefined && derivedTags !== row.derivedTags) {
-      await db.update(customRecipes).set({ derivedTags }).where(eq(customRecipes.id, id));
-      row = { ...row, derivedTags };
-    }
     const st = computeScenarioTags({
       name: row.name, description: row.description, cookTime: row.cookTime,
       difficulty: row.difficulty, recipeCategory: row.recipeCategory, dishType: row.dishType,

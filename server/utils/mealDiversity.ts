@@ -27,7 +27,6 @@ const NEUTRAL_TOKENS = [
   "蠔油", "蠔豉",
   "雞蛋果", "雞粉", "雞湯",
   "肉豆蔻", "肉桂",
-  "豬仔包", "蟹味菇", "湯圓", "湯丸",
 ];
 
 function stripNeutral(text: string): string {
@@ -80,15 +79,10 @@ export function proteinGroup(dish: string | { name: string; ingredients?: unknow
   return "veg";
 }
 
-/** Return the explicit cooking method, or null when the name has no signal. */
-export function detectCookingMethod(dish: string | { name: string }): CookingMethod | null {
+export function cookingMethod(dish: string | { name: string }): CookingMethod {
   const name = dishName(dish);
   for (const [m, re] of METHOD_RULES) if (re.test(name)) return m;
-  return null;
-}
-
-export function cookingMethod(dish: string | { name: string }): CookingMethod {
-  return detectCookingMethod(dish) ?? "stirfry"; // 冇明確線索時當炒（最常見）
+  return "stirfry"; // 冇明確線索時當炒（最常見）
 }
 
 export type DiversityDish = { name: string; ingredients?: unknown };
@@ -168,20 +162,14 @@ export function enforceDiversity<T extends DiversityDish>(
   };
 }
 
-/** 回傳所有命中的蛋白組；冇任何線索時回空（唔會用 veg 補底）。 */
-export function explicitProteinTags(dish: string | { name: string; ingredients?: unknown }): ProteinGroup[] {
+/** 回傳所有命中的蛋白組（多蛋白菜例如蝦仁豆腐蒸水蛋 → seafood + soy） */
+export function proteinTags(dish: string | { name: string; ingredients?: unknown }): ProteinGroup[] {
   const name = stripNeutral(dishName(dish));
   const ing = stripNeutral(ingredientText(dish));
   const hits: ProteinGroup[] = [];
   for (const [g, re] of PROTEIN_RULES) {
     if (re.test(name) || (ing && re.test(ing))) hits.push(g);
   }
-  return hits;
-}
-
-/** 回傳所有命中的蛋白組（多蛋白菜例如蝦仁豆腐蒸水蛋 → seafood + soy） */
-export function proteinTags(dish: string | { name: string; ingredients?: unknown }): ProteinGroup[] {
-  const hits = explicitProteinTags(dish);
   if (hits.length === 0) hits.push("veg");
   return hits;
 }

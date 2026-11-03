@@ -39,7 +39,6 @@ import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
 import { assertSafeUrl, safeFetch } from "../utils/safeUrl";
-import { maybeDerivedTags } from "../services/deriveRecipeTags";
 
 // ─── 智能搜尋：分詞詞典、同義詞歸一化、多語言、模糊匹配、關鍵字分割 ──────────────
 
@@ -3917,12 +3916,6 @@ ${TAGS_RULE}`;
         descriptionEn: input.descriptionEn, descriptionFil: input.descriptionFil, descriptionId: input.descriptionId,
         stepsEn: input.stepsEn, stepsFil: input.stepsFil, stepsId: input.stepsId,
       };
-      const derivedTags = maybeDerivedTags({
-        name: baseName,
-        ingredients: baseIngredients,
-        difficulty: normalizeDifficulty(input.difficulty),
-        cookTime: input.cookTime,
-      });
 
       const [inserted] = await db.insert(customRecipes).values({
         familyId: ctx.activeFamilyId,
@@ -3954,7 +3947,6 @@ ${TAGS_RULE}`;
         stepsFil: _tr.stepsFil ? JSON.stringify(_tr.stepsFil) : undefined,
         stepsId: _tr.stepsId ? JSON.stringify(_tr.stepsId) : undefined,
         tags: JSON.stringify(cleanTags(tagsForSave)),
-        ...(derivedTags !== undefined ? { derivedTags } : {}),
         sourceType: input.sourceUrl ? detectSourceType(input.sourceUrl) : "manual",
         sourceUrl: input.sourceUrl,
         sourceUrlHash: urlHash ?? undefined,

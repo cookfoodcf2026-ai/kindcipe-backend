@@ -1,6 +1,5 @@
 import { findFoodTerm, foodItemType, hasRequestVerb, lastFoodClause, roleForFoodTerm } from "./foodLexicon";
 import { planChefTurn } from "./chefPlanner";
-import { isGenericDishTerm, stripFoodTermNoise } from "../utils/foodTermGuard";
 
 export type RequestedRole =
   | "meat"
@@ -95,7 +94,6 @@ export function extractMealIngredients(text: string): string[] {
     if (/[0-9一二兩三四五六七八九十]+\s*[餸菜送]/.test(term)) continue;
     if (/^(?:[0-9一二兩三四五六七八九十]*湯|湯水|set|meal|dinner|lunch|breakfast)$/i.test(term)) continue;
     if (MEAL_LABEL_RE.test(term)) continue;
-    if (isGenericDishTerm(term)) continue;
     if (!/[\p{Script=Han}A-Za-z]/u.test(term)) continue;
     if (!terms.includes(term)) terms.push(term);
   }
@@ -152,21 +150,18 @@ function explicitDessertMeat(text: string): ChefRequested | null {
 }
 
 function explicitMixedRoles(text: string, noodleRole = true): RequestedRole[] | null {
-  // Remove neutral/generic food words first so 牛油果/魚香/湯圓/豬仔包/蟹味菇/
-  // 家常菜/小菜/菜式 cannot create a false protein/vegetable/soup role.
-  const roleText = stripFoodTermNoise(text);
-  const hasMeat = /(肉|肉類|肉类|主菜|雞(?!蛋)|鸡(?!蛋)|牛|豬|猪|羊|鴨|鸭|鵝|鹅|排骨|雞翼|雞翅|雞腿|雞髀|\bmeat\b|\bprotein\b|\bchicken\b|\bbeef\b|\bpork\b|\blamb\b)/i.test(roleText);
+  const hasMeat = /(肉|肉類|肉类|主菜|雞(?!蛋)|鸡(?!蛋)|牛|豬|猪|羊|鴨|鸭|鵝|鹅|排骨|雞翼|雞翅|雞腿|雞髀|\bmeat\b|\bprotein\b|\bchicken\b|\bbeef\b|\bpork\b|\blamb\b)/i.test(text);
   // Remove compound noodle/dish phrases before looking for 魚/湯. Otherwise
   // 「魚湯粉」would be counted as seafood + soup.
-  const proteinText = noodleRole ? roleText.replace(new RegExp(NOODLE_RE.source, "gi"), " ") : roleText;
+  const proteinText = noodleRole ? text.replace(new RegExp(NOODLE_RE.source, "gi"), " ") : text;
   const hasSeafood = /(海鮮|海鲜|魚|鱼|蝦|虾|蟹|豆腐|\bseafood\b|\bfish\b|\bshrimp\b|\btofu\b)/i.test(proteinText);
-  const hasVeg = /(菜|蔬菜|青菜|時蔬|时蔬|南瓜|茄子|番茄|蕃茄|菇|青椒|\bveg(e|gie|etable)?\b)/i.test(roleText);
-  const hasNoodle = noodleRole && NOODLE_RE.test(roleText);
+  const hasVeg = /(菜|蔬菜|青菜|時蔬|时蔬|\bveg(e|gie|etable)?\b)/i.test(text);
+  const hasNoodle = noodleRole && NOODLE_RE.test(text);
   // "湯麵" is one noodle dish, not a soup + a noodle. Remove the noodle phrase
   // before testing for a standalone soup.
-  const soupText = noodleRole ? roleText.replace(new RegExp(NOODLE_RE.source, "gi"), " ") : roleText;
+  const soupText = noodleRole ? text.replace(new RegExp(NOODLE_RE.source, "gi"), " ") : text;
   const hasSoup = /(湯|汤|soup|sopas|sup)/i.test(soupText);
-  const hasDessert = /(甜品|甜點|甜点|dessert|panghimagas|pencuci mulut)/i.test(roleText);
+  const hasDessert = /(甜品|甜點|甜点|dessert|panghimagas|pencuci mulut)/i.test(text);
   const roles: RequestedRole[] = [];
   if (hasMeat) roles.push("meat");
   if (hasSeafood) roles.push("seafood");

@@ -1,5 +1,4 @@
 import type { RequestedRole } from "./chefIntent";
-import { stripFoodTermNoise } from "../utils/foodTermGuard";
 
 type ProteinFamily = "beef" | "chicken" | "pork" | "lamb" | "seafood" | "egg_tofu";
 
@@ -68,7 +67,7 @@ const ALL_FOOD_TERMS = [...new Set([
 ])].sort((a, b) => b.length - a.length);
 
 export function proteinFamilyForTerm(term: string): ProteinFamily | undefined {
-  const raw = stripFoodTermNoise(String(term ?? ""));
+  const raw = String(term ?? "").trim();
   if (!raw) return undefined;
   for (const [family, spec] of Object.entries(PROTEIN_FAMILIES) as Array<[ProteinFamily, ProteinFamilySpec]>) {
     if (spec.aliases.some((alias) => alias.length === 1 ? raw === alias : raw.includes(alias))) return family;
@@ -78,7 +77,7 @@ export function proteinFamilyForTerm(term: string): ProteinFamily | undefined {
 
 /** Longest known food term in the text, or null. */
 export function findFoodTerm(text: string): string | null {
-  const raw = stripFoodTermNoise(String(text ?? ""));
+  const raw = String(text ?? "").trim();
   if (!raw) return null;
   return ALL_FOOD_TERMS.find((term) => raw.includes(term)) ?? null;
 }
@@ -98,11 +97,7 @@ export function hasRequestVerb(text: string): boolean {
 }
 
 export function roleForFoodTerm(term: string): RequestedRole {
-  const original = String(term ?? "").trim();
-  // 湯圓/湯丸 look like soup but are desserts.
-  if (/湯圓|汤圆|湯丸|汤丸|糖水|布甸|布丁|西米露|芋圓|芋圆/.test(original)) return "dessert";
-  const raw = stripFoodTermNoise(original);
-  if (!raw) return "any";
+  const raw = String(term ?? "").trim();
   // Compound noodle/dish terms win over the individual 魚/湯 words inside them.
   if (NOODLE_TERMS.some((t) => raw.includes(t))) return "noodle";
   const family = proteinFamilyForTerm(raw);
@@ -122,10 +117,7 @@ export function foodItemType(term: string): "dish" | "ingredient" {
 }
 
 export function fallbackQueriesForFoodTerm(term: string): string[] {
-  const original = String(term ?? "").trim();
-  if (/湯圓|汤圆|湯丸|汤丸|糖水|布甸|布丁|西米露|芋圓|芋圆/.test(original)) return ["甜品"];
-  const raw = stripFoodTermNoise(original);
-  if (!raw) return [];
+  const raw = String(term ?? "").trim();
   if (NOODLE_TERMS.some((t) => raw.includes(t))) return ["麵", "粉"];
   const family = proteinFamilyForTerm(raw);
   if (family) return [...PROTEIN_FAMILIES[family].fallbackQueries];
