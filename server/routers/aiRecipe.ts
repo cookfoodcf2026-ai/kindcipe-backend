@@ -5808,6 +5808,8 @@ function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots 
     || INSURANCE_VEG_RE.test(text);
   if (vegetarian) return { wantsCards: true, tags: ["素食"] };
   if (parsed?.protein) return { wantsCards: true, protein: parsed.protein };
+  if (parsed?.dishType) return { wantsCards: true, dishType: parsed.dishType };
+  if (parsed?.method) return { wantsCards: true, method: parsed.method };
 
   // Tag-only queries (早餐 / 辣 / 小朋友 / 一鍋到底 / 高蛋白 …) have no food noun
   // but do carry a real constraint; keep it instead of falling back to popularity.
@@ -5881,7 +5883,11 @@ function applyChefCardConstraint(
 ): CoreResult {
   if ((result.recipes?.length ?? 0) === 0) return result;
   if (mode !== "chat" && mode !== "ai") return result;
-  const safeSlots = inferInsuranceSlots(text, telemetry?.slots ?? null);
+  // Trust the parser: re-deriving slots here used to drop dishType/method and turn
+  // 「想食粉麵」into keyword "麵", deleting every 米粉/烏冬/意粉 card.
+  const parsedSlots = telemetry?.slots ?? null;
+  const hasParsedFacet = Boolean(parsedSlots && (parsedSlots.protein || parsedSlots.dishType || parsedSlots.method || parsedSlots.keyword || (parsedSlots.tags?.length ?? 0) > 0));
+  const safeSlots = hasParsedFacet ? parsedSlots : inferInsuranceSlots(text, parsedSlots);
   if (!safeSlots) return result;
   const constrained = result.recipes.filter((card) => validateGeneratedCard(
     {
