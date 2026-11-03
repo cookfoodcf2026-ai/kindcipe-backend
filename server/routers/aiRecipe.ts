@@ -7481,7 +7481,7 @@ export const aiRecipeRouter = router({
         credits: creditsCharged,
         llmCalls: meter.calls,
         durationMs: Date.now() - reqStartedAt,
-        reason: result.clarifyReason ?? effectiveIntent.reason,
+        reason: `${result.clarifyReason ?? effectiveIntent.reason}${pipelineTelemetry?.skipReason ? `|skip=${pipelineTelemetry.skipReason}` : ""}`,
         servedSources: sources,
       });
       return finalResponse;
