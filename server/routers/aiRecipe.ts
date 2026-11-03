@@ -3638,7 +3638,9 @@ async function applyMealShapePostcondition(
   };
 }
 
-const FOOD_INTENT_RE = /食|煮|整|整返|想|要|菜|餸|餐|湯|飯|麵|鍋|煲|蒸|炒|焗|燉|烤|炸|粥|粉|辣|甜|早餐|小食|點心/;
+// Food nouns/verbs only. Bare cooking characters used to leak non-food sentences
+// into the clarify path: 煲劇 (watch a drama), 粉絲 (fans), 焗住 (forced), 炒魷.
+const FOOD_INTENT_RE = /食|煮|菜|餸|餐|湯|飯|麵|粥|早餐|小食|點心|甜品|糖水|飲品|一鍋到底/;
 
 /** CHEF_SLOT_PIPELINE is default OFF; OFF must keep the a5a9648 behaviour. */
 export function isChefSlotPipelineEnabled(): boolean {
