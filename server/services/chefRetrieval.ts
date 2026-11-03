@@ -97,6 +97,15 @@ const TAG_RULES: Array<[RegExp, string[]]> = [
   [/素食|吃素|食素|vegan|vegetarian/i, ["vegetarian"]],
 ];
 
+/** Canonical tag keys implied by a raw user sentence (breakfast / spicy / kids / one-pot …). */
+export function deriveTagsFromText(text: string): string[] {
+  const hits: string[] = [];
+  for (const [pattern, values] of TAG_RULES) {
+    if (pattern.test(text)) hits.push(...values);
+  }
+  return [...new Set(hits)];
+}
+
 function tagKeysFor(slotTags: string[]): string[] {
   const keys: string[] = [];
   for (const raw of slotTags) {

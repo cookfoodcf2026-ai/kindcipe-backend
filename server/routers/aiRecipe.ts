@@ -15,6 +15,7 @@ import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb,
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
 import { runChefSlotPipeline } from "../services/chefPipeline";
+import { deriveTagsFromText } from "../services/chefRetrieval";
 import { dbChefSlotsCache } from "../services/chefQueryCache";
 import { logChefQuery } from "../services/chefQueryLog";
 import { retrieveChefCards, toChefLibraryRecipe, validateGeneratedCard } from "../services/chefRetrieval";
@@ -3636,7 +3637,7 @@ async function applyMealShapePostcondition(
   };
 }
 
-const FOOD_INTENT_RE = /食|煮|整|整返|想|要|菜|餸|餐|湯|飯|麵/;
+const FOOD_INTENT_RE = /食|煮|整|整返|想|要|菜|餸|餐|湯|飯|麵|鍋|煲|蒸|炒|焗|燉|烤|炸|粥|粉|辣|甜|早餐|小食|點心/;
 
 /** CHEF_SLOT_PIPELINE is default OFF; OFF must keep the a5a9648 behaviour. */
 export function isChefSlotPipelineEnabled(): boolean {
@@ -5770,6 +5771,13 @@ async function processAIChefChatCore(
 
 const INSURANCE_VEG_RE = /素食|吃素|食素|vegan|vegetarian/i;
 
+function insuranceAskReply(lang: string): string {
+  if (lang.startsWith("en")) return "I couldn't find a close match. Try: steamed fish, stir-fried egg, tofu claypot — or name an ingredient and I'll search it.";
+  if (lang.startsWith("fil")) return "Wala akong malapit na tugma. Subukan: steamed fish, stir-fried egg, tofu claypot — o sabihin ang sangkap at hahanapin ko.";
+  if (lang.startsWith("id")) return "Belum ada yang cocok. Coba: ikan kukus, telur goreng, tahu claypot — atau sebut bahan dan saya carikan.";
+  return "我未搵到完全符合嘅食譜。想試下：蒸魚、炒蛋、豆腐煲？或者講個食材，我幫你搵。";
+}
+
 function insuranceReply(lang: string): string {
   if (lang.startsWith("en")) return "I wasn't completely sure what you meant, so here are the closest choices.";
   if (lang.startsWith("fil")) return "Hindi ako lubos na sigurado sa ibig mong sabihin, kaya ito ang pinakamalapit na pagpipilian.";
@@ -5787,6 +5795,11 @@ function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots 
     || INSURANCE_VEG_RE.test(text);
   if (vegetarian) return { wantsCards: true, tags: ["素食"] };
   if (parsed?.protein) return { wantsCards: true, protein: parsed.protein };
+
+  // Tag-only queries (早餐 / 辣 / 小朋友 / 一鍋到底 / 高蛋白 …) have no food noun
+  // but do carry a real constraint; keep it instead of falling back to popularity.
+  const tagHits = deriveTagsFromText(text);
+  if (tagHits.length > 0) return { wantsCards: true, tags: tagHits };
 
   const term = findFoodTerm(text);
   if (!term) return null;
@@ -5937,12 +5950,20 @@ async function applyZeroCardInsurance(
       });
 
       const safeSlots = inferInsuranceSlots(text, params.telemetry?.slots ?? null);
-      const retrieval = retrieveChefCards(
-        safeSlots ?? { wantsCards: true },
-        libraryPool,
-        { count: 3, avoid: banned },
-      );
+      if (!safeSlots) {
+        // No protein / keyword / tag signal: serving popularity cards here is how
+        // "早餐" ended up returning braised beef. Ask with concrete options instead.
+        result.recipes = [];
+        result.content = insuranceAskReply(params.lang);
+        result.clarifyReason = "ambiguous_food";
+        console.log("[AI Chef] zero_card_insurance skip reason=no_relevance_signal");
+        return result;
+      }
+      const retrieval = retrieveChefCards(safeSlots, libraryPool, { count: 3, avoid: banned });
       let chosen = retrieval.cards;
+      if ((safeSlots.tags?.length ?? 0) > 0 && retrieval.relaxLevel >= 3) {
+        chosen = [];
+      }
       if (safeSlots?.protein && retrieval.relaxLevel >= 3) {
         chosen = chosen.filter((card) => validateGeneratedCard(
           {
