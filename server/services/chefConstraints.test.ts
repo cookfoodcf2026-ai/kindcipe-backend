@@ -27,7 +27,18 @@ test("golden 3: named dish 八寶素煲 is captured", () => {
 
 test("golden 4: 豬軟骨拉麵 is a named dish", () => {
   const c = parseChefConstraints("我要豬軟骨拉麵");
-  assert.ok(c.namedDish && c.namedDish.includes("豬軟骨拉麵"));
+  assert.equal(c.namedDish, "豬軟骨拉麵");
+});
+
+test("golden 4b: verb 想要 is stripped from the dish name", () => {
+  const c = parseChefConstraints("我想要八寶素煲");
+  assert.equal(c.namedDish, "八寶素煲");
+});
+
+test("golden 4c: a sentence about being busy is not a dish", () => {
+  const c = parseChefConstraints("唔得閒煮飯");
+  assert.equal(c.namedDish, null);
+  assert.deepEqual(c.pantry, []);
 });
 
 test("golden 5: pantry list with colon", () => {
@@ -82,10 +93,43 @@ test("golden 14: 清淡健康嘅家常菜 is the healthy scenario", () => {
   assert.equal(c.scenario, "healthy");
 });
 
-test("golden 15: 蛋白質 wants egg/soy style protein words, no diet line", () => {
+test("golden 15: 蛋白質 is a nutrient word, not an egg wish", () => {
   const c = parseChefConstraints("蛋白質");
   assert.equal(c.diet, null);
   assert.equal(c.scenario, "highProtein");
+  assert.deepEqual(c.proteins, []);
+});
+
+test("golden 15b: vegan is stricter than vegetarian", () => {
+  assert.equal(parseChefConstraints("純素").diet, "vegan");
+  assert.equal(parseChefConstraints("素食").diet, "vegetarian");
+});
+
+test("golden 15c: 素食想食雞 keeps the diet line and drops the protein wish", () => {
+  const c = parseChefConstraints("素食想食雞");
+  assert.equal(c.diet, "vegetarian");
+  assert.deepEqual(c.proteins, []);
+});
+
+test("golden 15d: servings are captured", () => {
+  const c = parseChefConstraints("請為我設計今晚 3 餸 1 湯，4 人食");
+  assert.equal(c.servings, 4);
+});
+
+test("golden 15e: 雪櫃得 is an only-mode pantry", () => {
+  const c = parseChefConstraints("雪櫃得雞蛋同蔥");
+  assert.equal(c.pantryMode, "only");
+  assert.deepEqual(c.pantry, ["雞蛋", "蔥"]);
+});
+
+test("golden 15f: 「得」inside normal speech is not a pantry", () => {
+  const c = parseChefConstraints("雪櫃得雞蛋同蔥同埋唔得閒");
+  assert.deepEqual(c.pantry, ["雞蛋", "蔥"]);
+});
+
+test("golden 15g: 唔要牛 is a beef negative", () => {
+  const c = parseChefConstraints("唔要牛");
+  assert.ok(c.negatives.includes("beef"));
 });
 
 test("golden 16: 即場煮 wording is not a named dish", () => {
@@ -107,4 +151,30 @@ test("golden 18: 素食 + 快手 keeps both diet and scenario", () => {
 test("golden 19: 小朋友啱食 is the kids scenario", () => {
   const c = parseChefConstraints("小朋友啱食");
   assert.equal(c.scenario, "kids");
+});
+
+test("golden 20: 五餸一湯 is a count, not a dish", () => {
+  const c = parseChefConstraints("五餸一湯");
+  assert.equal(c.namedDish, null);
+  assert.equal(c.dishCount, 5);
+  assert.equal(c.wantsSoup, true);
+});
+
+test("golden 21: 我要一個湯 is not a dish name", () => {
+  const c = parseChefConstraints("我要一個湯");
+  assert.equal(c.namedDish, null);
+  assert.equal(c.wantsSoup, true);
+});
+
+test("golden 22: Chinese servings are read (四人食 / 十二人食 / 兩個人食)", () => {
+  assert.equal(parseChefConstraints("四人食").servings, 4);
+  assert.equal(parseChefConstraints("十二人食").servings, 12);
+  assert.equal(parseChefConstraints("兩個人食").servings, 2);
+  assert.equal(parseChefConstraints("4人食").servings, 4);
+});
+
+test("golden 23: 唔要豬，想食雞 drops pork from the protein wish", () => {
+  const c = parseChefConstraints("唔要豬，想食雞");
+  assert.ok(c.negatives.includes("pork"));
+  assert.deepEqual(c.proteins, ["chicken"]);
 });
