@@ -8,7 +8,7 @@
  */
 import { randomInt } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, getFamilySubscription } from "../db";
 import { ENV } from "../_core/env";
 import { isPromoPricingConfigured } from "../_core/stripe";
@@ -428,11 +428,7 @@ export async function redeemFoundingCode(params: {
     if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "找不到用戶" });
 
     const now = new Date();
-    if (promo.expiresAt && promo.expiresAt < now) throw new TRPCError({ code: "BAD_REQUEST", message: "創始會員碼已過期" });
-    if (promo.usedCount >= promo.maxUses) throw new TRPCError({ code: "BAD_REQUEST", message: "創始會員碼已用盡" });
-    if (family.subscriptionStatus !== "free" && family.subscriptionStatus !== "expired") {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "目前方案不可使用創始會員碼" });
-    }
+
     const [existing] = await tx
       .select({ id: earlybirdRedemptions.id, status: earlybirdRedemptions.status })
       .from(earlybirdRedemptions)
@@ -442,6 +438,56 @@ export async function redeemFoundingCode(params: {
       throw new TRPCError({ code: "BAD_REQUEST", message: "此廚房已有創始會員記錄" });
     }
 
+    // 重試／預綁 reissue：promo 已經綁咗呢個 family（FOR UPDATE 已鎖，值一定最新）。
+    // 一定要喺「已用盡」「名額已滿」之前處理，否則 double-tap 會見到錯誤而唔係成功。
+    if (promo.expiresAt && promo.expiresAt < now) {
+      // 過期就唔可以再開新 claim；只有「之前已經成功佔位」嘅重試可以照過
+      if (!(existing && existing.status === "reserved")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "創始會員碼已過期" });
+      }
+    }
+
+    if (promo.assignedFamilyId === params.familyId) {
+      // 同一個 advisory lock 要喺呢個分支之前攞，否則兩個「已預綁」碼同時兌換會齊齊過數 → 超賣
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('kindcipe_earlybird_capacity'))`);
+      // existing = null（從未佔位）或者 released（唔計入 held）都要先驗名額
+      if (!existing || existing.status === "released") {
+        const [heldCheck] = await tx
+          .select({ held: sql<number>`count(*)::int` })
+          .from(earlybirdRedemptions)
+          .where(ne(earlybirdRedemptions.status, "released"));
+        if ((heldCheck?.held ?? 0) >= ENV.earlybirdCap) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "首100個創始會員名額已滿" });
+        }
+      }
+      await tx
+        .insert(earlybirdRedemptions)
+        .values({ familyId: params.familyId, userId: params.userId, status: "reserved" })
+        .onConflictDoUpdate({
+          target: earlybirdRedemptions.familyId,
+          set: { status: "reserved", releasedAt: null, updatedAt: now },
+          setWhere: sql`${earlybirdRedemptions.status} <> 'paid'`,
+        });
+      if (promo.usedCount === 0) {
+        // 預綁 code 首次兌換：要記消耗，否則 getPromoState 靠 used_count != 0 判斷會失靈
+        await tx
+          .update(promoCodes)
+          .set({ usedCount: sql`${promoCodes.usedCount} + 1` })
+          .where(and(eq(promoCodes.code, code), eq(promoCodes.usedCount, 0)));
+      }
+      await tx
+        .insert(promoCodeRedemptions)
+        .values({ code, familyId: params.familyId, userId: params.userId })
+        .onConflictDoNothing();
+      console.log(`[promo] founding redeem idempotent code=${code} family=${params.familyId} used=${promo.usedCount}`);
+      return { status: "founding" as const, priceTier: "founding" as const, maxMembers: 4 };
+    }
+
+    if (promo.expiresAt && promo.expiresAt < now) throw new TRPCError({ code: "BAD_REQUEST", message: "創始會員碼已過期" });
+    if (promo.usedCount >= promo.maxUses) throw new TRPCError({ code: "BAD_REQUEST", message: "創始會員碼已用盡" });
+    if (family.subscriptionStatus !== "free" && family.subscriptionStatus !== "expired") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "目前方案不可使用創始會員碼" });
+    }
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('kindcipe_earlybird_capacity'))`);
     const [heldRow] = await tx
       .select({ held: sql<number>`count(*)::int` })
@@ -451,9 +497,36 @@ export async function redeemFoundingCode(params: {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "首100個創始會員名額已滿" });
     }
 
-    await tx.update(promoCodes)
-      .set({ usedCount: sql`${promoCodes.usedCount} + 1` })
-      .where(and(eq(promoCodes.code, code), sql`${promoCodes.usedCount} < ${promoCodes.maxUses}`));
+    // ① 綁 family + 燒 code（rowCount 必須 = 1；併發時只有一個成功）
+    const claimed = await tx
+      .update(promoCodes)
+      .set({ usedCount: sql`${promoCodes.usedCount} + 1`, assignedFamilyId: params.familyId })
+      .where(and(
+        eq(promoCodes.code, code),
+        sql`${promoCodes.usedCount} < ${promoCodes.maxUses}`,
+        or(isNull(promoCodes.assignedFamilyId), eq(promoCodes.assignedFamilyId, params.familyId)),
+      ))
+      .returning({ code: promoCodes.code });
+    if (claimed.length !== 1) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "創始會員碼已用盡" });
+    }
+
+    // ② 佔位（family unique）：reserved 代表未付款，webhook 過期會 released
+    await tx
+      .insert(earlybirdRedemptions)
+      .values({ familyId: params.familyId, userId: params.userId, status: "reserved" })
+      .onConflictDoUpdate({
+        target: earlybirdRedemptions.familyId,
+        set: { status: "reserved", releasedAt: null, updatedAt: now },
+        // 已付款嘅行唔可以降級做 reserved
+        setWhere: sql`${earlybirdRedemptions.status} <> 'paid'`,
+      });
+
+    // ③ 審計紀錄（唯一索引防重；重複兌換會撞 key，直接 skip）
+    await tx
+      .insert(promoCodeRedemptions)
+      .values({ code, familyId: params.familyId, userId: params.userId })
+      .onConflictDoNothing();
 
     return { status: "founding" as const, priceTier: "founding" as const, maxMembers: 4 };
   });
