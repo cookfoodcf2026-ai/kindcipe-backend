@@ -4123,11 +4123,23 @@ async function processAIChefChatCore(
     pipelineTelemetry.eligible = true;
     const slotStartedAt = Date.now();
     const slotResult = await runChefSlotPipeline<SuggestedRecipe>(lastUserText, {
-      loadPool: () => loadMealPool(familyId, searchOverride),
+      // 先剔 pool、後截 count：如果只喺 toCard 剔，retrieve top-N 全部中 exclude 就會
+      // slot miss 回落舊 path，令「再撳一次」仍然出同一張。
+      // 但剔完可以係空（整個池都見過）→ 唔可以交空 pool 出去，否則變 0 卡／clarify。
+      // 池盡就回收全部，等下一次撳仍然有卡（OC review 建議）。
+      loadPool: () => loadMealPool(familyId, searchOverride).then((rows) => {
+        const fresh = rows.filter((row) => !isRowExcluded(excludeSets, row));
+        if (fresh.length > 0) return fresh;
+        console.log(`[AI Chef] pool_all_seen_recycled rows=${rows.length}`);
+        return rows;
+      }),
       toCard: (recipe) => {
         const raw = recipe.raw as Record<string, unknown> | undefined;
         if (!raw) return null;
-        return rowsToSuggested([raw], excludeSets, 1)[0] ?? null;
+        // rowsToSuggested 對單一 row 會「池盡翻兜」，永遠回同一張 →
+        // 熱鍵重複撳就冇變化。喺轉卡之前先做排除，真正跳過已顯示嘅卡。
+        if (isRowExcluded(excludeSets, raw)) return null;
+        return rowsToSuggested([raw], mkExcludeSets([], []), 1)[0] ?? null;
       },
       avoid: avoidIngredients,
       // Fetch wider than we serve: the constraint layer drops mismatched cards,
