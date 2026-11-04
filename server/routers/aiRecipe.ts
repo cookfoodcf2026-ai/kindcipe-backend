@@ -7845,9 +7845,13 @@ export const aiRecipeRouter = router({
         const wants = PROTEIN_INTENTS.find(([query]) => query.test(proteinText));
         if (wants) {
           const kept = (finalResponse.recipes as any[]).filter((recipe) => {
-            const haystack = `${recipe?.name ?? ""} ${(recipe?.ingredients ?? [])
+            // Only the first three ingredients count: 柴魚片／魚露 used as a garnish
+            // must not turn a noodle dish into a "fish" answer.
+            const mainIngredients = (recipe?.ingredients ?? [])
+              .slice(0, 3)
               .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
-              .join(" ")}`;
+              .join(" ");
+            const haystack = `${recipe?.name ?? ""} ${mainIngredients}`;
             return wants[1].test(haystack);
           });
           if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
