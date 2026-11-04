@@ -5180,7 +5180,21 @@ async function processAIChefChatCore(
         }
         const all = applyServings(combined.slice(0, totalWanted));
         console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai + refill=${all.length - libPicked.length - aiPicked.length}`);
-        return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
+        return {
+          content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }),
+          recipes: all,
+          llmUsed,
+          // 診斷：Railway 讀唔到 console log，將關鍵數字寫入 chef_query_log.slots.__debug
+          __debug: {
+            path: "meal_lib_fill",
+            pool: safeRows.length,
+            lib: libPicked.length,
+            ai: aiPicked.length,
+            wanted: totalWanted,
+            servedAfter: all.length,
+            avoid: avoidIngredients,
+          },
+        } as any;
       }
       const dishSetLabel = dishLabel(libCount.dishCount, libCount.soupCount, lang);
       console.log(`[AI Chef] library meal: ${libPicked.length} lib`);
@@ -8175,7 +8189,16 @@ export const aiRecipeRouter = router({
         familyId: familyId ?? null,
         userId: ctx.user?.id != null ? String(ctx.user.id) : null,
         rawText: lastUserText(input.messages),
-        slots: pipelineTelemetry?.slots ?? null,
+        slots: {
+          ...(pipelineTelemetry?.slots ?? {}),
+          __debug: (result as any)?.__debug ?? {
+            path: "other",
+            avoid: avoidIngredients,
+            wanted: requested,
+            served,
+            sources,
+          },
+        },
         relaxLevel: pipelineTelemetry?.relaxLevel ?? null,
         candidates: pipelineTelemetry?.candidates ?? served,
         served,
