@@ -4947,7 +4947,10 @@ async function processAIChefChatCore(
       const missingIngredient = missingIngredients[0];
       // "I found 3 of the 6 you asked for" only makes sense when the user actually
       // asked for a multi-dish set; for 「有咩早餐」it read like a broken promise.
-      const explicitMealRequest = Boolean(detectMealShapeLoose(lastUserText));
+      // 只有用戶真係講咗「N 道／N 餸／N 湯」才可以用「未能完成你要求嘅 N 個」文案。
+      // detectMealShapeLoose 對「我想食紅酒燉牛肉」都會回 true，所以再加一層嚴格檢查。
+      const explicitMealRequest = Boolean(detectMealShapeLoose(lastUserText))
+        && /[0-9一二兩三四五六七八九十]\s*(?:道|款|個菜|樣菜|樣餸|餸)|餸|湯/u.test(lastUserText);
       const content = assembled.missingRoles.length > 0 && explicitMealRequest
         ? aiReply(lang, "partialSet", { served: assembled.served, total: assembled.requested })
         : missingIngredient && assembled.sources.ai === 0
