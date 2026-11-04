@@ -4967,7 +4967,10 @@ async function processAIChefChatCore(
 
     // The library fast path skipped every postcondition, so 清淡 served
     // 「富貴黃金大蝦」. Apply the light / one-pot rules to the pool itself.
-    const libText = lastUserText(inputMessages as any) ?? "";
+    const libText = (inputMessages as any[])
+      .filter((message) => message?.role === "user")
+      .map((message) => (typeof message.content === "string" ? message.content : ""))
+      .slice(-1)[0] ?? "";
     const HEAVY_NAME_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒|黃金|金沙|避風塘|椒鹽|咕嚕|蜜汁|芝士|焗/;
     const ONEPOT_NAME_RE = /電飯煲|一鍋|煲仔|燜|燉飯|炊飯|煲飯|壓力煲|電子鍋/;
     const poolFiltered = safeRows.filter((row) => {
