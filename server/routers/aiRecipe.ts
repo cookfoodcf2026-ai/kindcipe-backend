@@ -5141,18 +5141,41 @@ async function processAIChefChatCore(
           const taken = new Set(combined.map((r) => normalizeName(r.name)).filter(Boolean));
           const needMore = totalWanted - combined.length;
           const spares: SuggestedRecipe[] = [];
-          for (const row of poolForDiversify) {
-            if (spares.length >= needMore) break;
+          let nullSteps = 0;
+          const take = (row: Record<string, unknown>, onlyType?: DishType): boolean => {
+            if (spares.length >= needMore) return false;
             const recipe = rowToSuggestedRecipe(row);
-            if (!recipe) continue;
+            if (!recipe) { nullSteps += 1; return false; }
+            if (onlyType && mealTypeOf(recipe) !== onlyType) return false;
             const key = normalizeName(recipe.name);
-            if (!key || taken.has(key)) continue;
+            if (!key || taken.has(key)) return false;
+            if (avoidIngredients.length > 0 && rowContainsAvoid(row, avoidIngredients)) return false;
             spares.push(recipe);
             taken.add(key);
+            return true;
+          };
+          // 先補「缺失類別」（3 餸 1 湯 要有湯），補唔到才用任何類型補位。
+          const haveTypes = new Set(combined.map(mealTypeOf));
+          const missingTypes = (["soup", "meat", "seafood", "vegetable", "other"] as DishType[])
+            .filter((t) => !haveTypes.has(t) && (libCount.soupCount > 0 || t !== "soup"));
+          for (const type of missingTypes) {
+            if (spares.length >= needMore) break;
+            for (const row of poolForDiversify) {
+              if (spares.length >= needMore) break;
+              take(row, type);
+            }
+          }
+          if (spares.length < needMore) {
+            for (const row of poolForDiversify) {
+              if (spares.length >= needMore) break;
+              take(row);
+            }
           }
           if (spares.length > 0) {
-            console.log(`[AI Chef] meal_lib refill spares=${spares.length} avoid=${avoidIngredients.join("|") || "none"}`);
+            console.log(`[AI Chef] meal_lib refill spares=${spares.length} need=${needMore} nullSteps=${nullSteps} avoid=${avoidIngredients.join("|") || "none"}`);
             combined = [...combined, ...spares];
+          } else {
+            console.log(`[AI Chef] meal_lib refill none need=${needMore} pool=${poolForDiversify.length} nullSteps=${nullSteps}`);
           }
         }
         const all = applyServings(combined.slice(0, totalWanted));
