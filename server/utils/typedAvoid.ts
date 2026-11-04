@@ -21,7 +21,7 @@ const FLAVOUR_ONLY = new Set(["辣", "太辣", "油", "太油", "咸", "太咸",
 function looksLikeIngredient(token: string): boolean {
   if (FLAVOUR_ONLY.has(token)) return false;
   if (ALLERGEN_HINTS.includes(token)) return true;
-  return /[肉魚蝦蟹菜瓜豆蛋奶蔥蒜薑椒菇米麵]/.test(token);
+  return /[肉魚蝦蟹菜瓜豆蛋奶蔥蒜薑椒菇米麵雞豬牛鴨羊鵝蠔蜆貝]/.test(token);
 }
 
 function cleanToken(raw: string): string | null {

@@ -53,3 +53,8 @@ test("typed avoid: 避免太油唔會污染 avoidIngredients", () => {
 test("typed avoid: 英文 no problem 唔會誤中", () => {
   assert.deepEqual(extractTypedAvoid("no problem, cook anything"), []);
 });
+
+test("typed avoid: 單字蛋白類（雞／牛／豬）都要抽到", () => {
+  assert.deepEqual(extractTypedAvoid("4 人食。3 餸 1 湯；避免：雞"), ["雞"]);
+  assert.deepEqual(extractTypedAvoid("避免：牛"), ["牛"]);
+});
