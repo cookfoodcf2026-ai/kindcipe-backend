@@ -4104,6 +4104,9 @@ async function processAIChefChatCore(
     // Only an explicit multi-card ask ("三餸一湯", "4 道菜") may skip the pipeline.
     // A vague total from the intent layer is what made 「有咩湯水」return 1 card.
     if (chefIntent.requested.total > 1 && /[0-9一二兩两三四五六七八九十]\s*(?:個|个|道|款)?\s*(?:餸|菜|湯|汤)/.test(lastUserText)) return "multi_card";
+    // Pantry lists are handled by pantry-first (it searches each ingredient);
+    // the slot pipeline turned them into a library_miss with 0 cards.
+    if (/雪櫃|冰箱|用以下食材|以下食材|用呢啲食材|食材[：:]/.test(lastUserText)) return "pantry";
     if (explicitAiRequest) return "explicit_ai";
     if (!lastUserText) return "empty_text";
     return null;
