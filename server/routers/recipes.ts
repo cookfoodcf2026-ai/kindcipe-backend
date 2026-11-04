@@ -13,6 +13,7 @@
  */
 
 import { TRPCError } from "@trpc/server";
+import { recipeSortOrder } from "../utils/recipeSort";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, startLlmMeter, MessageContent, TextContent, ImageContent } from "../_core/llm";
@@ -3022,6 +3023,8 @@ ${TAGS_RULE}`;
       popularChips: z.array(z.string()).optional(),
       ingredientCategory: z.string().optional(),  // 食材類別篩選
       source: z.enum(["all", "official", "user", "kol", "hot", "ai"]).optional(),  // 搜尋來源：all=全部(含AI)，official=只官方，user=只我的(不含AI)，kol=只 KOL，hot=熱門，ai=只AI生成
+      // 排序：popular（預設，舊行為 popularity→createdAt）／newest（新匯入排先）／updated（最近編輯）
+      sort: z.enum(["popular", "newest", "updated"]).optional(),
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -3302,12 +3305,22 @@ ${TAGS_RULE}`;
         orderByCustom.push(desc(relevanceScoreCustom));
       }
 
-      // Then sort by popularity and created_at
-      orderByOfficial.push(desc(officialRecipes.popularity));
-      orderByOfficial.push(desc(officialRecipes.createdAt));
-
-      orderByCustom.push(desc(customRecipes.popularity));
-      orderByCustom.push(desc(customRecipes.createdAt));
+      // 排序：由 recipeSortOrder 決定（每種模式都以 id 收尾，避免同秒並列令分頁重複／漏項）
+      const sortOrder = recipeSortOrder(input.sort ?? "popular");
+      const officialCols = {
+        popularity: officialRecipes.popularity,
+        createdAt: officialRecipes.createdAt,
+        updatedAt: officialRecipes.updatedAt,
+        id: officialRecipes.id,
+      } as const;
+      const customCols = {
+        popularity: customRecipes.popularity,
+        createdAt: customRecipes.createdAt,
+        updatedAt: customRecipes.updatedAt,
+        id: customRecipes.id,
+      } as const;
+      for (const key of sortOrder.official) orderByOfficial.push(desc(officialCols[key]));
+      for (const key of sortOrder.custom) orderByCustom.push(desc(customCols[key]));
 
       // 根據 source 參數決定是否查詢官方/自訂食譜
       const isHotQuery = input.source === "hot";
