@@ -6056,7 +6056,10 @@ async function applyZeroCardInsurance(
 
     // Time-only ask ("20分鐘煮好") — nothing else to filter on, so pick the
     // quickest dishes instead of returning zero cards.
-    const minutesAsk = /(\d{1,3})\s*分鐘/.exec(text)?.[1];
+    // A bare 「3 分鐘」 is not a cooking request — only run these fallbacks when the
+    // text looks like food/meal talk (keeps the old food-intent gate honest).
+    const foodish = /煮|食|餐|餸|菜|飯|麵|湯|早餐|午餐|晚餐|宵夜/.test(String(text ?? ""));
+    const minutesAsk = foodish ? /(\d{1,3})\s*分鐘/.exec(text)?.[1] : undefined;
     if (minutesAsk && (result.recipes?.length ?? 0) === 0) {
       const limit = Number(minutesAsk);
       const SNACK_RE = /燕麥|西米|布丁|蛋糕|奶凍|雪糕|甜|糖水|飲|茶|咖啡|多士|吐司|bagel|乳酪|優格|yogurt|smoothie/i;
@@ -6078,7 +6081,7 @@ async function applyZeroCardInsurance(
     }
 
     // Negative-only ask ("唔要辣") — serve non-matching dishes instead of zero.
-    if (/^(唔要|不要|走|唔好|no)\s*(辣|辣嘢)$/i.test(String(text ?? "").trim()) && (result.recipes?.length ?? 0) === 0) {
+    if (foodish && /^(唔要|不要|走|唔好|no)\s*(辣|辣嘢)$/i.test(String(text ?? "").trim()) && (result.recipes?.length ?? 0) === 0) {
       const SPICY_RE = /辣|咖喱|沙嗲|麻辣|泡菜|孜然/;
       const mild = rows
         .filter((row) => !SPICY_RE.test(String((row as any)?.name ?? "")))
@@ -7182,23 +7185,68 @@ export const aiRecipeRouter = router({
               const hits = wanted.filter((item) => haystack.includes(item)).length;
               // 用戶話「雪櫃得雞蛋同蔥」，就唔可以出蔥爆牛肉 —— 卡片唔准引入
               // 用戶冇提到嘅肉類／海鮮。
-              const MEAT_WORD = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱/;
+              // Substring matching gets both directions wrong: 素雞/魚香茄子 are
+              // veg, while 「雞蛋」 made 雞扒 look allowed. Strip veg-safe words,
+              // then require a real match with a listed item.
+              const VEG_SAFE = /素雞|素鴨|素肉|素火腿|素蠔油|魚香|蟹柳|牛油果|牛蒡|牛奶|牛油|奶油|雞蛋|蛋/g;
+              const MEAT_WORD = /豬肉|豬|牛肉|牛|羊肉|羊|雞肉|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸/g;
               const cardName = String(card.name ?? "");
-              const introducesMeat = (cardName.match(new RegExp(MEAT_WORD.source, "g")) ?? [])
-                .some((word: string) => !wanted.some((item) => item.includes(word) || word.includes(item)));
+              const cleanedName = cardName.replace(VEG_SAFE, "");
+              const introducesMeat = (cleanedName.match(MEAT_WORD) ?? [])
+                .some((word: string) => !wanted.some((item) =>
+                  item === word || (word.length >= 2 && item.includes(word)),
+                ));
               return { card, hits, introducesMeat };
             })
             .filter((entry) => !entry.introducesMeat)
             .sort((a, b) => b.hits - a.hits);
           const cards = scored.filter((entry) => entry.hits > 0).map((entry) => entry.card).slice(0, 3);
           if (cards.length > 0) {
-            console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=${cards.length} hits=${scored[0]?.hits ?? 0}`);
-            return {
-              content: `用你嘅食材（${wanted.join("、")}），可以試呢幾道：`,
-              recipes: cards,
-              alternatives: [],
-              llmUsed: false,
-            } as any;
+            // 唔可以繞過 quota／audit：同正常 chat 一樣先過 chat quota，
+            // 再寫 served 記錄同 query log（OC review Q4）。
+            let quotaAllowed = true;
+            if (familyId && userIdStr) {
+              try {
+                const pantryEnt = await getFamilyEntitlements(familyId, userIdStr);
+                const pantryQuota = await getChatQuotaState(
+                  familyId,
+                  userIdStr,
+                  pantryEnt?.plan === "free" ? "free" : "pro",
+                );
+                quotaAllowed = pantryQuota.allowed;
+                console.log(`[AI Chef] pantry_direct quota allowed=${quotaAllowed} used=${pantryQuota.dailyUsed}/${pantryQuota.dailyLimit}`);
+              } catch {
+                quotaAllowed = true;
+              }
+            }
+            if (quotaAllowed) {
+              await recordServedLibraryCards(familyId, cards as any);
+              try {
+                await logChefQuery({
+                  userId: userIdStr ?? null,
+                  rawText: pantryText,
+                  served: cards.length,
+                  reason: "pantry_direct",
+                  slots: null,
+                  relaxLevel: null,
+                  candidates: null,
+                  credits: 0,
+                  llmCalls: 0,
+                  durationMs: Date.now() - swapStartedAt,
+                  servedSources: { library: cards.length, ai: 0 },
+                } as any);
+              } catch {
+                /* audit must never break the answer */
+              }
+              console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=${cards.length} hits=${scored[0]?.hits ?? 0}`);
+              return {
+                content: `用你嘅食材（${wanted.join("、")}），可以試呢幾道：`,
+                recipes: cards as any,
+                alternatives: [],
+                llmUsed: false,
+              } as any;
+            }
+            console.log("[AI Chef] pantry_direct blocked by chat quota — falling through");
           }
           console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=0`);
         }
@@ -7766,9 +7814,10 @@ export const aiRecipeRouter = router({
       if (Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 1) {
         const seenStems = new Set<string>();
         const unique = (finalResponse.recipes as any[]).filter((recipe) => {
+          // 只摺「電飯煲 X」＝「X」；括號（辣／清湯）同其他家電（氣炸鍋 vs 微波爐）
+          // 代表唔同做法，唔可以當同一道菜。
           const stem = String(recipe?.name ?? "")
-            .replace(/^(電飯煲|氣炸鍋|焗爐|微波爐|慢煮)/, "")
-            .replace(/[（(][^)）]*[)）]/g, "")
+            .replace(/^電飯煲/, "")
             .trim();
           if (!stem) return true;
           if (seenStems.has(stem)) return false;
