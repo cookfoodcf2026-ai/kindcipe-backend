@@ -6058,7 +6058,7 @@ async function applyZeroCardInsurance(
     // quickest dishes instead of returning zero cards.
     // A bare 「3 分鐘」 is not a cooking request — only run these fallbacks when the
     // text looks like food/meal talk (keeps the old food-intent gate honest).
-    const foodish = /煮|食|餐|餸|菜|飯|麵|湯|早餐|午餐|晚餐|宵夜/.test(String(text ?? ""));
+    const foodish = /煮|食|餐|餸|菜|飯|麵|湯|早餐|午餐|晚餐|宵夜|辣|甜|鹹|鮮|清淡/.test(String(text ?? ""));
     const minutesAsk = foodish ? /(\d{1,3})\s*分鐘/.exec(text)?.[1] : undefined;
     if (minutesAsk && (result.recipes?.length ?? 0) === 0) {
       const limit = Number(minutesAsk);
