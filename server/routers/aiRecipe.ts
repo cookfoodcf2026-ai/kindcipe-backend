@@ -7068,6 +7068,49 @@ export const aiRecipeRouter = router({
         requestId,
       });
       const mode = input.mode ?? "chat";
+
+      // 雪櫃食材 tab sends a canned list ("用以下食材煮餸：青菜、洋蔥、豆腐").
+      // Answer it straight from the library with cards that actually use those
+      // ingredients — the normal chat pipeline ignored the list entirely.
+      const pantryText = lastUserText(input.messages) ?? "";
+      const pantryDb = /用以下食材|以下食材|用呢啲食材|食材[：:]/.test(pantryText) ? await getDb() : null;
+      if (mode === "chat" && pantryDb && /用以下食材|以下食材|用呢啲食材|食材[：:]/.test(pantryText)) {
+        const listed = (pantryText.match(/食材[：:]\s*([^\n。]+)/)?.[1] ?? "")
+          .split(/[、,，/]+/)
+          .map((item) => item.trim())
+          .filter((item) => item.length >= 1 && item.length <= 8);
+        const wanted = Array.from(new Set(listed)).slice(0, 6);
+        if (wanted.length > 0) {
+          const picked: Record<string, any> = {};
+          for (const item of wanted) {
+            const rows = await pantryDb
+              .select()
+              .from(officialRecipes)
+              .where(and(
+                eq(officialRecipes.isActive, true),
+                or(ilike(officialRecipes.name, `%${item}%`), ilike(officialRecipes.ingredients, `%${item}%`)),
+              ))
+              .limit(4);
+            for (const row of rows) {
+              const card = toChefLibraryRecipe(row as any);
+              const key = String(card.name ?? "");
+              if (key && !picked[key]) picked[key] = card;
+            }
+          }
+          const cards = Object.values(picked).slice(0, 3);
+          if (cards.length > 0) {
+            console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=${cards.length}`);
+            return {
+              content: `用你嘅食材（${wanted.join("、")}），可以試呢幾道：`,
+              recipes: cards,
+              alternatives: [],
+              llmUsed: false,
+            } as any;
+          }
+          console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=0`);
+        }
+      }
+
       if (mode === "ai" && !input.aiEntry) {
         console.warn(`[AI Chef] ai telemetry missing request=${requestId}`);
       }
