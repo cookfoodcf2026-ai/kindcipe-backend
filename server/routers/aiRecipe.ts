@@ -41,6 +41,7 @@ import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../servi
 import { validateChefReply, claimsRecipeCards } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
 import { extractTypedAvoid } from "../utils/typedAvoid";
+import { stripAvoidClauses } from "../utils/avoidClause";
 import {
   deriveChefRetryToken,
   incompleteContractResponseFields,
@@ -7778,7 +7779,9 @@ export const aiRecipeRouter = router({
       }
 
       const effectiveIntent = result.intentOverride ?? intent;
-      const postconditionText = lastUserText(input.messages) ?? "";
+      // 「避免：蝦」係忌口，唔係「我想食蝦」。之前 postcondition 直接讀原文，
+      // 令 protein postcondition 當用戶想要蝦／雞，反而把其他卡剔走（4 張變 3 張）。
+      const postconditionText = stripAvoidClauses(lastUserText(input.messages) ?? "");
       const metricPath = isCannedMealPrompt(lastUserText(input.messages))
         || (isStructuralShortFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
         ? "canned"
