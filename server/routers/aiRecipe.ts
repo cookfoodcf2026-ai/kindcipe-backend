@@ -3456,7 +3456,7 @@ function zeroCardMissReply(lang: string, lead: string): string {
   return `${lead}我未搵到合適食譜。你可以：
 1. 去「匯入食譜」（會扣 1 次匯入額度）
 2. 講多少少要求，我再搵
-3. AI 即場煮（1 credit）`;
+3. AI 生成食譜（1 credit）`;
 }
 
 function libraryMissReply(lang: string, item: string, _alternatives: string[]): string {
@@ -3474,7 +3474,7 @@ function searchFailureReply(lang: string): string {
   if (lang.startsWith("en")) return "The recipe library search failed just now. I won't guess. You can retry, ask AI to make it now (1 credit), or try again later.";
   if (lang.startsWith("fil")) return "Nabigo ang paghahanap sa library. Huwag akong manghula. Maaari mong subukan muli, hilingin sa AI na gawin ito ngayon (1 credit), o bumalik mamaya.";
   if (lang.startsWith("id")) return "Pencarian pustaka gagal. Saya tidak akan menebak. Anda bisa mencoba lagi, meminta AI membuatnya sekarang (1 credit), atau mencoba lagi nanti.";
-  return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以重試、叫 AI 即場煮（1 credit），或者稍後再試。";
+  return "我今次搜尋食譜庫失敗，未敢亂出卡。你可以重試、叫 AI 生成食譜（1 credit），或者稍後再試。";
 }
 
 function categoryMissReply(lang: string, item: string, _cards: string[]): string {
@@ -4316,7 +4316,7 @@ async function processAIChefChatCore(
       const cards = rowsToSuggested(search.rows, excludeSets, 3);
       if (cards.length === 0) {
         return {
-          content: lang.startsWith("en") ? `No library recipe is close to "${target}". Want me to cook it with AI?` : `庫存冇「${target}」，暫時亦冇夠接近嘅食譜。想我叫 AI 即場煮？`,
+          content: lang.startsWith("en") ? `No library recipe is close to "${target}". Want me to generate it with AI?` : `庫存冇「${target}」，暫時亦冇夠接近嘅食譜。想我叫 AI AI 生成食譜？`,
           recipes: [],
           alternatives: toAlternativeCards(search.rows, target, allergenList),
           llmUsed: true,
@@ -4328,7 +4328,7 @@ async function processAIChefChatCore(
       return {
         content: lang.startsWith("en")
           ? `No exact "${target}" in the library. These are the closest:`
-          : `庫存冇「${target}」，以下係最接近嘅食譜。想 AI 即場煮就話我知。`,
+          : `庫存冇「${target}」，以下係最接近嘅食譜。想 AI AI 生成食譜就話我知。`,
         recipes: cards,
         llmUsed: true,
         intentOverride: {
@@ -4346,7 +4346,7 @@ async function processAIChefChatCore(
         const exclusionIntent = /^(?:唔要|不要|走|唔飲|no|without)/i.test(lastUserText.trim());
         return {
           content: exclusionIntent
-            ? (lang.startsWith("en") ? "Do you want me to exclude that item, or ask AI to cook it?" : "你想我排除呢樣，定係叫 AI 即場煮？")
+            ? (lang.startsWith("en") ? "Do you want me to exclude that item, or ask AI to generate it?" : "你想我排除呢樣，定係叫 AI AI 生成食譜？")
             : (lang.startsWith("en") ? "Which dish should I find or cook for you?" : "你想我幫你搵或煮邊款？"),
           recipes: [],
           llmUsed: true,
@@ -4363,7 +4363,7 @@ async function processAIChefChatCore(
       const target = /^(?:ai|ai煮|煮|生成|煮嘢)$/i.test(rawTarget) ? "" : rawTarget;
       if (!target) {
         return {
-          content: lang.startsWith("en") ? "What should I cook with AI? Tell me the dish or ingredient." : "想 AI 即場煮邊款？話我知菜名或者食材。",
+          content: lang.startsWith("en") ? "What should I cook with AI? Tell me the dish or ingredient." : "想 AI AI 生成食譜邊款？話我知菜名或者食材。",
           recipes: [],
           llmUsed: true,
           clarifyReason: "ambiguous_food",
@@ -4372,7 +4372,7 @@ async function processAIChefChatCore(
       }
       if (!allowAiFallback) {
         return {
-          content: lang.startsWith("en") ? "AI cooking is unavailable right now. No credit was used." : "AI 即場煮暫時用唔到，冇扣 credit。你可以再試，或者去匯入食譜。",
+          content: lang.startsWith("en") ? "AI recipe generation is unavailable right now. No credit was used." : "AI AI 生成食譜暫時用唔到，冇扣 credit。你可以再試，或者去匯入食譜。",
           recipes: [],
           llmUsed: true,
           clarifyReason: "ai_failed",
@@ -6242,7 +6242,7 @@ async function applyZeroCardInsurance(
             return {
               ...result,
               recipes: [],
-              content: `我用你提供嘅食材（${pantryMatch[1].trim()}）喺食譜庫搵唔到合適食譜。要我用 AI 即場設計嗎？（1 credit）`,
+              content: `我用你提供嘅食材（${pantryMatch[1].trim()}）喺食譜庫搵唔到合適食譜。要我用 AI AI 生成食譜嗎？（1 credit）`,
               clarifyReason: "ingredient_miss" as const,
             };
           }

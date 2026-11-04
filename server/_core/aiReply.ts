@@ -55,7 +55,7 @@ const DICT: Record<string, Dict> = {
     id: "Saya menemukan resep ini dari pustaka:",
   },
   libNone: {
-    "zh-TW": "我未有你指定嘅食譜。你可以：\n1. 去「匯入食譜」（會扣 1 次匯入額度）\n2. 睇最接近嘅庫存\n3. AI 即場煮（1 credit）",
+    "zh-TW": "我未有你指定嘅食譜。你可以：\n1. 去「匯入食譜」（會扣 1 次匯入額度）\n2. 睇最接近嘅庫存\n3. AI 生成食譜（1 credit）",
     en: "I couldn't find that recipe. You can: 1) use Import recipe (1 import quota), 2) check the closest library items, or 3) ask AI to make it now (1 credit).",
     fil: "Hindi ko mahanap ang recipe na iyon. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) tingnan ang pinakamalapit na library, o 3) hilingin sa AI na gawin ito ngayon (1 credit).",
     id: "Saya tidak menemukan resep itu. Anda bisa: 1) memakai Import resep (1 kuota import), 2) melihat resep pustaka terdekat, atau 3) meminta AI membuatnya sekarang (1 credit).",

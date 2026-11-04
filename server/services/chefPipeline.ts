@@ -113,7 +113,7 @@ function clarifyText(lang: string, reason: "library_miss" | "ai_failed" | "ambig
   }
   return reason === "ai_failed"
     ? "我今次搵唔到又生成唔到完全符合你條件嘅食譜。你可以話我知邊個條件可以放寬（時間、食材或煮法）。"
-    : "我未搵到完全符合你條件嘅食譜。可以話我知邊個條件可以放寬，或者叫我用 AI 即場煮（1 credit）。";
+    : "我未搵到完全符合你條件嘅食譜。可以話我知邊個條件可以放寬，或者叫我用 AI 生成食譜（1 credit）。";
 }
 
 function cardsText(lang: string, layer: "library" | "ai"): string {
@@ -124,7 +124,7 @@ function cardsText(lang: string, layer: "library" | "ai"): string {
         ? "Walang eksaktong tugma sa library, kaya ito ang bagong AI suggestion."
         : lang.startsWith("id")
           ? "Tidak ada yang cocok di pustaka, jadi ini saran AI baru."
-          : "食譜庫未有完全符合嘅選擇，以下係 AI 即場煮嘅新建議（已標示 AI 建議）。";
+          : "食譜庫未有完全符合嘅選擇，以下係 AI AI 生成食譜嘅新建議（已標示 AI 建議）。";
   }
   return lang.startsWith("en")
     ? "Here are the best matches from the recipe library."
