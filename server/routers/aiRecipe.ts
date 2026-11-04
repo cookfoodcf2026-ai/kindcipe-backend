@@ -4945,7 +4945,16 @@ async function processAIChefChatCore(
         llmUsed,
         clarifyReason: assembled.missingRoles.length > 0 && assembled.sources.ai > 0 ? "ai_partial" : undefined,
         intentOverride: chefIntent,
-      };
+        __debug: {
+          path: "role_assembler",
+          wanted: assembled.requested,
+          served: assembled.served,
+          missingRoles: assembled.missingRoles,
+          sources: assembled.sources,
+          avoid: avoidIngredients,
+          roles: requested.roles,
+        },
+      } as any;
     }
     console.warn(`[AI Chef] role assembler produced 0 cards for roles=${requested.roles.join(",")}`);
     if (missingIngredients.length > 0) {
