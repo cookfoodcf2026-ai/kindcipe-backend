@@ -5099,6 +5099,8 @@ async function processAIChefChatCore(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
+      // 診斷用（暫時）：如果 avoid 有值但仲出到忌口食材，呢行會顯示 pool 有冇被過濾。
+      console.log(`[AI Chef] meal_lib avoid=${avoidIngredients.join("|") || "none"} pool=${safeRows.length} dishes=${libCount.dishCount} soups=${libCount.soupCount}`);
       const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients);
       // OC review：diversify 會再由 pool 揀卡，所以 pool 必須同一個「已剔忌口」版本，
       // 唔可以靠上游巧合。呢個 filter 係 idempotent，重複做無害。
