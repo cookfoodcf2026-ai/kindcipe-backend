@@ -7206,6 +7206,18 @@ export const aiRecipeRouter = router({
       const pantryText = lastUserText(input.messages) ?? "";
       const PANTRY_RE = /用以下食材|以下食材|用呢啲食材|食材[：:]|雪櫃|冰箱/;
       const pantryDb = PANTRY_RE.test(pantryText) ? await getDb() : null;
+      // 「雪櫃有呢啲食材，可以煮咩？」(no list at all) must ask, not invent one card.
+      if (mode === "chat" && /雪櫃|冰箱/.test(pantryText) && !/[：:]/.test(pantryText) && !/得[^\n。]{1,}/.test(pantryText)) {
+        console.log("[AI Chef] pantry_ask_no_list");
+        return {
+          content: "你雪櫃有咩食材？講幾樣（例如：雞蛋、豆腐、菜心），我即刻幫你配。",
+          recipes: [],
+          alternatives: [],
+          llmUsed: false,
+          clarifyReason: "ingredient_miss",
+        } as any;
+      }
+
       if (mode === "chat" && pantryDb && PANTRY_RE.test(pantryText)) {
         // The colon follows 「煮餸」 in the canned prompt (食材煮餸：青菜、洋蔥…),
         // so anchor on the first colon instead of on 食材.
