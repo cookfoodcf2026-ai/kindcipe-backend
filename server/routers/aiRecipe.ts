@@ -5134,8 +5134,29 @@ async function processAIChefChatCore(
         const aiPicked = await generateMissingRecipes(neededTypes.length, false, [...mergedExclude, ...libNames], familyId, userId, neededTypes, avoidIngredients);
         if (aiPicked.length > 0) llmUsed = true;
         await recordFamilySeenNames(familyId, aiPicked.map(r => r.name));
-        const all = applyServings([...libPicked, ...aiPicked].slice(0, totalWanted));
-        console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai`);
+        let combined: SuggestedRecipe[] = [...libPicked, ...aiPicked];
+        // 3) 仲唔夠（例如忌口剔走大量卡、AI 又補唔到）→ 由已過濾 pool 直接補位，
+        //    寧願卡類別鬆少少，都唔好靜靜少卡。poolForDiversify 已經剔走忌口。
+        if (combined.length < totalWanted) {
+          const taken = new Set(combined.map((r) => normalizeName(r.name)).filter(Boolean));
+          const needMore = totalWanted - combined.length;
+          const spares: SuggestedRecipe[] = [];
+          for (const row of poolForDiversify) {
+            if (spares.length >= needMore) break;
+            const recipe = rowToSuggestedRecipe(row);
+            if (!recipe) continue;
+            const key = normalizeName(recipe.name);
+            if (!key || taken.has(key)) continue;
+            spares.push(recipe);
+            taken.add(key);
+          }
+          if (spares.length > 0) {
+            console.log(`[AI Chef] meal_lib refill spares=${spares.length} avoid=${avoidIngredients.join("|") || "none"}`);
+            combined = [...combined, ...spares];
+          }
+        }
+        const all = applyServings(combined.slice(0, totalWanted));
+        console.log(`[AI Chef] library meal: ${libPicked.length} lib + ${aiPicked.length} ai + refill=${all.length - libPicked.length - aiPicked.length}`);
         return { content: aiReply(lang, "libPlusAi", { lib: libPicked.length, ai: aiPicked.length }), recipes: all, llmUsed };
       }
       const dishSetLabel = dishLabel(libCount.dishCount, libCount.soupCount, lang);
