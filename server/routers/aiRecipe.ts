@@ -36,6 +36,7 @@ import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
+import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
 import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
@@ -5165,25 +5166,8 @@ async function processAIChefChatCore(
       }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
       const filteredRows = logScenarioRows("fallback", safeRows);
-      const cookTimeMax = search.cookTimeMax;
-      const timeFilteredRows = typeof cookTimeMax === "number" && cookTimeMax > 0
-        ? filteredRows.filter((row) => {
-            const raw = row.cookTime;
-            if (raw === null || raw === undefined || raw === "") return false;
-            const cookTime = Number(raw);
-            return Number.isFinite(cookTime) && cookTime <= cookTimeMax;
-          })
-        : filteredRows;
       const scenarioKey = String(search.scenario ?? "").trim();
-      const scenarioFilteredRows = scenarioKey
-        ? timeFilteredRows.filter((row) => {
-            const tags = [
-              ...safeParseJsonArray((row as any).scenarioTagsUser),
-              ...safeParseJsonArray((row as any).scenarioTags),
-            ].map(String);
-            return tags.includes(scenarioKey);
-          })
-        : timeFilteredRows;
+      const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
       picked = rowsToSuggested(scenarioFilteredRows, excludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
@@ -5195,14 +5179,7 @@ async function processAIChefChatCore(
       }
       // 補位都湊唔齊（scenario/時間約束下 0 張）→ 唔准無條件補位，直接 incomplete_set（0 卡 0 credit）
       console.warn(`[AI Chef] structured fallback empty scenario=${scenarioKey || "none"} -> incomplete_set`);
-      return {
-        content: lang === "en"
-          ? "I couldn't find matching recipes this time, so this request was not charged. Please try again or loosen the filters."
-          : "今次搵唔到符合條件嘅食譜，所以呢次**唔會扣你額度**。可以再試一次，或者放寬限制。",
-        recipes: [],
-        llmUsed,
-        clarifyReason: "incomplete_set",
-      };
+      return buildIncompleteSetFallback(lang, llmUsed);
     } else if (swapQuery) {
       const swapSearch = await trySearch(swapQuery, 30);
       if (!swapSearch.ok) {
