@@ -7099,9 +7099,19 @@ export const aiRecipeRouter = router({
               if (key && !picked[key]) picked[key] = card;
             }
           }
-          const cards = Object.values(picked).slice(0, 3);
+          // Prefer cards that use more of the listed ingredients.
+          const scored = Object.values(picked)
+            .map((card: any) => {
+              const haystack = `${card.name ?? ""} ${(card.ingredients ?? [])
+                .map((ing: any) => (typeof ing === "string" ? ing : String(ing?.name ?? "")))
+                .join(" ")}`;
+              const hits = wanted.filter((item) => haystack.includes(item)).length;
+              return { card, hits };
+            })
+            .sort((a, b) => b.hits - a.hits);
+          const cards = scored.filter((entry) => entry.hits > 0).map((entry) => entry.card).slice(0, 3);
           if (cards.length > 0) {
-            console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=${cards.length}`);
+            console.log(`[AI Chef] pantry_direct items=${wanted.join("|")} cards=${cards.length} hits=${scored[0]?.hits ?? 0}`);
             return {
               content: `用你嘅食材（${wanted.join("、")}），可以試呢幾道：`,
               recipes: cards,
@@ -7681,7 +7691,10 @@ export const aiRecipeRouter = router({
           const name = String(raw ?? "");
           if (!name) return false;
           if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
-          return MEAT_RE.test(name);
+          // Strip vegetarian-safe words that contain a meat character
+          // (牛油果/牛蒡/牛奶/魚香茄子/雞蛋 …) before testing.
+          const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶/g, "");
+          return MEAT_RE.test(cleaned);
         };
         const kept = vegRecipes.filter((recipe: any) => {
           const items = (recipe.ingredients ?? []).map((item: any) =>
