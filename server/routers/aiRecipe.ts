@@ -4953,6 +4953,7 @@ async function processAIChefChatCore(
           sources: assembled.sources,
           avoid: avoidIngredients,
           roles: requested.roles,
+          names: cards.map((c: any) => c.name),
         },
       } as any;
     }
@@ -7961,6 +7962,7 @@ export const aiRecipeRouter = router({
         }
       }
 
+      (result as any).__finalNames = (result.recipes ?? []).map((r: any) => r.name);
       const served = result.recipes?.length ?? 0;
       const requested = effectiveIntent.requested.total;
       if (familyId) {
@@ -8200,12 +8202,14 @@ export const aiRecipeRouter = router({
         rawText: lastUserText(input.messages),
         slots: {
           ...(pipelineTelemetry?.slots ?? {}),
-          __debug: (result as any)?.__debug ?? {
+          __debug: {
             path: "other",
             avoid: avoidIngredients,
             wanted: requested,
             served,
             sources,
+            ...((result as any)?.__debug ?? {}),
+            finalNames: (result as any)?.__finalNames,
           },
         },
         relaxLevel: pipelineTelemetry?.relaxLevel ?? null,
