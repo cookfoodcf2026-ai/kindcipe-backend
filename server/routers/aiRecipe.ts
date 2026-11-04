@@ -7075,7 +7075,9 @@ export const aiRecipeRouter = router({
       const pantryText = lastUserText(input.messages) ?? "";
       const pantryDb = /用以下食材|以下食材|用呢啲食材|食材[：:]/.test(pantryText) ? await getDb() : null;
       if (mode === "chat" && pantryDb && /用以下食材|以下食材|用呢啲食材|食材[：:]/.test(pantryText)) {
-        const listed = (pantryText.match(/食材[：:]\s*([^\n。]+)/)?.[1] ?? "")
+        // The colon follows 「煮餸」 in the canned prompt (食材煮餸：青菜、洋蔥…),
+        // so anchor on the first colon instead of on 食材.
+        const listed = (pantryText.match(/[：:]\s*([^\n。]+)/)?.[1] ?? "")
           .split(/[、,，/]+/)
           .map((item) => item.trim())
           .filter((item) => item.length >= 1 && item.length <= 8);
