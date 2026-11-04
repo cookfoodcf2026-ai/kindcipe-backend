@@ -8129,6 +8129,7 @@ export const aiRecipeRouter = router({
           lang: responseLang,
           templateText: true,
           operation: input.operation,
+          explicitMealShape: /[0-9一二兩三四五六七八九十]\s*(?:道|款|個菜|樣菜|樣餸|餸)|餸|湯/u.test(lastUserText(input.messages) ?? ""),
           result: {
             content: result.content,
             recipes: result.recipes,

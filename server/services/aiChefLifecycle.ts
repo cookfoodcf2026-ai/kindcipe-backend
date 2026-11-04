@@ -191,6 +191,8 @@ export function buildChefReply(params: {
   lang?: string;
   templateText?: boolean;
   operation?: "replace" | "append";
+  /** 用戶真係講咗「N 道／餸／湯」嗎？冇講就唔可以用「未能完成你要求嘅 N 個」文案。 */
+  explicitMealShape?: boolean;
 }): ChefReply {
   const { requestId, chatId, clientMessageId, intent, result } = params;
   const lang = params.lang ?? "zh-TW";
@@ -224,7 +226,7 @@ export function buildChefReply(params: {
       ? (result.content || aiReply(lang, "libNone"))
       : params.templateText && status === "cards"
         ? aiReply(lang, operation === "append" ? "cardsAdded" : "cardsReady")
-        : params.templateText && status === "partial_cards" && requested <= 3
+        : params.templateText && status === "partial_cards" && requested <= 3 && params.explicitMealShape === true
           // Only a normal 3+1 style ask can be described as "3 of the 6 you asked
           // for"; larger/nonsense totals fall back to the ready copy.
           ? aiReply(lang, "partialSet", { served, total: requested })
