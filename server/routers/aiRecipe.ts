@@ -7930,7 +7930,12 @@ export const aiRecipeRouter = router({
         console.error(`[AI Chef][meter-invariant] request=${requestId} aiCards=${aiCards} served=${served} requested=${requested} llmCalls=${meter.calls} llmUsed=${result.llmUsed}`);
       }
       const baseShouldCharge = shouldChargeChefRequest({ served, aiCards });
-      const requiredCards = effectiveIntent.wantsCards ? Math.max(1, requested) : 0;
+      // 單卡入口（熱鍵／食譜庫／自由打字問一道菜）只要求 1 張；
+      // 之前直接用 intent 嘅 requested，前面對話一有「3餸1湯」就會變 6，
+      // 令單菜問題都顯示「未完成 1/6」。
+      const requiredCards = effectiveIntent.wantsCards
+        ? (mealRequest ? Math.max(1, requested) : 1)
+        : 0;
       const incompleteContract = resolveIncompleteContract({
         enabled: incompleteContractEnabled,
         requiredCards,
