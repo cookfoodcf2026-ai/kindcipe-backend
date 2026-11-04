@@ -7145,6 +7145,43 @@ export const aiRecipeRouter = router({
       // 雪櫃食材 tab sends a canned list ("用以下食材煮餸：青菜、洋蔥、豆腐").
       // Answer it straight from the library with cards that actually use those
       // ingredients — the normal chat pipeline ignored the list entirely.
+      // 蛋白／健身: answer with real protein dishes straight from the library.
+      // The normal pipeline kept returning egg dishes (茶碗蒸 / 蒸肉餅).
+      const proteinText = lastUserText(input.messages) ?? "";
+      if (mode === "chat" && /蛋白|健身|增肌/.test(proteinText)) {
+        const pdb = await getDb();
+        if (pdb) {
+          const rows = await pdb
+            .select()
+            .from(officialRecipes)
+            .where(and(
+              eq(officialRecipes.isActive, true),
+              or(
+                ilike(officialRecipes.name, "%雞胸%"),
+                ilike(officialRecipes.name, "%三文魚%"),
+                ilike(officialRecipes.name, "%魚柳%"),
+                ilike(officialRecipes.name, "%蝦%"),
+                ilike(officialRecipes.name, "%牛肉%"),
+                ilike(officialRecipes.name, "%豆腐%"),
+              ),
+            ))
+            .limit(40);
+          const cards = rows.map((row) => toChefLibraryRecipe(row as any))
+            .filter((card: any) => Array.isArray(card.ingredients) ? card.ingredients.length > 0 : true)
+            .slice(0, 3);
+          if (cards.length > 0) {
+            await recordServedLibraryCards(familyId, cards as any);
+            console.log(`[AI Chef] protein_direct cards=${cards.length}`);
+            return {
+              content: "健身夠蛋白，可以試呢幾道：",
+              recipes: cards as any,
+              alternatives: [],
+              llmUsed: false,
+            } as any;
+          }
+        }
+      }
+
       const pantryText = lastUserText(input.messages) ?? "";
       const PANTRY_RE = /用以下食材|以下食材|用呢啲食材|食材[：:]|雪櫃|冰箱/;
       const pantryDb = PANTRY_RE.test(pantryText) ? await getDb() : null;
