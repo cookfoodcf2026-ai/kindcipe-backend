@@ -7861,6 +7861,27 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // 蛋白／健身 ask: a single egg dish is not a protein answer — keep cards
+      // with at least two protein groups (meat, seafood, egg, soy).
+      if (/蛋白|健身|增肌/.test(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
+        const GROUPS = [
+          /豬|牛|羊|雞|鴨|鵝|火腿|煙肉|臘腸/,
+          /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|魷/,
+          /蛋/,
+          /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
+        ];
+        const kept = (finalResponse.recipes as any[]).filter((recipe) => {
+          const haystack = `${recipe?.name ?? ""} ${(recipe?.ingredients ?? [])
+            .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
+            .join(" ")}`;
+          return GROUPS.filter((group) => group.test(haystack)).length >= 2;
+        });
+        if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
+          console.log(`[AI Chef] protein-multi removed=${finalResponse.recipes.length - kept.length}`);
+          finalResponse.recipes = kept;
+        }
+      }
+
       // Red line, every path: a 素食 ask must never get meat/seafood cards.
       // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
       // so match the ingredient text directly.
