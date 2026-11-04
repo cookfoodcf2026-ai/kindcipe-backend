@@ -7830,6 +7830,33 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // Protein red line (OC review): 「想食魚」 must not be answered with egg or
+      // noodles. Same mechanism as the vegetarian line, one dimension over.
+      if (Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
+        const proteinText = lastUserText(input.messages) ?? "";
+        const PROTEIN_INTENTS: Array<[RegExp, RegExp]> = [
+          [/魚|海鮮|蝦|蟹|蜆|蠔/, /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|海鮮|三文|魷|鱈|鯛|斑/],
+          [/雞/, /雞|鴨|鵝/],
+          [/牛/, /牛/],
+          [/豬|排骨|肉/, /豬|排骨|肉|火腿|煙肉|臘腸/],
+          [/蛋/, /蛋/],
+          [/豆腐|豆乾|腐竹/, /豆腐|豆乾|腐竹|豆卜/],
+        ];
+        const wants = PROTEIN_INTENTS.find(([query]) => query.test(proteinText));
+        if (wants) {
+          const kept = (finalResponse.recipes as any[]).filter((recipe) => {
+            const haystack = `${recipe?.name ?? ""} ${(recipe?.ingredients ?? [])
+              .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
+              .join(" ")}`;
+            return wants[1].test(haystack);
+          });
+          if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
+            console.log(`[AI Chef] protein postcondition removed=${finalResponse.recipes.length - kept.length} from=${proteinText.slice(0, 20)}`);
+            finalResponse.recipes = kept;
+          }
+        }
+      }
+
       // Red line, every path: a 素食 ask must never get meat/seafood cards.
       // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
       // so match the ingredient text directly.
