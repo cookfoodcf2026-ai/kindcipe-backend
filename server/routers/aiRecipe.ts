@@ -3470,7 +3470,18 @@ function zeroCardMissReply(lang: string, lead: string): string {
 3. AI 生成食譜（1 credit）`;
 }
 
-function libraryMissReply(lang: string, item: string, _alternatives: string[]): string {
+/** 「有冇蔥油餅食譜」→「蔥油餅」：文案唔可以照抄整句。 */
+export function cleanDishLabel(raw: string): string {
+  let label = String(raw ?? "").trim();
+  label = label.replace(/^[，,。\s]*/u, "");
+  label = label.replace(/^(?:有冇|有沒有|有無|我想食|我想煮|我想做|我想整|教我做|教我煮|教我整|想食|想煮|想整|整|做|要)\s*/u, "");
+  label = label.replace(/\s*(?:嘅|的)?\s*(?:食譜|做法|點整|點煮|點做|recipe|recipes)\s*$/iu, "");
+  label = label.replace(/[？?！!。，,\s]+$/u, "").trim();
+  return label || String(raw ?? "").trim();
+}
+
+function libraryMissReply(lang: string, rawItem: string, _alternatives: string[]): string {
+  const item = cleanDishLabel(rawItem);
   const lead = lang.startsWith("en")
     ? `I couldn't find "${item}" in the library. `
     : lang.startsWith("fil")
@@ -5942,7 +5953,7 @@ async function processAIChefChatCore(
 
   if (!forceNoCards && recipes.length === 0) {
     content = aiReply(lang, "cantRecommend");
-  } else if (!forceNoCards && mealIntent.isMeal && recipes.length < totalWanted) {
+  } else if (!forceNoCards && mealIntent.isMeal && totalWanted >= 2 && recipes.length < totalWanted) {
     content = lang.startsWith("en")
       ? `I found ${recipes.length} recipe(s), but could not complete the requested ${totalWanted}.`
       : `我只搵到 ${recipes.length} 道食譜，未能完成你要求嘅 ${totalWanted} 道。`;
