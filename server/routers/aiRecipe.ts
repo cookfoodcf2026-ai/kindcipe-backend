@@ -3579,6 +3579,13 @@ async function applyMealShapePostcondition(
   if (params.forceText || result.clarifyReason === "safety" || result.clarifyReason === "lib_search_fail") return result;
   const shape = mealShapeForText(params.text, params.mode);
   if (!shape) return result;
+  // 如果已經湊夠卡（例如 role assembler 已出 3 餸 1 湯），唔好再 reshape，
+  // 否則會把已合格嘅卡減少（實測 4 張變 2 張）。
+  const planned = (result.intentOverride as any)?.requested?.total ?? shape.dishCount + shape.soupCount;
+  if (planned >= 2 && (result.recipes?.length ?? 0) >= planned) {
+    console.log(`[AI Chef] meal_shape skip already_satisfied cards=${result.recipes.length} planned=${planned}`);
+    return result;
+  }
 
   const allergens = params.knownAllergens
     ?? (params.familyId ? await getFamilyAllergens(params.familyId) : []);
