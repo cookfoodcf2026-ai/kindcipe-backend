@@ -7653,6 +7653,167 @@ export const aiRecipeRouter = router({
       }
 
       const effectiveIntent = result.intentOverride ?? intent;
+      const postconditionText = lastUserText(input.messages) ?? "";
+      const metricPath = isCannedMealPrompt(lastUserText(input.messages))
+        || (isStructuralShortFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
+        ? "canned"
+        : "user";
+
+      // Response postconditions run ONCE on result.recipes, before served /
+      // aiCards / sources / credits are computed, so the contract, the charge and
+      // the logs all describe the cards the user actually receives.
+      const mealRequest = effectiveIntent.kind === "meal" || detectMealShapeLoose(postconditionText) !== null;
+
+      // 清淡 / 親子 must not be answered with heavy or spicy dishes.
+      {
+        const HEAVY_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒/;
+        const wantsLight = /清淡|少油|輕盈|輕食/i.test(postconditionText);
+        const wantsKid = /親子|小朋友|細路|孩子/i.test(postconditionText);
+        if ((wantsLight || wantsKid) && result.recipes.length > 0) {
+          const filtered = result.recipes.filter((recipe) => !HEAVY_RE.test(String(recipe?.name ?? "")));
+          if (filtered.length > 0 && filtered.length !== result.recipes.length) {
+            console.log(`[AI Chef] ${wantsLight ? "light" : "kid"} postcondition removed=${result.recipes.length - filtered.length}`);
+            result.recipes = filtered;
+          }
+        }
+      }
+
+      // 「茶碗蒸」＋「電飯煲茶碗蒸」係同一道菜，唔好當兩張。
+      if (result.recipes.length > 1) {
+        const seenStems = new Set<string>();
+        const unique = result.recipes.filter((recipe) => {
+          // 只摺「電飯煲 X」＝「X」；括號（辣／清湯）同其他家電（氣炸鍋 vs 微波爐）
+          // 代表唔同做法，唔可以當同一道菜。
+          const stem = String(recipe?.name ?? "")
+            .replace(/^電飯煲/, "")
+            .trim();
+          if (!stem) return true;
+          if (seenStems.has(stem)) return false;
+          seenStems.add(stem);
+          return true;
+        });
+        if (unique.length !== result.recipes.length) {
+          console.log(`[AI Chef] dedupe removed=${result.recipes.length - unique.length}`);
+          result.recipes = unique;
+        }
+      }
+
+      // Protein red line (OC review): 「想食魚」 must not be answered with egg or
+      // noodles. Same mechanism as the vegetarian line, one dimension over.
+      if (result.recipes.length > 0) {
+        const PROTEIN_INTENTS: Array<[RegExp, RegExp]> = [
+          [/魚|海鮮|蝦|蟹|蜆|蠔/, /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|海鮮|三文|魷|鱈|鯛|斑/],
+          [/雞/, /雞|鴨|鵝/],
+          [/牛/, /牛/],
+          [/豬|排骨|肉/, /豬|排骨|肉|火腿|煙肉|臘腸/],
+          [/蛋/, /蛋/],
+          [/豆腐|豆乾|腐竹/, /豆腐|豆乾|腐竹|豆卜/],
+        ];
+        const wants = PROTEIN_INTENTS.find(([query]) => query.test(postconditionText));
+        if (wants) {
+          const kept = result.recipes.filter((recipe) => {
+            // Only the first three ingredients count: 柴魚片／魚露 used as a garnish
+            // must not turn a noodle dish into a "fish" answer.
+            const mainIngredients = (recipe?.ingredients ?? [])
+              .slice(0, 3)
+              .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
+              .join(" ");
+            const haystack = `${recipe?.name ?? ""} ${mainIngredients}`;
+            return wants[1].test(haystack);
+          });
+          if (kept.length > 0 && kept.length !== result.recipes.length) {
+            console.log(`[AI Chef] protein postcondition removed=${result.recipes.length - kept.length} from=${postconditionText.slice(0, 20)}`);
+            result.recipes = kept;
+          }
+        }
+      }
+
+      // 電飯煲／一鍋／懶人: the one-pot tag is too loose (燉、煲都算), so keep
+      // only cards that actually name a rice cooker / one-pot method.
+      if (/電飯煲|一鍋|懶人/.test(postconditionText) && result.recipes.length > 1) {
+        const ONEPOT_RE = /電飯煲|一鍋|煲仔|燜|燉飯|炊飯|煲飯|壓力煲|電子鍋/;
+        const kept = result.recipes.filter((recipe) => {
+          const name = String(recipe?.name ?? "");
+          const tags = Array.isArray(recipe?.tags) ? recipe.tags.join(" ") : "";
+          return ONEPOT_RE.test(name) || /onepot|one-pot|ricecooker/i.test(tags);
+        });
+        if (kept.length > 0 && kept.length !== result.recipes.length) {
+          console.log(`[AI Chef] onepot filter removed=${result.recipes.length - kept.length}`);
+          result.recipes = kept;
+        }
+      }
+
+      // 蛋白／健身 ask: a single egg dish is not a protein answer — keep cards
+      // with at least two protein groups (meat, seafood, egg, soy).
+      if (/蛋白|健身|增肌/.test(postconditionText) && result.recipes.length > 0) {
+        const GROUPS = [
+          /豬|牛|羊|雞|鴨|鵝|火腿|煙肉|臘腸/,
+          /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|魷/,
+          /蛋/,
+          /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
+        ];
+        const STRONG_PROTEIN = /雞胸|雞柳|雞扒|三文魚|鱈魚|魚柳|蝦|牛|豆腐|蛋|雞/;
+        const scored = result.recipes.map((recipe) => {
+          const haystack = `${recipe?.name ?? ""} ${(recipe?.ingredients ?? [])
+            .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
+            .join(" ")}`;
+          return { recipe, groups: GROUPS.filter((group) => group.test(haystack)).length, strong: STRONG_PROTEIN.test(haystack) };
+        });
+        const strong = scored.filter((entry) => entry.groups >= 2 && entry.strong);
+        const kept = (strong.length > 0 ? strong : scored.filter((entry) => entry.groups >= 2))
+          .map((entry) => entry.recipe);
+        if (kept.length > 0 && kept.length !== result.recipes.length) {
+          console.log(`[AI Chef] protein-multi removed=${result.recipes.length - kept.length}`);
+          result.recipes = kept;
+        }
+      }
+
+      // Red line, every path: a 素食 ask must never get meat/seafood cards.
+      // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
+      // so match the ingredient text directly.
+      if (/素食|吃素|食素|vegan|vegetarian/i.test(postconditionText) && result.recipes.length > 0) {
+        const MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉/;
+        const isMeat = (raw: unknown) => {
+          const name = String(raw ?? "");
+          if (!name) return false;
+          if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
+          // Strip vegetarian-safe words that contain a meat character
+          // (牛油果/牛蒡/牛奶/魚香茄子/雞蛋 …) before testing.
+          const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶/g, "");
+          return MEAT_RE.test(cleaned);
+        };
+        const vegRecipes = result.recipes as any[];
+        const kept = vegRecipes.filter((recipe: any) => {
+          const items = (recipe.ingredients ?? []).map((item: any) =>
+            typeof item === "string" ? item : String(item?.name ?? ""),
+          );
+          return !isMeat(recipe.name) && !items.some(isMeat);
+        });
+        if (kept.length !== vegRecipes.length) {
+          console.log(`[AI Chef] veg postcondition removed=${vegRecipes.length - kept.length} path=${metricPath}`);
+          result.recipes = kept as typeof result.recipes;
+          if (kept.length === 0) {
+            result.content = "我搵唔到合適嘅素食主菜，試下：紅燒豆腐、素麻婆豆腐、蒜蓉炒雜菌？";
+          }
+        }
+      }
+
+      // Product rule: only an explicit meal / 3餸1湯 request may return more than
+      // one card. Every other entry point (快手／清淡／電飯煲／親子／宴客／蛋白／素食／
+      // 隨機抽／食譜庫) returns exactly one card — no fallback/insurance top-up.
+      if (!mealRequest) {
+        if (result.recipes.length > 1) {
+          console.log(`[AI Chef] single_card_rule capped ${result.recipes.length} -> 1 kind=${effectiveIntent.kind}`);
+          result.recipes = result.recipes.slice(0, 1);
+        }
+        if (effectiveIntent.requested.total > 1) {
+          effectiveIntent.requested = {
+            total: 1,
+            roles: effectiveIntent.requested.roles.slice(0, 1),
+          };
+        }
+      }
+
       const served = result.recipes?.length ?? 0;
       const requested = effectiveIntent.requested.total;
       if (familyId) {
@@ -7847,10 +8008,6 @@ export const aiRecipeRouter = router({
       if (!shouldCharge && incompleteSet) {
         console.log(`[AI Chef] refund partial set requested=${requested} served=${served} credits=${requestedCredits}`);
       }
-      const metricPath = isCannedMealPrompt(lastUserText(input.messages))
-        || (isStructuralShortFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
-        ? "canned"
-        : "user";
       console.log(`[AI Chef] perf lang=${responseLang} recipes=${result.recipes?.length ?? 0} generateMs=${generateMs} localizeMs=${localizeMs} totalMs=${Date.now() - reqStartedAt}`);
       console.log(`[AI Chef] meter calls=${meter.calls} in=${meter.inputTokens} out=${meter.outputTokens} estCostUSD=${meter.costUsd.toFixed(4)} creditsCharged=${creditsCharged}`);
       console.log(`[AI Chef][metric] request=${requestId} mode=${mode} aiEntry=${input.aiEntry ?? "missing"} path=${metricPath} kind=${effectiveIntent.kind} roles=${effectiveIntent.requested.roles.join("|") || "none"} requested=${requested} served=${served} resolved=${resolved} partial=${!resolved} missing=${missingRoles.join(",") || "none"} lib=${sources.library} ai=${sources.ai} latencyMs=${Date.now() - reqStartedAt} costUsd=${meter.costUsd.toFixed(4)} credits=${creditsCharged}`);
@@ -7882,146 +8039,6 @@ export const aiRecipeRouter = router({
         reason: `${result.clarifyReason ?? effectiveIntent.reason}${pipelineTelemetry?.skipReason ? `|skip=${pipelineTelemetry.skipReason}` : ""}`,
         servedSources: sources,
       });
-
-      // Single-dish questions must not return a pile of cards (隨機抽 sent 6).
-      if (!detectMealShapeLoose(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 3) {
-        console.log(`[AI Chef] capped cards ${finalResponse.recipes.length} -> 3 (no meal shape)`);
-        finalResponse.recipes = (finalResponse.recipes as any[]).slice(0, 3);
-      }
-
-      // 清淡 / 親子 must not be answered with heavy or spicy dishes.
-      const heavyText = lastUserText(input.messages) ?? "";
-      const HEAVY_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒/;
-      const wantsLight = /清淡|少油|輕盈|輕食/i.test(heavyText);
-      const wantsKid = /親子|小朋友|細路|孩子/i.test(heavyText);
-      if ((wantsLight || wantsKid) && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
-        const filtered = (finalResponse.recipes as any[]).filter((recipe) => !HEAVY_RE.test(String(recipe?.name ?? "")));
-        if (filtered.length > 0 && filtered.length !== finalResponse.recipes.length) {
-          console.log(`[AI Chef] ${wantsLight ? "light" : "kid"} postcondition removed=${finalResponse.recipes.length - filtered.length}`);
-          finalResponse.recipes = filtered;
-        }
-      }
-
-      // 「茶碗蒸」＋「電飯煲茶碗蒸」係同一道菜，唔好當兩張。
-      if (Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 1) {
-        const seenStems = new Set<string>();
-        const unique = (finalResponse.recipes as any[]).filter((recipe) => {
-          // 只摺「電飯煲 X」＝「X」；括號（辣／清湯）同其他家電（氣炸鍋 vs 微波爐）
-          // 代表唔同做法，唔可以當同一道菜。
-          const stem = String(recipe?.name ?? "")
-            .replace(/^電飯煲/, "")
-            .trim();
-          if (!stem) return true;
-          if (seenStems.has(stem)) return false;
-          seenStems.add(stem);
-          return true;
-        });
-        if (unique.length !== finalResponse.recipes.length) {
-          console.log(`[AI Chef] dedupe removed=${finalResponse.recipes.length - unique.length}`);
-          finalResponse.recipes = unique;
-        }
-      }
-
-      // Protein red line (OC review): 「想食魚」 must not be answered with egg or
-      // noodles. Same mechanism as the vegetarian line, one dimension over.
-      if (Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
-        const proteinText = lastUserText(input.messages) ?? "";
-        const PROTEIN_INTENTS: Array<[RegExp, RegExp]> = [
-          [/魚|海鮮|蝦|蟹|蜆|蠔/, /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|海鮮|三文|魷|鱈|鯛|斑/],
-          [/雞/, /雞|鴨|鵝/],
-          [/牛/, /牛/],
-          [/豬|排骨|肉/, /豬|排骨|肉|火腿|煙肉|臘腸/],
-          [/蛋/, /蛋/],
-          [/豆腐|豆乾|腐竹/, /豆腐|豆乾|腐竹|豆卜/],
-        ];
-        const wants = PROTEIN_INTENTS.find(([query]) => query.test(proteinText));
-        if (wants) {
-          const kept = (finalResponse.recipes as any[]).filter((recipe) => {
-            // Only the first three ingredients count: 柴魚片／魚露 used as a garnish
-            // must not turn a noodle dish into a "fish" answer.
-            const mainIngredients = (recipe?.ingredients ?? [])
-              .slice(0, 3)
-              .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
-              .join(" ");
-            const haystack = `${recipe?.name ?? ""} ${mainIngredients}`;
-            return wants[1].test(haystack);
-          });
-          if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
-            console.log(`[AI Chef] protein postcondition removed=${finalResponse.recipes.length - kept.length} from=${proteinText.slice(0, 20)}`);
-            finalResponse.recipes = kept;
-          }
-        }
-      }
-
-      // 電飯煲／一鍋／懶人: the one-pot tag is too loose (燉、煲都算), so keep
-      // only cards that actually name a rice cooker / one-pot method.
-      if (/電飯煲|一鍋|懶人/.test(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 1) {
-        const ONEPOT_RE = /電飯煲|一鍋|煲仔|燜|燉飯|炊飯|煲飯|壓力煲|電子鍋/;
-        const kept = (finalResponse.recipes as any[]).filter((recipe) => {
-          const name = String(recipe?.name ?? "");
-          const tags = Array.isArray(recipe?.tags) ? recipe.tags.join(" ") : "";
-          return ONEPOT_RE.test(name) || /onepot|one-pot|ricecooker/i.test(tags);
-        });
-        if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
-          console.log(`[AI Chef] onepot filter removed=${finalResponse.recipes.length - kept.length}`);
-          finalResponse.recipes = kept;
-        }
-      }
-
-      // 蛋白／健身 ask: a single egg dish is not a protein answer — keep cards
-      // with at least two protein groups (meat, seafood, egg, soy).
-      if (/蛋白|健身|增肌/.test(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
-        const GROUPS = [
-          /豬|牛|羊|雞|鴨|鵝|火腿|煙肉|臘腸/,
-          /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|魷/,
-          /蛋/,
-          /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
-        ];
-        const STRONG_PROTEIN = /雞胸|雞柳|雞扒|三文魚|鱈魚|魚柳|蝦|牛|豆腐|蛋|雞/;
-        const scored = (finalResponse.recipes as any[]).map((recipe) => {
-          const haystack = `${recipe?.name ?? ""} ${(recipe?.ingredients ?? [])
-            .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
-            .join(" ")}`;
-          return { recipe, groups: GROUPS.filter((group) => group.test(haystack)).length, strong: STRONG_PROTEIN.test(haystack) };
-        });
-        const strong = scored.filter((entry) => entry.groups >= 2 && entry.strong);
-        const kept = (strong.length > 0 ? strong : scored.filter((entry) => entry.groups >= 2))
-          .map((entry) => entry.recipe);
-        if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
-          console.log(`[AI Chef] protein-multi removed=${finalResponse.recipes.length - kept.length}`);
-          finalResponse.recipes = kept;
-        }
-      }
-
-      // Red line, every path: a 素食 ask must never get meat/seafood cards.
-      // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
-      // so match the ingredient text directly.
-      const vegRecipes = (finalResponse.recipes ?? []) as any[];
-      if (/素食|吃素|食素|vegan|vegetarian/i.test(lastUserText(input.messages) ?? "") && vegRecipes.length > 0) {
-        const MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉/;
-        const isMeat = (raw: unknown) => {
-          const name = String(raw ?? "");
-          if (!name) return false;
-          if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
-          // Strip vegetarian-safe words that contain a meat character
-          // (牛油果/牛蒡/牛奶/魚香茄子/雞蛋 …) before testing.
-          const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶/g, "");
-          return MEAT_RE.test(cleaned);
-        };
-        const kept = vegRecipes.filter((recipe: any) => {
-          const items = (recipe.ingredients ?? []).map((item: any) =>
-            typeof item === "string" ? item : String(item?.name ?? ""),
-          );
-          return !isMeat(recipe.name) && !items.some(isMeat);
-        });
-        if (kept.length !== vegRecipes.length) {
-          console.log(`[AI Chef] veg postcondition removed=${vegRecipes.length - kept.length} path=${metricPath}`);
-          finalResponse.recipes = kept as typeof finalResponse.recipes;
-          if (kept.length === 0) {
-            finalResponse.content = "我搵唔到合適嘅素食主菜，試下：紅燒豆腐、素麻婆豆腐、蒜蓉炒雜菌？";
-          }
-        }
-      }
 
       return finalResponse;
     }),
