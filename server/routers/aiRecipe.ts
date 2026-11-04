@@ -6059,8 +6059,9 @@ async function applyZeroCardInsurance(
     const minutesAsk = /(\d{1,3})\s*分鐘/.exec(text)?.[1];
     if (minutesAsk && (result.recipes?.length ?? 0) === 0) {
       const limit = Number(minutesAsk);
+      const SNACK_RE = /燕麥|西米|布丁|蛋糕|奶凍|雪糕|甜|糖水|飲|茶|咖啡|多士|吐司|bagel|乳酪|優格|yogurt|smoothie/i;
       const quick = rows
-        .filter((row) => cookOf(row) > 0 && cookOf(row) <= limit)
+        .filter((row) => cookOf(row) > 0 && cookOf(row) <= limit && !SNACK_RE.test(String((row as any)?.name ?? "")))
         .sort((a, b) => cookOf(a) - cookOf(b))
         .slice(0, 3)
         .map(toCard);
@@ -7179,8 +7180,15 @@ export const aiRecipeRouter = router({
                 .map((ing: any) => (typeof ing === "string" ? ing : String(ing?.name ?? "")))
                 .join(" ")}`;
               const hits = wanted.filter((item) => haystack.includes(item)).length;
-              return { card, hits };
+              // 用戶話「雪櫃得雞蛋同蔥」，就唔可以出蔥爆牛肉 —— 卡片唔准引入
+              // 用戶冇提到嘅肉類／海鮮。
+              const MEAT_WORD = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱/;
+              const cardName = String(card.name ?? "");
+              const introducesMeat = (cardName.match(new RegExp(MEAT_WORD.source, "g")) ?? [])
+                .some((word: string) => !wanted.some((item) => item.includes(word) || word.includes(item)));
+              return { card, hits, introducesMeat };
             })
+            .filter((entry) => !entry.introducesMeat)
             .sort((a, b) => b.hits - a.hits);
           const cards = scored.filter((entry) => entry.hits > 0).map((entry) => entry.card).slice(0, 3);
           if (cards.length > 0) {
@@ -7751,6 +7759,25 @@ export const aiRecipeRouter = router({
         if (filtered.length > 0 && filtered.length !== finalResponse.recipes.length) {
           console.log(`[AI Chef] ${wantsLight ? "light" : "kid"} postcondition removed=${finalResponse.recipes.length - filtered.length}`);
           finalResponse.recipes = filtered;
+        }
+      }
+
+      // 「茶碗蒸」＋「電飯煲茶碗蒸」係同一道菜，唔好當兩張。
+      if (Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 1) {
+        const seenStems = new Set<string>();
+        const unique = (finalResponse.recipes as any[]).filter((recipe) => {
+          const stem = String(recipe?.name ?? "")
+            .replace(/^(電飯煲|氣炸鍋|焗爐|微波爐|慢煮)/, "")
+            .replace(/[（(][^)）]*[)）]/g, "")
+            .trim();
+          if (!stem) return true;
+          if (seenStems.has(stem)) return false;
+          seenStems.add(stem);
+          return true;
+        });
+        if (unique.length !== finalResponse.recipes.length) {
+          console.log(`[AI Chef] dedupe removed=${finalResponse.recipes.length - unique.length}`);
+          finalResponse.recipes = unique;
         }
       }
 
