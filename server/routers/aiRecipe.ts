@@ -7838,6 +7838,21 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // Red line, every path: 忌口／過敏原（包括用戶打落 chat 嘅）一定要喺
+      // 所有組裝（3餸1湯湯品、AI 補卡、protein/veg postcondition）之後再篩一次。
+      // 之前只在早段篩，湯品之後才加入 → 實測漏咗「木瓜花生眉豆雞腳湯」。
+      if (avoidIngredients.length > 0 && result.recipes.length > 0) {
+        const before = result.recipes.length;
+        const kept = result.recipes.filter((recipe) => !recipeContainsAvoid(recipe as any, avoidIngredients));
+        if (kept.length !== before) {
+          console.log(`[AI Chef] avoid postcondition removed=${before - kept.length} avoid=${avoidIngredients.join("|")}`);
+          result.recipes = kept;
+          if (kept.length === 0) {
+            result.content = `我避開咗「${avoidIngredients.join("、")}」，暫時搵唔到合適食譜。要唔要試其他食材？`;
+          }
+        }
+      }
+
       // Product rule: only an explicit meal / 3餸1湯 request may return more than
       // one card. Every other entry point (快手／清淡／電飯煲／親子／宴客／蛋白／素食／
       // 隨機抽／食譜庫) returns exactly one card — no fallback/insurance top-up.
