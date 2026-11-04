@@ -6040,6 +6040,59 @@ async function applyZeroCardInsurance(
     const banned = [...params.avoidIngredients, ...(params.knownAllergens ?? [])];
     const rows = insurancePoolRows(pool, banned);
 
+    // Shared mapper for the "no constraint left" fallbacks below.
+    const cookOf = (row: any) => Number(row?.cookTime ?? row?.cook_time ?? 0);
+    const toCard = (row: any) => ({
+      id: String(row?.id ?? ""),
+      name: String(row?.name ?? ""),
+      description: String(row?.description ?? ""),
+      ingredients: (Array.isArray(row?.ingredients) ? row.ingredients : []).map((item: any) => ({
+        name: String(item?.name ?? item ?? ""),
+      })),
+      steps: (Array.isArray(row?.steps) ? row.steps : []).map((step: any) =>
+        typeof step === "string" ? step : String(step?.instruction ?? step?.text ?? step ?? ""),
+      ),
+      cookTime: cookOf(row),
+      servings: Number(row?.servings ?? 2),
+      difficulty: row?.difficulty ?? "easy",
+    });
+
+    // Time-only ask ("20分鐘煮好") — nothing else to filter on, so pick the
+    // quickest dishes instead of returning zero cards.
+    const minutesAsk = /(\d{1,3})\s*分鐘/.exec(text)?.[1];
+    if (minutesAsk && (result.recipes?.length ?? 0) === 0) {
+      const limit = Number(minutesAsk);
+      const quick = rows
+        .filter((row) => cookOf(row) > 0 && cookOf(row) <= limit)
+        .sort((a, b) => cookOf(a) - cookOf(b))
+        .slice(0, 3)
+        .map(toCard);
+      if (quick.length > 0) {
+        await recordServedLibraryCards(params.familyId, quick as any);
+        console.log(`[AI Chef] time_only minutes=${limit} cards=${quick.length}`);
+        return {
+          ...result,
+          recipes: quick as any,
+          content: `${limit} 分鐘內煮好，可以試呢幾道：`,
+          clarifyReason: undefined,
+        };
+      }
+    }
+
+    // Negative-only ask ("唔要辣") — serve non-matching dishes instead of zero.
+    if (/^(唔要|不要|走|唔好|no)\s*(辣|辣嘢)$/i.test(String(text ?? "").trim()) && (result.recipes?.length ?? 0) === 0) {
+      const SPICY_RE = /辣|咖喱|沙嗲|麻辣|泡菜|孜然/;
+      const mild = rows
+        .filter((row) => !SPICY_RE.test(String((row as any)?.name ?? "")))
+        .slice(0, 3)
+        .map(toCard);
+      if (mild.length > 0) {
+        await recordServedLibraryCards(params.familyId, mild as any);
+        console.log(`[AI Chef] negative_only mild cards=${mild.length}`);
+        return { ...result, recipes: mild as any, content: "好，全部唔辣，可以試呢幾道：", clarifyReason: undefined };
+      }
+    }
+
     // A named dish the library does not have must NOT be answered with three
     // unrelated popular cards — ask whether to design it instead (0 credit).
     // Only dish-shaped names count (煲／麵／飯／糕…): ingredient words like 雞 or 牛
