@@ -6031,9 +6031,6 @@ async function applyZeroCardInsurance(
   // requested 3-dish-1-soup set with three arbitrary cards.
   if (detectMealShapeLoose(text)) return result;
   if ((result.intentOverride?.requested.total ?? 0) > 1) return result;
-  if (!isFoodRelatedForInsurance(result, text, params.mode, params.forceText, params.telemetry)) {
-    return result;
-  }
 
   try {
     const pool = await loadMealPool(params.familyId, params.searchOverride);
@@ -6091,6 +6088,11 @@ async function applyZeroCardInsurance(
         console.log(`[AI Chef] negative_only mild cards=${mild.length}`);
         return { ...result, recipes: mild as any, content: "好，全部唔辣，可以試呢幾道：", clarifyReason: undefined };
       }
+    }
+
+    // Anything that is not this kind of explicit fallback still needs a food signal.
+    if (!isFoodRelatedForInsurance(result, text, params.mode, params.forceText, params.telemetry)) {
+      return result;
     }
 
     // A named dish the library does not have must NOT be answered with three
@@ -7140,13 +7142,17 @@ export const aiRecipeRouter = router({
       // Answer it straight from the library with cards that actually use those
       // ingredients — the normal chat pipeline ignored the list entirely.
       const pantryText = lastUserText(input.messages) ?? "";
-      const pantryDb = /用以下食材|以下食材|用呢啲食材|食材[：:]/.test(pantryText) ? await getDb() : null;
-      if (mode === "chat" && pantryDb && /用以下食材|以下食材|用呢啲食材|食材[：:]/.test(pantryText)) {
+      const PANTRY_RE = /用以下食材|以下食材|用呢啲食材|食材[：:]|雪櫃|冰箱/;
+      const pantryDb = PANTRY_RE.test(pantryText) ? await getDb() : null;
+      if (mode === "chat" && pantryDb && PANTRY_RE.test(pantryText)) {
         // The colon follows 「煮餸」 in the canned prompt (食材煮餸：青菜、洋蔥…),
         // so anchor on the first colon instead of on 食材.
-        const listed = (pantryText.match(/[：:]\s*([^\n。]+)/)?.[1] ?? "")
-          .split(/[、,，/]+/)
-          .map((item) => item.trim())
+        // 「雪櫃得雞蛋同蔥」 has no colon — split on 得/同/、 too.
+        const listedPart = (pantryText.match(/[：:]\s*([^\n。]+)/)?.[1] ?? "")
+          || (pantryText.match(/得([^\n。]+)/)?.[1] ?? "");
+        const listed = listedPart
+          .split(/[、，,同＋+/]+/)
+          .map((item) => item.replace(/^(有|仲有|同|得)/, "").trim())
           .filter((item) => item.length >= 1 && item.length <= 8);
         const wanted = Array.from(new Set(listed)).slice(0, 6);
         if (wanted.length > 0) {
