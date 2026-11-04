@@ -7870,12 +7870,16 @@ export const aiRecipeRouter = router({
           /蛋/,
           /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
         ];
-        const kept = (finalResponse.recipes as any[]).filter((recipe) => {
+        const STRONG_PROTEIN = /雞胸|雞柳|雞扒|三文魚|鱈魚|魚柳|蝦|牛|豆腐|蛋|雞/;
+        const scored = (finalResponse.recipes as any[]).map((recipe) => {
           const haystack = `${recipe?.name ?? ""} ${(recipe?.ingredients ?? [])
             .map((item: any) => (typeof item === "string" ? item : String(item?.name ?? "")))
             .join(" ")}`;
-          return GROUPS.filter((group) => group.test(haystack)).length >= 2;
+          return { recipe, groups: GROUPS.filter((group) => group.test(haystack)).length, strong: STRONG_PROTEIN.test(haystack) };
         });
+        const strong = scored.filter((entry) => entry.groups >= 2 && entry.strong);
+        const kept = (strong.length > 0 ? strong : scored.filter((entry) => entry.groups >= 2))
+          .map((entry) => entry.recipe);
         if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
           console.log(`[AI Chef] protein-multi removed=${finalResponse.recipes.length - kept.length}`);
           finalResponse.recipes = kept;
