@@ -6114,16 +6114,17 @@ async function applyZeroCardInsurance(
       if (!hasDish) {
         // The 「食譜庫」 quick reply needs alternatives or it does nothing —
         // offer the closest library dishes (same characters / same protein).
-        const alts = rows
-          .filter((row) => {
+        const scoredAlts = rows
+          .map((row) => {
             const name = String((row as any)?.name ?? "");
-            if (!name) return false;
             const shared = Array.from(dishCandidate).filter((ch) => name.includes(ch)).length;
-            return shared >= 2;
+            return { row, shared };
           })
+          .filter((entry) => String((entry.row as any)?.name ?? "").length > 0)
+          .sort((a, b) => b.shared - a.shared)
           .slice(0, 3)
-          .map(toCard);
-        const fallbackAlts = alts.length > 0 ? alts : rows.slice(0, 3).map(toCard);
+          .map((entry) => toCard(entry.row));
+        const fallbackAlts = scoredAlts;
         console.log(`[AI Chef] named_dish_miss dish=${dishCandidate} — asking instead of serving popular cards (alts=${fallbackAlts.length})`);
         return {
           ...result,
