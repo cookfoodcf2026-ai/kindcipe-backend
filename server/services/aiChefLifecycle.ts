@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { aiReply } from "../_core/aiReply";
 import { shouldChargeChefRequest } from "./aiChefPolicy";
 import { buildClientMessageKey, getIdempotencyDecision, type IdempotencyCached } from "./aiChefIdempotency";
+import {
+  deriveChefRetryToken,
+  incompleteContractResponseFields,
+  resolveIncompleteContract,
+  type IncompleteContractOutcome,
+} from "./aiChefIncompleteContract";
 import type { ChefCardSnapshot, ChefReply, ChefResponseStatus } from "./chefResponse";
 import { validateChefReply } from "./chefResponse";
 import type { ChefIntent, RequestedRole } from "./chefIntent";
@@ -306,6 +312,13 @@ export type ChefLifecycleInput = {
   payload: unknown;
   requestedCredits: number;
   store?: ChefRequestStore;
+  /** Optional retry token returned by a previous incomplete response. */
+  retryToken?: string;
+  incompleteContract?: {
+    enabled: boolean;
+    /** Defaults to the intent's requested card count. */
+    requiredCards?: number;
+  };
   reserveCredit: (requestedCredits: number) => Promise<number | undefined>;
   commitCredit: (reservationId: number) => Promise<void>;
   refundCredit: (reservationId: number) => Promise<void>;
@@ -317,6 +330,7 @@ export type ChefLifecycleResult = {
   decision: "miss" | "reuse";
   creditsCharged: number;
   llmCalls: number;
+  contract?: IncompleteContractOutcome;
 };
 
 /**
@@ -325,13 +339,22 @@ export type ChefLifecycleResult = {
  * reserving or charging credit again.
  */
 export async function runChefLifecycle(input: ChefLifecycleInput): Promise<ChefLifecycleResult> {
+  const payloadHash = hashChefPayload(input.payload);
+  const contractEnabled = input.incompleteContract?.enabled === true;
+  const contractMessageId = contractEnabled
+    ? (input.retryToken?.trim() || deriveChefRetryToken({
+        familyId: input.familyId,
+        chatId: input.chatId,
+        clientMessageId: input.clientMessageId,
+        payloadHash,
+      }))
+    : input.clientMessageId;
   const key: ChefRequestKey = {
     familyId: input.familyId,
     chatId: input.chatId,
-    clientMessageId: input.clientMessageId,
+    clientMessageId: contractMessageId,
   };
   const keyString = buildClientMessageKey({ familyId: key.familyId, chatId: key.chatId, clientMessageId: key.clientMessageId });
-  const payloadHash = hashChefPayload(input.payload);
   let claimed = false;
 
   if (keyString && input.store) {
@@ -377,19 +400,38 @@ export async function runChefLifecycle(input: ChefLifecycleInput): Promise<ChefL
     throw new ChefReplyContractError(errors);
   }
 
-  const charge = shouldChargeChefRequest({
+  const baseCharge = shouldChargeChefRequest({
     served: reply.served,
     aiCards: result.recipes.filter((recipe) => (recipe.source ?? "ai") === "ai").length,
   });
+  const requiredCards = input.incompleteContract?.requiredCards
+    ?? (input.intent.wantsCards ? Math.max(1, input.intent.requested.total) : 0);
+  const contract = resolveIncompleteContract({
+    enabled: contractEnabled,
+    requiredCards,
+    served: reply.served,
+    shouldCharge: baseCharge,
+    retryToken: contractEnabled ? contractMessageId : undefined,
+  });
+  const charge = contract.shouldCharge;
   if (reservationId !== undefined) {
     if (charge) await input.commitCredit(reservationId);
     else await input.refundCredit(reservationId);
   }
   const creditsCharged = reservationId !== undefined && charge ? input.requestedCredits : 0;
+  const response = contract.applies
+    ? { ...reply, ...incompleteContractResponseFields(contract, creditsCharged) }
+    : reply;
 
   if (keyString && input.store) {
-    await input.store.save(key, { payloadHash, response: reply });
+    await input.store.save(key, { payloadHash, response });
   }
 
-  return { reply, decision: "miss", creditsCharged, llmCalls: result.llmCalls ?? 0 };
+  return {
+    reply: response as ChefReply,
+    decision: "miss",
+    creditsCharged,
+    llmCalls: result.llmCalls ?? 0,
+    contract,
+  };
 }

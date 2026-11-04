@@ -28,6 +28,7 @@ test("new AI Chef flags default OFF", () => {
   const flags = getFeatureFlags();
   assert.equal(flags.ai_chef_truthful_contract, false);
   assert.equal(flags.ai_chef_client_message_id, false);
+  assert.equal(flags.ai_chef_incomplete_contract, false);
   assert.equal(flags.ai_chef_single_card_library, false);
   assert.equal(flags.ai_chef_any_library_miss_offer, false);
 });

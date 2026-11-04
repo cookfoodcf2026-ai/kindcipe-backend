@@ -40,6 +40,11 @@ import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../ser
 import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
+import {
+  deriveChefRetryToken,
+  incompleteContractResponseFields,
+  resolveIncompleteContract,
+} from "../services/aiChefIncompleteContract";
 import { finalizeChefRequest } from "../services/aiChefFinalization";
 import { getAiChefMode, getAiChefCapMicros, getFeatureFlags } from "../services/aiChefFlags";
 import {
@@ -7148,6 +7153,7 @@ export const aiRecipeRouter = router({
       forceText: z.boolean().optional(),
       lang: z.string().optional(),
       clientMessageId: z.string().min(1).max(128).optional(),
+      retryToken: z.string().min(1).max(128).optional(),
       aiEntry: z.string().max(40).optional(),
       chatId: z.string().max(64).optional(),
       operation: z.enum(["replace", "append"]).optional(),
@@ -7385,13 +7391,9 @@ export const aiRecipeRouter = router({
         : { mode: "normal" as const, flags: getFeatureFlags() };
       const truthfulContract = flagState.flags.ai_chef_truthful_contract === true;
       const clientMessageIdEnabled = flagState.flags.ai_chef_client_message_id === true;
-      const idempotencyKey = familyId && clientMessageIdEnabled && input.clientMessageId
-        ? { familyId, chatId: input.chatId, clientMessageId: input.clientMessageId }
-        : undefined;
-      const idempotencyStore = idempotencyKey
-        ? createAiChefRequestStore(String(ctx.user.id))
-        : undefined;
-      const payloadHash = idempotencyKey
+      const incompleteContractEnabled = flagState.flags.ai_chef_incomplete_contract === true;
+      const idempotencyEnabled = clientMessageIdEnabled || incompleteContractEnabled;
+      const payloadHash = idempotencyEnabled
         ? hashChefPayload({
             messages: input.messages,
             mode: input.mode,
@@ -7403,6 +7405,24 @@ export const aiRecipeRouter = router({
             search: input.search,
           })
         : "";
+      // With the incomplete contract ON the retry token becomes the idempotency
+      // key, so a retry with the same token + payload reuses the stored result.
+      // The existing unique index (family_id, chat_id, client_message_id) is the
+      // only storage needed.
+      const idempotencyMessageId = incompleteContractEnabled
+        ? (input.retryToken?.trim() || deriveChefRetryToken({
+            familyId: familyId ?? 0,
+            chatId: input.chatId,
+            clientMessageId: input.clientMessageId,
+            payloadHash,
+          }))
+        : input.clientMessageId;
+      const idempotencyKey = familyId && idempotencyEnabled && idempotencyMessageId
+        ? { familyId, chatId: input.chatId, clientMessageId: idempotencyMessageId }
+        : undefined;
+      const idempotencyStore = idempotencyKey
+        ? createAiChefRequestStore(String(ctx.user.id))
+        : undefined;
 
       if (idempotencyStore && idempotencyKey) {
         const cached = await idempotencyStore.find(idempotencyKey);
@@ -7412,7 +7432,9 @@ export const aiRecipeRouter = router({
           }
           return {
             ...(cached.response as Record<string, unknown>),
-            idempotency: { decision: "reuse", creditsCharged: 0, llmCalls: 0 },
+            ...(clientMessageIdEnabled
+              ? { idempotency: { decision: "reuse", creditsCharged: 0, llmCalls: 0 } }
+              : {}),
           };
         }
       }
@@ -7506,7 +7528,9 @@ export const aiRecipeRouter = router({
             if (reservationId) await refundUsage(reservationId).catch(() => {});
             return {
               ...(claim.cached.response as Record<string, unknown>),
-              idempotency: { decision: "reuse", creditsCharged: 0, llmCalls: 0 },
+              ...(clientMessageIdEnabled
+                ? { idempotency: { decision: "reuse", creditsCharged: 0, llmCalls: 0 } }
+                : {}),
             };
           }
           if (claim.decision === "conflict") {
@@ -7863,7 +7887,16 @@ export const aiRecipeRouter = router({
       if (meterInvariant) {
         console.error(`[AI Chef][meter-invariant] request=${requestId} aiCards=${aiCards} served=${served} requested=${requested} llmCalls=${meter.calls} llmUsed=${result.llmUsed}`);
       }
-      const shouldCharge = shouldChargeChefRequest({ served, aiCards });
+      const baseShouldCharge = shouldChargeChefRequest({ served, aiCards });
+      const requiredCards = effectiveIntent.wantsCards ? Math.max(1, requested) : 0;
+      const incompleteContract = resolveIncompleteContract({
+        enabled: incompleteContractEnabled,
+        requiredCards,
+        served,
+        shouldCharge: baseShouldCharge,
+        retryToken: incompleteContractEnabled ? idempotencyMessageId : undefined,
+      });
+      const shouldCharge = incompleteContract.shouldCharge;
 
       const responseLang = input.lang ?? "zh-TW";
       if (zeroCardFood || cardClaim) {
@@ -7992,12 +8025,20 @@ export const aiRecipeRouter = router({
               ...(contractCards[i]?.cardId ? { cardId: contractCards[i].cardId } : {}),
             }));
           }
+          Object.assign(legacy, incompleteContractResponseFields(
+            incompleteContract,
+            shouldCharge && reservationId !== undefined ? requestedCredits : 0,
+          ));
           return legacy;
         },
         applyContract: (legacy, contract) => {
           const applied = applyTruthfulContract(legacy, contract, true);
           applied.chatId = input.chatId;
           applied.clientMessageId = input.clientMessageId;
+          Object.assign(applied, incompleteContractResponseFields(
+            incompleteContract,
+            shouldCharge && reservationId !== undefined ? requestedCredits : 0,
+          ));
           return applied;
         },
         commitUsage: async (id) => commitUsage(id),
