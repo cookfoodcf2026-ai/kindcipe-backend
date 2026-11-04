@@ -2140,7 +2140,10 @@ export const appRouter = router({
         }
 
         await touchUserSignIn(user.id);
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
+        // OTP 用戶冇 name（null）→ 舊碼會簽 name:""，而 verifySession 要求 name 非空
+        // → 之後每個請求都被當 anon（Please login 10001）。一定要有 fallback。
+        const tokenName = user.name?.trim() || String(input.email ?? "").split("@")[0] || "user";
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: tokenName, expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };
