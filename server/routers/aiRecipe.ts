@@ -7926,6 +7926,10 @@ export const aiRecipeRouter = router({
         }
       }
 
+      const requiredCardsForTopUp = mealRequest
+        ? Math.max(1, effectiveIntent.requested.total)
+        : 1;
+
       // Red line, every path: 忌口／過敏原（包括用戶打落 chat 嘅）一定要喺
       // 所有組裝（3餸1湯湯品、AI 補卡、protein/veg postcondition）之後再篩一次。
       // 之前只在早段篩，湯品之後才加入 → 實測漏咗「木瓜花生眉豆雞腳湯」。
@@ -7938,6 +7942,34 @@ export const aiRecipeRouter = router({
           if (kept.length === 0) {
             result.content = `我避開咗「${avoidIngredients.join("、")}」，暫時搵唔到合適食譜。要唔要試其他食材？`;
           }
+        }
+      }
+
+      // 忌口剔走卡之後要補返：AI 補位有時會生成含忌口食材嘅卡，
+      // postcondition 剔走係正確，但唔可以因此少卡。由已過濾 library 補位。
+      if (avoidIngredients.length > 0 && mealRequest && result.recipes.length < requiredCardsForTopUp) {
+        try {
+          const refillDb = await getDb();
+          if (!refillDb) throw new Error("no db");
+          const taken = new Set(result.recipes.map((r) => normalizeName(String(r?.name ?? ""))).filter(Boolean));
+          const pool = await execSearchRecipes(refillDb, { query: "", limit: 400 }, familyId);
+          const spares: typeof result.recipes = [];
+          for (const row of (pool.recipes ?? []) as Record<string, unknown>[]) {
+            if (result.recipes.length + spares.length >= requiredCardsForTopUp) break;
+            if (rowContainsAvoid(row, avoidIngredients)) continue;
+            const recipe = rowToSuggestedRecipe(row);
+            if (!recipe) continue;
+            const key = normalizeName(recipe.name);
+            if (!key || taken.has(key)) continue;
+            spares.push(recipe as any);
+            taken.add(key);
+          }
+          if (spares.length > 0) {
+            console.log(`[AI Chef] avoid refill +${spares.length} avoid=${avoidIngredients.join("|")}`);
+            result.recipes = [...result.recipes, ...spares];
+          }
+        } catch (error) {
+          console.warn("[AI Chef] avoid refill failed:", (error as Error)?.message);
         }
       }
 
