@@ -4961,9 +4961,22 @@ async function processAIChefChatCore(
       console.log(`[AI Chef] library pool fetch ${rows.length} rows in ${Date.now() - poolStartedAt}ms`);
     }
 
-    const safeRows = avoidIngredients.length > 0
+    let safeRows = avoidIngredients.length > 0
       ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
       : rows;
+
+    // The library fast path skipped every postcondition, so 清淡 served
+    // 「富貴黃金大蝦」. Apply the light / one-pot rules to the pool itself.
+    const libText = lastUserText(inputMessages as any) ?? "";
+    const HEAVY_NAME_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒|黃金|金沙|避風塘|椒鹽|咕嚕|蜜汁|芝士|焗/;
+    const ONEPOT_NAME_RE = /電飯煲|一鍋|煲仔|燜|燉飯|炊飯|煲飯|壓力煲|電子鍋/;
+    const poolFiltered = safeRows.filter((row) => {
+      const name = `${(row as any)?.name ?? ""}`;
+      if (/清淡|少油|少鹽|輕盈|輕食/.test(libText) && HEAVY_NAME_RE.test(name)) return false;
+      if (/電飯煲|一鍋|懶人/.test(libText) && !ONEPOT_NAME_RE.test(name)) return false;
+      return true;
+    });
+    if (poolFiltered.length >= 2) safeRows = poolFiltered;
 
     const explicitTermCandidate = extractMealIngredients(lastUserText)[0] ?? "";
     // Scenario words are not dishes: 「素食」「高蛋白」 would otherwise be treated as
@@ -7148,7 +7161,7 @@ export const aiRecipeRouter = router({
       // 蛋白／健身: answer with real protein dishes straight from the library.
       // The normal pipeline kept returning egg dishes (茶碗蒸 / 蒸肉餅).
       const proteinText = lastUserText(input.messages) ?? "";
-      if (mode === "chat" && /蛋白|健身|增肌/.test(proteinText)) {
+      if ((mode === "chat" || mode === "library") && /蛋白|健身|增肌/.test(proteinText)) {
         const pdb = await getDb();
         if (pdb) {
           const officialRows = await pdb
