@@ -7919,6 +7919,21 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // 電飯煲／一鍋／懶人: the one-pot tag is too loose (燉、煲都算), so keep
+      // only cards that actually name a rice cooker / one-pot method.
+      if (/電飯煲|一鍋|懶人/.test(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 1) {
+        const ONEPOT_RE = /電飯煲|一鍋|煲仔|燜|燉飯|炊飯|煲飯|壓力煲|電子鍋/;
+        const kept = (finalResponse.recipes as any[]).filter((recipe) => {
+          const name = String(recipe?.name ?? "");
+          const tags = Array.isArray(recipe?.tags) ? recipe.tags.join(" ") : "";
+          return ONEPOT_RE.test(name) || /onepot|one-pot|ricecooker/i.test(tags);
+        });
+        if (kept.length > 0 && kept.length !== finalResponse.recipes.length) {
+          console.log(`[AI Chef] onepot filter removed=${finalResponse.recipes.length - kept.length}`);
+          finalResponse.recipes = kept;
+        }
+      }
+
       // 蛋白／健身 ask: a single egg dish is not a protein answer — keep cards
       // with at least two protein groups (meat, seafood, egg, soy).
       if (/蛋白|健身|增肌/.test(lastUserText(input.messages) ?? "") && Array.isArray(finalResponse.recipes) && finalResponse.recipes.length > 0) {
