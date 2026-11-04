@@ -40,6 +40,7 @@ import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../ser
 import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
+import { extractTypedAvoid } from "../utils/typedAvoid";
 import {
   deriveChefRetryToken,
   incompleteContractResponseFields,
@@ -7366,7 +7367,10 @@ export const aiRecipeRouter = router({
         console.warn(`[AI Chef] ai telemetry missing request=${requestId}`);
       }
       const excludeNames = input.excludeNames ?? [];
-      const avoidIngredients = input.avoidIngredients ?? [];
+      // 用戶自己打落 chat 嘅忌口（「避免：花生」「對蝦敏感」）之前完全冇過濾，
+      // 實測會出含花生嘅湯。呢層同 structured prefs 合併，寧願剔多唔好漏。
+      const typedAvoid = extractTypedAvoid(lastUserText(input.messages));
+      const avoidIngredients = [...new Set([...(input.avoidIngredients ?? []), ...typedAvoid])];
       const hasMedia = input.messages.some((m) => {
         if (typeof m.content === "string") return /(https?:\/\/|data:image)/i.test(m.content);
         return m.content.some((c) => c.type === "image_url");
@@ -7838,14 +7842,29 @@ export const aiRecipeRouter = router({
       // one card. Every other entry point (快手／清淡／電飯煲／親子／宴客／蛋白／素食／
       // 隨機抽／食譜庫) returns exactly one card — no fallback/insurance top-up.
       if (!mealRequest) {
-        if (result.recipes.length > 1) {
-          console.log(`[AI Chef] single_card_rule capped ${result.recipes.length} -> 1 kind=${effectiveIntent.kind}`);
-          result.recipes = result.recipes.slice(0, 1);
+        // 車主規則：用戶明確講數量（「我要 3 道菜」）就按數字出；
+        // 冇講數量才 cap 1 張。之前一律 cap 1，令「我要 3 道菜」只出 1 張。
+        // 只信「數字＋量詞」；上限定 4（4 卡 = 1 credit 政策），唔信模糊句（幾道菜／多啲）。
+        const CN_NUM: Record<string, number> = {
+          一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+        };
+        const countMatch = lastUserText(input.messages)
+          .match(/([0-9]+|[一二兩三四五六七八九十])\s*(?:道|款|個菜|樣菜|樣餸)/u);
+        const askedCount = countMatch
+          ? Number(countMatch[1]) || CN_NUM[countMatch[1]] || 0
+          : 0;
+        // 只適用於自由打字：熱鍵／食譜庫／library 呢類結構化入口一律 1 張，
+        // 否則上一句「我要 3 道菜」會令之後撳熱鍵出 3 張（OC review 指出）。
+        const structuredEntry = Boolean(input.search) || input.mode === "library";
+        const explicitCount = !structuredEntry && askedCount >= 2 ? Math.min(4, askedCount) : 1;
+        if (result.recipes.length > explicitCount) {
+          console.log(`[AI Chef] single_card_rule capped ${result.recipes.length} -> ${explicitCount} kind=${effectiveIntent.kind}`);
+          result.recipes = result.recipes.slice(0, explicitCount);
         }
-        if (effectiveIntent.requested.total > 1) {
+        if (explicitCount > 1) {
           effectiveIntent.requested = {
-            total: 1,
-            roles: effectiveIntent.requested.roles.slice(0, 1),
+            total: explicitCount,
+            roles: effectiveIntent.requested.roles.slice(0, explicitCount),
           };
         }
       }
