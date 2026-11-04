@@ -7151,7 +7151,7 @@ export const aiRecipeRouter = router({
       if (mode === "chat" && /蛋白|健身|增肌/.test(proteinText)) {
         const pdb = await getDb();
         if (pdb) {
-          const rows = await pdb
+          const officialRows = await pdb
             .select()
             .from(officialRecipes)
             .where(and(
@@ -7163,10 +7163,31 @@ export const aiRecipeRouter = router({
                 ilike(officialRecipes.name, "%蝦%"),
                 ilike(officialRecipes.name, "%牛肉%"),
                 ilike(officialRecipes.name, "%豆腐%"),
+                ilike(officialRecipes.name, "%蛋白%"),
               ),
             ))
             .limit(40);
-          const cards = rows.map((row) => toChefLibraryRecipe(row as any))
+          const customRows = familyId
+            ? await pdb
+                .select()
+                .from(customRecipes)
+                .where(and(
+                  eq(customRecipes.familyId, familyId),
+                  or(
+                    ilike(customRecipes.name, "%雞胸%"),
+                    ilike(customRecipes.name, "%三文魚%"),
+                    ilike(customRecipes.name, "%魚柳%"),
+                    ilike(customRecipes.name, "%蝦%"),
+                    ilike(customRecipes.name, "%牛肉%"),
+                    ilike(customRecipes.name, "%豆腐%"),
+                    ilike(customRecipes.name, "%蛋白%"),
+                  ),
+                ))
+                .limit(20)
+            : [];
+          const rows = [...officialRows, ...customRows];
+          const cards = rows
+            .map((row) => toChefLibraryRecipe(row as any))
             .filter((card: any) => Array.isArray(card.ingredients) ? card.ingredients.length > 0 : true)
             .slice(0, 3);
           if (cards.length > 0) {
