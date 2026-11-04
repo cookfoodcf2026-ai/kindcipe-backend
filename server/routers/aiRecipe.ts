@@ -1904,7 +1904,10 @@ function toAlternativeCards(rows: Record<string, unknown>[], term: string, aller
   return allergens.length > 0 ? filterAllergenCards(cards, allergens) : cards;
 }
 
-export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = []): SuggestedRecipe[] {
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = []): SuggestedRecipe[] {
+  // 忌口／過敏原喺「揀任何一張卡之前」就要剔走（包括湯）。
+  // 之前只有部分 caller 先過濾，library 路徑嘅湯就繞過咗 → 實測出花生湯。
+  if (avoid.length > 0) rows = rows.filter((row) => !rowContainsAvoid(row, avoid));
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
@@ -5096,7 +5099,7 @@ async function processAIChefChatCore(
       const libCount = { dishCount, soupCount };
       const totalWanted = Math.max(libCount.dishCount + libCount.soupCount, 1);
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
-      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d);
+      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients);
       const libPicked = diversifyLibraryMeal(libPickedRaw, safeRows, {
         scenario: search?.scenario,
         protectTerm: explicitTerm,
@@ -5535,7 +5538,7 @@ async function processAIChefChatCore(
       const safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
-      const libMealRaw = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d);
+      const libMealRaw = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients);
       // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
       let libMeal = libMealRaw;
       if ((process.env.MEAL_DIVERSITY_ENABLED ?? "false") !== "false" && libMealRaw.length >= 2) {
