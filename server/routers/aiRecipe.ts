@@ -4044,7 +4044,8 @@ async function processAIChefChatCore(
   if (pantryRequest) {
     for (const term of pantryTerms.slice(0, 4)) {
       const search = await trySearch(term, 20);
-      if (!search.ok) break;
+      // 一個詞 miss 唔代表其他詞都 miss（以前 break → 第一個垃圾詞就令全條 pantry 變 0 卡）
+      if (!search.ok) continue;
       // Ignore the "already seen" list here: with 3 fridge items the pool is tiny,
       // and skipping seen cards turned the pantry tab into 0 cards.
       const cards = rowsToSuggested(search.rows, mkExcludeSets([], []), 1);
@@ -4065,6 +4066,25 @@ async function processAIChefChatCore(
         };
       }
     }
+    // 抽到食材但食譜庫配唔到：明確講清「我睇到咩」+ 問做法，唔准靜靜回 0 卡。
+    // 呢條路 0 credit（llmUsed: false），app 會出「AI 生成／最接近」做下一步。
+    const pantryList = [...new Set(pantryTerms)].slice(0, 4).join("、");
+    console.warn(`[AI Chef] pantry ingredient_miss items=${pantryTerms.join("|")}`);
+    return {
+      content: lang.startsWith("en")
+        ? `I can see you have ${pantryList}. How would you like to cook it — quick stir-fry, soup, or something light?`
+        : `我睇到你雪櫃有：${pantryList}。想點煮？快炒、煮湯，定係清淡啲？`,
+      recipes: [],
+      llmUsed: false,
+      clarifyReason: "ingredient_miss",
+      intentOverride: {
+        kind: "recipe",
+        wantsCards: true,
+        requested: { total: 1, roles: ["any"] },
+        confidence: 0.6,
+        reason: "pantry_ingredient_miss",
+      },
+    };
   }
 
 // 由句子抽 keyword（剷走口語填充字＋數字）；抽唔到 → 空 = 用 generic 池

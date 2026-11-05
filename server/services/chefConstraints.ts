@@ -45,6 +45,8 @@ export interface ChefConstraints {
   namedDish: string | null;
   dishCount: number | null;
   wantsSoup: boolean;
+  /** 口味：「要辣」= spicy、「清淡」= mild（唔要辣 = negatives.spicy，spice 必須 null） */
+  spice: "spicy" | "mild" | null;
 }
 
 const PROTEIN_WORDS: Array<[RegExp, ChefProtein]> = [
@@ -149,19 +151,46 @@ export function parseChefConstraints(rawText: string): ChefConstraints {
     }
   }
 
+  // 雪櫃／屋企／我有 + 有／得／剩／嘅 之後嘅一串食材。
+  // 「唔得閒煮飯」唔算（冇雪櫃／我 做 cue），「雪櫃嘅雞蛋、番茄」算。
+  const cueMatch = text.match(
+    /(?:雪櫃|冰箱|屋企|家中|我)[^，,。！？；;\n]*?(?:有|得|剩低|剩|淨係|只有|只係|入面|裡面|嘅)\s*([^。！？；;\n]+)/,
+  )?.[1];
   const pantryMatch =
     text.match(/[：:]\s*([^\n。]+)/)?.[1] ??
-    (PANTRY_ONLY_PREFIX.test(text) ? text.match(/得([^\n。]+)/)?.[1] : undefined) ??
+    cueMatch ??
     "";
+  const PANTRY_TAIL_RE = /(?:可以|點|想|要|唔知|有咩|有乜)?\s*(?:煮|整|做|食|炒|煲)?\s*(?:咩|乜|咩嘢|啲咩|咩好|乜好|好)?\s*$/u;
+  const PANTRY_JUNK_RE = /咩|乜|可以|唔知|推介|建議|食譜|得閒|煮飯|好唔好/;
   const pantry = pantryMatch
+    .replace(/(?:可以|點)(?:煮|整|做|食)(?:咩|乜).*$/u, " ")
+    .replace(/(?:煮|整|食)(?:咩|乜).*$/u, " ")
     .split(/[、，,同＋/+]+/)
-    .map((item) => item.replace(/^(有|仲有|同|得|埋)/, "").replace(/(同埋|同)$/, "").trim())
-    .filter((item) => item.length >= 1 && item.length <= 8 && !/得閒/.test(item));
+    .map((item) => item
+      .replace(/^(有|仲有|同|得|埋|用|啲)/, "")
+      .replace(PANTRY_TAIL_RE, "")
+      .replace(/(同埋|同)$/, "")
+      .trim())
+    .filter((item) =>
+      item.length >= 1 &&
+      item.length <= 8 &&
+      !PANTRY_JUNK_RE.test(item) &&
+      !/得閒/.test(item),
+    );
   const pantryMode: ChefConstraints["pantryMode"] = pantry.length === 0
     ? null
     : /淨係|只有|只係|雪櫃得|冰箱得|剩得/.test(text)
       ? "only"
       : "prefer";
+
+  // 口味：否定（唔要辣／走辣）優先，唔可以同時當成想要辣
+  const wantsSpicy = /辣|麻辣|香辣|辛辣|川味|水煮/.test(text);
+  const wantsMild = /清淡|少油|少鹽|輕盈|輕食|唔辣|走辣/.test(text);
+  const spice: ChefConstraints["spice"] = negatives.includes("spicy") || wantsMild
+    ? (wantsSpicy && !negatives.includes("spicy") && !wantsMild ? "spicy" : "mild")
+    : wantsSpicy
+      ? "spicy"
+      : null;
 
   const namedDish = (() => {
     const cleaned = text.replace(/[，。！？、,.!?\s]/g, "");
@@ -198,5 +227,6 @@ export function parseChefConstraints(rawText: string): ChefConstraints {
     dishCount,
     // 「想飲湯」「要有湯」都算要湯，唔一定要同時講幾道餸
     wantsSoup: /湯/.test(text) && (Boolean(dishCount) || /飲湯|要有湯|想有湯|一個湯|湯水/.test(text)),
+    spice,
   };
 }

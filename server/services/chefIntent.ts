@@ -91,6 +91,14 @@ export function extractMealIngredients(text: string): string[] {
       term = next;
     }
     if (!term || term.length > 20) continue;
+    // 位置／容器詞唔係食材：「雪櫃」「屋企」「冰箱」會令 pantry 搜尋第一步就 miss
+    term = term.replace(/^(?:我|你)?(?:屋企|家中|雪櫃|冰箱|冰格)(?:嘅|入面|裡面|有|得)?/u, "").trim();
+    // 問句碎片唔係食材：「可以煮咩」「煮咩好」「咩辣嘢食」
+    // 先剝走句尾問法（「番茄煮咩好」→「番茄」），再判斷係唔係問句碎片
+    term = term.replace(/(?:可以|點|我想|想|要)?(?:煮|整|做|食|炒|煲)(?:咩|乜|啲咩).*$/u, "").trim();
+    if (/^(?:可以|點|唔知|想|要)?(?:煮|整|做|食|炒|煲)?(?:咩|乜|啲咩)/u.test(term)) continue;
+    if (/咩|乜/.test(term)) continue;
+    if (!term) continue;
     if (/[0-9一二兩三四五六七八九十]+\s*[餸菜送]/.test(term)) continue;
     if (/^(?:[0-9一二兩三四五六七八九十]*湯|湯水|set|meal|dinner|lunch|breakfast)$/i.test(term)) continue;
     if (MEAL_LABEL_RE.test(term)) continue;

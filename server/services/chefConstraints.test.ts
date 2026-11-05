@@ -178,3 +178,25 @@ test("golden 23: 唔要豬，想食雞 drops pork from the protein wish", () => 
   assert.ok(c.negatives.includes("pork"));
   assert.deepEqual(c.proteins, ["chicken"]);
 });
+
+test("golden 20: 雪櫃有 X 冇「得」都要抽到 pantry", () => {
+  const c = parseChefConstraints("雪櫃有青菜、洋蔥、豆腐，可以煮咩");
+  assert.deepEqual(c.pantry, ["青菜", "洋蔥", "豆腐"]);
+  assert.equal(c.pantryMode, "prefer");
+});
+
+test("golden 20b: 屋企有 X 都算 pantry", () => {
+  const c = parseChefConstraints("屋企有豆腐同菜心");
+  assert.deepEqual(c.pantry, ["豆腐", "菜心"]);
+});
+
+test("golden 20c: 雪櫃嘅 X 唔會留低「雪櫃嘅」", () => {
+  const c = parseChefConstraints("我用雪櫃嘅雞蛋、番茄煮咩好");
+  assert.deepEqual(c.pantry, ["雞蛋", "番茄"]);
+});
+
+test("golden 21: 要辣 = spice spicy，清淡 = mild，唔要辣唔可以當想要辣", () => {
+  assert.equal(parseChefConstraints("有咩辣嘢食").spice, "spicy");
+  assert.equal(parseChefConstraints("我想食清淡啲").spice, "mild");
+  assert.equal(parseChefConstraints("煮個菜，唔要辣").spice, "mild");
+});
