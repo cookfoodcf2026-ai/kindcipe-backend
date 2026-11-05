@@ -4280,6 +4280,9 @@ async function processAIChefChatCore(
     if (plannedTurn) return "planned_turn";
     if (smallTalk) return "small_talk";
     if (isCannedMealPrompt(lastUserText)) return "canned_meal";
+    // 素食 free text（diet）走 vegetarian scenario search，唔經 slot pipeline（slot pipeline
+    // 揀卡後 hard_constraint 會 0 卡）。
+    if (chefIntent.diet) return "vegetarian_diet";
     // Multi-card meal shapes (三餸一湯) are owned by the meal-shape postcondition;
     // serving 3 random cards from the single-card pipeline was breaking them.
     if (detectMealShapeLoose(lastUserText)) return "meal_shape";
