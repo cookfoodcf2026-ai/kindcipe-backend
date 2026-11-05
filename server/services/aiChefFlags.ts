@@ -36,6 +36,7 @@ export function getFeatureFlags(): Record<string, boolean> {
     ai_chef_incomplete_contract: flagDefault("AI_CHEF_INCOMPLETE_CONTRACT", false),
     ai_chef_single_card_library: flagDefault("AI_CHEF_SINGLE_CARD_LIBRARY", false),
     ai_chef_any_library_miss_offer: flagDefault("AI_CHEF_ANY_LIBRARY_MISS_OFFER", false),
+    ai_chef_hard_constraint_v2: flagDefault("AI_CHEF_HARD_CONSTRAINT_V2", false),
   };
 }
 

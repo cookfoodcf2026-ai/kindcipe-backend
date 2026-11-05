@@ -1142,6 +1142,111 @@ function rowContainsAvoid(row: Record<string, unknown>, avoid: string[]): boolea
   return recipeContainsAvoid(row as any, avoid);
 }
 
+// ─── Hard-constraint v2 (flag AI_CHEF_HARD_CONSTRAINT_V2) ───────────────
+// One validator for every single-card hotkey + meal hard constraint. The legacy
+// postconditions only replace cards when at least one survives (fail-open); this
+// one is fail-closed for single-card requests and lets meals top up via AI.
+const HARD_HEAVY_NAME_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒/;
+const HARD_ONEPOT_RE = /電飯煲|一鍋|煲仔|燜|燉飯|炊飯|煲飯|壓力煲|電子鍋/;
+const HARD_PROTEIN_INTENTS: Array<[RegExp, RegExp]> = [
+  [/魚|海鮮|蝦|蟹|蜆|蠔/, /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|海鮮|三文|魷|鱈|鯛|斑/],
+  [/雞/, /雞|鴨|鵝/],
+  [/牛/, /牛/],
+  [/豬|排骨|肉/, /豬|排骨|肉|火腿|煙肉|臘腸/],
+  [/蛋/, /蛋/],
+  [/豆腐|豆乾|腐竹/, /豆腐|豆乾|腐竹|豆卜/],
+];
+const HARD_PROTEIN_GROUPS = [
+  /豬|牛|羊|雞|鴨|鵝|火腿|煙肉|臘腸/,
+  /魚|蝦|蟹|蜆|蠔|帶子|瑤柱|魷/,
+  /蛋/,
+  /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
+];
+const HARD_MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉/;
+
+function hardIsMeat(raw: unknown): boolean {
+  const name = String(raw ?? "");
+  if (!name) return false;
+  if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
+  // Strip vegetarian-safe words that contain a meat character before testing.
+  const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶/g, "");
+  return HARD_MEAT_RE.test(cleaned);
+}
+
+export function cardPassesHardConstraint(
+  card: SuggestedRecipe,
+  input: { text: string; cookTimeMax?: number; avoidIngredients?: string[] },
+): boolean {
+  const name = String(card?.name ?? "");
+  const ingredients = Array.isArray(card?.ingredients) ? card.ingredients : [];
+  const ingNames = ingredients.map((i: any) => String(i?.name ?? ""));
+  const hay = `${name} ${ingNames.join(" ")}`;
+
+  // 清淡 / 親子：唔可以 heavy / 辣
+  if (/清淡|少油|輕盈|輕食|親子|小朋友|細路|孩子/i.test(input.text) && HARD_HEAVY_NAME_RE.test(name)) return false;
+
+  // 指名蛋白（我想食魚／雞／牛…）。「蛋白」含「蛋」，唔可以當成「想食蛋」。
+  const isHighProteinAsk = /蛋白|健身|增肌/.test(input.text);
+  const wants = isHighProteinAsk ? undefined : HARD_PROTEIN_INTENTS.find(([query]) => query.test(input.text));
+  if (wants) {
+    const main = ingNames.slice(0, 3).join(" ");
+    if (!wants[1].test(`${name} ${main}`)) return false;
+  }
+
+  // 電飯煲 / 一鍋 / 懶人：只收真正嘅電飯煲／一鍋菜
+  if (/電飯煲|一鍋|懶人/.test(input.text)) {
+    const tags = Array.isArray(card?.tags) ? card.tags.join(" ") : "";
+    if (!HARD_ONEPOT_RE.test(name) && !/onepot|one-pot|ricecooker/i.test(tags)) return false;
+  }
+
+  // 蛋白 / 健身：至少兩個蛋白群（雞蛋同時含「雞」「蛋」，唔可以當兩個群）
+  if (isHighProteinAsk) {
+    const proteinHay = hay.replace(/雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|牛油果|牛蒡|牛奶|牛油|奶油|魚香/g, "");
+    const groups = [
+      HARD_PROTEIN_GROUPS[0].test(proteinHay),
+      HARD_PROTEIN_GROUPS[1].test(proteinHay),
+      HARD_PROTEIN_GROUPS[2].test(hay),
+      HARD_PROTEIN_GROUPS[3].test(hay),
+    ].filter(Boolean).length;
+    if (groups < 2) return false;
+  }
+
+  // 素食：唔可以肉 / 海鮮
+  if (/素食|吃素|食素|vegan|vegetarian/i.test(input.text)) {
+    if (hardIsMeat(name) || ingNames.some(hardIsMeat)) return false;
+  }
+
+  // 忌口 / 過敏
+  if ((input.avoidIngredients?.length ?? 0) > 0 && recipeContainsAvoid(card as any, input.avoidIngredients!)) return false;
+
+  // 時間（快手）：cookTime 必須存在且 ≤ max（同 DB lte 一致）
+  if (typeof input.cookTimeMax === "number" && input.cookTimeMax > 0) {
+    const raw = (card as any)?.cookTime;
+    if (raw === null || raw === undefined || raw === "") return false;
+    const cookTime = Number(raw);
+    if (!Number.isFinite(cookTime) || cookTime > input.cookTimeMax) return false;
+  }
+
+  return true;
+}
+
+/**
+ * True when the request carries a hard constraint that must be enforced on the
+ * final cards. A plain 3餸1湯 (no constraint / no avoid / no time limit) has
+ * none, so it keeps the exact legacy behaviour even when the v2 flag is ON.
+ */
+export function hasHardConstraint(input: { text: string; cookTimeMax?: number; avoidIngredients?: string[] }): boolean {
+  return (
+    /清淡|少油|輕盈|輕食|親子|小朋友|細路|孩子/i.test(input.text) ||
+    HARD_PROTEIN_INTENTS.some(([query]) => query.test(input.text)) ||
+    /電飯煲|一鍋|懶人/.test(input.text) ||
+    /蛋白|健身|增肌/.test(input.text) ||
+    /素食|吃素|食素|vegan|vegetarian/i.test(input.text) ||
+    (input.avoidIngredients?.length ?? 0) > 0 ||
+    (typeof input.cookTimeMax === "number" && input.cookTimeMax > 0)
+  );
+}
+
 const FOOD_SYNONYM_GROUPS = [
   ["和牛", "和牛粒", "和牛片", "和牛扒"],
   ["雞髀", "雞脾", "雞腿", "雞腿肉", "雞扒", "雞扒肉"],
@@ -2257,6 +2362,7 @@ async function generateMissingRecipes(
   userId: number | undefined,
   neededTypes?: DishType[],
   avoidIngredients: string[] = [],
+  constraintText?: string,
 ): Promise<SuggestedRecipe[]> {
   if (count <= 0) return [];
   // 指定缺失類別 → 逐類生成（避免 AI 亂補出麵/飯/錯類）
@@ -2273,7 +2379,8 @@ async function generateMissingRecipes(
     const avoidLine = avoidIngredients.length > 0
       ? `必須完全避免以下敏感食材，任何食譜都唔可以包含：${avoidIngredients.join("、")}。`
       : "";
-    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，5-6 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
+    const constraintLine = constraintText ? ` 額外硬性要求（每一道都必須符合）：${constraintText}。` : "";
+    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine}${constraintLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，5-6 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
     const resp = await invokeLLM({
       messages: [{ role: "user", content: prompt }],
       maxTokens: 3500 * Math.max(1, count),
@@ -3679,6 +3786,11 @@ const FOOD_INTENT_RE = /食|煮|菜|餸|餐|湯|飯|麵|粥|早餐|小食|點心
 /** CHEF_SLOT_PIPELINE is default OFF; OFF must keep the a5a9648 behaviour. */
 export function isChefSlotPipelineEnabled(): boolean {
   return (process.env.CHEF_SLOT_PIPELINE ?? "false") === "true";
+}
+
+/** Commit 1: fail-closed single-card constraints + meal AI top-up. Default OFF. */
+export function isHardConstraintV2Enabled(): boolean {
+  return (process.env.AI_CHEF_HARD_CONSTRAINT_V2 ?? "false") === "true";
 }
 
 export type ChefPipelineTelemetry = {
@@ -7850,8 +7962,25 @@ export const aiRecipeRouter = router({
       // the logs all describe the cards the user actually receives.
       const mealRequest = effectiveIntent.kind === "meal" || detectMealShapeLoose(postconditionText) !== null;
 
-      // 清淡 / 親子 must not be answered with heavy or spicy dishes.
-      {
+      // Commit 1 flag: one fail-closed hard-constraint pass for every path.
+      // Flag OFF keeps the legacy postconditions (which only replace when a card survives).
+      const hardV2 = flagState.flags.ai_chef_hard_constraint_v2 === true || isHardConstraintV2Enabled();
+      const hardConstraintInput = {
+        text: postconditionText,
+        cookTimeMax: input.search?.cookTimeMax,
+        avoidIngredients,
+      };
+      if (hardV2 && hasHardConstraint(hardConstraintInput)) {
+        const beforeHard = result.recipes.length;
+        const keptHard = result.recipes.filter((recipe) => cardPassesHardConstraint(recipe, hardConstraintInput));
+        if (keptHard.length !== beforeHard) {
+          console.log(`[AI Chef] hard_constraint_v2 removed=${beforeHard - keptHard.length} kept=${keptHard.length} text="${postconditionText.slice(0, 24)}"`);
+          result.recipes = keptHard;
+        }
+      }
+
+      // 清淡 / 親子 must not be answered with heavy or spicy dishes (legacy; flag OFF).
+      if (!hardV2) {
         const HEAVY_RE = /辣|咖喱|沙嗲|麻辣|糖醋|紅燒|三杯|鹵|滷|炸|孜然|黑椒/;
         const wantsLight = /清淡|少油|輕盈|輕食/i.test(postconditionText);
         const wantsKid = /親子|小朋友|細路|孩子/i.test(postconditionText);
@@ -7884,6 +8013,7 @@ export const aiRecipeRouter = router({
         }
       }
 
+      if (!hardV2) {
       // Protein red line (OC review): 「想食魚」 must not be answered with egg or
       // noodles. Same mechanism as the vegetarian line, one dimension over.
       if (result.recipes.length > 0) {
@@ -7953,6 +8083,7 @@ export const aiRecipeRouter = router({
           result.recipes = kept;
         }
       }
+      } // end legacy constraints (flag OFF)
 
       // Red line, every path: a 素食 ask must never get meat/seafood cards.
       // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
@@ -8008,29 +8139,99 @@ export const aiRecipeRouter = router({
       // refill 只由已過濾 library 抽，最多 2 輪，唔會無限叫 AI。
       // 只可以「補足已有嘅餐」，唔可以為 0 卡憑空抽卡（實測『我想食魚』被填成茶碗蒸）。
       // 0 卡要走 no_cards／incomplete_set，唔可以亂補。
-      if (mealRequest && result.recipes.length > 0 && result.recipes.length < requiredCardsForTopUp) {
-        try {
-          const refillDb = await getDb();
-          if (!refillDb) throw new Error("no db");
-          const taken = new Set(result.recipes.map((r) => normalizeName(String(r?.name ?? ""))).filter(Boolean));
-          const pool = await execSearchRecipes(refillDb, { query: "", limit: 400 }, familyId);
-          const spares: typeof result.recipes = [];
-          for (const row of (pool.recipes ?? []) as Record<string, unknown>[]) {
-            if (result.recipes.length + spares.length >= requiredCardsForTopUp) break;
-            if (avoidIngredients.length > 0 && rowContainsAvoid(row, avoidIngredients)) continue;
-            const recipe = rowToSuggestedRecipe(row);
-            if (!recipe) continue;
-            const key = normalizeName(recipe.name);
-            if (!key || taken.has(key)) continue;
-            spares.push(recipe as any);
-            taken.add(key);
+      if (mealRequest && result.recipes.length < requiredCardsForTopUp) {
+        if (!hardV2) {
+          // Legacy: only top up a non-empty set, from the unfiltered library pool.
+          if (result.recipes.length > 0) {
+            try {
+              const refillDb = await getDb();
+              if (!refillDb) throw new Error("no db");
+              const taken = new Set(result.recipes.map((r) => normalizeName(String(r?.name ?? ""))).filter(Boolean));
+              const pool = await execSearchRecipes(refillDb, { query: "", limit: 400 }, familyId);
+              const spares: typeof result.recipes = [];
+              for (const row of (pool.recipes ?? []) as Record<string, unknown>[]) {
+                if (result.recipes.length + spares.length >= requiredCardsForTopUp) break;
+                if (avoidIngredients.length > 0 && rowContainsAvoid(row, avoidIngredients)) continue;
+                const recipe = rowToSuggestedRecipe(row);
+                if (!recipe) continue;
+                const key = normalizeName(recipe.name);
+                if (!key || taken.has(key)) continue;
+                spares.push(recipe as any);
+                taken.add(key);
+              }
+              if (spares.length > 0) {
+                console.log(`[AI Chef] meal refill +${spares.length} served=${result.recipes.length + spares.length}/${requiredCardsForTopUp} avoid=${avoidIngredients.join("|") || "none"}`);
+                result.recipes = [...result.recipes, ...spares];
+              }
+            } catch (error) {
+              console.warn("[AI Chef] meal refill failed:", (error as Error)?.message);
+            }
           }
-          if (spares.length > 0) {
-            console.log(`[AI Chef] meal refill +${spares.length} served=${result.recipes.length + spares.length}/${requiredCardsForTopUp} avoid=${avoidIngredients.join("|") || "none"}`);
-            result.recipes = [...result.recipes, ...spares];
+        } else {
+          // Commit 1: library refill (scenario/cookTime aware) + AI fill + fail closed.
+          try {
+            const refillDb = await getDb();
+            if (refillDb) {
+              const taken = new Set(result.recipes.map((r) => normalizeName(String(r?.name ?? ""))).filter(Boolean));
+              const pool = await execSearchRecipes(refillDb, {
+                query: "",
+                limit: 400,
+                ...(input.search?.scenario ? { scenario: input.search.scenario } : {}),
+                ...(input.search?.cookTimeMax ? { cookTimeMax: input.search.cookTimeMax } : {}),
+              }, familyId);
+              const spares: typeof result.recipes = [];
+              for (const row of (pool.recipes ?? []) as Record<string, unknown>[]) {
+                if (result.recipes.length + spares.length >= requiredCardsForTopUp) break;
+                const recipe = rowToSuggestedRecipe(row);
+                if (!recipe) continue;
+                if (!cardPassesHardConstraint(recipe as any, hardConstraintInput)) continue;
+                const key = normalizeName(recipe.name);
+                if (!key || taken.has(key)) continue;
+                spares.push(recipe as any);
+                taken.add(key);
+              }
+              if (spares.length > 0) {
+                result.recipes = [...result.recipes, ...spares];
+                console.log(`[AI Chef] hard_constraint_v2 library refill +${spares.length} served=${result.recipes.length}/${requiredCardsForTopUp}`);
+              }
+            }
+          } catch (error) {
+            console.warn("[AI Chef] meal library refill failed:", (error as Error)?.message);
           }
-        } catch (error) {
-          console.warn("[AI Chef] meal refill failed:", (error as Error)?.message);
+
+          if (result.recipes.length < requiredCardsForTopUp) {
+            const missing = requiredCardsForTopUp - result.recipes.length;
+            const constraintText = [
+              /清淡|少油|輕盈|輕食|親子|小朋友|細路|孩子/i.test(postconditionText) ? "不要辣、不要炸、不要重口味" : "",
+              /電飯煲|一鍋|懶人/.test(postconditionText) ? "必須是電飯煲或一鍋到底菜式" : "",
+              /蛋白|健身|增肌/.test(postconditionText) ? "每道菜至少含兩個蛋白群（肉/海鮮/蛋/豆）" : "",
+              /素食|吃素|食素|vegan|vegetarian/i.test(postconditionText) ? "全素，不要肉類海鮮" : "",
+            ].filter(Boolean).join("；");
+            const aiRecipes = await generateMissingRecipes(
+              missing,
+              false,
+              result.recipes.map((r) => r.name),
+              familyId,
+              userId,
+              undefined,
+              avoidIngredients,
+              constraintText || undefined,
+            );
+            const validAi = aiRecipes.filter((recipe) => cardPassesHardConstraint(recipe, hardConstraintInput));
+            if (validAi.length > 0) {
+              result.recipes = [...result.recipes, ...validAi].slice(0, requiredCardsForTopUp);
+              console.log(`[AI Chef] hard_constraint_v2 ai fill +${validAi.length} served=${result.recipes.length}/${requiredCardsForTopUp}`);
+            }
+          }
+
+          if (result.recipes.length < requiredCardsForTopUp) {
+            console.warn(`[AI Chef] hard_constraint_v2 meal short requested=${requiredCardsForTopUp} served=${result.recipes.length} -> incomplete_set`);
+            result.recipes = [];
+            result.content = (input.lang ?? "zh-TW").startsWith("en")
+              ? `I couldn't put together ${requiredCardsForTopUp} matching dishes this time, so this request was not charged.`
+              : `今次湊唔齊 ${requiredCardsForTopUp} 道符合條件嘅菜，所以呢次**唔會扣你額度**。可以再試一次，或者放寬限制。`;
+            result.clarifyReason = "incomplete_set";
+          }
         }
       }
 
