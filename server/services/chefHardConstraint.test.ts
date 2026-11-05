@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardPassesHardConstraint, hasHardConstraint } from "../routers/aiRecipe";
+import { cardPassesHardConstraint, hasHardConstraint, filterRowsForSwap } from "../routers/aiRecipe";
 
 const card = (name: string, ingredients: string[] = [], extra: Record<string, unknown> = {}): any => ({
   name,
@@ -79,4 +79,27 @@ test("hard v2: constraints / avoid / time turn the gate on", () => {
   assert.equal(hasHardConstraint({ text: "3 餸 1 湯", avoidIngredients: ["蝦"] }), true);
   assert.equal(hasHardConstraint({ text: "3 餸 1 湯", cookTimeMax: 30 }), true);
   assert.equal(hasHardConstraint({ text: "蛋白" }), true);
+});
+
+test("swap: filterRowsForSwap keeps only same dishType", () => {
+  const rows: Record<string, unknown>[] = [
+    { name: "番茄薯仔湯", tags: [], dishType: "" },
+    { name: "清蒸石斑", tags: [], dishType: "" },
+    { name: "蒜蓉炒菜心", tags: [], dishType: "" },
+    { name: "豉汁蒸排骨", tags: [], dishType: "" },
+  ];
+  const soups = filterRowsForSwap(rows, "soup");
+  assert.deepEqual(soups.map((r) => r.name), ["番茄薯仔湯"]);
+  const meats = filterRowsForSwap(rows, "meat");
+  assert.deepEqual(meats.map((r) => r.name), ["豉汁蒸排骨"]);
+});
+
+test("swap: filterRowsForSwap is a no-op for empty/unknown dishType", () => {
+  const rows: Record<string, unknown>[] = [
+    { name: "番茄薯仔湯", tags: [], dishType: "" },
+    { name: "清蒸石斑", tags: [], dishType: "" },
+  ];
+  assert.equal(filterRowsForSwap(rows, "").length, 2);
+  assert.equal(filterRowsForSwap(rows, "  ").length, 2);
+  assert.equal(filterRowsForSwap(rows, "dessert").length, 0);
 });

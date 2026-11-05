@@ -1916,6 +1916,17 @@ function isSoupRecipe(recipe: SuggestedRecipe): boolean {
   } as unknown as Record<string, unknown>) === "soup" || /湯|羹|soup|broth|bisque|chowder|consomme|consommé/i.test(`${name} ${tags} ${soupType}`);
 }
 
+// 換卡（庫內搜尋）用：只保留同 dishType 嘅 rows，令「換」一定換返同類（湯→湯、肉→肉）。
+// 空 dishType 或唔係 swap 就原樣回（唔篩），避免誤傷非 swap 路徑。
+export function filterRowsForSwap(
+  rows: Record<string, unknown>[],
+  dishType: string,
+): Record<string, unknown>[] {
+  const target = (dishType ?? "").trim();
+  if (!target) return rows;
+  return rows.filter((row) => classifyDishType(row) === target);
+}
+
 // 將餸再細分「家族」（麵/飯/點心/其他），避免 3 餸 1 湯抽到兩款麵/兩款飯
 function dishFamily(name: string): string {
   if (/麵|面|粉|米線|米线|河粉|烏冬|乌冬|拉麵|拉面|伊麵|意粉|通粉|粉絲|粉丝|炒麵|炒面|撈麵|公仔麵|noodle|ramen|udon|soba|pasta|laksa|pho/i.test(name)) return "noodle";
@@ -5379,10 +5390,13 @@ async function processAIChefChatCore(
       // 結構化搜尋（hotkey / pantry）：execSearchRecipes 支援 tags/cookTimeMax，行 7 日去重 + fresh 優先
       // 換卡（message 含「庫內搜尋：」）係同一個 session 內 refresh：只排除「現卡 + 已換過」，
       // 唔受 7 日 seen 限制，否則測試期間換兩三次就會被 seen 塞滿 → 太早話「冇卡」。
-      const isSwapRequest = /庫內搜尋：/.test(libText);
+      const isSwapRequest = /庫內搜尋：/.test(lastUserText);
+      const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const effExcludeSets = isSwapRequest
         ? mkExcludeSets(excludeNames, excludeNames)
         : excludeSets;
+      const swapRows = (rows: Record<string, unknown>[]) =>
+        isSwapRequest ? filterRowsForSwap(rows, swapDishType) : rows;
       const searchCount = search.count ?? 1;
       let searchRows: Record<string, unknown>[] = [];
       if (db) {
@@ -5414,7 +5428,7 @@ async function processAIChefChatCore(
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(logScenarioRows("direct", searchRows), effExcludeSets, searchCount);
+      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -5430,7 +5444,7 @@ async function processAIChefChatCore(
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
-      picked = rowsToSuggested(scenarioFilteredRows, effExcludeSets, searchCount);
+      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
