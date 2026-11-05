@@ -5377,6 +5377,12 @@ async function processAIChefChatCore(
     let picked: SuggestedRecipe[] = [];
     if (search) {
       // 結構化搜尋（hotkey / pantry）：execSearchRecipes 支援 tags/cookTimeMax，行 7 日去重 + fresh 優先
+      // 換卡（message 含「庫內搜尋：」）係同一個 session 內 refresh：只排除「現卡 + 已換過」，
+      // 唔受 7 日 seen 限制，否則測試期間換兩三次就會被 seen 塞滿 → 太早話「冇卡」。
+      const isSwapRequest = /庫內搜尋：/.test(libText);
+      const effExcludeSets = isSwapRequest
+        ? mkExcludeSets(excludeNames, excludeNames)
+        : excludeSets;
       const searchCount = search.count ?? 1;
       let searchRows: Record<string, unknown>[] = [];
       if (db) {
@@ -5404,11 +5410,11 @@ async function processAIChefChatCore(
           return applySearchFilters(rows, search);
         }
         const filtered = applySearchFilters(rows, search);
-        const seen = rows.filter((row) => isRowExcluded(excludeSets, row)).length;
+        const seen = rows.filter((row) => isRowExcluded(effExcludeSets, row)).length;
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(logScenarioRows("direct", searchRows), excludeSets, searchCount);
+      picked = rowsToSuggested(logScenarioRows("direct", searchRows), effExcludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -5424,7 +5430,7 @@ async function processAIChefChatCore(
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
-      picked = rowsToSuggested(scenarioFilteredRows, excludeSets, searchCount);
+      picked = rowsToSuggested(scenarioFilteredRows, effExcludeSets, searchCount);
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
