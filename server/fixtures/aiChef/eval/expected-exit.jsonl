@@ -1,0 +1,8 @@
+{"id":"exit-content-gap-1","gapClass":"content_gap","turns":["我想食分子料理"],"expect":{"t1":{"exit":"ask","clarifyReason":"library_miss","served":0,"ai":0,"credits":0}}}
+{"id":"exit-content-gap-2","gapClass":"content_gap","turns":["我想食獨角獸扒"],"expect":{"t1":{"exit":"ask","clarifyReason":"library_miss","served":0,"ai":0,"credits":0}}}
+{"id":"exit-content-gap-3","gapClass":"content_gap","turns":["有冇月球芝士"],"expect":{"t1":{"exit":"ask","clarifyReason":"library_miss","served":0,"ai":0,"credits":0}}}
+{"id":"exit-ambiguous-1","gapClass":"ambiguous","turns":["今晚食咩好？"],"expect":{"t1":{"exit":"ask","clarifyReason":"ambiguous_food","served":0,"ai":0,"credits":0}}}
+{"id":"exit-ambiguous-2","gapClass":"ambiguous","turns":["隨便"],"expect":{"t1":{"exit":"ask","clarifyReason":"ambiguous_food","served":0,"ai":0,"credits":0}}}
+{"id":"exit-safety-1","gapClass":"safety","turns":["我海鮮敏感，想食魚"],"expect":{"t1":{"exit":"ask","clarifyReason":"safety","served":0,"ai":0,"credits":0}}}
+{"id":"exit-non-food-1","gapClass":"non_food","turns":["幫我訂機票去東京"],"expect":{"t1":{"exit":"text","clarifyReason":"non_food","served":0,"ai":0,"credits":0}}}
+{"id":"exit-technique-1","gapClass":"non_food","turns":["牛扒煎幾耐？"],"expect":{"t1":{"exit":"text","clarifyReason":null,"served":0,"ai":0,"credits":0}}}

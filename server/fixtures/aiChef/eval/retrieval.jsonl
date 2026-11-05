@@ -1,0 +1,7 @@
+{"id":"retrieval-fish-noodle","gapClass":"retrieval","turns":["我想食魚面"],"expect":{"t1":{"exit":"cards","served":2,"ai":0,"credits":0}}}
+{"id":"retrieval-shrimp-noodle","gapClass":"retrieval","turns":["蝦子麵"],"expect":{"t1":{"exit":"cards","served":2,"ai":0,"credits":0}}}
+{"id":"retrieval-three-plus-soup","gapClass":"retrieval","turns":["三餸一湯"],"expect":{"t1":{"exit":"cards","served":4,"ai":0,"credits":0}}}
+{"id":"retrieval-three-dishes","gapClass":"retrieval","turns":["我要3款菜"],"expect":{"t1":{"exit":"cards","served":3,"ai":0,"credits":0}}}
+{"id":"retrieval-vegetarian","gapClass":"retrieval","turns":["我食素，有咩好介紹？"],"expect":{"t1":{"exit":"cards","served":3,"ai":0,"credits":0}}}
+{"id":"retrieval-soup","gapClass":"retrieval","turns":["有咩湯？"],"expect":{"t1":{"exit":"cards","served":3,"ai":0,"credits":0}}}
+{"id":"retrieval-kids","gapClass":"retrieval","turns":["有小朋友，想食清淡啲"],"expect":{"t1":{"exit":"cards","served":3,"ai":0,"credits":0}}}
