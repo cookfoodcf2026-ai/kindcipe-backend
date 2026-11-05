@@ -8226,10 +8226,8 @@ export const aiRecipeRouter = router({
           : undefined,
       });
       const finalResponse = finalized.response;
-      // 成本可觀測性：llmCalls 一定要回傳，唔係 client 側冇辦法核對成本。
-      finalResponse.llmCalls = meter.calls;
       if (meterInvariant) {
-        finalResponse.meterInvariant = true;
+        finalResponse.llmCalls = meter.calls;
       }
       const creditsCharged = finalized.creditsCharged;
       if (creditsCharged > 0 && familyId) {
@@ -8263,6 +8261,9 @@ export const aiRecipeRouter = router({
           ...(pipelineTelemetry?.slots ?? {}),
           __debug: {
             path: "other",
+            // telemetry：用嚟量「kind≠meal 但 requested>1」嘅真實發生率
+            kind: effectiveIntent.kind,
+            requestedTotal: effectiveIntent.requested?.total ?? null,
             avoid: avoidIngredients,
             wanted: requested,
             served,
