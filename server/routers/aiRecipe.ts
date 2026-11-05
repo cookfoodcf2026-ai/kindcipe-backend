@@ -6372,6 +6372,9 @@ async function applyZeroCardInsurance(
 
   const text = lastUserText(params.inputMessages as any).trim();
   if (!text) return result;
+  // 素食 request：單卡 vegetarian special case 已經出咗正確嘅素食卡，補卡只會補入
+  // 非素食卡，最後被素食紅線刪清光 → 0 卡。唔好補。
+  if (INSURANCE_VEG_RE.test(text)) return result;
   if (detectSafetyIntent(text)) return result;
   // Multi-card meal shapes are owned by the postcondition; do not replace a
   // requested 3-dish-1-soup set with three arbitrary cards.

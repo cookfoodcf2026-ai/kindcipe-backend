@@ -1109,8 +1109,8 @@ test("regression: 3餸1湯 + 海鮮 still yields 4 cards (seafood role keeps egg
 
 test("素食菜式 free text returns 1 vegetarian card (not 0)", async () => {
   const pool = [
-    { id: 1, name: "紅燒豆腐", source: "official", dishType: "vegetable", cookTime: 20, servings: 4, ingredients: [{ name: "豆腐", quantity: "1", unit: "份" }, { name: "豉油", quantity: "1", unit: "匙" }], steps: ["1", "2"], tags: [], scenarioTags: ["vegetarian"] },
-    { id: 2, name: "蒜蓉炒菜心", source: "official", dishType: "vegetable", cookTime: 15, servings: 4, ingredients: [{ name: "菜心", quantity: "1", unit: "份" }, { name: "蒜蓉", quantity: "1", unit: "匙" }], steps: ["1", "2"], tags: [], scenarioTags: ["vegetarian"] },
+    { id: 1, name: "紅燒豆腐", source: "official", dishType: "vegetable", cookTime: 20, servings: 4, ingredients: [{ name: "豆腐", quantity: "1", unit: "份" }, { name: "豉油", quantity: "1", unit: "匙" }, { name: "糖", quantity: "1", unit: "茶匙" }], steps: ["1", "2"], tags: [], scenarioTags: ["vegetarian"] },
+    { id: 2, name: "蒜蓉炒菜心", source: "official", dishType: "vegetable", cookTime: 15, servings: 4, ingredients: [{ name: "菜心", quantity: "1", unit: "份" }, { name: "蒜蓉", quantity: "1", unit: "匙" }, { name: "鹽", quantity: "1", unit: "茶匙" }], steps: ["1", "2"], tags: [], scenarioTags: ["vegetarian"] },
   ];
   const result = await processAIChefChat(
     [{ role: "user", content: "素食菜式（蛋奶素，無肉無海鮮）" }],
