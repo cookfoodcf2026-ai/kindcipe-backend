@@ -71,6 +71,8 @@ export interface ChefReply {
   recipes: ChefCardSnapshot[];
   replyText: string;
   requested: { total: number; roles: RequestedRole[] };
+  /** 驗證唯一依據（非 meal 意圖 = 1）。requested.total 保留分類器原值，只作 observability。 */
+  requiredCards?: number;
   served: number;
   missingRoles: RequestedRole[];
   sources: { library: number; ai: number };
@@ -101,6 +103,9 @@ export function validateChefReply(reply: ChefReply): string[] {
   const errors: string[] = [];
   const cards = Array.isArray(reply.recipes) ? reply.recipes : [];
   const requestedTotal = Number(reply.requested?.total ?? 0);
+  const requiredCards = Number.isFinite(Number(reply.requiredCards))
+    ? Number(reply.requiredCards)
+    : requestedTotal;
   const served = Number(reply.served ?? 0);
   const missingRoles = Array.isArray(reply.missingRoles) ? reply.missingRoles : [];
 
@@ -110,13 +115,13 @@ export function validateChefReply(reply: ChefReply): string[] {
 
   if (reply.status === "cards") {
     if (cards.length === 0) errors.push("cards status requires at least one recipe");
-    if (requestedTotal > 0 && served !== requestedTotal) {
-      errors.push(`cards status must serve all requested cards (served=${served}, requested=${requestedTotal})`);
+    if (requiredCards > 0 && served !== requiredCards) {
+      errors.push(`cards status must serve all required cards (served=${served}, required=${requiredCards})`);
     }
     if (missingRoles.length > 0) errors.push("cards status cannot have missingRoles");
   } else if (reply.status === "partial_cards") {
     if (cards.length === 0) errors.push("partial_cards status requires at least one recipe");
-    if (served >= requestedTotal) errors.push("partial_cards status requires served < requested");
+    if (served >= requiredCards) errors.push("partial_cards status requires served < required");
     if (missingRoles.length === 0) errors.push("partial_cards status requires missingRoles");
   } else if (reply.status === "no_cards") {
     if (cards.length > 0) errors.push("no_cards status cannot include recipes");

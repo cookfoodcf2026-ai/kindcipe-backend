@@ -11,6 +11,7 @@ import {
 import type { ChefCardSnapshot, ChefReply, ChefResponseStatus } from "./chefResponse";
 import { validateChefReply } from "./chefResponse";
 import type { ChefIntent, RequestedRole } from "./chefIntent";
+import { resolveChefContract } from "./chefContract";
 
 export type ChefRecipeLike = {
   name: string;
@@ -133,7 +134,8 @@ function quickReplyLabel(actionId: ChefReply["quickReplies"][number]["actionId"]
 function statusFor(
   intent: ChefIntent,
   recipes: ChefRecipeLike[],
-  clarifyReason?: ChefRunResult["clarifyReason"],
+  clarifyReason: ChefRunResult["clarifyReason"] | undefined,
+  requiredCards: number,
 ): ChefResponseStatus {
   const requested = intent.requested.total;
   if (recipes.length === 0) {
@@ -141,9 +143,8 @@ function statusFor(
     if (requested > 0) return "no_cards";
     return "text";
   }
-  // 單卡入口（問一道菜）1 張就係完整答案；只有 meal 才有「不足」概念。
-  const required = intent?.kind === "meal" ? Math.max(1, requested) : 1;
-  return recipes.length < required ? "partial_cards" : "cards";
+  // requiredCards 由 resolveChefContract 提供（非 meal = 1），唔喺呢層再推。
+  return recipes.length < Math.max(1, requiredCards) ? "partial_cards" : "cards";
 }
 
 function cardId(recipe: ChefRecipeLike, index: number): string {
@@ -198,7 +199,8 @@ export function buildChefReply(params: {
 }): ChefReply {
   const { requestId, chatId, clientMessageId, intent, result } = params;
   const lang = params.lang ?? "zh-TW";
-  const status = statusFor(intent, result.recipes, result.clarifyReason);
+  const contract = resolveChefContract(intent);
+  const status = statusFor(intent, result.recipes, result.clarifyReason, contract.requiredCards);
   const recipes = result.recipes.map((recipe, i) =>
     toCard(recipe, intent.requested.roles[i] ?? "any", i),
   );
@@ -282,6 +284,7 @@ export function buildChefReply(params: {
     recipes,
     replyText,
     requested: intent.requested,
+    requiredCards: contract.requiredCards,
     served,
     missingRoles,
     sources,

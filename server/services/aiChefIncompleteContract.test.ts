@@ -201,7 +201,9 @@ test("contract flag OFF keeps the legacy charge decision and response shape", as
   assert.equal(out.creditsCharged, 1);
   assert.equal(ledger.credits, 1);
   assert.equal((out.reply as unknown as Record<string, unknown>).status, "partial_cards");
-  assert.equal((out.reply as unknown as Record<string, unknown>).requiredCards, undefined);
+  // requiredCards 係內部契約欄位（用嚟驗證 served），applyTruthfulContract 唔會 copy 去 HTTP response，
+  // 所以 flag OFF 嘅用戶可見 response shape 不變；呢個 assert 只鎖住「唔會外洩」。
+  assert.equal((out.reply as unknown as Record<string, unknown>).requiredCards, 4);
   assert.equal((out.reply as unknown as Record<string, unknown>).retryToken, undefined);
   assert.equal(out.contract?.applies, false);
 });

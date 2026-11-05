@@ -28,15 +28,16 @@ function recipe(name: string) {
   };
 }
 
-test("contract: 單菜意圖（router 已 normalise 成 total=1）1 張卡係 cards 而且過到 validate", () => {
+test("contract: 單菜意圖 intentTotal=3 但 requiredCards=1，1 張卡係 cards 而且過到 validate", () => {
   const reply = buildChefReply({
     requestId: "r1",
-    intent: intent("recipe", 1),
+    intent: intent("recipe", 3),
     result: { content: "", recipes: [recipe("豉汁蒸鯇魚")] as any, llmUsed: false, llmCalls: 0 },
     templateText: true,
   });
   assert.equal(reply.status, "cards");
-  assert.equal(reply.requested.total, 1);
+  assert.equal(reply.requiredCards, 1);
+  assert.equal(reply.requested.total, 3); // 分類器原值保留，唔准改
   assert.deepEqual(validateChefReply(reply), []);
 });
 
@@ -71,6 +72,6 @@ test("contract: meal 意圖 2/4 仍然係 partial_cards 而且過到 validate", 
     explicitMealShape: true,
   });
   assert.equal(reply.status, "partial_cards");
-  assert.equal(reply.requested.total, 4);
+  assert.equal(reply.requiredCards, 4);
   assert.deepEqual(validateChefReply(reply), []);
 });
