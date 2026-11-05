@@ -1163,14 +1163,14 @@ const HARD_PROTEIN_GROUPS = [
   /蛋/,
   /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
 ];
-const HARD_MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉/;
+const HARD_MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉|chicken|beef|pork|lamb|mutton|duck|goose|turkey|bacon|ham|sausage|meat|steak|fish|shrimp|prawn|crab|shellfish|oyster|clam|squid|octopus|tuna|salmon|mackerel|cod|sardine|seafood/i;
 
 function hardIsMeat(raw: unknown): boolean {
   const name = String(raw ?? "");
   if (!name) return false;
   if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
   // Strip vegetarian-safe words that contain a meat character before testing.
-  const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶/g, "");
+  const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
   return HARD_MEAT_RE.test(cleaned);
 }
 
@@ -8154,14 +8154,14 @@ export const aiRecipeRouter = router({
       // deriveRecipeTags misses names like 豬絞肉 (ingredients have no category),
       // so match the ingredient text directly.
       if (/素食|吃素|食素|vegan|vegetarian/i.test(postconditionText) && result.recipes.length > 0) {
-        const MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉/;
+        const MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉|chicken|beef|pork|lamb|mutton|duck|goose|turkey|bacon|ham|sausage|meat|steak|fish|shrimp|prawn|crab|shellfish|oyster|clam|squid|octopus|tuna|salmon|mackerel|cod|sardine|seafood/i;
         const isMeat = (raw: unknown) => {
           const name = String(raw ?? "");
           if (!name) return false;
           if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
           // Strip vegetarian-safe words that contain a meat character
           // (牛油果/牛蒡/牛奶/魚香茄子/雞蛋 …) before testing.
-          const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶/g, "");
+          const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
           return MEAT_RE.test(cleaned);
         };
         const vegRecipes = result.recipes as any[];

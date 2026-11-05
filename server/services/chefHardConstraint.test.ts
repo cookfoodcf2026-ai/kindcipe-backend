@@ -122,3 +122,16 @@ test("hard v2: 品類詞 avoid 辣 過濾辣卡", () => {
   assert.equal(cardPassesHardConstraint(card("麻辣雞煲", ["雞"]), input), false);
   assert.equal(cardPassesHardConstraint(card("蒜蓉炒菜心", ["菜心"]), input), true);
 });
+
+test("hard v2: vegetarian rejects English meat names (Li's Waterless Chicken)", () => {
+  const input = { text: "素食 3餸1湯" };
+  assert.equal(cardPassesHardConstraint(card("Li's Waterless Chicken and Vegetable Pot", ["Chicken thigh fillets"]), input), false);
+  assert.equal(cardPassesHardConstraint(card("蒜蓉炒菜心", ["菜心"]), input), true);
+  assert.equal(cardPassesHardConstraint(card("紅燒豆腐", ["豆腐"]), input), true);
+});
+
+test("hard v2: vegetarian keeps English safe lookalikes", () => {
+  const input = { text: "素食" };
+  assert.equal(cardPassesHardConstraint(card("Grilled chicken of the woods mushrooms", ["chicken of the woods"]), input), true);
+  assert.equal(cardPassesHardConstraint(card("Oyster mushroom soup", ["oyster mushroom"]), input), true);
+});
