@@ -141,7 +141,9 @@ function statusFor(
     if (requested > 0) return "no_cards";
     return "text";
   }
-  return recipes.length < requested ? "partial_cards" : "cards";
+  // 單卡入口（問一道菜）1 張就係完整答案；只有 meal 才有「不足」概念。
+  const required = intent?.kind === "meal" ? Math.max(1, requested) : 1;
+  return recipes.length < required ? "partial_cards" : "cards";
 }
 
 function cardId(recipe: ChefRecipeLike, index: number): string {
@@ -279,7 +281,10 @@ export function buildChefReply(params: {
     operation,
     recipes,
     replyText,
-    requested: intent.requested,
+    requested: {
+      ...intent.requested,
+      total: intent?.kind === "meal" ? Math.max(1, intent.requested.total) : 1,
+    },
     served,
     missingRoles,
     sources,
