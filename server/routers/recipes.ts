@@ -945,7 +945,7 @@ ${text}
   "difficulty": "簡單" | "中等" | "困難",
   "recipeCategory": "中菜" | "西餐" | "日式" | "韓式" | "東南亞" | "港式" | "台式" | "泰式" | "印度" | "甜品" | "飲品" | "其他",
   "ingredients": [
-    { "name": "食材名稱（繁中）", "nameEn": "English", "nameFil": "Filipino", "nameId": "Indonesian", "quantity": "數量", "unit": "單位", "category": "分類" }
+    { "name": "食材名稱（繁中）", "nameEn": "English", "nameFil": "Filipino", "nameId": "Indonesian", "quantity": "圖中見到嘅數量，冇寫就空字串", "unit": "圖中見到嘅單位，冇寫就空字串", "category": "分類" }
   ],
   "steps": [
     { "instruction": "步驟說明（繁中）", "duration": 分鐘（可選）, "tip": "小貼士（可選）" }
@@ -2726,6 +2726,7 @@ export const recipesRouter = router({
 1. 若圖中有食材清單／步驟文字 → 如實抽取（主要文字用繁體中文；同時提供英(En)/菲(Fil)/印尼(Id)譯文）。
 2. 唔准靠菜名、外觀或常識推測食材或步驟（寧缺勿作）。
 3. 若圖中冇可讀嘅食譜文字（例如只係食物相、冇字、模糊）→ 喺 name 回傳「需要手動輸入」，並喺 description 簡述原因。
+4. quantity／unit 只可以照抄圖中見到嘅字。圖中冇寫就留空字串 ""，**嚴禁**自行填「適量」「少許」「1 茶匙」等估算值。
       食材名稱用常見煮食用字；食材分類：肉類、海鮮、蔬菜、調味料、乾貨、其他。`;
 
       const userPrompt = `請只根據圖片中可見嘅文字抽出食材同步驟，唔好靠外觀估。若圖中冇可讀食譜文字，回傳 name「需要手動輸入」。
@@ -3932,12 +3933,12 @@ ${TAGS_RULE}`;
       }
 
       // 自動匯入（caption／OCR／連結解析）唔准存空白卡；只有用戶主動「先儲存名＋連結」才放行。
-      if (!input.allowIncomplete) {
-        const contentGate = checkRecipeContent(baseIngredients, baseSteps);
-        if (!contentGate.ok) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
-        }
+      // 放行（allowIncomplete）但內容未齊 → 一律強制 isDraft，唔可以當完成品入 AI Chef 池。
+      const contentGate = checkRecipeContent(baseIngredients, baseSteps);
+      if (!input.allowIncomplete && !contentGate.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: contentGate.message });
       }
+      const shouldBeDraft = !contentGate.ok;
 
       const _tr = {
         nameEn: input.nameEn, nameFil: input.nameFil, nameId: input.nameId,
@@ -3980,6 +3981,7 @@ ${TAGS_RULE}`;
         sourceUrlHash: urlHash ?? undefined,
         sourceAuthor: input.sourceAuthor,
         visibility: input.visibility,
+        isDraft: shouldBeDraft,
         isAiGenerated: input.isAiGenerated ?? false,
         scenarioTags: computeScenarioTags({
           name: baseName, description: baseDesc, cookTime: input.cookTime,
