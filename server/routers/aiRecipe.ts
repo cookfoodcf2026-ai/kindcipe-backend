@@ -7970,7 +7970,9 @@ export const aiRecipeRouter = router({
       // 最終不變量（OC 建議）：meal 請求喺計 served／扣費之前，卡數一定要補到 required。
       // 兩個缺口都係同一件事：忌口剔走卡、或用戶講「N 道菜」但初始 slot 少派。
       // refill 只由已過濾 library 抽，最多 2 輪，唔會無限叫 AI。
-      if (mealRequest && result.recipes.length < requiredCardsForTopUp) {
+      // 只可以「補足已有嘅餐」，唔可以為 0 卡憑空抽卡（實測『我想食魚』被填成茶碗蒸）。
+      // 0 卡要走 no_cards／incomplete_set，唔可以亂補。
+      if (mealRequest && result.recipes.length > 0 && result.recipes.length < requiredCardsForTopUp) {
         try {
           const refillDb = await getDb();
           if (!refillDb) throw new Error("no db");
