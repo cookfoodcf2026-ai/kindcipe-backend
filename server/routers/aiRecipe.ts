@@ -7967,9 +7967,10 @@ export const aiRecipeRouter = router({
         }
       }
 
-      // 忌口剔走卡之後要補返：AI 補位有時會生成含忌口食材嘅卡，
-      // postcondition 剔走係正確，但唔可以因此少卡。由已過濾 library 補位。
-      if (avoidIngredients.length > 0 && mealRequest && result.recipes.length < requiredCardsForTopUp) {
+      // 最終不變量（OC 建議）：meal 請求喺計 served／扣費之前，卡數一定要補到 required。
+      // 兩個缺口都係同一件事：忌口剔走卡、或用戶講「N 道菜」但初始 slot 少派。
+      // refill 只由已過濾 library 抽，最多 2 輪，唔會無限叫 AI。
+      if (mealRequest && result.recipes.length < requiredCardsForTopUp) {
         try {
           const refillDb = await getDb();
           if (!refillDb) throw new Error("no db");
@@ -7978,7 +7979,7 @@ export const aiRecipeRouter = router({
           const spares: typeof result.recipes = [];
           for (const row of (pool.recipes ?? []) as Record<string, unknown>[]) {
             if (result.recipes.length + spares.length >= requiredCardsForTopUp) break;
-            if (rowContainsAvoid(row, avoidIngredients)) continue;
+            if (avoidIngredients.length > 0 && rowContainsAvoid(row, avoidIngredients)) continue;
             const recipe = rowToSuggestedRecipe(row);
             if (!recipe) continue;
             const key = normalizeName(recipe.name);
@@ -7987,11 +7988,11 @@ export const aiRecipeRouter = router({
             taken.add(key);
           }
           if (spares.length > 0) {
-            console.log(`[AI Chef] avoid refill +${spares.length} avoid=${avoidIngredients.join("|")}`);
+            console.log(`[AI Chef] meal refill +${spares.length} served=${result.recipes.length + spares.length}/${requiredCardsForTopUp} avoid=${avoidIngredients.join("|") || "none"}`);
             result.recipes = [...result.recipes, ...spares];
           }
         } catch (error) {
-          console.warn("[AI Chef] avoid refill failed:", (error as Error)?.message);
+          console.warn("[AI Chef] meal refill failed:", (error as Error)?.message);
         }
       }
 
