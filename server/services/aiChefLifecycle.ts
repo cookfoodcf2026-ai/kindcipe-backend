@@ -224,18 +224,19 @@ export function buildChefReply(params: {
   // no_cards/clarify must never claim a recipe exists. Use a deterministic
   // template instead of trusting a model/library string.
   const operation = params.operation ?? "replace";
+  const clarifyReason = result.clarifyReason;
+  const isVegetarian = Boolean(intent.diet);
   const replyText = status === "no_cards"
-    ? aiReply(lang, "libNone")
+    ? aiReply(lang, isVegetarian ? "libNoneVeg" : "libNone")
     : status === "clarify"
-      ? (result.content || aiReply(lang, "libNone"))
+      ? (isVegetarian && clarifyReason === "library_miss"
+          ? aiReply(lang, "libNoneVeg")
+          : (result.content || aiReply(lang, "libNone")))
       : params.templateText && status === "cards"
         ? aiReply(lang, operation === "append" ? "cardsAdded" : "cardsReady")
         : params.templateText && status === "partial_cards" && requested <= 3 && params.explicitMealShape === true
-          // Only a normal 3+1 style ask can be described as "3 of the 6 you asked
-          // for"; larger/nonsense totals fall back to the ready copy.
           ? aiReply(lang, "partialSet", { served, total: requested })
           : result.content;
-  const clarifyReason = result.clarifyReason;
   const quickReplies = status === "partial_cards" && clarifyReason === "ai_partial"
     ? [
         { actionId: "complete_cards" as const, labelKey: "aiChef.completeCards" },
@@ -258,11 +259,17 @@ export function buildChefReply(params: {
               { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
               { actionId: "retry_later" as const, labelKey: "aiChef.retryLater" },
             ]
-          : [
-              { actionId: "import_recipe" as const, labelKey: "aiChef.importRecipe" },
-              { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
-              { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
-            ]
+          : isVegetarian
+            ? [
+                { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+                { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
+                { actionId: "import_recipe" as const, labelKey: "aiChef.importRecipe" },
+              ]
+            : [
+                { actionId: "import_recipe" as const, labelKey: "aiChef.importRecipe" },
+                { actionId: "closest_library" as const, labelKey: "aiChef.closestLibrary" },
+                { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },
+              ]
       : status === "no_cards"
         ? [
             { actionId: "ai_generate" as const, labelKey: "aiChef.aiGenerate" },

@@ -60,6 +60,12 @@ const DICT: Record<string, Dict> = {
     fil: "Hindi ko mahanap ang recipe na iyon. Maaari mong: 1) gamitin ang Import recipe (1 import quota), 2) tingnan ang pinakamalapit na library, o 3) hilingin sa AI na gawin ito ngayon (1 credit).",
     id: "Saya tidak menemukan resep itu. Anda bisa: 1) memakai Import resep (1 kuota import), 2) melihat resep pustaka terdekat, atau 3) meminta AI membuatnya sekarang (1 credit).",
   },
+  libNoneVeg: {
+    "zh-TW": "我喺食譜庫搵唔到合適嘅素食食譜。你可以叫我用 AI 生成一道素食菜（1 credit），或者睇最接近嘅素食庫存。",
+    en: "I couldn't find a vegetarian recipe in the library. I can make one with AI (1 credit), or show the closest vegetarian dishes.",
+    fil: "Wala akong mahanap na vegetarian recipe sa library. Maaari akong gumawa gamit ang AI (1 credit), o ipakita ang pinakamalapit na vegetarian dishes.",
+    id: "Saya tidak menemukan resep vegetarian di pustaka. Saya bisa membuatnya dengan AI (1 credit), atau menampilkan hidangan vegetarian terdekat.",
+  },
   libByKeyword: {
     "zh-TW": "我喺食譜庫搵到呢個「{{kw}}」相關食譜：",
     en: "I found a library recipe related to \"{{kw}}\":",

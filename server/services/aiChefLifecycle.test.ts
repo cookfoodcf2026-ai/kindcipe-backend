@@ -109,6 +109,45 @@ test("D2 exact: no library dessert gives no_cards, empty recipes, and safe text"
   assert.equal(ledger.credits, 0);
 });
 
+test("素食 0 卡：文案講清楚 + AI 生成排第一", async () => {
+  const vegIntent = resolveChefIntent("素食菜式（蛋奶素，無肉無海鮮）", { mode: "chat" });
+  assert.equal(vegIntent.diet, "vegetarian");
+  const store = new MemoryChefRequestStore();
+  const ledger = new MemoryCreditLedger();
+  const out = await runChefLifecycle({
+    requestId: "req_veg",
+    familyId: 14,
+    chatId: "chat_veg",
+    clientMessageId: "msg_veg",
+    intent: vegIntent,
+    lang: "zh-TW",
+    payload: { messages: [{ role: "user", content: "素食菜式（蛋奶素，無肉無海鮮）" }] },
+    requestedCredits: 1,
+    store,
+    reserveCredit: ledger.reserve,
+    commitCredit: ledger.commit,
+    refundCredit: ledger.refund,
+    run: async () => {
+      const actual = await processAIChefChat(
+        [{ role: "user", content: "素食菜式（蛋奶素，無肉無海鮮）" }],
+        14,
+        undefined,
+        "chat",
+        [],
+        undefined,
+        "zh-TW",
+      );
+      return { ...actual, llmCalls: 0 };
+    },
+  });
+  assert.equal(out.reply.recipes.length, 0);
+  assert.match(out.reply.replyText, /素食/);
+  assert.doesNotMatch(out.reply.replyText, /我未有你指定嘅食譜/);
+  const actionIds = (out.reply.quickReplies ?? []).map((q) => q.actionId);
+  assert.deepEqual(actionIds.slice(0, 3), ["ai_generate", "closest_library", "import_recipe"]);
+  assert.equal(ledger.credits, 0);
+});
+
 test("library dessert gives cards and served equals recipes length", async () => {
   const store = new MemoryChefRequestStore();
   const ledger = new MemoryCreditLedger();
