@@ -281,10 +281,7 @@ export function buildChefReply(params: {
     operation,
     recipes,
     replyText,
-    requested: {
-      ...intent.requested,
-      total: intent?.kind === "meal" ? Math.max(1, intent.requested.total) : 1,
-    },
+    requested: intent.requested,
     served,
     missingRoles,
     sources,

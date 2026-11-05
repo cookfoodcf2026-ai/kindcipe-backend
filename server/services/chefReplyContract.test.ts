@@ -28,15 +28,32 @@ function recipe(name: string) {
   };
 }
 
-test("contract: 單菜意圖即使 intent.total=3，1 張卡都可以係 cards 而且過到 validate", () => {
+test("contract: 單菜意圖（router 已 normalise 成 total=1）1 張卡係 cards 而且過到 validate", () => {
   const reply = buildChefReply({
     requestId: "r1",
-    intent: intent("recipe", 3),
+    intent: intent("recipe", 1),
     result: { content: "", recipes: [recipe("豉汁蒸鯇魚")] as any, llmUsed: false, llmCalls: 0 },
     templateText: true,
   });
   assert.equal(reply.status, "cards");
   assert.equal(reply.requested.total, 1);
+  assert.deepEqual(validateChefReply(reply), []);
+});
+
+test("contract: meal 意圖 4/4 係 cards 而且過到 validate", () => {
+  const reply = buildChefReply({
+    requestId: "r3",
+    intent: intent("meal", 4),
+    result: {
+      content: "",
+      recipes: [recipe("A"), recipe("B"), recipe("C"), recipe("D")] as any,
+      llmUsed: false,
+      llmCalls: 0,
+    },
+    templateText: true,
+    explicitMealShape: true,
+  });
+  assert.equal(reply.status, "cards");
   assert.deepEqual(validateChefReply(reply), []);
 });
 

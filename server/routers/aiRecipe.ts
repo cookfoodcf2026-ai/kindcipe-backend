@@ -7793,6 +7793,12 @@ export const aiRecipeRouter = router({
       }
 
       const effectiveIntent = result.intentOverride ?? intent;
+      // 單一真相來源：非 meal 意圖嘅 requested.total 一律 = 1（產品規則：一句話 = 1 張卡）。
+      // 如果原本 > 1，代表 intent 分類器出錯 → 記錄落 log 供日後量度，而唔係靜靜漏卡。
+      if (effectiveIntent.kind !== "meal" && (effectiveIntent.requested?.total ?? 0) > 1) {
+        console.warn(`[AI Chef] intent_total_normalised kind=${effectiveIntent.kind} was=${effectiveIntent.requested.total}`);
+        effectiveIntent.requested = { ...effectiveIntent.requested, total: 1, roles: effectiveIntent.requested.roles.slice(0, 1) };
+      }
       // 「避免：蝦」係忌口，唔係「我想食蝦」。之前 postcondition 直接讀原文，
       // 令 protein postcondition 當用戶想要蝦／雞，反而把其他卡剔走（4 張變 3 張）。
       const postconditionText = stripAvoidClauses(lastUserText(input.messages) ?? "");
