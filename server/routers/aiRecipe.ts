@@ -5,6 +5,7 @@ import { eq, and, or, ilike, desc, lte, gt, sql, notInArray, inArray, not } from
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, repairTruncatedJson, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel } from "../_core/aiReply";
+import { parseChefConstraints } from "../services/chefConstraints";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
@@ -4035,11 +4036,15 @@ async function processAIChefChatCore(
 
   // Pantry-first: when the user lists what is in the fridge, return one
   // concrete library card instead of asking "what do you want to cook?".
-  const pantryTerms = extractMealIngredients(lastUserText);
+  const pantryTermsRaw = extractMealIngredients(lastUserText);
+  // 自由打字（唔用「用雪櫃食材」掣）都要認：我家／屋企／我有 + 食材
+  const pantryCue = /雪櫃|冰箱|pantry|剩|得|用以下食材|以下食材|用呢啲食材|食材[：:]|屋企|家中有|我有|仲有/i.test(lastUserText);
+  const constraintsPantry = parseChefConstraints(lastUserText).pantry;
+  const pantryTerms = constraintsPantry.length >= 2 ? constraintsPantry : pantryTermsRaw;
   const pantryRequest = !plannedTurn && mode === "chat" && Boolean(db)
     // The app's 雪櫃食材 tab sends a canned "用以下食材煮餸：青菜、洋蔥、豆腐" prompt,
     // which never contains 雪櫃 — match the list form too.
-    && /雪櫃|冰箱|pantry|剩|得|用以下食材|以下食材|用呢啲食材|食材[：:]/i.test(lastUserText)
+    && pantryCue
     && pantryTerms.length >= 2;
   if (pantryRequest) {
     for (const term of pantryTerms.slice(0, 4)) {

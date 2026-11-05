@@ -91,6 +91,10 @@ export function extractMealIngredients(text: string): string[] {
       term = next;
     }
     if (!term || term.length > 20) continue;
+    // 自由打字常見前綴：「我得椰菜」「剩返半棵椰菜」
+    term = term.replace(/^(?:得|淨係|只有|剩返|剩低|仲有|仲|仲係|就係)/u, "").trim();
+    // 數量＋量詞：「兩隻蛋」→「蛋」、「半棵椰菜」→「椰菜」
+    term = term.replace(/^(?:[一二兩两三四五六七八九十幾半\d]+)?(?:隻|個|棵|條|塊|包|盒|罐|斤|両|把|碗|杯|片|粒|扎|束)/u, "").trim();
     // 位置／容器詞唔係食材：「雪櫃」「屋企」「冰箱」會令 pantry 搜尋第一步就 miss
     term = term.replace(/^(?:我|你)?(?:屋企|家中|雪櫃|冰箱|冰格)(?:嘅|入面|裡面|有|得)?/u, "").trim();
     // 問句碎片唔係食材：「可以煮咩」「煮咩好」「咩辣嘢食」

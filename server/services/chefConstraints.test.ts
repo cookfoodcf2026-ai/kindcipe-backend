@@ -200,3 +200,9 @@ test("golden 21: 要辣 = spice spicy，清淡 = mild，唔要辣唔可以當想
   assert.equal(parseChefConstraints("我想食清淡啲").spice, "mild");
   assert.equal(parseChefConstraints("煮個菜，唔要辣").spice, "mild");
 });
+
+test("golden 22: 自由打字（唔用掣）都要抽到 pantry", () => {
+  assert.deepEqual(parseChefConstraints("我得椰菜同兩隻蛋").pantry, ["椰菜", "蛋"]);
+  assert.deepEqual(parseChefConstraints("我有雞蛋、番茄、洋蔥，想煮啲簡單嘢").pantry, ["雞蛋", "番茄", "洋蔥"]);
+  assert.deepEqual(parseChefConstraints("雪櫃有青菜、洋蔥、豆腐，可以煮咩").pantry, ["青菜", "洋蔥", "豆腐"]);
+});

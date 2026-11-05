@@ -167,7 +167,8 @@ export function parseChefConstraints(rawText: string): ChefConstraints {
     .replace(/(?:煮|整|食)(?:咩|乜).*$/u, " ")
     .split(/[、，,同＋/+]+/)
     .map((item) => item
-      .replace(/^(有|仲有|同|得|埋|用|啲)/, "")
+      .replace(/^(有|仲有|同|得|埋|用|啲|剩返|剩低|淨係|只有)/, "")
+      .replace(/^(?:[一二兩两三四五六七八九十幾半\d]+)?(?:隻|個|棵|條|塊|包|盒|罐|斤|両|把|碗|杯|片|粒|扎|束)/u, "")
       .replace(PANTRY_TAIL_RE, "")
       .replace(/(同埋|同)$/, "")
       .trim())
@@ -175,6 +176,7 @@ export function parseChefConstraints(rawText: string): ChefConstraints {
       item.length >= 1 &&
       item.length <= 8 &&
       !PANTRY_JUNK_RE.test(item) &&
+      !/^(?:想|要|可以|唔知|簡單|複雜|隨便|快啲|啲)/.test(item) &&
       !/得閒/.test(item),
     );
   const pantryMode: ChefConstraints["pantryMode"] = pantry.length === 0
