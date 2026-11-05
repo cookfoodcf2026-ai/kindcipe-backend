@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickDishesByTerm, findFoodTermPattern } from "./foodTermMap";
+import { CATEGORY_TO_TERMS } from "../services/foodLexicon";
 
 /** 模擬食譜庫（真實菜名，含陷阱：魚柳條成份有蛋漿） */
 const POOL = [
@@ -73,4 +74,28 @@ test("蛋類：菜名含「高蛋白」唔會被當蛋", () => {
 test("時間全部超標時保留原集（唔會回空）", () => {
   const r = pickDishesByTerm(POOL, "魚", { timeLimit: 1, max: 3 });
   assert.ok(r.length > 0, "寧願超時都唔應該 0 卡");
+});
+
+test("品類詞 mapping：海鮮 → 魚蝦蟹，唔含蛋豆腐", () => {
+  const seafood = CATEGORY_TO_TERMS["海鮮"];
+  assert.ok(seafood.includes("魚"));
+  assert.ok(seafood.includes("蝦"));
+  assert.ok(seafood.includes("蟹"));
+  assert.ok(seafood.includes("青口"));
+  assert.equal(seafood.includes("蛋"), false);
+  assert.equal(seafood.includes("豆腐"), false);
+});
+
+test("品類詞 mapping：肉 → 豬牛羊", () => {
+  const meat = CATEGORY_TO_TERMS["肉"];
+  assert.ok(meat.includes("豬"));
+  assert.ok(meat.includes("牛"));
+  assert.ok(meat.includes("雞"));
+});
+
+test("品類詞 mapping：辣 → 辣椒花椒", () => {
+  const spicy = CATEGORY_TO_TERMS["辣"];
+  assert.ok(spicy.includes("辣椒"));
+  assert.ok(spicy.includes("花椒"));
+  assert.ok(spicy.includes("麻辣"));
 });

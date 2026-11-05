@@ -103,3 +103,22 @@ test("swap: filterRowsForSwap is a no-op for empty/unknown dishType", () => {
   assert.equal(filterRowsForSwap(rows, "  ").length, 2);
   assert.equal(filterRowsForSwap(rows, "dessert").length, 0);
 });
+
+test("hard v2: 品類詞 avoid 海鮮 過濾海鮮卡", () => {
+  const input = { text: "有咩推介", avoidIngredients: ["海鮮"] };
+  assert.equal(cardPassesHardConstraint(card("蒜香白酒煮青口", ["青口"]), input), false);
+  assert.equal(cardPassesHardConstraint(card("蒜蓉蒸蝦", ["蝦"]), input), false);
+  assert.equal(cardPassesHardConstraint(card("蒜蓉炒菜心", ["菜心"]), input), true);
+});
+
+test("hard v2: 品類詞 avoid 肉 過濾肉卡", () => {
+  const input = { text: "有咩推介", avoidIngredients: ["肉"] };
+  assert.equal(cardPassesHardConstraint(card("豉汁蒸排骨", ["排骨"]), input), false);
+  assert.equal(cardPassesHardConstraint(card("蒜蓉炒菜心", ["菜心"]), input), true);
+});
+
+test("hard v2: 品類詞 avoid 辣 過濾辣卡", () => {
+  const input = { text: "有咩推介", avoidIngredients: ["辣"] };
+  assert.equal(cardPassesHardConstraint(card("麻辣雞煲", ["雞"]), input), false);
+  assert.equal(cardPassesHardConstraint(card("蒜蓉炒菜心", ["菜心"]), input), true);
+});

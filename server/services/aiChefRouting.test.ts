@@ -1075,6 +1075,38 @@ test("chinese numeral meal shape yields four cards", async () => {
   }
 });
 
+test("regression: 3餸1湯 + 海鮮 still yields 4 cards (seafood role keeps egg_tofu)", async () => {
+  const row = (id: number, name: string, dishType: string, ingredients: string[]) => ({
+    id,
+    name,
+    source: "official",
+    dishType,
+    cookTime: 30,
+    servings: 4,
+    ingredients: ingredients.map((name) => ({ name, quantity: "1", unit: "份" })),
+    steps: ["1", "2"],
+    tags: [],
+  });
+  // 池入面 seafood role 得 egg_tofu 卡（番茄炒蛋），冇真海鮮。改 single-card seafood
+  // 判斷唔可以令 meal path 嘅 seafood role 少卡（egg_tofu 歷史歸 seafood）。
+  const pool = [
+    row(1, "番茄炒蛋", "seafood", ["番茄", "雞蛋"]),
+    row(2, "香煎雞扒", "meat", ["雞扒"]),
+    row(3, "蒜蓉炒菜心", "vegetable", ["菜心"]),
+    row(4, "老火例湯", "soup", ["豬骨"]),
+    row(5, "番茄薯仔湯", "soup", ["番茄", "薯仔"]),
+  ];
+  const result = await processAIChefChat(
+    [{ role: "user", content: "3餸1湯 海鮮" }],
+    930102, undefined, "library",
+    [], undefined, "zh-TW", [], false, {},
+    "replace", false, false,
+    async () => pool,
+  );
+  assert.equal(result.recipes.length, 4, `served=${result.recipes.length}`);
+  assert.equal(result.recipes.filter((recipe) => recipe.dishType === "soup").length, 1);
+});
+
 test("meal shape invariant holds under narrow filters", async () => {
   const row = (id: number, name: string, dishType: string, ingredients: string[], scenarioTags: string[] = []) => ({
     id,

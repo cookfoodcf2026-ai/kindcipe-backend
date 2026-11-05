@@ -157,3 +157,13 @@ export function fallbackQueriesForFoodTerm(term: string): string[] {
   if (VEGETABLE_TERMS.some((t) => raw.includes(t))) return ["菜", "蔬菜"];
   return [];
 }
+
+/**
+ * 品類詞 → protein/群組 terms 嘅單一映射。正向（「想食海鮮」）同反向（「唔要海鮮／
+ * 避免：海鮮」）都用同一張表。「海鮮」刻意唔含蛋／豆腐（egg_tofu 唔係海鮮）。
+ */
+export const CATEGORY_TO_TERMS: Record<string, string[]> = {
+  海鮮: ["海鮮", "魚", "蝦", "蟹", "蜆", "蠔", "魷魚", "章魚", "墨魚", "帶子", "海參", "鮑魚", "龍蝦", "青口", "扇貝", "貽貝", "三文魚", "吞拿魚", "鯖魚", "鱈魚", "石斑", "seafood", "fish", "shrimp", "prawn", "crab", "squid", "oyster", "scallop"],
+  肉: ["豬", "牛", "雞", "鴨", "鵝", "羊", "排骨", "火腿", "煙肉", "臘腸", "肉丸", "叉燒", "燒肉", "雞翼", "雞腿", "雞髀", "豬扒", "牛扒", "雞扒", "豬手", "豬腳", "pork", "beef", "chicken", "lamb", "meat"],
+  辣: ["辣", "辣椒", "花椒", "麻辣", "泡椒", "咖喱", "沙嗲", "chilli", "chili", "spicy"],
+};

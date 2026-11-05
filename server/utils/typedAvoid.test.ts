@@ -42,8 +42,20 @@ test("typed avoid: 否定句唔算（唔係對花生過敏）", () => {
   assert.deepEqual(extractTypedAvoid("我唔係對花生過敏，只係想問下"), []);
 });
 
-test("typed avoid: 辣度偏好唔會當過敏", () => {
-  assert.deepEqual(extractTypedAvoid("我對辣敏感"), []);
+test("typed avoid: 辣係品類詞，對辣敏感會抽到辣", () => {
+  assert.deepEqual(extractTypedAvoid("我對辣敏感"), ["辣"]);
+});
+
+test("typed avoid: 避免：海鮮 抽出品類詞", () => {
+  assert.deepEqual(extractTypedAvoid("避免：海鮮"), ["海鮮"]);
+});
+
+test("typed avoid: 唔要肉 抽出品類詞", () => {
+  assert.deepEqual(extractTypedAvoid("唔要肉"), ["肉"]);
+});
+
+test("typed avoid: 避免：辣 抽出品類詞", () => {
+  assert.deepEqual(extractTypedAvoid("避免：辣"), ["辣"]);
 });
 
 test("typed avoid: 避免太油唔會污染 avoidIngredients", () => {

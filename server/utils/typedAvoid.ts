@@ -16,10 +16,12 @@ const ALLERGEN_HINTS = [
 ];
 
 const NEGATION_RE = /(?:唔係|不是|唔會|冇|沒有|not|isn't|is not)\s*$/u;
-const FLAVOUR_ONLY = new Set(["辣", "太辣", "油", "太油", "咸", "太咸", "甜", "太甜", "酸", "苦"]);
+const FLAVOUR_ONLY = new Set(["太辣", "油", "太油", "咸", "太咸", "甜", "太甜", "酸", "苦"]);
+const CATEGORY_WORDS = new Set(["海鮮", "肉", "辣"]);
 
 function looksLikeIngredient(token: string): boolean {
   if (FLAVOUR_ONLY.has(token)) return false;
+  if (CATEGORY_WORDS.has(token)) return true;
   if (ALLERGEN_HINTS.includes(token)) return true;
   return /[肉魚蝦蟹菜瓜豆蛋奶蔥蒜薑椒菇米麵雞豬牛鴨羊鵝蠔蜆貝]/.test(token);
 }
@@ -32,8 +34,8 @@ function cleanToken(raw: string): string | null {
     .trim();
   const limit = /^[a-z\s-]+$/iu.test(token) ? 24 : 8;
   if (token.length < 1 || token.length > limit) return null;
-  // 抽象詞唔可以當食材（例如「唔要肉」→ 「肉」太闊，留給 LLM；呢層只做明確名詞）
-  if (/^(?:肉|菜|嘢|食物|海鮮|湯|飯|麵|辣|甜|酸|苦)$/u.test(token)) return null;
+  // 抽象詞唔可以當食材（「菜／食物／湯」太闊，留俾 LLM；「海鮮／肉／辣」係品類詞，要保留）
+  if (/^(?:菜|嘢|食物|湯|飯|麵|甜|酸|苦)$/u.test(token)) return null;
   return token;
 }
 

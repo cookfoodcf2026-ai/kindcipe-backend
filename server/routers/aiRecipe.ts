@@ -12,7 +12,7 @@ import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
 import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, filterAllergenCards, getFamilyAllergens } from "../services/chefAllergens";
-import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, proteinFamilyForTerm, roleForFoodTerm } from "../services/foodLexicon";
+import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, proteinFamilyForTerm, roleForFoodTerm, CATEGORY_TO_TERMS } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
 import { runChefSlotPipeline } from "../services/chefPipeline";
@@ -1114,6 +1114,7 @@ function expandAvoidTerms(avoid: string[]): string[] {
     if (!key) continue;
     terms.add(key.toLowerCase());
     for (const term of AVOID_TERM_EXPANSIONS[key] ?? []) terms.add(term.toLowerCase());
+    for (const term of CATEGORY_TO_TERMS[key] ?? []) terms.add(term.toLowerCase());
   }
   return [...terms];
 }
@@ -2361,6 +2362,11 @@ const ROLE_LIBRARY_QUERY: Partial<Record<RequestedRole, string>> = {
 
 function matchesLibraryRole(row: Record<string, unknown>, role: RequestedRole): boolean {
   if (role === "noodle") return dishFamily(String(row.name ?? "")) === "noodle";
+  if (role === "seafood") {
+    // 真海鮮：用品類詞群組 match 名＋食材，唔用 classifyDishType（佢將蛋/豆腐歸 seafood）
+    const text = recipeText(row as any).replace(/魚香|鱼香/g, " ");
+    return CATEGORY_TO_TERMS["海鮮"].some((term) => text.includes(term));
+  }
   return classifyDishType(row) === dishTypeForRole(role);
 }
 
