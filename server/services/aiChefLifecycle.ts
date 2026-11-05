@@ -141,11 +141,7 @@ function statusFor(
     if (requested > 0) return "no_cards";
     return "text";
   }
-  // 單卡入口（問一道菜／熱鍵／食譜庫）出 1 張就係完整答案，唔可以叫 partial。
-  // 只有 meal 意圖（3 餸 1 湯、N 道菜）才有「不足」概念。
-  const kind = intent?.kind;
-  const required = kind === "meal" ? Math.max(1, requested) : 1;
-  return recipes.length < required ? "partial_cards" : "cards";
+  return recipes.length < requested ? "partial_cards" : "cards";
 }
 
 function cardId(recipe: ChefRecipeLike, index: number): string {

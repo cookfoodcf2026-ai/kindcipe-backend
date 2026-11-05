@@ -8226,10 +8226,8 @@ export const aiRecipeRouter = router({
           : undefined,
       });
       const finalResponse = finalized.response;
-      // 成本可觀測性：llmCalls 一定要回傳，唔係 client 側冇辦法核對成本。
-      finalResponse.llmCalls = meter.calls;
       if (meterInvariant) {
-        finalResponse.meterInvariant = true;
+        finalResponse.llmCalls = meter.calls;
       }
       const creditsCharged = finalized.creditsCharged;
       if (creditsCharged > 0 && familyId) {
