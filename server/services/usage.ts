@@ -271,22 +271,41 @@ export async function assertUsageAvailable(params: {
   }
 }
 
-export async function runWithUsage<T>(
+/** 可注入版本：只為測試「失敗要 refund、成功才 commit」呢條錢路徑。 */
+export type UsageDeps = {
+  reserve: typeof reserveUsage;
+  commit: typeof commitUsage;
+  refund: typeof refundUsage;
+};
+
+export async function runWithUsageWithDeps<T>(
+  deps: UsageDeps,
   params: Parameters<typeof reserveUsage>[0],
   fn: () => Promise<T>
 ): Promise<T> {
-  const reservation = await reserveUsage(params);
+  const reservation = await deps.reserve(params);
   if (reservation.status === "reserved") {
     try {
       const result = await fn();
-      await commitUsage(reservation.eventId);
+      await deps.commit(reservation.eventId);
       return result;
     } catch (error) {
-      await refundUsage(reservation.eventId).catch(() => {});
+      await deps.refund(reservation.eventId).catch(() => {});
       throw error;
     }
   }
   return fn();
+}
+
+export async function runWithUsage<T>(
+  params: Parameters<typeof reserveUsage>[0],
+  fn: () => Promise<T>
+): Promise<T> {
+  return runWithUsageWithDeps(
+    { reserve: reserveUsage, commit: commitUsage, refund: refundUsage },
+    params,
+    fn,
+  );
 }
 
 export function usageLimitToTRPC(error: unknown): never {
