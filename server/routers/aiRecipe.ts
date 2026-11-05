@@ -5561,7 +5561,13 @@ async function processAIChefChatCore(
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
       const vegRows = avoidIngredients.length > 0 ? vegSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegSearch.rows;
-      const vegPicked = rowsToSuggested(vegRows, excludeSets, 1);
+      let vegPicked = rowsToSuggested(vegRows, excludeSets, 1);
+      // 素食池細（59 張），一家人 7 日 seen 好快用盡 → 會靜靜 0 卡。
+      // 寧願出返重複嘅素食卡，都唔好 0 卡（重複唔係錯，0 卡係錯）。
+      if (vegPicked.length === 0 && vegRows.length > 0) {
+        console.log(`[AI Chef] veg_seen_exhausted rows=${vegRows.length} → retry without seen`);
+        vegPicked = rowsToSuggested(vegRows, mkExcludeSets([], []), 1);
+      }
       if (vegPicked.length > 0) {
         await recordFamilySeenNames(familyId, vegPicked.map((r) => r.name));
         return { content: aiReply(lang, "libByKeyword", { kw: "素食" }), recipes: vegPicked, llmUsed };
