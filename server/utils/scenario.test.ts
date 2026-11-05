@@ -338,3 +338,21 @@ test("vegetarian excludes fish species without the word 魚 (龍脷 / 斑塊)", 
   });
   assert.equal(grouper.includes("vegetarian"), false, grouper.join(","));
 });
+
+test("vegetarian: name with meat disqualifies even if ingredients omit meat", () => {
+  const scenarios = deriveScenarios({
+    name: "上癮鹽味味噌豬肉炒飯",
+    ingredients: [{ name: "白飯" }, { name: "味醂" }, { name: "黑胡椒" }],
+    steps: ["炒勻"],
+  });
+  assert.equal(scenarios.includes("vegetarian"), false, scenarios.join(","));
+});
+
+test("vegetarian: meat-free name and ingredients still qualify", () => {
+  const scenarios = deriveScenarios({
+    name: "蒜蓉炒菜心",
+    ingredients: [{ name: "菜心" }, { name: "蒜蓉" }],
+    steps: ["炒熟"],
+  });
+  assert.equal(scenarios.includes("vegetarian"), true, scenarios.join(","));
+});

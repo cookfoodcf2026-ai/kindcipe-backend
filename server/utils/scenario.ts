@@ -174,8 +174,8 @@ function proteinGroupCount(ingredients: ScenarioInput["ingredients"]): number {
   return groups.size;
 }
 
-function isVegetarian(ingredients: ScenarioInput["ingredients"]): boolean {
-  const text = String(ingredientText(ingredients)).normalize("NFKC").toLowerCase();
+function isVegetarian(ingredients: ScenarioInput["ingredients"], name?: string | null): boolean {
+  const text = `${String(name ?? "")} ${String(ingredientText(ingredients))}`.normalize("NFKC").toLowerCase();
   if (!text.trim()) return false;
 
   const cleaned = text.replace(
@@ -232,7 +232,7 @@ export function deriveScenarios(input: ScenarioInput): Scenario[] {
   if (usableIngredientNames && proteinGroupCount(input.ingredients) >= 2) out.add("highProtein");
 
   // vegetarian: exclusion rule; eggs/dairy/cheese/butter are allowed (lacto-ovo).
-  if (usableIngredientNames && isVegetarian(input.ingredients)) out.add("vegetarian");
+  if (usableIngredientNames && isVegetarian(input.ingredients, input.name)) out.add("vegetarian");
 
   return ALL_SCENARIOS.filter((s) => out.has(s));
 }

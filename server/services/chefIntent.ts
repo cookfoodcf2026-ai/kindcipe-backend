@@ -1,5 +1,6 @@
 import { findFoodTerm, foodItemType, hasRequestVerb, lastFoodClause, roleForFoodTerm } from "./foodLexicon";
 import { planChefTurn } from "./chefPlanner";
+import { parseChefConstraints, type ChefDiet } from "./chefConstraints";
 
 export type RequestedRole =
   | "meat"
@@ -28,6 +29,8 @@ export type ChefIntent = {
   requested: ChefRequested;
   confidence: number;
   reason: string;
+  /** Set when the user requested a vegetarian/vegan diet (素食/蛋奶素/純素/…). */
+  diet?: ChefDiet;
 };
 
 export type ResolveChefIntentOptions = {
@@ -288,6 +291,34 @@ export function resolveChefIntent(
     return { kind: "technique", wantsCards: false, requested: empty, confidence: 0.9, reason: "technique" };
   }
 
+  // Vegetarian / vegan diet request: route through the vegetarian scenario (same
+  // as the hotkey). Only the diet words (素食/吃素/食素/蛋奶素/純素/全素/vegan/…) trigger
+  // this — named dishes like 素菜煲/素雞/素肉 don't contain the diet word and so
+  // fall through to named-dish handling below.
+  const diet = parseChefConstraints(text).diet;
+  if (diet) {
+    const mealShape = explicitDishSoup(text);
+    if (mealShape && mealShape.total > 1) {
+      const vegRoles = mealShape.roles.map((r) => (r === "soup" ? "soup" : "vegetable"));
+      return {
+        kind: "meal",
+        wantsCards: true,
+        requested: { total: mealShape.total, roles: vegRoles },
+        confidence: 0.9,
+        reason: "vegetarian",
+        diet,
+      };
+    }
+    return {
+      kind: "recipe",
+      wantsCards: true,
+      requested: { total: 1, roles: ["any"] },
+      confidence: 0.9,
+      reason: "vegetarian",
+      diet,
+    };
+  }
+
   const planned = planChefTurn(text, { previousText: opts.previousUserText, previousTexts: opts.previousTexts, previousMeal: opts.previousMeal });
   if (planned) {
     let roles = planned.requested.roles;
@@ -356,13 +387,21 @@ export function resolveChefIntent(
   const requestClause = lastFoodClause(text);
   const requestFoodTerm = findFoodTerm(requestClause);
   if (requestFoodTerm && hasRequestVerb(requestClause)) {
-    return {
-      kind: "recipe",
-      wantsCards: true,
-      requested: { total: 1, roles: [roleForFoodTerm(requestFoodTerm)] },
-      confidence: 0.86,
-      reason: "explicit_food_request",
-    };
+    // 「唔要海鮮」「無肉」must not be read as a positive protein request.
+    const negatives = new Set(parseChefConstraints(text).negatives);
+    const role = roleForFoodTerm(requestFoodTerm);
+    const negated =
+      (role === "meat" && (negatives.has("pork") || negatives.has("beef") || negatives.has("chicken"))) ||
+      (role === "seafood" && negatives.has("seafood"));
+    if (!negated) {
+      return {
+        kind: "recipe",
+        wantsCards: true,
+        requested: { total: 1, roles: [role] },
+        confidence: 0.86,
+        reason: "explicit_food_request",
+      };
+    }
   }
 
   const hasSoup = /(湯水|老火湯|滾湯|燉湯|煲湯|湯品|soup|tonic|今晚食咩|晚餐推薦|設計晚餐)/i.test(text);

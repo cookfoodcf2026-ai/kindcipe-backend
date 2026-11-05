@@ -238,3 +238,50 @@ test("fish (魚) is not an alias of fish ball", () => {
   assert.equal(foodFamilyForTerm("魚"), null);
   assert.notEqual(foodFamilyForTerm("魚"), "fish_ball_noodle");
 });
+
+test("vegetarian free text routes to vegetarian diet", () => {
+  const intent = resolveChefIntent("素食菜式（蛋奶素，無肉無海鮮）", { mode: "chat" });
+  assert.equal(intent.diet, "vegetarian");
+  assert.equal(intent.reason, "vegetarian");
+  assert.equal(intent.requested.roles.includes("meat"), false);
+  assert.equal(intent.requested.roles.includes("seafood"), false);
+});
+
+test("vegan (純素) routes to vegan diet", () => {
+  const intent = resolveChefIntent("我想要純素，唔要蛋奶", { mode: "chat" });
+  assert.equal(intent.diet, "vegan");
+  assert.equal(intent.reason, "vegetarian");
+});
+
+test("vegetarian 3餸1湯 stays 4 all-vegetarian cards", () => {
+  const intent = resolveChefIntent("素食 3餸1湯", { mode: "chat" });
+  assert.equal(intent.diet, "vegetarian");
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.requested.total, 4);
+  assert.equal(intent.requested.roles.includes("meat"), false);
+  assert.equal(intent.requested.roles.includes("seafood"), false);
+  assert.equal(intent.requested.roles.includes("soup"), true);
+});
+
+test("唔要海鮮 must not become a seafood request", () => {
+  const intent = resolveChefIntent("唔要海鮮", { mode: "chat" });
+  assert.equal(intent.requested.roles.includes("seafood"), false);
+});
+
+test("無肉 must not become a meat request", () => {
+  const intent = resolveChefIntent("無肉", { mode: "chat" });
+  assert.equal(intent.requested.roles.includes("meat"), false);
+});
+
+test("無鹽 does not trigger any protein role", () => {
+  const intent = resolveChefIntent("無鹽", { mode: "chat" });
+  assert.equal(intent.requested.total, 0);
+  assert.equal(intent.requested.roles.includes("meat"), false);
+  assert.equal(intent.requested.roles.includes("seafood"), false);
+});
+
+test("素菜煲 is a named dish, not a vegetarian scenario", () => {
+  const intent = resolveChefIntent("素菜煲", { mode: "chat" });
+  assert.notEqual(intent.reason, "vegetarian");
+  assert.equal(intent.diet, undefined);
+});

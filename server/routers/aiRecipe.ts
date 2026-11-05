@@ -4043,7 +4043,7 @@ async function processAIChefChatCore(
     | { ok: true; rows: Record<string, unknown>[] }
     | { ok: false; reason: "timeout" | "throw" };
   let searchFailed = false;
-  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan): Promise<RecipeSearchResult> => {
+  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan, scenario?: string): Promise<RecipeSearchResult> => {
     if (searchOverride) {
       try {
         const rows = await searchOverride(query, limit, cookTimeMax);
@@ -4057,7 +4057,7 @@ async function processAIChefChatCore(
     // Real transient DB failures/timeouts still return ok:false.
     if (!db) return { ok: true, rows: [] };
     const startedAt = Date.now();
-    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
+    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, scenario, ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
     try {
       const res = await run();
       const rows = (res.recipes || []) as Record<string, unknown>[];
@@ -4899,6 +4899,29 @@ async function processAIChefChatCore(
   // This is the server-owned path for requests such as「一肉一甜品」/「3餸1湯」.
   // It never returns after a single library hit; partial results are explicit.
   if ((mode === "chat" || mode === "library") && wantCards && db && chefIntent.requested.total > 1) {
+    // 素食 meal（例如「素食 3餸1湯」）：直接走素食 scenario 揀 N 張全素，避免逐 role 揀揀到肉/海鮮。
+    if (chefIntent.diet) {
+      const soupCount = chefIntent.requested.roles.filter((r) => r === "soup").length;
+      const dishCount = Math.max(1, chefIntent.requested.total - soupCount);
+      const vegPool = await trySearch("", 400, undefined, undefined, "vegetarian");
+      if (!vegPool.ok) {
+        console.log(`[AI Chef] lib_search_fail vegetarian_meal reason=${vegPool.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      const vegSafe = avoidIngredients.length > 0 ? vegPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegPool.rows;
+      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, "vegetarian", seenSplit.seen7d, avoidIngredients);
+      const people = extractPeopleCount(lastUserText);
+      const applyServings = (arr: SuggestedRecipe[]) => people && people > 0 ? arr.map((r) => ({ ...r, servings: people })) : arr;
+      const cards = applyServings(vegPicked);
+      if (cards.length > 0) {
+        await recordFamilySeenNames(familyId, cards.map((r) => r.name));
+        const dishSetLabel = dishLabel(dishCount, soupCount, lang);
+        console.log(`[AI Chef] vegetarian meal served=${cards.length} wanted=${chefIntent.requested.total}`);
+        return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: cards, llmUsed };
+      }
+      console.warn(`[AI Chef] vegetarian meal 0 cards wanted=${chefIntent.requested.total}`);
+      return { content: aiReply(lang, "libNone"), recipes: [], llmUsed, clarifyReason: "library_miss" };
+    }
     const requested = chefIntent.requested;
     // Use the user's ingredient words for this meal. On a follow-up, the
     // previous message is the meal context; otherwise use the latest message.
@@ -5520,6 +5543,21 @@ async function processAIChefChatCore(
   const keyword = exactFoodTerm ?? cleanFoodQuery(lastUserText);
   const isVague = !keyword; // 抽唔到關鍵字 = 模糊想食
   if (mode === "chat" && !forceNoCards && (requestedCount === null || requestedCount <= 1)) {
+    // 素食 free text：直接走素食 scenario（同熱鍵一致），唔靠「素食」字面 match。
+    if (chefIntent.diet) {
+      const vegSearch = await trySearch("素食", 30, undefined, undefined, "vegetarian");
+      if (!vegSearch.ok) {
+        console.log(`[AI Chef] lib_search_fail vegetarian single reason=${vegSearch.reason}`);
+        return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
+      }
+      const vegRows = avoidIngredients.length > 0 ? vegSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegSearch.rows;
+      const vegPicked = rowsToSuggested(vegRows, excludeSets, 1);
+      if (vegPicked.length > 0) {
+        await recordFamilySeenNames(familyId, vegPicked.map((r) => r.name));
+        return { content: aiReply(lang, "libByKeyword", { kw: "素食" }), recipes: vegPicked, llmUsed };
+      }
+      return { content: aiReply(lang, "libNone"), recipes: [], llmUsed, missingRoles: chefIntent.requested.roles, clarifyReason: "library_miss" };
+    }
     // 打字「N分鐘」都尊重時間：由 raw text 抽 cookTimeMax（cleanFoodQuery 會剷走數字，所以要喺 raw 度抽）
     const chatTimeMatch = lastUserText.match(/(\d{1,3})\s*分鐘/);
     const chatCookTimeMax = chatTimeMatch ? parseInt(chatTimeMatch[1], 10) : undefined;
