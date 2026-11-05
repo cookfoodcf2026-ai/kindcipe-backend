@@ -4383,6 +4383,7 @@ async function processAIChefChatCore(
   const explicitDishRequest = chefIntent.reason === "explicit_food_request"
     && (historyHasMealShape || plannedTurn?.followUp === true);
   const dispatcherEnabled = !plannedTurn && mode === "chat"
+    && !chefIntent.diet
     && Boolean(db)
     && !explicitDishRequest
     && allowChatLlm
