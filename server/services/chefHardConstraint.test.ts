@@ -135,3 +135,21 @@ test("hard v2: vegetarian keeps English safe lookalikes", () => {
   assert.equal(cardPassesHardConstraint(card("Grilled chicken of the woods mushrooms", ["chicken of the woods"]), input), true);
   assert.equal(cardPassesHardConstraint(card("Oyster mushroom soup", ["oyster mushroom"]), input), true);
 });
+
+// 「蛋奶素」字面含「蛋」，唔可以被當成「我想食蛋」而刪走冇蛋嘅素食卡。
+test("素食（蛋奶素）唔會因為字面有「蛋」而刪走冇蛋嘅素菜", () => {
+  const input = { text: "素食（蛋奶素，無肉無海鮮）" };
+  for (const name of ["香菇", "涼拌拍青瓜", "清炒時蔬", "紅燒豆腐", "牛肝菌炒飯"]) {
+    assert.equal(cardPassesHardConstraint(card(name), input), true, name);
+  }
+  // 真肉仍然要刪
+  assert.equal(cardPassesHardConstraint(card("當紅炸子雞"), input), false);
+  assert.equal(cardPassesHardConstraint(card("青紅蘿蔔豬骨湯"), input), false);
+});
+
+// 但「我想食蛋」呢種真蛋白請求仍然要生效。
+test("真蛋白請求仍然生效：我要食蛋", () => {
+  const input = { text: "我想食蛋" };
+  assert.equal(cardPassesHardConstraint(card("番茄炒蛋"), input), true);
+  assert.equal(cardPassesHardConstraint(card("清炒時蔬"), input), false);
+});

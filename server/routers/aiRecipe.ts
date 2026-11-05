@@ -1170,7 +1170,7 @@ function hardIsMeat(raw: unknown): boolean {
   if (!name) return false;
   if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
   // Strip vegetarian-safe words that contain a meat character before testing.
-  const cleaned = name.replace(/牛油果|牛蒡|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
+  const cleaned = name.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
   return HARD_MEAT_RE.test(cleaned);
 }
 
@@ -1188,7 +1188,9 @@ export function cardPassesHardConstraint(
 
   // 指名蛋白（我想食魚／雞／牛…）。「蛋白」含「蛋」，唔可以當成「想食蛋」。
   const isHighProteinAsk = /蛋白|健身|增肌/.test(input.text);
-  const wants = isHighProteinAsk ? undefined : HARD_PROTEIN_INTENTS.find(([query]) => query.test(input.text));
+  // 「蛋奶素／素食」嘅字面含「蛋」「肉」，唔可以被當成「我想食蛋／肉」。
+  const isVegDiet = /素食|吃素|食素|蛋奶素|奶蛋素|純素|全素|vegan|vegetarian/i.test(input.text);
+  const wants = isHighProteinAsk || isVegDiet ? undefined : HARD_PROTEIN_INTENTS.find(([query]) => query.test(input.text));
   if (wants) {
     const main = ingNames.slice(0, 3).join(" ");
     if (!wants[1].test(`${name} ${main}`)) return false;
@@ -5560,7 +5562,17 @@ async function processAIChefChatCore(
         console.log(`[AI Chef] lib_search_fail vegetarian single reason=${vegSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
-      const vegRows = avoidIngredients.length > 0 ? vegSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegSearch.rows;
+      const vegRowsRaw = avoidIngredients.length > 0 ? vegSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegSearch.rows;
+      // 素食池有雜質：標籤寫 vegetarian 但食材有雞湯／魚露／蠔油嘅卡，一揀中就畀
+      // hard_constraint_v2 刪走 → 0 卡。揀之前先剔，剩低嘅才揀。
+      const vegRows = vegRowsRaw.filter((row: any) => {
+        if (hardIsMeat(String(row?.name ?? ""))) return false;
+        const ings = Array.isArray(row?.ingredients) ? row.ingredients : [];
+        return !ings.some((ing: any) => hardIsMeat(String(ing?.name ?? "")));
+      });
+      if (vegRows.length !== vegRowsRaw.length) {
+        console.log(`[AI Chef] veg_pool_impure removed=${vegRowsRaw.length - vegRows.length} kept=${vegRows.length}`);
+      }
       let vegPicked = rowsToSuggested(vegRows, excludeSets, 1);
       // 素食池細（59 張），一家人 7 日 seen 好快用盡 → 會靜靜 0 卡。
       // 寧願出返重複嘅素食卡，都唔好 0 卡（重複唔係錯，0 卡係錯）。
