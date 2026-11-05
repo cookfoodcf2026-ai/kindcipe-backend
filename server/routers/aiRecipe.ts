@@ -1170,7 +1170,7 @@ function hardIsMeat(raw: unknown): boolean {
   if (!name) return false;
   if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
   // Strip vegetarian-safe words that contain a meat character before testing.
-  const cleaned = name.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
+  const cleaned = name.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|鹹鴨蛋|鴨蛋|鵪鶉蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
   return HARD_MEAT_RE.test(cleaned);
 }
 
