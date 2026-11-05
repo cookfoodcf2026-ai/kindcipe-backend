@@ -8051,7 +8051,8 @@ export const aiRecipeRouter = router({
         const beforeHard = result.recipes.length;
         const keptHard = result.recipes.filter((recipe) => cardPassesHardConstraint(recipe, hardConstraintInput));
         if (keptHard.length !== beforeHard) {
-          console.log(`[AI Chef] hard_constraint_v2 removed=${beforeHard - keptHard.length} kept=${keptHard.length} text="${postconditionText.slice(0, 24)}"`);
+          const removedNames = result.recipes.filter((r) => !keptHard.includes(r)).map((r) => String((r as any)?.name ?? "?")).slice(0, 3);
+          console.log(`[AI Chef] hard_constraint_v2 removed=${beforeHard - keptHard.length} kept=${keptHard.length} text="${postconditionText.slice(0, 24)}" dropped="${removedNames.join("|")}"`);
           result.recipes = keptHard;
         }
       }
