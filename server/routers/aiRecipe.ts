@@ -7374,7 +7374,12 @@ export const aiRecipeRouter = router({
       const PANTRY_RE = /用以下食材|以下食材|用呢啲食材|食材[：:]|雪櫃|冰箱/;
       const pantryDb = PANTRY_RE.test(pantryText) ? await getDb() : null;
       // 「雪櫃有呢啲食材，可以煮咩？」(no list at all) must ask, not invent one card.
-      if (mode === "chat" && /雪櫃|冰箱/.test(pantryText) && !/[：:]/.test(pantryText) && !/得[^\n。]{1,}/.test(pantryText)) {
+      // 但用戶真係列咗 ≥2 樣（「雪櫃有青菜、洋蔥、豆腐，可以煮咩」）就唔可以再問一次 ——
+      // 之前只靠冒號／「得」判斷，令自然寫法永遠跌落呢個 ask 分支，pantry 修復完全冇機會執行。
+      const pantryListedNow =
+        parseChefConstraints(pantryText).pantry.length >= 2 ||
+        extractMealIngredients(pantryText).length >= 2;
+      if (mode === "chat" && /雪櫃|冰箱/.test(pantryText) && !pantryListedNow && !/[：:]/.test(pantryText) && !/得[^\n。]{1,}/.test(pantryText)) {
         console.log("[AI Chef] pantry_ask_no_list");
         return {
           content: "你雪櫃有咩食材？講幾樣（例如：雞蛋、豆腐、菜心），我即刻幫你配。",
@@ -7391,8 +7396,14 @@ export const aiRecipeRouter = router({
         // 「雪櫃得雞蛋同蔥」 has no colon — split on 得/同/、 too.
         const listedPart = (pantryText.match(/[：:]\s*([^\n。]+)/)?.[1] ?? "")
           || (pantryText.match(/得([^\n。]+)/)?.[1] ?? "");
-        const listed = listedPart
-          .split(/[、，,同＋+/]+/)
+        // 自然寫法（「雪櫃有青菜、洋蔥、豆腐，可以煮咩」）冇冒號又冇「得」，
+        // 以前 listed 會變空 → 一路跌落 0 卡。改用共用 parser 抽食材。
+        const listed = (listedPart
+          ? listedPart.split(/[、，,同＋+/]+/)
+          : [
+              ...parseChefConstraints(pantryText).pantry,
+              ...extractMealIngredients(pantryText),
+            ])
           .map((item) => item.replace(/^(有|仲有|同|得)/, "").trim())
           .filter((item) => item.length >= 1 && item.length <= 8);
         const wanted = Array.from(new Set(listed)).slice(0, 6);
