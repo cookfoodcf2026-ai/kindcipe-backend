@@ -1220,6 +1220,17 @@ export async function getPurchaseHistory(familyId: number, limit = 200) {
     .limit(limit);
 }
 
+export async function getPurchaseHistoryByUser(userId: string, limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(purchaseHistory)
+    .where(eq(purchaseHistory.userId, userId))
+    .orderBy(desc(purchaseHistory.boughtAt))
+    .limit(limit);
+}
+
 /**
  * Update an existing purchase history record (price/quantity).
  */

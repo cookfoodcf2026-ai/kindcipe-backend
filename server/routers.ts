@@ -87,6 +87,7 @@ import {
   getTrendingRecipes,
   recordPurchase,
   getPurchaseHistory,
+  getPurchaseHistoryByUser,
   getPurchaseFrequency,
   getLastPurchasePrices,
   updatePurchaseHistory,
@@ -738,7 +739,7 @@ const shoppingRouter = router({
           const items = await getShoppingItems(ctx.activeFamilyId);
           const item = items.find(i => i.id === input.id);
           if (item) {
-            recordPurchase({
+            await recordPurchase({
               familyId: ctx.activeFamilyId!,
               userId: ctx.user.id,
               userName: ctx.user.name || 'Someone',
@@ -756,7 +757,23 @@ const shoppingRouter = router({
         // Solo 用戶：用新函數
         const status = input.bought ? "bought" : "active";
         await updateShoppingItemStatusSolo(input.id, ctx.user.id, status, input.bought ? (ctx.user.name || "Someone") : undefined);
-        // Solo 用戶唔需要 broadcast
+        if (input.bought && shouldRecordPurchase) {
+          const items = await getShoppingItemsSolo(ctx.user.id);
+          const item = items.find(i => i.id === input.id);
+          if (item) {
+            await recordPurchase({
+              familyId: item.familyId,
+              userId: ctx.user.id,
+              userName: ctx.user.name || 'Someone',
+              name: item.name,
+              category: item.category ?? undefined,
+              unit: item.unit ?? undefined,
+              quantity: item.quantity ?? undefined,
+              shoppingItemId: input.id,
+              actualPrice: input.actualPrice,
+            }).catch(() => {});
+          }
+        }
       }
       return { success: true };
     }),
@@ -1586,7 +1603,7 @@ const purchaseHistoryRouter = router({
   list: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(200).default(100) }).optional())
     .query(async ({ ctx, input }) => {
-      if (!ctx.activeFamilyId) return [];
+      if (!ctx.activeFamilyId) return getPurchaseHistoryByUser(ctx.user.id, input?.limit ?? 100);
       return getPurchaseHistory(ctx.activeFamilyId, input?.limit ?? 100);
     }),
   /** Get purchase frequency stats for smart restock suggestions */
