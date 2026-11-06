@@ -6328,7 +6328,10 @@ export function applyChefCardConstraint(
   const parsedSlots = telemetry?.slots ?? null;
   const hasParsedFacet = Boolean(parsedSlots && (parsedSlots.protein || parsedSlots.dishType || parsedSlots.method || parsedSlots.keyword || (parsedSlots.tags?.length ?? 0) > 0));
   const inferredSlots = hasParsedFacet ? parsedSlots : inferInsuranceSlots(text, parsedSlots);
-  const pantryQuery = isPantryIngredientsQuery(text);
+  const requestedRoles = result.intentOverride?.requested?.roles ?? [];
+  const mixedPantryRoles = requestedRoles.includes("vegetable") && requestedRoles.includes("seafood");
+  const pantryHint = /(得|雪櫃|冰箱|我.*有|剩|用剩)/.test(text);
+  const pantryQuery = isPantryIngredientsQuery(text) || (mixedPantryRoles && pantryHint);
   const safeSlots = inferredSlots && pantryQuery && !(inferredSlots.tags ?? []).some((tag) => INSURANCE_VEG_RE.test(String(tag)))
     ? { ...inferredSlots, protein: undefined }
     : inferredSlots;
@@ -6376,7 +6379,7 @@ export function applyChefCardConstraint(
   // Single-card questions get at most 3 cards; meal shapes are shaped later.
   const capped = detectMealShapeLoose(text) ? constrained : constrained.slice(0, 3);
   if (capped.length === result.recipes.length && capped === constrained) return result;
-  console.log(`[AI Chef] card_constraint removed=${result.recipes.length - constrained.length} remaining=${constrained.length} protein=${safeSlots.protein ?? "none"} veg=${safeSlots.tags?.includes("素食") ? 1 : 0} keyword=${safeSlots.keyword ?? "none"}`);
+  console.log(`[AI Chef] card_constraint removed=${result.recipes.length - constrained.length} remaining=${constrained.length} protein=${safeSlots.protein ?? "none"} veg=${safeSlots.tags?.includes("素食") ? 1 : 0} keyword=${safeSlots.keyword ?? "none"} pantry=${pantryQuery ? 1 : 0}`);
   return {
     ...result,
     recipes: capped,
