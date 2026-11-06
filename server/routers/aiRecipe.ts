@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray, inArray, not } from "drizzle-orm";
@@ -32,7 +32,7 @@ import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } f
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity, collisionScore } from "../utils/mealDiversity";
 import { findFoodTermPattern, matchesByTermName, matchesByTermIngredient, pickDishesByTerm } from "../utils/foodTermMap";
-import { storageGetSignedUrl } from "../storage";
+import { getBackendBaseUrl, storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
 import { getFamilyEntitlements } from "../services/entitlements";
@@ -3356,29 +3356,144 @@ function toLLMMessages(input: Array<{ role: string; content: string | Array<Text
   }));
 }
 
-// LLM（Vision）只能 access 公開 URL；將自身上傳嘅 /r2-storage/ 圖片換成預簽名 URL
-async function resolveImageUrls(input: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>): Promise<Array<{ role: string; content: string | Array<TextContent | ImageContent> }>> {
-  return Promise.all(input.map(async (m) => {
+// LLM（Vision）只能 access 公開 URL；先將自身上傳嘅 /r2-storage/ 圖片換成預簽名 URL。
+// 如果簽名／下載失敗，才 fallback 成 data URL。只接受自己 family 的 screenshot key。
+type VisionTrace = {
+  hasImage: boolean;
+  images: number;
+  resolved: number;
+  mode: "none" | "url" | "base64" | "mixed";
+  keyHash: string;
+  bytes: number;
+  fallback: number;
+  timeout: number;
+  rejected: number;
+};
+
+type VisionPrepareDeps = {
+  sign?: (key: string) => Promise<string>;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  maxBytes?: number;
+};
+
+const VISION_IMAGE_URL_PREFIX = "/r2-storage/";
+const MAX_VISION_BYTES = 5 * 1024 * 1024;
+
+function keyHashForTrace(key: string): string {
+  return createHash("sha256").update(key).digest("hex").slice(0, 12);
+}
+
+function imageKeyForUrl(url: string): string | null {
+  const marker = VISION_IMAGE_URL_PREFIX;
+  const idx = String(url ?? "").indexOf(marker);
+  if (idx === -1) return null;
+  return String(url).slice(idx + marker.length).split("?")[0].split("#")[0];
+}
+
+function isAllowedVisionKey(key: string, familyId?: number): boolean {
+  if (!key || key.includes("..") || key.startsWith("/")) return false;
+  return familyId != null
+    ? key.startsWith(`recipe-screenshots/f${familyId}/`)
+    : key.startsWith("recipe-screenshots/");
+}
+
+async function timeoutVision<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("vision_timeout")), ms)),
+  ]);
+}
+
+async function imageToDataUrl(buffer: Buffer, mime: string, maxBytes: number): Promise<string> {
+  let out = buffer;
+  let outMime = mime || "image/jpeg";
+  if (out.length > maxBytes || !/^image\/(jpeg|jpg|png|webp)$/i.test(outMime)) {
+    try {
+      const sharpModule = await import("sharp");
+      out = await sharpModule.default(buffer).rotate().resize({
+        width: 1600,
+        height: 1600,
+        fit: "inside",
+        withoutEnlargement: true,
+      }).jpeg({ quality: 80 }).toBuffer();
+      outMime = "image/jpeg";
+    } catch {
+      // Keep original if sharp is unavailable.
+    }
+  }
+  if (out.length > maxBytes) throw new Error("vision_image_too_large");
+  return `data:${outMime};base64,${out.toString("base64")}`;
+}
+
+export async function prepareVisionImages(
+  input: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
+  opts: { familyId?: number; traceId?: string; deps?: VisionPrepareDeps } = {},
+): Promise<{ messages: typeof input; trace: VisionTrace }> {
+  const deps = opts.deps ?? {};
+  const sign = deps.sign ?? storageGetSignedUrl;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const timeoutMs = deps.timeoutMs ?? 1500;
+  const maxBytes = deps.maxBytes ?? MAX_VISION_BYTES;
+  const lastUser = [...input].reverse().find((m) => m.role === "user");
+  const hasImage = Boolean(lastUser && Array.isArray(lastUser.content) && lastUser.content.some((c: any) => c.type === "image_url"));
+  let images = 0;
+  let resolved = 0;
+  let fallback = 0;
+  let timeout = 0;
+  let rejected = 0;
+  let bytes = 0;
+  let firstKeyHash = "";
+  const modes = new Set<"url" | "base64">();
+  const messages = await Promise.all(input.map(async (m) => {
     if (typeof m.content === "string") return m;
     const content = await Promise.all(m.content.map(async (c) => {
-      if (c.type === "image_url") {
-        const url = c.image_url.url;
-        const marker = "/r2-storage/";
-        const idx = url.indexOf(marker);
-        if (idx !== -1) {
-          const key = url.slice(idx + marker.length).split("?")[0];
-          try {
-            const signed = await storageGetSignedUrl(key);
-            return { ...c, image_url: { ...c.image_url, url: signed } };
-          } catch (e) {
-            console.warn("[AI Chef] resolve image signed URL failed:", e);
-          }
+      if (c.type !== "image_url") return c;
+      images += 1;
+      const original = c.image_url.url;
+      const key = imageKeyForUrl(original);
+      if (!key) return c;
+      if (!firstKeyHash) firstKeyHash = keyHashForTrace(key);
+      if (!isAllowedVisionKey(key, opts.familyId)) {
+        rejected += 1;
+        console.warn(`[AI Chef][vision] request=${opts.traceId ?? "none"} rejected_key=1`);
+        return c;
+      }
+      try {
+        const signed = await timeoutVision(Promise.resolve(sign(key)), timeoutMs);
+        resolved += 1;
+        modes.add("url");
+        return { ...c, image_url: { ...c.image_url, url: signed } };
+      } catch (e) {
+        const isTimeout = String((e as Error)?.message ?? e).includes("vision_timeout");
+        if (isTimeout) timeout += 1;
+        try {
+          const fetchUrl = /^https?:\/\//i.test(original)
+            ? original
+            : `${getBackendBaseUrl().replace(/\/+$/, "")}${original}`;
+          const res = await timeoutVision(fetchImpl(fetchUrl, { signal: AbortSignal.timeout(timeoutMs) }), timeoutMs);
+          if (!res.ok) throw new Error(`fetch_${res.status}`);
+          const arrayBuffer = await res.arrayBuffer();
+          const dataUrl = await imageToDataUrl(Buffer.from(arrayBuffer), String(res.headers.get("content-type") ?? "image/jpeg"), maxBytes);
+          bytes += Buffer.byteLength(dataUrl, "utf8");
+          fallback += 1;
+          resolved += 1;
+          modes.add("base64");
+          return { ...c, image_url: { ...c.image_url, url: dataUrl } };
+        } catch (fallbackError) {
+          console.warn(`[AI Chef][vision] request=${opts.traceId ?? "none"} fallback_failed=${String((fallbackError as Error)?.message ?? fallbackError)}`);
+          return c;
         }
       }
-      return c;
     }));
     return { ...m, content };
   }));
+  const mode: VisionTrace["mode"] = modes.size === 0 ? "none" : modes.size > 1 ? "mixed" : [...modes][0];
+  const trace: VisionTrace = { hasImage, images, resolved, mode, keyHash: firstKeyHash, bytes, fallback, timeout, rejected };
+  if (images > 0) {
+    console.log(`[AI Chef][vision] request=${opts.traceId ?? "none"} hasImage=${hasImage ? 1 : 0} images=${images} resolved=${resolved} mode=${mode} keyHash=${firstKeyHash || "none"} bytes=${bytes} fallback=${fallback} timeout=${timeout} rejected=${rejected}`);
+  }
+  return { messages, trace };
 }
 
 // ─── Exported: non-streamed chat ─────────────────────────
@@ -3896,6 +4011,7 @@ async function processAIChefChatCore(
   stateUserId?: string,
   knownAllergens?: string[],
   slotPipelineOverride?: ChefSlotPipelineOverride,
+  traceId?: string,
 ): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
@@ -5732,14 +5848,8 @@ async function processAIChefChatCore(
   }
 
   // ══════════ LLM 路徑（greeting/technique/ai mode/library 0 結果）══════════
-  const resolvedMsgs = await withTimeout(
-    resolveImageUrls(inputMessages),
-    AI_RECIPE_CONTEXT_TIMEOUT_MS,
-    "resolve image urls"
-  ).catch((err) => {
-    console.warn("[AI Chef] resolveImageUrls timeout/failure:", err);
-    return inputMessages;
-  });
+  const vision = await prepareVisionImages(inputMessages, { familyId, traceId });
+  const resolvedMsgs = vision.messages;
 
   const llmMsgs = toLLMMessages(resolvedMsgs);
   const soupIntent = detectSoupIntent(llmMsgs);
@@ -6725,14 +6835,8 @@ export async function* streamAIChefChat(
   { type: "text"; value: string } | { type: "recipes"; value: SuggestedRecipe[] } | { type: "done" }
 > {
   const db = await getDb();
-  const resolvedMsgs = await withTimeout(
-    resolveImageUrls(inputMessages),
-    AI_RECIPE_CONTEXT_TIMEOUT_MS,
-    "resolve image urls"
-  ).catch((err) => {
-    console.warn("[AI Chef] resolveImageUrls timeout/failure:", err);
-    return inputMessages;
-  });
+  const vision = await prepareVisionImages(inputMessages, { familyId });
+  const resolvedMsgs = vision.messages;
 
   // Auto-search library for context
   const searchQuery = extractSearchQuery(toLLMMessages(resolvedMsgs));
@@ -7945,6 +8049,8 @@ export const aiRecipeRouter = router({
           undefined,
           userIdStr,
           familyAllergens,
+          undefined,
+          requestId,
         );
         result = input.aiEntry === "swap_ai"
           ? await runWithDeadline(processPromise, SWAP_AI_DEADLINE_MS, () => ({

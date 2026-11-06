@@ -34,7 +34,7 @@ function getR2Config() {
  * R2_PUBLIC_URL is configured. Default: Railway production host.
  * Override with PUBLIC_BASE_URL env.
  */
-function getBackendBaseUrl(): string {
+export function getBackendBaseUrl(): string {
   return (
     process.env.PUBLIC_BASE_URL ??
     process.env.BACKEND_PUBLIC_URL ??
