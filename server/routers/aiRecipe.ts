@@ -6196,6 +6196,26 @@ async function processAIChefChatCore(
 }
 
 const INSURANCE_VEG_RE = /素食|吃素|食素|vegan|vegetarian/i;
+const PANTRY_MARKER_RE = /(我得|我有|我屋企有|雪櫃|冰箱|剩|用剩|得返|pantry|fridge|leftover)/i;
+const PANTRY_CONNECTOR_RE = /(同|和|加埋|仲有|and)/i;
+const EGG_TOFU_RE = /(雞蛋|鸡蛋|蛋|豆腐|豆卜|豆乾|豆干|腐竹|腐皮|egg|tofu)/i;
+const SEAFOOD_INGREDIENT_RE = /(海鮮|海鲜|魚|鱼|蝦|虾|蟹|蜆|蚬|蠔|蚝|魷魚|鱿鱼|墨魚|墨鱼|帶子|带子|扇貝|扇贝|青口|龍蝦|龙虾|鮑魚|鲍鱼|海參|海参|花甲|seafood|fish|shrimp|prawn|crab|squid|oyster|scallop|clam)/i;
+const SEAFOOD_FALSE_POSITIVE_RE = /(魚香|鱼香|魚露|鱼露|魚腥草|木魚花|蠔油|蚝油)/i;
+
+export function isPantryIngredientsQuery(text: string): boolean {
+  const raw = String(text ?? "");
+  return PANTRY_MARKER_RE.test(raw) && PANTRY_CONNECTOR_RE.test(raw);
+}
+
+export function isPureEggTofuCard(card: any): boolean {
+  const hay = [
+    String(card?.name ?? ""),
+    ...(Array.isArray(card?.ingredients)
+      ? card.ingredients.map((ingredient: any) => String(ingredient?.name ?? ingredient ?? ""))
+      : []),
+  ].join(" ");
+  return EGG_TOFU_RE.test(hay) && !(SEAFOOD_INGREDIENT_RE.test(hay) && !SEAFOOD_FALSE_POSITIVE_RE.test(hay));
+}
 
 function insuranceAskReply(lang: string): string {
   if (lang.startsWith("en")) return "I couldn't find a close match. Try: steamed fish, stir-fried egg, tofu claypot — or name an ingredient and I'll search it.";
@@ -6216,10 +6236,11 @@ function insuranceReply(lang: string): string {
  * constraints (protein / vegetarian / a named dish), ignore preferences such as
  * tags, method, time and difficulty so the pool stays as wide as possible.
  */
-function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots | null {
+export function inferInsuranceSlots(text: string, parsed: ChefSlots | null): ChefSlots | null {
   const vegetarian = (parsed?.tags ?? []).some((tag) => INSURANCE_VEG_RE.test(tag))
     || INSURANCE_VEG_RE.test(text);
   if (vegetarian) return { wantsCards: true, tags: ["素食"] };
+  if (isPantryIngredientsQuery(text)) return { wantsCards: true };
   if (parsed?.protein) return { wantsCards: true, protein: parsed.protein };
   // Tag-only queries (早餐 / 辣 / 小朋友 / 一鍋到底 / 高蛋白 …) have no food noun
   // but do carry a real constraint; a tag beats a vague dishType ("早餐" is not
@@ -6293,7 +6314,7 @@ function isFoodRelatedForInsurance(
  * dispatcher, AI). Protein / vegetarian / named-dish constraints must hold even
  * when the card came from a path that did not understand the slots.
  */
-function applyChefCardConstraint(
+export function applyChefCardConstraint(
   result: CoreResult,
   text: string,
   mode: string,
@@ -6306,7 +6327,11 @@ function applyChefCardConstraint(
   // 「想食粉麵」into keyword "麵", deleting every 米粉/烏冬/意粉 card.
   const parsedSlots = telemetry?.slots ?? null;
   const hasParsedFacet = Boolean(parsedSlots && (parsedSlots.protein || parsedSlots.dishType || parsedSlots.method || parsedSlots.keyword || (parsedSlots.tags?.length ?? 0) > 0));
-  const safeSlots = hasParsedFacet ? parsedSlots : inferInsuranceSlots(text, parsedSlots);
+  const inferredSlots = hasParsedFacet ? parsedSlots : inferInsuranceSlots(text, parsedSlots);
+  const pantryQuery = isPantryIngredientsQuery(text);
+  const safeSlots = inferredSlots && pantryQuery && !(inferredSlots.tags ?? []).some((tag) => INSURANCE_VEG_RE.test(String(tag)))
+    ? { ...inferredSlots, protein: undefined }
+    : inferredSlots;
   if (!safeSlots) return result;
   // A tag the user named is the stronger constraint; re-checking a vague
   // dishType (breakfast → snack) on top of it deleted 燕麥/粥.
@@ -6336,7 +6361,8 @@ function applyChefCardConstraint(
     const hay = normalizeName([card.name, ...(Array.isArray(card.ingredients) ? card.ingredients.map((i: any) => String(i?.name ?? i)) : [])].join(" "));
     return !hay.includes(slotKeyword);
   };
-  const constrained = result.recipes.filter((card) => !violatesAvoid(card) && !missingKeyword(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && validateGeneratedCard(
+  const mealShape = detectMealShapeLoose(text);
+  const constrained = result.recipes.filter((card) => !violatesAvoid(card) && !missingKeyword(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && !(safeSlots.protein === "seafood" && !mealShape && isPureEggTofuCard(card)) && validateGeneratedCard(
     {
       name: card.name,
       cookTime: card.cookTime,

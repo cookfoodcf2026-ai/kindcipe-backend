@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applySilentZeroCardClarify, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, ingredientMissReply, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applyChefCardConstraint, applySilentZeroCardClarify, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, inferInsuranceSlots, ingredientMissReply, isPantryIngredientsQuery, isPureEggTofuCard, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { claimsRecipeCards } from "./chefResponse";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
@@ -1073,6 +1073,86 @@ test("chinese numeral meal shape yields four cards", async () => {
     assert.equal(result.recipes.length, 4, `${text} served=${result.recipes.length}`);
     assert.equal(result.recipes.filter((recipe) => recipe.dishType === "soup").length, 1, text);
   }
+});
+
+test("pantry ingredient list does not become a hard vegetarian protein", () => {
+  assert.equal(isPantryIngredientsQuery("我得椰菜同兩隻蛋"), true);
+  assert.deepEqual(inferInsuranceSlots("我得椰菜同兩隻蛋", null), { wantsCards: true });
+});
+
+test("pantry card survives parsed protein=veg constraint", () => {
+  const card = {
+    name: "椰菜炒蛋",
+    dishType: "stirfry",
+    cookTime: 20,
+    servings: 2,
+    ingredients: [{ name: "椰菜" }, { name: "雞蛋" }],
+    steps: ["1", "2"],
+    tags: [],
+    source: "official",
+  };
+  const out = applyChefCardConstraint(
+    { content: "", recipes: [card], llmUsed: false } as any,
+    "我得椰菜同兩隻蛋",
+    "chat",
+    { slots: { wantsCards: true, protein: "veg" } } as any,
+    "zh-TW",
+  );
+  assert.deepEqual(out.recipes.map((r: any) => r.name), ["椰菜炒蛋"]);
+});
+
+test("pure egg card is not a seafood card", () => {
+  assert.equal(isPureEggTofuCard({ name: "番茄炒蛋", ingredients: [{ name: "番茄" }, { name: "雞蛋" }] }), true);
+  assert.equal(isPureEggTofuCard({ name: "鮮蝦蒸水蛋", ingredients: [{ name: "雞蛋" }, { name: "蝦仁" }] }), false);
+});
+
+test("protein=seafood rejects pure egg cards but keeps fish", () => {
+  const card = (name: string, dishType: string, ingredients: string[]) => ({
+    name,
+    dishType,
+    cookTime: 20,
+    servings: 2,
+    ingredients: ingredients.map((name) => ({ name })),
+    steps: ["1", "2"],
+    tags: [],
+    source: "official",
+  });
+  const out = applyChefCardConstraint(
+    {
+      content: "",
+      recipes: [
+        card("番茄炒蛋", "seafood", ["番茄", "雞蛋"]),
+        card("清蒸鱸魚", "seafood", ["鱸魚"]),
+      ],
+      llmUsed: false,
+    } as any,
+    "我想食海鮮",
+    "chat",
+    { slots: { wantsCards: true, protein: "seafood" } } as any,
+    "zh-TW",
+  );
+  assert.deepEqual(out.recipes.map((r: any) => r.name), ["清蒸鱸魚"]);
+});
+
+test("seafood card with real seafood still passes", () => {
+  const card = {
+    name: "鮮蝦蒸水蛋",
+    dishType: "seafood",
+    cookTime: 20,
+    servings: 2,
+    ingredients: [{ name: "雞蛋" }, { name: "蝦仁" }],
+    steps: ["1", "2"],
+    tags: [],
+    source: "official",
+  };
+  const out = applyChefCardConstraint(
+    { content: "", recipes: [card], llmUsed: false } as any,
+    "我想食海鮮",
+    "chat",
+    { slots: { wantsCards: true, protein: "seafood" } } as any,
+    "zh-TW",
+  );
+  assert.deepEqual(out.recipes.map((r: any) => r.name), ["鮮蝦蒸水蛋"]);
 });
 
 test("regression: 3餸1湯 + 海鮮 still yields 4 cards (seafood role keeps egg_tofu)", async () => {
