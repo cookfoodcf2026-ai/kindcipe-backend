@@ -7275,18 +7275,31 @@ export const aiRecipeRouter = router({
   // 純視覺分析：只回 scene / dishName / ingredients，唔經食譜管線、唔扣 credit、唔存 recipe。
   analyzeImage: protectedProcedure
     .input(z.object({
-      storageKeys: z.array(z.string()).min(1).max(2),
+      storageKeys: z.array(z.string().max(512)).min(1).max(2).optional(),
+      base64: z.string().max(5_500_000).optional(),
+      mimeType: z.string().max(64).optional(),
       lang: z.string().max(16).optional(),
+    }).refine((value) => Boolean(value.storageKeys?.length) !== Boolean(value.base64), {
+      message: "請提供 storageKeys 或 base64（二選一）",
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       const familyId = ctx.activeFamilyId;
       const userId = String(ctx.user.id);
       const requestId = randomUUID();
-      for (const key of input.storageKeys) {
-        if (!key.startsWith(`recipe-screenshots/f${familyId}/`)) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
+      const sourceUrls: string[] = [];
+      if (input.storageKeys?.length) {
+        for (const key of input.storageKeys) {
+          if (!key.startsWith(`recipe-screenshots/f${familyId}/`)) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "無權存取此檔案" });
+          }
+          sourceUrls.push(`/r2-storage/${key}`);
         }
+      } else {
+        if (!input.mimeType || !/^image\/(jpeg|jpg|png|webp)$/i.test(input.mimeType)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "不支援的圖片格式" });
+        }
+        sourceUrls.push(`data:${input.mimeType};base64,${input.base64}`);
       }
       startLlmMeter({ familyId, userId, route: "ai_vision_analyze", requestId });
       const prompt = `你係圖片食材／菜式分析器。只回傳以下 JSON，唔准 markdown、解釋或任何其他文字：
@@ -7302,9 +7315,9 @@ export const aiRecipeRouter = router({
           role: "user",
           content: [
             { type: "text", text: prompt },
-            ...input.storageKeys.map((key) => ({
+            ...sourceUrls.map((url) => ({
               type: "image_url" as const,
-              image_url: { url: `/r2-storage/${key}`, detail: "high" as const },
+              image_url: { url, detail: "high" as const },
             })),
           ],
         }], { familyId, traceId: requestId });
