@@ -432,7 +432,7 @@ export function registerSocialAuthRoutes(app: Express) {
         return;
       }
       const sessionToken = await sdk.createSessionToken(resolved.user.openId, {
-        name: resolved.user.name || "",
+        name: (resolved.user.name || "").trim() || (resolved.user.email || "").split("@")[0] || "user",
         expiresInMs: ONE_YEAR_MS,
         passwordVersion: resolved.user.passwordVersion,
       });

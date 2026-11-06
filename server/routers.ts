@@ -102,6 +102,7 @@ import {
   verifyEmailCode,
   setUserEmailVerified,
   getRecentEmailVerificationCode,
+  countEmailVerificationCodesSince,
   verifyPassword,
   touchUserSignIn,
   updateUserPassword,
@@ -1848,6 +1849,16 @@ const opsRouter = router({
     }),
 });
 
+// A session token must carry a non-empty name: verifySession() rejects "" and every
+// later request is treated as anonymous. OTP sign-up never sets users.name.
+export function sessionDisplayName(user: { name?: string | null; email?: string | null }): string {
+  const named = (user?.name ?? "").trim();
+  if (named) return named;
+  const email = (user?.email ?? "").trim();
+  if (email.includes("@")) return email.split("@")[0];
+  return "user";
+}
+
 export const appRouter = router({
   system: systemRouter,
   aiRecipe: aiRecipeRouter,
@@ -2094,7 +2105,8 @@ export const appRouter = router({
         const result = await verifyEmailCode(input.email, input.code);
         if (!result.ok) {
           const messages: Record<string, string> = {
-            not_found: "驗證碼不存在或已使用，請重新發送",
+            not_found: "驗證碼已失效，請重新發送",
+            used: "驗證碼已失效，請重新發送",
             expired: "驗證碼已過期，請重新發送",
             too_many_attempts: "嘗試次數過多，請重新發送驗證碼",
             wrong_code: "驗證碼不正確",
@@ -2105,7 +2117,7 @@ export const appRouter = router({
         await setUserEmailVerified(result.userId);
 
         const sessionToken = await sdk.createSessionToken(user.openId, {
-          name: user.name ?? "",
+          name: sessionDisplayName(user),
           expiresInMs: ONE_YEAR_MS,
           passwordVersion: user.passwordVersion ?? 0,
         });
@@ -2183,7 +2195,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "管理員帳號或密碼錯誤" });
         }
         await touchUserSignIn(user.id);
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: sessionDisplayName(user), expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };
@@ -2191,18 +2203,27 @@ export const appRouter = router({
 
     // ── Email OTP（萬能後備 / 帳號找回：任何裝置都可登入同一 email 帳號）────
     requestLoginOtp: publicProcedure
-      .input(z.object({ email: z.string().email() }))
+      .input(z.object({ email: z.string().email(), lang: z.string().max(16).optional() }))
       .mutation(async ({ input }) => {
         const email = input.email.toLowerCase();
         const recent = await getRecentEmailVerificationCode(email, 60_000);
         if (recent) return { success: true, cooldownSeconds: 60 };
+        // Hard cap: 5 emails per address per hour (counted from the code table).
+        const recentCount = await countEmailVerificationCodesSince(email, 60 * 60_000);
+        if (recentCount >= 5) return { success: true, cooldownSeconds: 60 };
         const user = await getUserByEmail(email);
         const { code } = await createEmailVerificationCode({
           userId: user ? String(user.id) : `pending:${email}`,
           email,
         });
         try {
-          await sendVerificationEmail({ email, name: user?.name ?? null, code, lang: (user as any)?.language ?? null });
+          await sendVerificationEmail({
+            email,
+            name: user?.name ?? null,
+            code,
+            // Explicit request language wins; otherwise the stored one; else default.
+            lang: input.lang ?? (user as any)?.language ?? null,
+          });
         } catch (e) {
           console.error("[requestLoginOtp] send failed:", (e as Error)?.message);
         }
@@ -2235,7 +2256,7 @@ export const appRouter = router({
         }
         await setUserEmailVerified(String(user.id));
         await createIdentity({ userId: String(user.id), provider: "otp", providerUserId: email, email, emailVerified: true });
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: sessionDisplayName(user), expiresInMs: ONE_YEAR_MS, passwordVersion: user.passwordVersion });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         return { success: true, token: sessionToken };

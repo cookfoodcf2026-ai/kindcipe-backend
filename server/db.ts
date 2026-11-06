@@ -221,7 +221,7 @@ export async function createEmailVerificationCode(params: {
 
 export type VerifyCodeResult =
   | { ok: true; userId: string }
-  | { ok: false; reason: "not_found" | "expired" | "too_many_attempts" | "wrong_code" };
+  | { ok: false; reason: "not_found" | "used" | "expired" | "too_many_attempts" | "wrong_code" };
 
 /** Validate a code and mark it used on success. */
 export async function verifyEmailCode(email: string, code: string): Promise<VerifyCodeResult> {
@@ -233,9 +233,11 @@ export async function verifyEmailCode(email: string, code: string): Promise<Veri
     .select()
     .from(emailVerificationCodes)
     .where(eq(emailVerificationCodes.email, normalized))
+    .orderBy(desc(emailVerificationCodes.createdAt))
     .limit(1);
 
-  if (!row || row.usedAt) return { ok: false, reason: "not_found" };
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.usedAt) return { ok: false, reason: "used" };
   if (row.expiresAt < new Date()) return { ok: false, reason: "expired" };
   if (row.attempts >= VERIFICATION_MAX_ATTEMPTS) return { ok: false, reason: "too_many_attempts" };
 
@@ -266,9 +268,24 @@ export async function getRecentEmailVerificationCode(email: string, withinMs: nu
     .select()
     .from(emailVerificationCodes)
     .where(eq(emailVerificationCodes.email, email.toLowerCase()))
+    .orderBy(desc(emailVerificationCodes.createdAt))
     .limit(1);
   if (!row) return null;
+  // A consumed code must not hold the resend cooldown: the user needs a new one.
+  if (row.usedAt) return null;
   return Date.now() - new Date(row.createdAt).getTime() < withinMs ? row : null;
+}
+
+/** How many codes have been issued to this address since `withinMs` ago (abuse cap). */
+export async function countEmailVerificationCodesSince(email: string, withinMs: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const since = new Date(Date.now() - withinMs);
+  const rows = await db
+    .select({ id: emailVerificationCodes.id })
+    .from(emailVerificationCodes)
+    .where(and(eq(emailVerificationCodes.email, email.toLowerCase()), gte(emailVerificationCodes.createdAt, since)));
+  return rows.length;
 }
 
 /** One-time grandfathering: mark all existing users verified. */
