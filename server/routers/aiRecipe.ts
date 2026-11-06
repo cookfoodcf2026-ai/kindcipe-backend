@@ -3426,6 +3426,10 @@ async function imageToDataUrl(buffer: Buffer, mime: string, maxBytes: number): P
   return `data:${outMime};base64,${out.toString("base64")}`;
 }
 
+function countImageBlocks(messages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>): number {
+  return messages.reduce((sum, message) => sum + (typeof message.content === "string" ? 0 : message.content.filter((c: any) => c.type === "image_url").length), 0);
+}
+
 export async function prepareVisionImages(
   input: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>,
   opts: { familyId?: number; traceId?: string; deps?: VisionPrepareDeps } = {},
@@ -5852,6 +5856,9 @@ async function processAIChefChatCore(
   const resolvedMsgs = vision.messages;
 
   const llmMsgs = toLLMMessages(resolvedMsgs);
+  if (hasImage) {
+    console.log(`[AI Chef][vision] request=${traceId ?? "none"} branch=llm llmImageBlocks=${countImageBlocks(llmMsgs)} hasImage=1`);
+  }
   const soupIntent = detectSoupIntent(llmMsgs);
   const mealIntent = parseMealIntent(llmMsgs);
 
@@ -6504,7 +6511,7 @@ export function applyChefCardConstraint(
  * dead-end sentence. Only correctness constraints are kept; everything else is
  * relaxed. Failures are swallowed so this can never fail the request.
  */
-async function applyZeroCardInsurance(
+export async function applyZeroCardInsurance(
   result: CoreResult,
   params: {
     inputMessages: Array<{ role: string; content: string | Array<TextContent | ImageContent> }>;
@@ -6516,11 +6523,13 @@ async function applyZeroCardInsurance(
     knownAllergens?: string[];
     searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>;
     telemetry?: ChefPipelineTelemetry;
+    hasImage?: boolean;
   },
 ): Promise<CoreResult> {
   // Top up thin answers too (「有咩湯水」used to come back with a single card).
   if ((result.recipes?.length ?? 0) >= 3) return result;
   if (params.forceText) return result;
+  if (params.hasImage) return result;
   if (params.mode !== "chat" && params.mode !== "ai") return result;
   if (result.clarifyReason === "safety") return result;
   // Pantry-first already answered with a card that uses the user's ingredients;
@@ -6800,6 +6809,8 @@ export async function processAIChefChat(
     telemetry,
     lang,
   );
+  const lastUser = [...inputMessages].reverse().find((m: any) => m.role === "user");
+  const hasImage = Boolean(lastUser && Array.isArray(lastUser.content) && lastUser.content.some((c: any) => c.type === "image_url"));
   const shaped = await applyMealShapePostcondition(constrained, {
     text: lastUserText(inputMessages as any),
     mode,
@@ -6820,6 +6831,7 @@ export async function processAIChefChat(
     knownAllergens,
     searchOverride,
     telemetry,
+    hasImage,
   });
   if (telemetry) attachChefPipelineTelemetry(insured, telemetry);
   return insured;

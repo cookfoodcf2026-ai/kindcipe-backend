@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareVisionImages } from "../routers/aiRecipe";
+import { applyZeroCardInsurance, prepareVisionImages } from "../routers/aiRecipe";
 
 const imageMessage = (url: string) => ([{
   role: "user",
@@ -94,4 +94,18 @@ test("external image URL is not signed or fetched", async () => {
   assert.equal(out.trace.rejected, 0);
   assert.equal(out.trace.mode, "url");
   assert.equal((out.messages[0].content as any)[1].image_url.url, "https://external.example/b.jpg");
+});
+
+test("image result is not overwritten by zero-card insurance", async () => {
+  const original = { content: "豆芽、雞蛋、韭菜", recipes: [], llmUsed: true };
+  const out = await applyZeroCardInsurance(original as any, {
+    inputMessages: imageMessage("/r2-storage/recipe-screenshots/f13/egg.jpg") as any,
+    mode: "chat",
+    lang: "zh-TW",
+    forceText: false,
+    avoidIngredients: [],
+    hasImage: true,
+  });
+  assert.equal(out.content, original.content);
+  assert.deepEqual(out.recipes, []);
 });
