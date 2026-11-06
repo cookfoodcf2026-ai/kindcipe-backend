@@ -4172,7 +4172,7 @@ async function processAIChefChatCore(
   const pantryCue = /雪櫃|冰箱|pantry|剩|得|用以下食材|以下食材|用呢啲食材|食材[：:]|屋企|家中有|我有|仲有/i.test(lastUserText);
   const constraintsPantry = parseChefConstraints(lastUserText).pantry;
   const pantryTerms = constraintsPantry.length >= 2 ? constraintsPantry : pantryTermsRaw;
-  const pantryRequest = !plannedTurn && mode === "chat" && Boolean(db)
+  const pantryRequest = !plannedTurn && mode === "chat" && Boolean(db || searchOverride)
     // The app's 雪櫃食材 tab sends a canned "用以下食材煮餸：青菜、洋蔥、豆腐" prompt,
     // which never contains 雪櫃 — match the list form too.
     && pantryCue

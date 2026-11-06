@@ -1155,6 +1155,42 @@ test("seafood card with real seafood still passes", () => {
   assert.deepEqual(out.recipes.map((r: any) => r.name), ["鮮蝦蒸水蛋"]);
 });
 
+test("pantry processAIChefChat keeps card with pantry=1 protein=none", async () => {
+  delete process.env.DATABASE_URL;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  let result: Awaited<ReturnType<typeof processAIChefChat>>;
+  try {
+    const card = {
+      id: 1,
+      name: "椰菜炒蛋",
+      source: "official",
+      dishType: "stirfry",
+      cookTime: 20,
+      servings: 2,
+      ingredients: [
+        { name: "椰菜", quantity: "1", unit: "份" },
+        { name: "雞蛋", quantity: "2", unit: "隻" },
+      ],
+      steps: ["1", "2"],
+      tags: [],
+      scenarioTags: [],
+    };
+    result = await processAIChefChat(
+      [{ role: "user", content: "我得椰菜同兩隻蛋" }],
+      991003, undefined, "chat", [], undefined, "zh-TW", [], false, {},
+      "replace", true, true, async () => [card],
+    );
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(result.recipes.length >= 1, `served=${result.recipes.length}`);
+  assert.ok(logs.some((line) => line.includes("card_constraint") && line.includes("pantry=1") && line.includes("protein=none")), logs.join("\n"));
+});
+
 test("regression: 3餸1湯 + 海鮮 still yields 4 cards (seafood role keeps egg_tofu)", async () => {
   const row = (id: number, name: string, dishType: string, ingredients: string[]) => ({
     id,
