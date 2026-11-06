@@ -935,3 +935,18 @@ export const aiChefRequests = pgTable("ai_chef_requests", {
 
 export type AiChefRequest = typeof aiChefRequests.$inferSelect;
 export type InsertAiChefRequest = typeof aiChefRequests.$inferInsert;
+
+// ─── AI photo analysis / generation quota ─────────────────────────────────────
+export const aiPhotoUsage = pgTable("ai_photo_usage", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  day: varchar("day", { length: 10 }).notNull(),
+  count: integer("count").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userKindDayUniq: uniqueIndex("ai_photo_usage_user_kind_day_unique").on(table.userId, table.kind, table.day),
+}));
+
+export type AiPhotoUsage = typeof aiPhotoUsage.$inferSelect;
+export type InsertAiPhotoUsage = typeof aiPhotoUsage.$inferInsert;
