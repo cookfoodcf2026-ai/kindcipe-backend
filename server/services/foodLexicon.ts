@@ -39,7 +39,9 @@ export const PROTEIN_FAMILIES: Record<ProteinFamily, ProteinFamilySpec> = {
     fallbackQueries: ["海鮮", "魚", "蝦"],
   },
   egg_tofu: {
-    role: "seafood",
+    // 蛋／豆腐 唔係海鮮。以前歸 seafood 會令「我想食海鮮」出蒸蛋，
+    // 亦令 pantry「椰菜＋蛋」被當成「蔬菜＋海鮮」兩道菜而刪走唯一一張卡。
+    role: "any",
     aliases: ["雞蛋", "蛋", "豆腐", "豆卜", "豆乾", "腐皮", "腐竹"],
     fallbackQueries: ["蛋", "豆腐"],
   },
