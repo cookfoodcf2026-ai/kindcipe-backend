@@ -23,6 +23,7 @@ import { getFamilyEntitlements } from "../services/entitlements";
 import { runWithUsage, usageLimitToTRPC } from "../services/usage";
 import { serializeUserScenarioTags } from "../utils/scenario";
 import { enqueueRecipeTranslation } from "../services/translationQueue";
+import { validateGeneratedRecipeSteps } from "../services/recipeStepQuality";
 
 const scenarioSchema = z.enum(["quick", "healthy", "ricecooker", "kids", "guest"]);
 
@@ -53,6 +54,7 @@ export const customRecipeRouter = router({
         sourceUrl: z.string().optional(),
         sourceUrlHash: z.string().optional(),
         sourceAuthor: z.string().optional(),
+        isAiGenerated: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -93,6 +95,22 @@ export const customRecipeRouter = router({
               } catch { /* keep as-is */ }
             }
 
+            let normalizedSteps = input.steps;
+            if (input.isAiGenerated) {
+              let parsedIngredients: any[] = [];
+              let parsedSteps: unknown = null;
+              try { parsedIngredients = JSON.parse(String(normalizedIngredients ?? "[]")); } catch { parsedIngredients = []; }
+              try { parsedSteps = JSON.parse(String(input.steps ?? "[]")); } catch { parsedSteps = null; }
+              const stepTexts = Array.isArray(parsedSteps)
+                ? parsedSteps.map((step: any) => typeof step === "string" ? step : step?.instruction)
+                : parsedSteps;
+              const quality = validateGeneratedRecipeSteps({ ingredients: parsedIngredients, steps: stepTexts });
+              if (!quality.ok) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: `步驟未通過驗證：${quality.issues.slice(0, 3).join("；")}` });
+              }
+              normalizedSteps = JSON.stringify(stepTexts);
+            }
+
             // 空卡唔准入庫（同 importUser 用同一道閘）；draft 例外
             if (!(input as any).isDraft) {
               let ingArr: any[] = [];
@@ -108,6 +126,7 @@ export const customRecipeRouter = router({
             const { scenarios, ...recipeInput } = input;
             const recipe = await insertCustomRecipe({
               ...recipeInput,
+              steps: normalizedSteps,
               scenarioTagsUser: serializeUserScenarioTags(scenarios),
               ingredients: normalizedIngredients,
               familyId,

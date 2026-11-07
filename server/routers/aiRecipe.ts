@@ -68,6 +68,7 @@ import {
   usageLimitToTRPC,
 } from "../services/usage";
 import { claimAiPhotoUsage, hongKongDay, releaseAiPhotoUsage } from "../services/aiPhotoUsage";
+import { isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "../services/recipeStepQuality";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -184,7 +185,10 @@ const aiRecipeCardSchema = z.object({
     unit: z.string().default(""),
   })).min(2),
   instructions: z.array(z.string()).default([]),
-  steps: z.array(z.string().min(1)).min(5),
+  steps: z.array(z.string().min(1)).min(4).refine(
+    (steps) => steps.every((step) => !isStructurallyCorruptStepText(step)),
+    { message: "steps 含 JSON 碎片或非文字內容" },
+  ),
   stepsEn: z.array(z.string()).optional(),
   stepsFil: z.array(z.string()).optional(),
   stepsId: z.array(z.string()).optional(),
@@ -874,7 +878,7 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
  */
 const TEMPLATE_INGREDIENT_NAMES = new Set(["主要食材", "調味料", "配料"]);
 
-function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5): SuggestedRecipe[] {
+function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 4): SuggestedRecipe[] {
   if (!Array.isArray(recipes)) return [];
   
   return recipes.map((r: any): SuggestedRecipe | null => {
@@ -893,11 +897,13 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5
           }))
         : [];
       
-      const steps = Array.isArray(r.steps) 
-        ? r.steps.map((s: any) => String(s).trim()).filter(Boolean)
+      const rawSteps = Array.isArray(r.steps)
+        ? r.steps
         : Array.isArray(r.instructions)
-        ? r.instructions.map((s: any) => String(s).trim()).filter(Boolean)
+        ? r.instructions
         : [];
+      if (rawSteps.some((step: any) => isStructurallyCorruptStepText(step))) return null;
+      const steps = rawSteps.map((s: any) => String(s).trim()).filter(Boolean);
 
       const mapSteps = (arr: any) => (Array.isArray(arr) ? arr.map((s: any) => typeof s === "string" ? s : String(s?.instruction ?? s?.text ?? s)) : undefined);
       const stepsEn = mapSteps(r.stepsEn);
@@ -2373,6 +2379,14 @@ function matchesLibraryRole(row: Record<string, unknown>, role: RequestedRole): 
   return classifyDishType(row) === dishTypeForRole(role);
 }
 
+// Shared generation contract: the first call writes Chinese steps only. Translation
+// is a separate call (localizeSuggestedRecipe(s)) so the model cannot corrupt the
+// steps array by trying to emit four languages at once.
+const CHINESE_STEPS_PROMPT_RULES = `步驟只寫繁體中文，唔好提供英文／菲律賓文／印尼文翻譯；翻譯由系統另外處理。
+步驟必須 4–8 步，每步 15–80 個中文字；每步要有明確動作＋時間或火候（例如「中火炒 3 分鐘」）。
+步驟只可以提及材料清單內嘅材料，唔准加入新材料；油、鹽、水等如果會用到，必須先列入材料清單。
+整步唔可以只寫「適量」「煮至熟」「調味即可」；步驟文字亦唔准包含 : { } " 或 stepsEn/stepsFil/stepsId/instruction 等 JSON key。`;
+
 // 由 AI 補缺（library 唔夠時）。neededTypes 指定缺失類別 → 逐類生成，確保 3餸1湯 結構。
 async function generateMissingRecipes(
   count: number,
@@ -2400,27 +2414,42 @@ async function generateMissingRecipes(
       ? `必須完全避免以下敏感食材，任何食譜都唔可以包含：${avoidIngredients.join("、")}。`
       : "";
     const constraintLine = constraintText ? ` 額外硬性要求（每一道都必須符合）：${constraintText}。` : "";
-    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine}${constraintLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，5-6 步）。用繁體中文。每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
-    const resp = await invokeLLM({
-      messages: [{ role: "user", content: prompt }],
-      maxTokens: 3500 * Math.max(1, count),
-      temperature: 0.7,
-      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
-      maxRetries: 1,
-      enableSearch: false,
-      responseFormat: { type: "json_object" },
-    });
-    const raw = resp.choices?.[0]?.message?.content || "";
-    const parsed = parseRecipeWithFallback(raw);
-    if (parsed.recipes.length > 0) return parsed.recipes.slice(0, count);
-    // JSON mode 常見：單一 object 冇 recipes wrapper → 嘗試直接 convert
-    const extracted = extractJSON<Record<string, unknown>>(raw);
-    if (extracted && extracted.name) {
-      const single = manuallyConvertRecipes([extracted], undefined);
-      if (single.length > 0) return single.slice(0, count);
+    const promptFor = (retryIssues?: string[]) => {
+      const retryLine = retryIssues?.length
+        ? `\n上一次輸出嘅步驟唔合格：${retryIssues.slice(0, 8).join("；")}。請完全重新生成，嚴格遵守步驟規則。`
+        : "";
+      return `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine}${constraintLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。用繁體中文，只寫中文名稱、描述、材料同步驟；唔好提供 nameEn/nameFil/nameId 或 stepsEn/stepsFil/stepsId，翻譯由系統另外處理。${CHINESE_STEPS_PROMPT_RULES} 每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}${retryLine}`;
+    };
+    const callOnce = async (retryIssues?: string[]): Promise<SuggestedRecipe[]> => {
+      const resp = await invokeLLM({
+        messages: [{ role: "user", content: promptFor(retryIssues) }],
+        maxTokens: 3500 * Math.max(1, count),
+        temperature: 0.7,
+        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+        maxRetries: 1,
+        enableSearch: false,
+        responseFormat: { type: "json_object" },
+      });
+      const raw = resp.choices?.[0]?.message?.content || "";
+      const parsed = parseRecipeWithFallback(raw);
+      if (parsed.recipes.length > 0) return parsed.recipes;
+      // JSON mode 常見：單一 object 冇 recipes wrapper → 嘗試直接 convert
+      const extracted = extractJSON<Record<string, unknown>>(raw);
+      if (extracted && extracted.name) return manuallyConvertRecipes([extracted], undefined, 4);
+      console.warn(`[AI Chef] generateMissingRecipes parse empty, raw: ${raw.slice(0, 120)}`);
+      return [];
+    };
+
+    let recipes = await callOnce();
+    let invalidIssues = recipes.flatMap((recipe) => validateGeneratedRecipeSteps(recipe).issues);
+    if (recipes.length === 0 || invalidIssues.length > 0) {
+      recipes = await callOnce(invalidIssues);
     }
-    console.warn(`[AI Chef] generateMissingRecipes parse empty, raw: ${raw.slice(0, 120)}`);
-    return [];
+    const valid = recipes.filter((recipe) => validateGeneratedRecipeSteps(recipe).ok);
+    if (valid.length < recipes.length) {
+      console.warn(`[AI Chef] generateMissingRecipes dropped ${recipes.length - valid.length} invalid card(s)`);
+    }
+    return valid.slice(0, count);
   } catch (e) {
     console.warn("[AI Chef] generateMissingRecipes failed:", e);
     return [];
@@ -2453,7 +2482,7 @@ async function generateOneType(
   const avoidLine = avoidIngredients.length > 0
     ? `必須完全避免以下敏感食材，任何食譜都唔可以包含：${avoidIngredients.join("、")}。`
     : "";
-  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint}${avoidLine} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文。每個 ingredient 請提供 nameEn/nameFil/nameId；呢道餸本身提供 nameEn/nameFil/nameId。steps 係中文步驟（請精簡，5-6 步）；請同時提供 stepsEn/stepsFil/stepsId（每一步對應，份量/時間一致）。description 同時提供 descriptionEn/descriptionFil/descriptionId。回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}`;
+  const basePrompt = `請生成 1 個${label}家常菜食譜（只此一道）。${soupHint}${avoidLine} name 欄只寫呢道餸本身嘅名（例如「紅燒肉」「清蒸鱸魚」），絕對唔可以加入其他菜式或湯水喺名入面。絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${avoidList.join("、")}。用繁體中文，只寫中文名稱、描述、材料同步驟；唔好提供 nameEn/nameFil/nameId 或 stepsEn/stepsFil/stepsId，翻譯由系統另外處理。${CHINESE_STEPS_PROMPT_RULES} 回傳以下 JSON 格式（單一食譜 object，唔好加 array wrapper）：{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}`;
 
   const attempt = async (extra: string): Promise<SuggestedRecipe | null> => {
     try {
@@ -2472,7 +2501,7 @@ async function generateOneType(
         console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
         return null;
       }
-      const converted = manuallyConvertRecipes([extracted], undefined, (isDessert || isSoup) ? 4 : 5);
+      const converted = manuallyConvertRecipes([extracted], undefined, 4);
       const recipe = converted[0] ?? null;
       if (recipe && !recipe.dishType) recipe.dishType = expectedType;
       return recipe;
@@ -2500,22 +2529,29 @@ async function generateOneType(
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
 
-  // 速度優先：最多 2 次 attempt —— 淨係「類型唔啱」先 retry（唔係「唔新鮮」就 retry，嗰個先係 55s 元兇）。
-  // 第一次類型啱就收；類型錯先補一個「強調類型」嘅 hint 再試一次，保證 4 卡結構唔會因為一次失手而缺位。
-  let first = await attempt("");
-  if (validateType(first)) return first;
-  const retryHint = isSoup
+  const validateCandidate = (rec: SuggestedRecipe | null): boolean =>
+    !!rec && validateType(rec) && validateGeneratedRecipeSteps(rec).ok;
+
+  // 最多 2 次 attempt：類型唔啱或步驟結構唔合格先 retry；兩次都唔合格唔出卡。
+  const first = await attempt("");
+  if (validateCandidate(first)) return first;
+  const firstIssues = first ? validateGeneratedRecipeSteps(first).issues : [];
+  const retryHint = (isSoup
     ? "（再強調：你一定要生成一個湯水食譜，名要有「湯」或「羹」字，絕對唔可以係小炒/主菜。）"
     : isVeg
       ? "（再強調：你一定要生成一道純蔬菜菜式，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬，唔可以配肉/海鮮做主食材，唔可以係湯、麵、飯。）"
-      : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）";
+      : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）")
+    + (firstIssues.length ? `\n步驟問題：${firstIssues.slice(0, 8).join("；")}。請完全重新生成。` : "");
   const second = await attempt(retryHint);
-  if (validateType(second)) return second;
-  // Never drop the slot (that caused missing 3餸1湯 cards / failed single generation).
-  // Return the best attempt we have so the meal keeps its card count.
-  const fallback = second ?? first;
-  console.warn(`[AI Chef] ${expectedType} slot type-invalid — keeping best attempt (no drop)`);
-  return fallback;
+  if (validateCandidate(second)) return second;
+  // Preserve the old card-count behaviour only when the steps themselves are safe.
+  const fallback = [second, first].find((rec) => rec && validateGeneratedRecipeSteps(rec).ok);
+  if (fallback) {
+    console.warn(`[AI Chef] ${expectedType} slot type-invalid — keeping step-safe fallback`);
+    return fallback;
+  }
+  console.warn(`[AI Chef] ${expectedType} slot rejected after retry (type or step quality invalid)`);
+  return null;
 }
 
 // 3餸1湯 AI 生成：並行 4 個獨立 call（1 湯 + 3 餸），每個 ~8-10s，總時間 ~10s（比起一次過生成 4 個 20-30s 快好多）
@@ -2718,8 +2754,8 @@ function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW
 
 **如果用戶想食譜**（例如「今晚食咩」、「我想整番茄炒蛋」、「有咩好煮」、「beef」）：
 你必須用以下 JSON 格式回覆，唔可以用純文字，因為系統要顯示食譜卡。
-每個食譜請同時提供 4 種語言：name（繁中名）、nameEn（英）、nameFil（菲）、nameId（印尼）；每個 ingredient 同樣提供 nameEn/nameFil/nameId；steps 係繁中步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 用繁中，同時提供 descriptionEn/descriptionFil/descriptionId。
-{"replyText":"...","recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}
+每個食譜只寫繁體中文名稱、描述、材料同中文步驟；唔好提供 nameEn/nameFil/nameId 或 stepsEn/stepsFil/stepsId，翻譯由系統另外處理。
+{"replyText":"...","recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}
 
 **如果用戶純粹傾偈**（例如「hi」、「多謝」、「你好」）：
 用正常文字回覆，唔好加 JSON。
@@ -2738,7 +2774,7 @@ function buildSystemPrompt(libSummary: string, soupIntent = false, lang = "zh-TW
   // 回覆語言：非中文裝置 → 對話文字用該語言（食譜內容仍 name 中文 + nameEn 英文）
   if (lang && lang !== "zh-TW") {
     const langName = lang === "en" ? "English" : lang === "fil" ? "Filipino (Tagalog)" : lang === "id" ? "Indonesian" : "English";
-    modeSection += `\n\n【回覆語言】請用 ${langName} 撰寫所有對話文字（replyText 及一般回覆）。食譜內容：name 用繁體中文、nameEn 英、nameFil 菲、nameId 印尼；steps 用中文，同時 stepsEn/stepsFil/stepsId；description 同時提供 descriptionEn/descriptionFil/descriptionId。`;
+    modeSection += `\n\n【回覆語言】請用 ${langName} 撰寫所有對話文字（replyText 及一般回覆）。食譜內容只寫繁體中文名稱、描述、材料同步驟；翻譯由系統另外處理。`;
   }
   
   return SYSTEM_PROMPT + modeSection;
@@ -2903,7 +2939,7 @@ const SYSTEM_PROMPT = `你是「Kindcipe」的 AI 私人廚師，專為香港家
 ⚠️ 新鮮感但唔好太難：所謂「新鮮感」係指未煮過嘅家常菜，或者用返平日常見食材但換個新煮法。**嚴禁**推出需要特殊工具、罕見/難買食材、或者步驟極度複雜嘅菜式。保持喺「香港家庭日常可煮」嘅難度範圍內（避免慢火濃縮、低溫慢煮、分子料理、異國稀有食材等）。
 
 ⚠️【JSON 格式要求】食譜必須完整，唔好截斷：
-{"replyText":"...","recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}
+{"replyText":"...","recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}
 
 ⚠️【3 餸 1 湯】強制規則：當用戶請求「3 餸 1 湯」「三餸一湯」「3 菜 1 湯」「今晚食咩」時，你**必須生成剛好 4 個食譜**（唔可以係 3 個或 5 個）：
 - 食譜一：肉類主菜（如豬/牛/雞）
@@ -7204,32 +7240,65 @@ async function fillStepsLLM(input: { name: string; description?: string; ingredi
 /** C6：由食物相生成 1 個相似食譜（AI 創作，vision）。回傳 null 表示失敗。 */
 async function generateFromImageLLM(imageUrls: string[]): Promise<SuggestedRecipe | null> {
   try {
-    const prompt = `睇以下食物相，**生成一個相似嘅家常菜食譜（AI 創作）**。分析相中菜式（食材、醬汁、煮法），產生一個合理、可煮嘅食譜。
+    const basePrompt = `睇以下食物相，**生成一個相似嘅家常菜食譜（AI 創作）**。分析相中菜式（食材、醬汁、煮法），產生一個合理、可煮嘅食譜。
 烹飪邏輯（務必合理）：嫩肉（牛／豬／雞）唔好長時間煮；炒／快煮類肉類最後落；海鮮唔好過熟；蔬菜保持爽脆；醬汁要配主材料；唔好亂組合。
-用繁體中文。包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（4-6 步）。
-每個食譜同每個 ingredient 請同時提供 nameEn/nameFil/nameId；steps 係中文步驟，同時提供 stepsEn/stepsFil/stepsId（每一步對應）；description 同時提供 descriptionEn/descriptionFil/descriptionId。
-回傳 JSON：{"recipes":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","cookTime":30,"servings":2,"difficulty":"簡單","description":"...","descriptionEn":"...","descriptionFil":"...","descriptionId":"...","ingredients":[{"name":"...","nameEn":"...","nameFil":"...","nameId":"...","quantity":"...","unit":"..."}],"steps":["..."],"stepsEn":["..."],"stepsFil":["..."],"stepsId":["..."]}]}`;
-    const content = [
-      ...imageUrls.map((u) => ({ type: "image_url" as const, image_url: { url: u, detail: "high" as const } })),
-      { type: "text" as const, text: prompt },
-    ];
-    const resp = await invokeLLM({
-      messages: [{ role: "user", content: content as any }],
-      maxTokens: 3000,
-      temperature: 0.6,
-      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
-      maxRetries: 1,
-      responseFormat: { type: "json_object" },
-    });
-    const raw = resp.choices?.[0]?.message?.content || "";
-    const parsed = parseRecipeWithFallback(raw);
-    if (parsed.recipes.length > 0) return parsed.recipes[0];
-    const extracted = extractJSON<Record<string, unknown>>(raw);
-    if (extracted && (extracted as any).name) {
-      const single = manuallyConvertRecipes([extracted], undefined);
-      if (single.length > 0) return single[0];
+用繁體中文。**只寫中文，唔好提供英文／菲律賓文／印尼文翻譯**；翻譯由系統另外處理。
+包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。
+步驟硬性規則（唔符合會拒收）：
+- 只可以寫 4–8 步；每步 15–80 個中文字。
+- 每步必須有明確動作（例如洗、切、醃、炒、煎、煮、蒸、焗、拌）＋時間或火候（例如「3 分鐘」「中火」「細火」）。
+- 步驟只可以提及食材清單內嘅材料，唔准加入新材料；油、鹽、水等如果會用到，必須先列入材料清單。
+- 唔准出現「適量」「煮至熟」「調味即可」等空泛字眼。
+- 步驟文字唔准包含 : { } 或 stepsEn/stepsFil/stepsId/instruction 等 JSON key。
+好例子：「中火燒熱鍋，加入食油，將番茄塊炒 3 分鐘至軟身。」
+回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":2,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
+    const promptFor = (retryIssues?: string[]) => retryIssues?.length
+      ? `${basePrompt}\n\n上一次輸出嘅步驟唔合格：${retryIssues.slice(0, 8).join("；")}。請完全重新生成，嚴格遵守以上規則。`
+      : basePrompt;
+
+    const callOnce = async (retryIssues?: string[]): Promise<SuggestedRecipe | null> => {
+      const content = [
+        ...imageUrls.map((u) => ({ type: "image_url" as const, image_url: { url: u, detail: "high" as const } })),
+        { type: "text" as const, text: promptFor(retryIssues) },
+      ];
+      const resp = await invokeLLM({
+        messages: [{ role: "user", content: content as any }],
+        maxTokens: 3000,
+        temperature: 0.5,
+        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+        maxRetries: 1,
+        responseFormat: { type: "json_object" },
+      });
+      const raw = resp.choices?.[0]?.message?.content || "";
+      const parsed = parseRecipeWithFallback(raw);
+      if (parsed.recipes.length > 0) return parsed.recipes[0];
+      const extracted = extractJSON<any>(raw);
+      const candidates = Array.isArray(extracted?.recipes)
+        ? extracted.recipes
+        : extracted && extracted.name
+          ? [extracted]
+          : [];
+      const single = manuallyConvertRecipes(candidates, undefined, 4);
+      return single[0] ?? null;
+    };
+
+    let recipe = await callOnce();
+    let quality = recipe ? validateGeneratedRecipeSteps(recipe) : null;
+    if (recipe && quality && !quality.ok) {
+      console.warn("[generateFromImage] step quality retry:", quality.issues.join("；"));
+      recipe = await callOnce(quality.issues);
+      quality = recipe ? validateGeneratedRecipeSteps(recipe) : null;
     }
-    return null;
+    if (!recipe || !quality?.ok) {
+      console.warn("[generateFromImage] step quality rejected:", quality?.issues.join("；") ?? "no_recipe");
+      return null;
+    }
+    // Force translations to go through localizeSuggestedRecipe (second call), so
+    // the model can spend its whole first call on Chinese step quality.
+    recipe.stepsEn = undefined;
+    recipe.stepsFil = undefined;
+    recipe.stepsId = undefined;
+    return recipe;
   } catch (e) {
     console.warn("[generateFromImage] failed:", (e as Error)?.message);
     return null;
@@ -7575,6 +7644,17 @@ export const aiRecipeRouter = router({
         ...(parsed.tags ?? []),
         "AI 生成",
       ]));
+
+      const stepQuality = validateGeneratedRecipeSteps({
+        ingredients: parsed.ingredients,
+        steps: parsed.steps.map((step) => step.instruction),
+      });
+      if (!stepQuality.ok) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `步驟未通過驗證：${stepQuality.issues.slice(0, 3).join("；")}`,
+        });
+      }
 
       // 改「我嘅食譜」→ 原地更新（唔會產生重複卡、唔扣 custom recipe 額度）
       if (input.sourceRecipeId) {

@@ -296,6 +296,8 @@ export const customRecipes = pgTable("custom_recipes", {
   stepsEn: text("steps_en"),
   stepsFil: text("steps_fil"),
   stepsId: text("steps_id"),
+  stepsIncomplete: boolean("steps_incomplete").default(false).notNull(),
+  stepsIncompleteReason: text("steps_incomplete_reason"),
   tags: text("tags"),
   scenarioTags: text("scenario_tags"),
   scenarioTagsUser: text("scenario_tags_user").default(""),
