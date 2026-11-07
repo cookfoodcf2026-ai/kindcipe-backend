@@ -22,6 +22,30 @@ export type QwenMtResult = {
   attempts: number;
 };
 
+export type RecipeSectionResult = {
+  ok: boolean;
+  name: string;
+  description: string;
+  steps: string[];
+  issues: string[];
+};
+
+export type QwenMtRecipeResult = {
+  fields: {
+    nameEn?: string;
+    nameFil?: string;
+    nameId?: string;
+    descriptionEn?: string;
+    descriptionFil?: string;
+    descriptionId?: string;
+    stepsEn?: string[];
+    stepsFil?: string[];
+    stepsId?: string[];
+  };
+  engines: Record<TargetStepLang, QwenMtEngine>;
+  attempts: Record<TargetStepLang, number>;
+};
+
 export class QwenMtTranslationError extends Error {
   readonly issues: string[];
   constructor(message: string, issues: string[] = []) {
@@ -62,6 +86,26 @@ export function parseNumberedSteps(text: string, expectedCount: number): StepPar
   }
   if (steps.length !== expectedCount) issues.push(`expected ${expectedCount} steps, got ${steps.length}`);
   return { ok: issues.length === 0, steps, issues };
+}
+
+export function parseRecipeSections(text: string, expectedSteps: number): RecipeSectionResult {
+  const raw = String(text ?? "");
+  const nameIdx = raw.lastIndexOf("<<<NAME>>>");
+  const descIdx = raw.lastIndexOf("<<<DESCRIPTION>>>");
+  const stepsIdx = raw.lastIndexOf("<<<STEPS>>>");
+  const issues: string[] = [];
+  if (nameIdx < 0) issues.push("missing <<<NAME>>> marker");
+  if (descIdx < 0) issues.push("missing <<<DESCRIPTION>>> marker");
+  if (stepsIdx < 0) issues.push("missing <<<STEPS>>> marker");
+  if (nameIdx < 0 || descIdx < 0 || stepsIdx < 0 || !(nameIdx < descIdx && descIdx < stepsIdx)) {
+    return { ok: false, name: "", description: "", steps: [], issues };
+  }
+  const name = raw.slice(nameIdx + "<<<NAME>>>".length, descIdx).trim();
+  const description = raw.slice(descIdx + "<<<DESCRIPTION>>>".length, stepsIdx).trim();
+  if (!name) issues.push("empty name");
+  const parsedSteps = parseNumberedSteps(raw.slice(stepsIdx + "<<<STEPS>>>".length), expectedSteps);
+  issues.push(...parsedSteps.issues);
+  return { ok: issues.length === 0, name, description, steps: parsedSteps.steps, issues };
 }
 
 function buildPrompt(steps: string[], target: TargetStepLang, terms: string[]): string {
@@ -107,6 +151,97 @@ async function callEngineA(prompt: string, deps: QwenMtDeps): Promise<string> {
     maxRetries: 0,
   });
   return String(response.choices?.[0]?.message?.content ?? "");
+}
+
+function buildRecipePrompt(input: { name: string; description?: string; steps: string[]; targetLang: TargetStepLang; terms: string[] }): string {
+  return `Translate this Chinese recipe into ${LANG_NAME[input.targetLang]}.
+Keep these markers EXACTLY, one per section:
+<<<NAME>>>
+<<<DESCRIPTION>>>
+<<<STEPS>>>
+Rules:
+- Keep the exact same number and order of steps.
+- Preserve quantities, units, and times.
+- Do not invent ingredients. Every ingredient mentioned in steps must be in the ingredient list.
+- Use these ingredient terms where relevant:
+${input.terms.length ? input.terms.join("\n") : "(none provided)"}
+
+<<<NAME>>>
+${input.name}
+<<<DESCRIPTION>>>
+${input.description ?? ""}
+<<<STEPS>>>
+${input.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}`;
+}
+
+async function translateRecipeSection(
+  prompt: string,
+  expectedSteps: number,
+  deps: QwenMtDeps,
+): Promise<{ result: RecipeSectionResult; engine: QwenMtEngine; attempts: number }> {
+  let lastIssues: string[] = [];
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const raw = await callQwenMt(prompt, deps);
+      const parsed = parseRecipeSections(raw, expectedSteps);
+      if (parsed.ok) return { result: parsed, engine: "qwen-mt-flash", attempts: attempt };
+      lastIssues = parsed.issues;
+    } catch (error) {
+      lastIssues = [String((error as Error)?.message ?? error)];
+    }
+  }
+  try {
+    const raw = await callEngineA(prompt, deps);
+    const parsed = parseRecipeSections(raw, expectedSteps);
+    if (parsed.ok) return { result: parsed, engine: "engine-a", attempts: 3 };
+    throw new QwenMtTranslationError("Engine A returned invalid recipe output", parsed.issues);
+  } catch (error) {
+    if (error instanceof QwenMtTranslationError) throw error;
+    throw new QwenMtTranslationError("Both qwen-mt and engine A failed", [
+      ...lastIssues,
+      String((error as Error)?.message ?? error),
+    ]);
+  }
+}
+
+export async function translateRecipeWithQwenMt(input: {
+  name: string;
+  description?: string;
+  steps: string[];
+  ingredientTerms?: string[];
+  deps?: QwenMtDeps;
+}): Promise<QwenMtRecipeResult> {
+  const steps = input.steps.map((step) => String(step ?? "").trim()).filter(Boolean);
+  if (steps.length === 0) throw new QwenMtTranslationError("source recipe has no steps");
+  const fields: QwenMtRecipeResult["fields"] = {};
+  const engines = {} as Record<TargetStepLang, QwenMtEngine>;
+  const attempts = {} as Record<TargetStepLang, number>;
+  for (const lang of ["en", "fil", "id"] as const) {
+    const prompt = buildRecipePrompt({
+      name: input.name,
+      description: input.description,
+      steps,
+      targetLang: lang,
+      terms: input.ingredientTerms ?? [],
+    });
+    const translated = await translateRecipeSection(prompt, steps.length, input.deps ?? {});
+    engines[lang] = translated.engine;
+    attempts[lang] = translated.attempts;
+    if (lang === "en") {
+      fields.nameEn = translated.result.name;
+      fields.descriptionEn = translated.result.description;
+      fields.stepsEn = translated.result.steps;
+    } else if (lang === "fil") {
+      fields.nameFil = translated.result.name;
+      fields.descriptionFil = translated.result.description;
+      fields.stepsFil = translated.result.steps;
+    } else {
+      fields.nameId = translated.result.name;
+      fields.descriptionId = translated.result.description;
+      fields.stepsId = translated.result.steps;
+    }
+  }
+  return { fields, engines, attempts };
 }
 
 export async function translateStepsWithQwenMt(input: {

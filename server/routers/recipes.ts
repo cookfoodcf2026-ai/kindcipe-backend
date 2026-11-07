@@ -24,6 +24,7 @@ import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, localizedName } from "../utils/recipeTranslations";
 import { assertSafeRecipeTranslations } from "../utils/recipeTranslationGuard";
+import { translateRecipeWithQwenMt } from "../services/qwenMtTranslator";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
@@ -3720,7 +3721,19 @@ ${TAGS_RULE}`;
       }
 
       const _stepsArrO = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
-      const _trO = await translateRecipeContent(input.name, _stepsArrO, input.description);
+      const _ingredientTermsO = (Array.isArray(input.ingredients) ? input.ingredients : [])
+        .map((ingredient: any) => {
+          const name = String(ingredient?.name ?? "").trim();
+          const en = String(ingredient?.nameEn ?? "").trim();
+          return name && en && en !== name ? `${name} = ${en}` : name;
+        })
+        .filter(Boolean);
+      const _trO = (await translateRecipeWithQwenMt({
+        name: input.name,
+        description: input.description,
+        steps: _stepsArrO,
+        ingredientTerms: _ingredientTermsO,
+      })).fields;
       assertSafeRecipeTranslations({
         nameEn: _trO.nameEn,
         nameFil: _trO.nameFil,
