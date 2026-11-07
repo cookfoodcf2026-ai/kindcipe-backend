@@ -185,7 +185,7 @@ const aiRecipeCardSchema = z.object({
     unit: z.string().default(""),
   })).min(2),
   instructions: z.array(z.string()).default([]),
-  steps: z.array(z.string().min(1)).min(4).refine(
+  steps: z.array(z.string().min(1)).min(5).refine(
     (steps) => steps.every((step) => !isStructurallyCorruptStepText(step)),
     { message: "steps 含 JSON 碎片或非文字內容" },
   ),
@@ -878,7 +878,7 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
  */
 const TEMPLATE_INGREDIENT_NAMES = new Set(["主要食材", "調味料", "配料"]);
 
-function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 4): SuggestedRecipe[] {
+function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5): SuggestedRecipe[] {
   if (!Array.isArray(recipes)) return [];
   
   return recipes.map((r: any): SuggestedRecipe | null => {
@@ -2383,9 +2383,7 @@ function matchesLibraryRole(row: Record<string, unknown>, role: RequestedRole): 
 // is a separate call (localizeSuggestedRecipe(s)) so the model cannot corrupt the
 // steps array by trying to emit four languages at once.
 const CHINESE_STEPS_PROMPT_RULES = `步驟只寫繁體中文，唔好提供英文／菲律賓文／印尼文翻譯；翻譯由系統另外處理。
-步驟必須 4–8 步，每步 15–80 個中文字；每步要有明確動作＋時間或火候（例如「中火炒 3 分鐘」）。
-步驟只可以提及材料清單內嘅材料，唔准加入新材料；油、鹽、水等如果會用到，必須先列入材料清單。
-整步唔可以只寫「適量」「煮至熟」「調味即可」；步驟文字亦唔准包含 : { } " 或 stepsEn/stepsFil/stepsId/instruction 等 JSON key。`;
+steps 只可以係中文步驟字串，唔准將 stepsEn/stepsFil/stepsId/instruction 或 { } 等 JSON 碎片放入 steps。`;
 
 // 由 AI 補缺（library 唔夠時）。neededTypes 指定缺失類別 → 逐類生成，確保 3餸1湯 結構。
 async function generateMissingRecipes(
@@ -2414,36 +2412,27 @@ async function generateMissingRecipes(
       ? `必須完全避免以下敏感食材，任何食譜都唔可以包含：${avoidIngredients.join("、")}。`
       : "";
     const constraintLine = constraintText ? ` 額外硬性要求（每一道都必須符合）：${constraintText}。` : "";
-    const promptFor = (retryIssues?: string[]) => {
-      const retryLine = retryIssues?.length
-        ? `\n上一次輸出嘅步驟唔合格：${retryIssues.slice(0, 8).join("；")}。請完全重新生成，嚴格遵守步驟規則。`
-        : "";
-      return `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine}${constraintLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。用繁體中文，只寫中文名稱、描述、材料同步驟；唔好提供 nameEn/nameFil/nameId 或 stepsEn/stepsFil/stepsId，翻譯由系統另外處理。${CHINESE_STEPS_PROMPT_RULES} 每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}${retryLine}`;
-    };
-    const callOnce = async (retryIssues?: string[]): Promise<SuggestedRecipe[]> => {
-      const resp = await invokeLLM({
-        messages: [{ role: "user", content: promptFor(retryIssues) }],
-        maxTokens: 3500 * Math.max(1, count),
-        temperature: 0.7,
-        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
-        maxRetries: 1,
-        enableSearch: false,
-        responseFormat: { type: "json_object" },
-      });
-      const raw = resp.choices?.[0]?.message?.content || "";
-      const parsed = parseRecipeWithFallback(raw);
-      if (parsed.recipes.length > 0) return parsed.recipes;
-      // JSON mode 常見：單一 object 冇 recipes wrapper → 嘗試直接 convert
-      const extracted = extractJSON<Record<string, unknown>>(raw);
-      if (extracted && extracted.name) return manuallyConvertRecipes([extracted], undefined, 4);
+    const prompt = `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine}${constraintLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。用繁體中文，只寫中文名稱、描述、材料同步驟；唔好提供 nameEn/nameFil/nameId 或 stepsEn/stepsFil/stepsId，翻譯由系統另外處理。${CHINESE_STEPS_PROMPT_RULES} 每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，5-6 步）。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 3500 * Math.max(1, count),
+      temperature: 0.7,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+      maxRetries: 1,
+      enableSearch: false,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = parseRecipeWithFallback(raw);
+    const recipes = parsed.recipes.length > 0
+      ? parsed.recipes
+      : (() => {
+          const extracted = extractJSON<Record<string, unknown>>(raw);
+          return extracted && extracted.name ? manuallyConvertRecipes([extracted], undefined) : [];
+        })();
+    if (recipes.length === 0) {
       console.warn(`[AI Chef] generateMissingRecipes parse empty, raw: ${raw.slice(0, 120)}`);
       return [];
-    };
-
-    let recipes = await callOnce();
-    let invalidIssues = recipes.flatMap((recipe) => validateGeneratedRecipeSteps(recipe).issues);
-    if (recipes.length === 0 || invalidIssues.length > 0) {
-      recipes = await callOnce(invalidIssues);
     }
     const valid = recipes.filter((recipe) => validateGeneratedRecipeSteps(recipe).ok);
     if (valid.length < recipes.length) {
@@ -2501,7 +2490,7 @@ async function generateOneType(
         console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
         return null;
       }
-      const converted = manuallyConvertRecipes([extracted], undefined, 4);
+      const converted = manuallyConvertRecipes([extracted], undefined, (isDessert || isSoup) ? 4 : 5);
       const recipe = converted[0] ?? null;
       if (recipe && !recipe.dishType) recipe.dishType = expectedType;
       return recipe;
@@ -2529,28 +2518,24 @@ async function generateOneType(
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
 
-  const validateCandidate = (rec: SuggestedRecipe | null): boolean =>
-    !!rec && validateType(rec) && validateGeneratedRecipeSteps(rec).ok;
+  const stepsOk = (rec: SuggestedRecipe | null): boolean =>
+    !!rec && validateGeneratedRecipeSteps(rec).ok;
 
-  // 最多 2 次 attempt：類型唔啱或步驟結構唔合格先 retry；兩次都唔合格唔出卡。
+  // Original type retry only: no extra retry for step quality.
   const first = await attempt("");
-  if (validateCandidate(first)) return first;
-  const firstIssues = first ? validateGeneratedRecipeSteps(first).issues : [];
-  const retryHint = (isSoup
+  if (validateType(first) && stepsOk(first)) return first;
+  const retryHint = isSoup
     ? "（再強調：你一定要生成一個湯水食譜，名要有「湯」或「羹」字，絕對唔可以係小炒/主菜。）"
     : isVeg
       ? "（再強調：你一定要生成一道純蔬菜菜式，例如蒜蓉炒菜心、清炒西蘭花、上湯浸時蔬，唔可以配肉/海鮮做主食材，唔可以係湯、麵、飯。）"
-      : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）")
-    + (firstIssues.length ? `\n步驟問題：${firstIssues.slice(0, 8).join("；")}。請完全重新生成。` : "");
+      : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）";
   const second = await attempt(retryHint);
-  if (validateCandidate(second)) return second;
-  // Preserve the old card-count behaviour only when the steps themselves are safe.
+  if (validateType(second) && stepsOk(second)) return second;
   const fallback = [second, first].find((rec) => rec && validateGeneratedRecipeSteps(rec).ok);
   if (fallback) {
     console.warn(`[AI Chef] ${expectedType} slot type-invalid — keeping step-safe fallback`);
     return fallback;
   }
-  console.warn(`[AI Chef] ${expectedType} slot rejected after retry (type or step quality invalid)`);
   return null;
 }
 
@@ -7243,52 +7228,35 @@ async function generateFromImageLLM(imageUrls: string[]): Promise<SuggestedRecip
     const basePrompt = `睇以下食物相，**生成一個相似嘅家常菜食譜（AI 創作）**。分析相中菜式（食材、醬汁、煮法），產生一個合理、可煮嘅食譜。
 烹飪邏輯（務必合理）：嫩肉（牛／豬／雞）唔好長時間煮；炒／快煮類肉類最後落；海鮮唔好過熟；蔬菜保持爽脆；醬汁要配主材料；唔好亂組合。
 用繁體中文。**只寫中文，唔好提供英文／菲律賓文／印尼文翻譯**；翻譯由系統另外處理。
-包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟。
-步驟硬性規則（唔符合會拒收）：
-- 只可以寫 4–8 步；每步 15–80 個中文字。
-- 每步必須有明確動作（例如洗、切、醃、炒、煎、煮、蒸、焗、拌）＋時間或火候（例如「3 分鐘」「中火」「細火」）。
-- 步驟只可以提及食材清單內嘅材料，唔准加入新材料；油、鹽、水等如果會用到，必須先列入材料清單。
-- 唔准出現「適量」「煮至熟」「調味即可」等空泛字眼。
-- 步驟文字唔准包含 : { } 或 stepsEn/stepsFil/stepsId/instruction 等 JSON key。
-好例子：「中火燒熱鍋，加入食油，將番茄塊炒 3 分鐘至軟身。」
+包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-6 步）。
+${CHINESE_STEPS_PROMPT_RULES}
 回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":2,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
-    const promptFor = (retryIssues?: string[]) => retryIssues?.length
-      ? `${basePrompt}\n\n上一次輸出嘅步驟唔合格：${retryIssues.slice(0, 8).join("；")}。請完全重新生成，嚴格遵守以上規則。`
-      : basePrompt;
 
-    const callOnce = async (retryIssues?: string[]): Promise<SuggestedRecipe | null> => {
-      const content = [
-        ...imageUrls.map((u) => ({ type: "image_url" as const, image_url: { url: u, detail: "high" as const } })),
-        { type: "text" as const, text: promptFor(retryIssues) },
-      ];
-      const resp = await invokeLLM({
-        messages: [{ role: "user", content: content as any }],
-        maxTokens: 3000,
-        temperature: 0.5,
-        timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
-        maxRetries: 1,
-        responseFormat: { type: "json_object" },
-      });
-      const raw = resp.choices?.[0]?.message?.content || "";
-      const parsed = parseRecipeWithFallback(raw);
-      if (parsed.recipes.length > 0) return parsed.recipes[0];
+    const content = [
+      ...imageUrls.map((u) => ({ type: "image_url" as const, image_url: { url: u, detail: "high" as const } })),
+      { type: "text" as const, text: basePrompt },
+    ];
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: content as any }],
+      maxTokens: 3000,
+      temperature: 0.5,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+      maxRetries: 1,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = parseRecipeWithFallback(raw);
+    let recipe = parsed.recipes[0] ?? null;
+    if (!recipe) {
       const extracted = extractJSON<any>(raw);
       const candidates = Array.isArray(extracted?.recipes)
         ? extracted.recipes
         : extracted && extracted.name
           ? [extracted]
           : [];
-      const single = manuallyConvertRecipes(candidates, undefined, 4);
-      return single[0] ?? null;
-    };
-
-    let recipe = await callOnce();
-    let quality = recipe ? validateGeneratedRecipeSteps(recipe) : null;
-    if (recipe && quality && !quality.ok) {
-      console.warn("[generateFromImage] step quality retry:", quality.issues.join("；"));
-      recipe = await callOnce(quality.issues);
-      quality = recipe ? validateGeneratedRecipeSteps(recipe) : null;
+      recipe = manuallyConvertRecipes(candidates, undefined)[0] ?? null;
     }
+    const quality = recipe ? validateGeneratedRecipeSteps(recipe) : null;
     if (!recipe || !quality?.ok) {
       console.warn("[generateFromImage] step quality rejected:", quality?.issues.join("；") ?? "no_recipe");
       return null;
