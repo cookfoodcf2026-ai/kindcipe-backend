@@ -1096,6 +1096,7 @@ const recipeInputSchema = z.object({
   ingredients: z.array(ingredientSchema),
   steps: z.array(stepSchema),
   tags: z.array(z.string()).optional(),
+  tips: z.string().optional(),
   scenarios: z.array(z.enum(["quick", "healthy", "ricecooker", "kids", "guest"])).max(5).optional(),
   ackWarning: z.boolean().optional(),
   parseToken: z.string().min(1).max(128).optional(),
@@ -3731,6 +3732,7 @@ ${TAGS_RULE}`;
       const _trO = (await translateRecipeWithQwenMt({
         name: input.name,
         description: input.description,
+        tips: input.tips,
         steps: _stepsArrO,
         ingredientTerms: _ingredientTermsO,
       })).fields;
@@ -3741,7 +3743,7 @@ ${TAGS_RULE}`;
         descriptionEn: _trO.descriptionEn,
         descriptionFil: _trO.descriptionFil,
         descriptionId: _trO.descriptionId,
-        stepsEn: _trO.stepsEn,
+        tipsEn: _trO.tipsEn,
       });
       const [inserted] = await db.insert(officialRecipes).values({
         importedByUserId: String(ctx.user.id),
@@ -3753,6 +3755,10 @@ ${TAGS_RULE}`;
         descriptionEn: _trO.descriptionEn,
         descriptionFil: _trO.descriptionFil,
         descriptionId: _trO.descriptionId,
+        tips: input.tips,
+        tipsEn: _trO.tipsEn,
+        tipsFil: _trO.tipsFil,
+        tipsId: _trO.tipsId,
         image: resolvedOfficialThumbnailUrl,
         thumbnailUrl: resolvedOfficialThumbnailUrl,
         cookTime: input.cookTime,

@@ -26,6 +26,7 @@ export type RecipeSectionResult = {
   ok: boolean;
   name: string;
   description: string;
+  tips: string;
   steps: string[];
   issues: string[];
 };
@@ -38,6 +39,9 @@ export type QwenMtRecipeResult = {
     descriptionEn?: string;
     descriptionFil?: string;
     descriptionId?: string;
+    tipsEn?: string;
+    tipsFil?: string;
+    tipsId?: string;
     stepsEn?: string[];
     stepsFil?: string[];
     stepsId?: string[];
@@ -88,24 +92,29 @@ export function parseNumberedSteps(text: string, expectedCount: number): StepPar
   return { ok: issues.length === 0, steps, issues };
 }
 
-export function parseRecipeSections(text: string, expectedSteps: number): RecipeSectionResult {
+export function parseRecipeSections(text: string, expectedSteps: number, expectTips = false): RecipeSectionResult {
   const raw = String(text ?? "");
   const nameIdx = raw.lastIndexOf("<<<NAME>>>");
   const descIdx = raw.lastIndexOf("<<<DESCRIPTION>>>");
+  const tipsIdx = raw.lastIndexOf("<<<TIPS>>>");
   const stepsIdx = raw.lastIndexOf("<<<STEPS>>>");
   const issues: string[] = [];
   if (nameIdx < 0) issues.push("missing <<<NAME>>> marker");
   if (descIdx < 0) issues.push("missing <<<DESCRIPTION>>> marker");
   if (stepsIdx < 0) issues.push("missing <<<STEPS>>> marker");
-  if (nameIdx < 0 || descIdx < 0 || stepsIdx < 0 || !(nameIdx < descIdx && descIdx < stepsIdx)) {
-    return { ok: false, name: "", description: "", steps: [], issues };
+  if (expectTips && tipsIdx < 0) issues.push("missing <<<TIPS>>> marker");
+  const hasTips = tipsIdx >= 0 && descIdx >= 0 && tipsIdx > descIdx && tipsIdx < stepsIdx;
+  if (nameIdx < 0 || descIdx < 0 || stepsIdx < 0 || !(nameIdx < descIdx && (hasTips ? tipsIdx : descIdx) < stepsIdx)) {
+    return { ok: false, name: "", description: "", tips: "", steps: [], issues };
   }
   const name = raw.slice(nameIdx + "<<<NAME>>>".length, descIdx).trim();
-  const description = raw.slice(descIdx + "<<<DESCRIPTION>>>".length, stepsIdx).trim();
+  const description = raw.slice(descIdx + "<<<DESCRIPTION>>>".length, hasTips ? tipsIdx : stepsIdx).trim();
+  const tips = hasTips ? raw.slice(tipsIdx + "<<<TIPS>>>".length, stepsIdx).trim() : "";
   if (!name) issues.push("empty name");
+  if (expectTips && !tips) issues.push("empty tips");
   const parsedSteps = parseNumberedSteps(raw.slice(stepsIdx + "<<<STEPS>>>".length), expectedSteps);
   issues.push(...parsedSteps.issues);
-  return { ok: issues.length === 0, name, description, steps: parsedSteps.steps, issues };
+  return { ok: issues.length === 0, name, description, tips, steps: parsedSteps.steps, issues };
 }
 
 function buildPrompt(steps: string[], target: TargetStepLang, terms: string[]): string {
@@ -153,16 +162,18 @@ async function callEngineA(prompt: string, deps: QwenMtDeps): Promise<string> {
   return String(response.choices?.[0]?.message?.content ?? "");
 }
 
-function buildRecipePrompt(input: { name: string; description?: string; steps: string[]; targetLang: TargetStepLang; terms: string[] }): string {
+function buildRecipePrompt(input: { name: string; description?: string; tips?: string; steps: string[]; targetLang: TargetStepLang; terms: string[] }): string {
   return `Translate this Chinese recipe into ${LANG_NAME[input.targetLang]}.
 Keep these markers EXACTLY, one per section:
 <<<NAME>>>
 <<<DESCRIPTION>>>
+<<<TIPS>>>
 <<<STEPS>>>
 Rules:
 - Keep the exact same number and order of steps.
 - Preserve quantities, units, and times.
 - Do not invent ingredients. Every ingredient mentioned in steps must be in the ingredient list.
+- Translate tips faithfully; do not change advice, times, temperatures, or quantities.
 - Use these ingredient terms where relevant:
 ${input.terms.length ? input.terms.join("\n") : "(none provided)"}
 
@@ -170,6 +181,8 @@ ${input.terms.length ? input.terms.join("\n") : "(none provided)"}
 ${input.name}
 <<<DESCRIPTION>>>
 ${input.description ?? ""}
+<<<TIPS>>>
+${input.tips ?? ""}
 <<<STEPS>>>
 ${input.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}`;
 }
@@ -178,12 +191,13 @@ async function translateRecipeSection(
   prompt: string,
   expectedSteps: number,
   deps: QwenMtDeps,
+  expectTips = false,
 ): Promise<{ result: RecipeSectionResult; engine: QwenMtEngine; attempts: number }> {
   let lastIssues: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const raw = await callQwenMt(prompt, deps);
-      const parsed = parseRecipeSections(raw, expectedSteps);
+      const parsed = parseRecipeSections(raw, expectedSteps, expectTips);
       if (parsed.ok) return { result: parsed, engine: "qwen-mt-flash", attempts: attempt };
       lastIssues = parsed.issues;
     } catch (error) {
@@ -192,7 +206,7 @@ async function translateRecipeSection(
   }
   try {
     const raw = await callEngineA(prompt, deps);
-    const parsed = parseRecipeSections(raw, expectedSteps);
+    const parsed = parseRecipeSections(raw, expectedSteps, expectTips);
     if (parsed.ok) return { result: parsed, engine: "engine-a", attempts: 3 };
     throw new QwenMtTranslationError("Engine A returned invalid recipe output", parsed.issues);
   } catch (error) {
@@ -207,6 +221,7 @@ async function translateRecipeSection(
 export async function translateRecipeWithQwenMt(input: {
   name: string;
   description?: string;
+  tips?: string;
   steps: string[];
   ingredientTerms?: string[];
   deps?: QwenMtDeps;
@@ -220,24 +235,28 @@ export async function translateRecipeWithQwenMt(input: {
     const prompt = buildRecipePrompt({
       name: input.name,
       description: input.description,
+      tips: input.tips,
       steps,
       targetLang: lang,
       terms: input.ingredientTerms ?? [],
     });
-    const translated = await translateRecipeSection(prompt, steps.length, input.deps ?? {});
+    const translated = await translateRecipeSection(prompt, steps.length, input.deps ?? {}, Boolean(input.tips?.trim()));
     engines[lang] = translated.engine;
     attempts[lang] = translated.attempts;
     if (lang === "en") {
       fields.nameEn = translated.result.name;
       fields.descriptionEn = translated.result.description;
+      fields.tipsEn = input.tips?.trim() ? translated.result.tips : undefined;
       fields.stepsEn = translated.result.steps;
     } else if (lang === "fil") {
       fields.nameFil = translated.result.name;
       fields.descriptionFil = translated.result.description;
+      fields.tipsFil = input.tips?.trim() ? translated.result.tips : undefined;
       fields.stepsFil = translated.result.steps;
     } else {
       fields.nameId = translated.result.name;
       fields.descriptionId = translated.result.description;
+      fields.tipsId = input.tips?.trim() ? translated.result.tips : undefined;
       fields.stepsId = translated.result.steps;
     }
   }

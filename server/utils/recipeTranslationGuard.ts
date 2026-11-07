@@ -7,6 +7,9 @@ export type RecipeTranslationFields = {
   descriptionEn?: string | null;
   descriptionFil?: string | null;
   descriptionId?: string | null;
+  tipsEn?: string | null;
+  tipsFil?: string | null;
+  tipsId?: string | null;
   stepsEn?: unknown;
   stepsFil?: unknown;
   stepsId?: unknown;

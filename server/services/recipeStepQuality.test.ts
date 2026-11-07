@@ -116,6 +116,9 @@ test("translation guard rejects CJK in any _en field", () => {
   assert.deepEqual(findUnsafeRecipeTranslations({
     stepsEn: ["中火炒 3 分鐘"],
   }), ["stepsEn contains CJK"]);
+  assert.deepEqual(findUnsafeRecipeTranslations({
+    tipsEn: "先落鑊炒香。",
+  }), ["tipsEn contains CJK"]);
 });
 
 test("translation guard rejects long copied fil/id names but exempts short proper nouns", () => {

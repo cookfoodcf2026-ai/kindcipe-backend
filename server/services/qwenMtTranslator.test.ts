@@ -130,3 +130,23 @@ test("translates recipe name, description and steps for en/fil/id in three calls
   assert.deepEqual(result.fields.stepsId, ["id one", "id two"]);
   assert.equal(result.engines.en, "qwen-mt-flash");
 });
+
+test("translates tips for en/fil/id when source tips exist", async () => {
+  const result = await translateRecipeWithQwenMt({
+    name: "番茄炒蛋",
+    description: "快手菜",
+    tips: "番茄先去皮。",
+    steps: ["炒蛋。", "上碟。"],
+    deps: {
+      apiKey: "test-key",
+      fetchImpl: (async (_url: string, init: any) => {
+        const prompt = JSON.parse(init.body).messages[0].content as string;
+        const lang = prompt.includes("Filipino") ? "fil" : prompt.includes("Indonesian") ? "id" : "en";
+        return { ok: true, json: async () => ({ choices: [{ message: { content: `<<<NAME>>>\n${lang} name\n<<<DESCRIPTION>>>\n${lang} desc\n<<<TIPS>>>\n${lang} tip\n<<<STEPS>>>\n1. ${lang} one\n2. ${lang} two` } }] }) };
+      }) as any,
+    },
+  });
+  assert.equal(result.fields.tipsEn, "en tip");
+  assert.equal(result.fields.tipsFil, "fil tip");
+  assert.equal(result.fields.tipsId, "id tip");
+});
