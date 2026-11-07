@@ -42,3 +42,7 @@ export function validateGeneratedRecipeSteps(recipe: GeneratedRecipeSteps): Step
   });
   return { ok: issues.length === 0, issues };
 }
+
+export function filterValidGeneratedRecipes<T extends { steps?: unknown }>(recipes: T[]): T[] {
+  return recipes.filter((recipe) => validateGeneratedRecipeSteps(recipe).ok);
+}

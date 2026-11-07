@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasJsonFragmentStepText, isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "./recipeStepQuality";
+import { filterValidGeneratedRecipes, hasJsonFragmentStepText, isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "./recipeStepQuality";
+import { shouldChargeChefRequest } from "./aiChefPolicy";
+import { finalizeChefRequest } from "./aiChefFinalization";
+import { generateMissingRecipes } from "../routers/aiRecipe";
 
 test("accepts ordinary Chinese steps, including ratios", () => {
   assert.deepEqual(validateGeneratedRecipeSteps({
@@ -41,4 +44,64 @@ test("structural helper rejects non-string and JSON fragment steps", () => {
   assert.equal(isStructurallyCorruptStepText('stepsEn": "prepare"'), true);
   assert.equal(isStructurallyCorruptStepText("中火炒番茄 3 分鐘。"), false);
   assert.equal(hasJsonFragmentStepText("米同水比例 1:1。"), false);
+});
+
+test("all generated candidates rejected -> zero valid cards", () => {
+  const candidates = [
+    { steps: ['stepsEn": "prepare"'] },
+    { steps: ['stepsFil": "siapkan"'] },
+  ];
+  assert.deepEqual(filterValidGeneratedRecipes(candidates), []);
+});
+
+test("zero served AI cards refunds the reserved credit", async () => {
+  let committed = false;
+  let refunded = false;
+  const shouldCharge = shouldChargeChefRequest({ served: 0, aiCards: 0 });
+  const result = await finalizeChefRequest({
+    truthful: false,
+    shouldCharge,
+    requestedCredits: 1,
+    reservationId: 4242,
+    validate: () => [],
+    buildLegacy: async () => ({ recipes: [] }),
+    applyContract: (legacy) => legacy,
+    commitUsage: async () => { committed = true; },
+    refundUsage: async () => { refunded = true; },
+  });
+  assert.equal(shouldCharge, false);
+  assert.equal(result.creditsCharged, 0);
+  assert.equal(committed, false);
+  assert.equal(refunded, true);
+});
+
+test("generateMissingRecipes returns [] and no charge when every card is invalid", async () => {
+  const bad = JSON.stringify({
+    recipes: [{
+      name: "壞卡",
+      ingredients: [{ name: "雞蛋" }, { name: "豆芽" }],
+      steps: [
+        'stepsEn": "prepare"',
+        "第二步先炒蛋。",
+        "第三步加入豆芽。",
+        "第四步炒勻。",
+        "第五步上碟。",
+      ],
+    }],
+  });
+  let llmCalls = 0;
+  const recipes = await generateMissingRecipes(
+    1,
+    false,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    [],
+    undefined,
+    { invokeLLM: async () => { llmCalls += 1; return { choices: [{ message: { content: bad } }] } as any; } },
+  );
+  assert.equal(llmCalls, 1);
+  assert.deepEqual(recipes, []);
+  assert.equal(shouldChargeChefRequest({ served: 0, aiCards: 0 }), false);
 });

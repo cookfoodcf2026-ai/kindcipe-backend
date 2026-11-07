@@ -68,7 +68,7 @@ import {
   usageLimitToTRPC,
 } from "../services/usage";
 import { claimAiPhotoUsage, hongKongDay, releaseAiPhotoUsage } from "../services/aiPhotoUsage";
-import { isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "../services/recipeStepQuality";
+import { filterValidGeneratedRecipes, isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "../services/recipeStepQuality";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -2386,7 +2386,7 @@ const CHINESE_STEPS_PROMPT_RULES = `步驟只寫繁體中文，唔好提供英�
 steps 只可以係中文步驟字串，唔准將 stepsEn/stepsFil/stepsId/instruction 或 { } 等 JSON 碎片放入 steps。`;
 
 // 由 AI 補缺（library 唔夠時）。neededTypes 指定缺失類別 → 逐類生成，確保 3餸1湯 結構。
-async function generateMissingRecipes(
+export async function generateMissingRecipes(
   count: number,
   needSoup: boolean,
   exclude: string[],
@@ -2395,6 +2395,7 @@ async function generateMissingRecipes(
   neededTypes?: DishType[],
   avoidIngredients: string[] = [],
   constraintText?: string,
+  deps?: { invokeLLM?: typeof invokeLLM },
 ): Promise<SuggestedRecipe[]> {
   if (count <= 0) return [];
   // 指定缺失類別 → 逐類生成（避免 AI 亂補出麵/飯/錯類）
@@ -2413,7 +2414,8 @@ async function generateMissingRecipes(
       : "";
     const constraintLine = constraintText ? ` 額外硬性要求（每一道都必須符合）：${constraintText}。` : "";
     const prompt = `請生成 ${count} 個家常菜食譜。${soupHint}${avoidLine}${constraintLine} 絕對唔可以重複以下已推薦過嘅菜式，必須全新（名唔同但同一款菜、近似嘅都唔可以）：${dedupeNames(exclude).slice(0, 15).join("、")}。用繁體中文，只寫中文名稱、描述、材料同步驟；唔好提供 nameEn/nameFil/nameId 或 stepsEn/stepsFil/stepsId，翻譯由系統另外處理。${CHINESE_STEPS_PROMPT_RULES} 每個食譜請包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，5-6 步）。回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":4,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
-    const resp = await invokeLLM({
+    const invoke = deps?.invokeLLM ?? invokeLLM;
+    const resp = await invoke({
       messages: [{ role: "user", content: prompt }],
       maxTokens: 3500 * Math.max(1, count),
       temperature: 0.7,
@@ -2434,7 +2436,7 @@ async function generateMissingRecipes(
       console.warn(`[AI Chef] generateMissingRecipes parse empty, raw: ${raw.slice(0, 120)}`);
       return [];
     }
-    const valid = recipes.filter((recipe) => validateGeneratedRecipeSteps(recipe).ok);
+    const valid = filterValidGeneratedRecipes(recipes);
     if (valid.length < recipes.length) {
       console.warn(`[AI Chef] generateMissingRecipes dropped ${recipes.length - valid.length} invalid card(s)`);
     }
