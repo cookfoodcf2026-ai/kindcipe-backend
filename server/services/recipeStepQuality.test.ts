@@ -4,6 +4,7 @@ import { filterValidGeneratedRecipes, hasJsonFragmentStepText, isStructurallyCor
 import { shouldChargeChefRequest } from "./aiChefPolicy";
 import { finalizeChefRequest } from "./aiChefFinalization";
 import { generateMissingRecipes } from "../routers/aiRecipe";
+import { findUnsafeRecipeTranslations } from "../utils/recipeTranslationGuard";
 
 test("accepts ordinary Chinese steps, including ratios", () => {
   assert.deepEqual(validateGeneratedRecipeSteps({
@@ -104,4 +105,28 @@ test("generateMissingRecipes returns [] and no charge when every card is invalid
   assert.equal(llmCalls, 1);
   assert.deepEqual(recipes, []);
   assert.equal(shouldChargeChefRequest({ served: 0, aiCards: 0 }), false);
+});
+
+test("translation guard rejects CJK in any _en field", () => {
+  assert.deepEqual(findUnsafeRecipeTranslations({
+    nameEn: "番茄炒蛋",
+    nameFil: "Tomato Egg",
+    nameId: "Telur Tomat",
+  }), ["nameEn contains CJK"]);
+  assert.deepEqual(findUnsafeRecipeTranslations({
+    stepsEn: ["中火炒 3 分鐘"],
+  }), ["stepsEn contains CJK"]);
+});
+
+test("translation guard rejects long copied fil/id names but exempts short proper nouns", () => {
+  assert.deepEqual(findUnsafeRecipeTranslations({
+    nameEn: "Pan-Seared Chicken Breast",
+    nameFil: "Pan-Seared Chicken Breast",
+    nameId: "Pan-Seared Chicken Breast",
+  }), ["nameFil equals nameEn (length > 8)", "nameId equals nameEn (length > 8)"]);
+  assert.deepEqual(findUnsafeRecipeTranslations({
+    nameEn: "Tiramisu",
+    nameFil: "Tiramisu",
+    nameId: "Tiramisu",
+  }), []);
 });

@@ -23,6 +23,7 @@ import { dedupeIngredients, markQuantityProvenance } from "../services/ingredien
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, localizedName } from "../utils/recipeTranslations";
+import { assertSafeRecipeTranslations } from "../utils/recipeTranslationGuard";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
 import { normalizeDifficulty } from "../utils/difficulty";
 import { getDb, getCommonIngredients, getFamilySubscription } from "../db";
@@ -3720,6 +3721,15 @@ ${TAGS_RULE}`;
 
       const _stepsArrO = Array.isArray(input.steps) ? input.steps.map((s: any) => typeof s === "string" ? s : (s.instruction ?? "")) : [];
       const _trO = await translateRecipeContent(input.name, _stepsArrO, input.description);
+      assertSafeRecipeTranslations({
+        nameEn: _trO.nameEn,
+        nameFil: _trO.nameFil,
+        nameId: _trO.nameId,
+        descriptionEn: _trO.descriptionEn,
+        descriptionFil: _trO.descriptionFil,
+        descriptionId: _trO.descriptionId,
+        stepsEn: _trO.stepsEn,
+      });
       const [inserted] = await db.insert(officialRecipes).values({
         importedByUserId: String(ctx.user.id),
         name: input.name,

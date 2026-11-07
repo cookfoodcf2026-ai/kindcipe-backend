@@ -9,6 +9,7 @@ import "dotenv/config";
 import { getDb } from "../server/db";
 import { eq, isNull, like, or, inArray } from "drizzle-orm";
 import { officialRecipes, customRecipes } from "../drizzle/schema";
+import { assertSafeRecipeTranslations } from "../server/utils/recipeTranslationGuard";
 
 const API_KEY = process.env.DASHSCOPE_API_KEY ?? "";
 const BASE_URL = process.env.DASHSCOPE_BASE_URL ?? "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
@@ -90,6 +91,7 @@ async function main() {
           const hit = out.get(b.name);
           if (!hit) continue;
           const val = { stepsEn: JSON.stringify(hit.en), stepsFil: JSON.stringify(hit.fil), stepsId: JSON.stringify(hit.id) };
+          assertSafeRecipeTranslations(val);
           if (b.table === "official") await db.update(officialRecipes).set(val).where(eq(officialRecipes.id, b.id));
           else await db.update(customRecipes).set(val).where(eq(customRecipes.id, b.id));
           updated++;

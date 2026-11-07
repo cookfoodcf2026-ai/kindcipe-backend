@@ -12,6 +12,7 @@
  * overwrites existing translations.
  */
 import { translateRecipeContent, translateIngredientNames } from "./translateContent";
+import { assertSafeRecipeTranslations } from "./recipeTranslationGuard";
 
 export function hasHan(text: string): boolean {
   return /[\u4e00-\u9fff]/.test(String(text ?? ""));
@@ -142,6 +143,9 @@ export async function buildTranslationPatch(row: TranslatableRow): Promise<Recor
     if (merged) patch.ingredients = JSON.stringify(merged);
   }
 
+  if (Object.keys(patch).length > 0) {
+    assertSafeRecipeTranslations({ ...(row as any), ...(patch as any) });
+  }
   return patch;
 }
 
