@@ -67,7 +67,9 @@ export async function getUsageSummary(familyId: number) {
   };
 }
 
-export async function reserveUsage(params: {
+type UsageReservation = { eventId: number; status: string };
+
+export async function reserveUsageInTransaction(tx: any, params: {
   familyId: number;
   userId: string;
   kind: UsageKind;
@@ -75,9 +77,7 @@ export async function reserveUsage(params: {
   idempotencyKey: string;
   cost: UsageCost;
   metadata?: unknown;
-}): Promise<{ eventId: number; status: string }> {
-  const db = await getDb();
-  if (!db) throw new Error("DB unavailable");
+}): Promise<UsageReservation> {
   const yearMonth = getYearMonthKey();
   const credits = Math.max(0, params.cost.credits ?? 0);
   const imports = Math.max(0, params.cost.imports ?? 0);
@@ -95,8 +95,39 @@ export async function reserveUsage(params: {
     throw new UsageLimitError("CUSTOM_RECIPES", customLimit, 0);
   }
 
-  return db.transaction(async (tx) => {
-    const [existing] = await tx
+  const [existing] = await tx
+    .select({ id: usageEvents.id, status: usageEvents.status })
+    .from(usageEvents)
+    .where(
+      and(
+        eq(usageEvents.familyId, params.familyId),
+        eq(usageEvents.idempotencyKey, params.idempotencyKey)
+      )
+    )
+    .limit(1);
+  if (existing) return { eventId: existing.id, status: existing.status };
+
+  const [event] = await tx
+    .insert(usageEvents)
+    .values({
+      familyId: params.familyId,
+      userId: params.userId,
+      yearMonth,
+      kind: params.kind,
+      credits,
+      imports,
+      customRecipes,
+      estimatedCostMicros,
+      status: "reserved",
+      idempotencyKey: params.idempotencyKey,
+      reservedUntil: new Date(Date.now() + 5 * 60 * 1000),
+      metadata: params.metadata as any,
+    })
+    .onConflictDoNothing()
+    .returning({ id: usageEvents.id, status: usageEvents.status });
+
+  if (!event) {
+    const [race] = await tx
       .select({ id: usageEvents.id, status: usageEvents.status })
       .from(usageEvents)
       .where(
@@ -106,90 +137,75 @@ export async function reserveUsage(params: {
         )
       )
       .limit(1);
-    if (existing) return { eventId: existing.id, status: existing.status };
+    if (!race) throw new Error("Usage reservation conflict");
+    return { eventId: race.id, status: race.status };
+  }
 
-    const [event] = await tx
-      .insert(usageEvents)
-      .values({
-        familyId: params.familyId,
-        userId: params.userId,
-        yearMonth,
-        kind: params.kind,
-        credits,
-        imports,
-        customRecipes,
-        estimatedCostMicros,
-        status: "reserved",
-        idempotencyKey: params.idempotencyKey,
-        reservedUntil: new Date(Date.now() + 5 * 60 * 1000),
-        metadata: params.metadata as any,
-      })
-      .onConflictDoNothing()
-      .returning({ id: usageEvents.id, status: usageEvents.status });
+  const customCheck =
+    customLimit === null
+      ? sql`true`
+      : sql`${familyUsageMonthly.customRecipes} + EXCLUDED."custom_recipes" <= ${customLimit}`;
 
-    if (!event) {
-      const [race] = await tx
-        .select({ id: usageEvents.id, status: usageEvents.status })
-        .from(usageEvents)
-        .where(
-          and(
-            eq(usageEvents.familyId, params.familyId),
-            eq(usageEvents.idempotencyKey, params.idempotencyKey)
-          )
-        )
-        .limit(1);
-      if (!race) throw new Error("Usage reservation conflict");
-      return { eventId: race.id, status: race.status };
+  const result = await tx.execute(sql`
+    INSERT INTO "family_usage_monthly"
+      ("family_id", "year_month", "ai_credits", "imports", "custom_recipes", "estimated_cost_micros", "updated_at")
+    VALUES
+      (${params.familyId}, ${yearMonth}, ${credits}, ${imports}, ${customRecipes}, ${estimatedCostMicros}, now())
+    ON CONFLICT ("family_id", "year_month") DO UPDATE SET
+      "ai_credits" = ${familyUsageMonthly.aiCredits} + EXCLUDED."ai_credits",
+      "imports" = ${familyUsageMonthly.imports} + EXCLUDED."imports",
+      "custom_recipes" = ${familyUsageMonthly.customRecipes} + EXCLUDED."custom_recipes",
+      "estimated_cost_micros" = ${familyUsageMonthly.estimatedCostMicros} + EXCLUDED."estimated_cost_micros",
+      "updated_at" = now()
+    WHERE ${familyUsageMonthly.aiCredits} + EXCLUDED."ai_credits" <= ${params.limits.aiCredits}
+      AND ${familyUsageMonthly.imports} + EXCLUDED."imports" <= ${params.limits.imports}
+      AND ${customCheck}
+    RETURNING "ai_credits", "imports", "custom_recipes"
+  `);
+
+  if (rowsOf(result).length === 0) {
+    const [used] = await tx
+      .select()
+      .from(familyUsageMonthly)
+      .where(and(eq(familyUsageMonthly.familyId, params.familyId), eq(familyUsageMonthly.yearMonth, yearMonth)))
+      .limit(1);
+    if (imports > 0 && (used?.imports ?? 0) + imports > params.limits.imports) {
+      throw new UsageLimitError("IMPORTS", params.limits.imports, used?.imports ?? 0);
     }
-
-    const customCheck =
-      customLimit === null
-        ? sql`true`
-        : sql`${familyUsageMonthly.customRecipes} + EXCLUDED."custom_recipes" <= ${customLimit}`;
-
-    const result = await tx.execute(sql`
-      INSERT INTO "family_usage_monthly"
-        ("family_id", "year_month", "ai_credits", "imports", "custom_recipes", "estimated_cost_micros", "updated_at")
-      VALUES
-        (${params.familyId}, ${yearMonth}, ${credits}, ${imports}, ${customRecipes}, ${estimatedCostMicros}, now())
-      ON CONFLICT ("family_id", "year_month") DO UPDATE SET
-        "ai_credits" = ${familyUsageMonthly.aiCredits} + EXCLUDED."ai_credits",
-        "imports" = ${familyUsageMonthly.imports} + EXCLUDED."imports",
-        "custom_recipes" = ${familyUsageMonthly.customRecipes} + EXCLUDED."custom_recipes",
-        "estimated_cost_micros" = ${familyUsageMonthly.estimatedCostMicros} + EXCLUDED."estimated_cost_micros",
-        "updated_at" = now()
-      WHERE ${familyUsageMonthly.aiCredits} + EXCLUDED."ai_credits" <= ${params.limits.aiCredits}
-        AND ${familyUsageMonthly.imports} + EXCLUDED."imports" <= ${params.limits.imports}
-        AND ${customCheck}
-      RETURNING "ai_credits", "imports", "custom_recipes"
-    `);
-
-    if (rowsOf(result).length === 0) {
-      const [used] = await tx
-        .select()
-        .from(familyUsageMonthly)
-        .where(and(eq(familyUsageMonthly.familyId, params.familyId), eq(familyUsageMonthly.yearMonth, yearMonth)))
-        .limit(1);
-      if (imports > 0 && (used?.imports ?? 0) + imports > params.limits.imports) {
-        throw new UsageLimitError("IMPORTS", params.limits.imports, used?.imports ?? 0);
-      }
-      if (customLimit !== null && customRecipes > 0 && (used?.customRecipes ?? 0) + customRecipes > customLimit) {
-        throw new UsageLimitError("CUSTOM_RECIPES", customLimit, used?.customRecipes ?? 0);
-      }
-      throw new UsageLimitError("AI_CREDITS", params.limits.aiCredits, used?.aiCredits ?? 0);
+    if (customLimit !== null && customRecipes > 0 && (used?.customRecipes ?? 0) + customRecipes > customLimit) {
+      throw new UsageLimitError("CUSTOM_RECIPES", customLimit, used?.customRecipes ?? 0);
     }
+    throw new UsageLimitError("AI_CREDITS", params.limits.aiCredits, used?.aiCredits ?? 0);
+  }
 
-    return { eventId: event.id, status: "reserved" as const };
-  });
+  return { eventId: event.id, status: "reserved" as const };
+}
+
+export async function reserveUsage(params: {
+  familyId: number;
+  userId: string;
+  kind: UsageKind;
+  limits: PlanLimits;
+  idempotencyKey: string;
+  cost: UsageCost;
+  metadata?: unknown;
+}): Promise<UsageReservation> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  return db.transaction((tx) => reserveUsageInTransaction(tx, params));
+}
+
+export async function commitUsageInTransaction(tx: any, eventId: number): Promise<void> {
+  await tx
+    .update(usageEvents)
+    .set({ status: "consumed", reservedUntil: null, updatedAt: new Date() })
+    .where(and(eq(usageEvents.id, eventId), eq(usageEvents.status, "reserved")));
 }
 
 export async function commitUsage(eventId: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db
-    .update(usageEvents)
-    .set({ status: "consumed", reservedUntil: null, updatedAt: new Date() })
-    .where(and(eq(usageEvents.id, eventId), eq(usageEvents.status, "reserved")));
+  await commitUsageInTransaction(db, eventId);
 }
 
 export async function refundUsage(eventId: number): Promise<void> {

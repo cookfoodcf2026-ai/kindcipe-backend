@@ -1,12 +1,11 @@
-import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { familyWriteProcedure, protectedProcedure, router } from "../_core/trpc";
-import { mealPlans, shoppingItems } from "../../drizzle/schema";
+import { customRecipes, mealPlans, officialRecipes, shoppingItems } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { getFamilyEntitlements } from "../services/entitlements";
-import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
+import { commitUsageInTransaction, reserveUsageInTransaction, usageLimitToTRPC } from "../services/usage";
 import { categorizeIngredientName, hasUsableMainIngredient, isUsableIngredientName, normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity } from "../utils/mealDiversity";
 import {
@@ -61,6 +60,32 @@ const STARTER_SETS: string[][] = [
   ["紫菜豆腐魚蛋湯", "豉油雞翼", "勝瓜炒蝦仁", "白灼蠔油菜心"],
   ["生菜魚肉", "蒜蓉豆豉蒸雞髀肉", "花甲蒸水蛋", "魚香茄子"],
 ];
+
+const STARTER_NAMES = new Set(STARTER_SETS.flat().map((name) => name.trim()));
+
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "Asia/Hong_Kong";
+
+function isoDateInAppTimezone(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function isTodayOrTomorrow(dateStr: string): boolean {
+  const today = isoDateInAppTimezone();
+  return dateStr === today || dateStr === addDays(today, 1);
+}
+
+function parseRecipeRef(recipeId: string): { kind: "official" | "user"; id: number } | null {
+  const match = /^(official|user)_(\d+)$/.exec(recipeId);
+  if (!match) return null;
+  return { kind: match[1] as "official" | "user", id: Number(match[2]) };
+}
 
 function toPlanRecipe(recipe: SuggestedRecipe) {
   return {
@@ -130,24 +155,6 @@ export const quickPlanRouter = router({
       const ent = await getFamilyEntitlements(familyId, userId);
       if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
       if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
-
-      let reservationId: number | undefined;
-      const planCost = ent.isPaid ? 0 : 1;
-      if (planCost > 0) {
-        try {
-          const reservation = await reserveUsage({
-            familyId,
-            userId,
-            kind: "ai_plan",
-            limits: ent.limits,
-            idempotencyKey: `ai_plan:${familyId}:${userId}:${randomUUID()}`,
-            cost: { credits: planCost },
-          });
-          reservationId = reservation.eventId;
-        } catch (error) {
-          usageLimitToTRPC(error);
-        }
-      }
 
       try {
       const db = await getDb();
@@ -250,7 +257,6 @@ export const quickPlanRouter = router({
       }
 
       console.log(`[quickPlan] suggestMs=${Date.now() - startedAt} family=${familyId} rows=${rows.length} days=${days.length}`);
-      if (reservationId) await commitUsage(reservationId);
       return {
         startDate: firstDate,
         requestedServings: input.servings,
@@ -258,8 +264,7 @@ export const quickPlanRouter = router({
         warnings: [],
       };
       } catch (error) {
-        if (reservationId) await refundUsage(reservationId).catch(() => {});
-        usageLimitToTRPC(error);
+        throw error;
       }
     }),
   /** 新手餐單 3 組完整資料（含食材），俾 onboarding 逐道換 */
@@ -321,24 +326,94 @@ export const quickPlanRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       }
 
-      const dates = [...new Set(input.items.map((item) => item.date))];
-      const existing = await db
-        .select({ date: mealPlans.date })
-        .from(mealPlans)
-        .where(and(
-          eq(mealPlans.familyId, ctx.activeFamilyId),
-          eq(mealPlans.mealType, "dinner"),
-          inArray(mealPlans.date, dates),
-        ))
-        .limit(1);
-      if (existing.length > 0) {
-        throw new TRPCError({ code: "CONFLICT", message: "所選日期已有排餐，請先喺 Planner 修改" });
+      const familyId = ctx.activeFamilyId;
+      const userId = String(ctx.user.id);
+      const note = `quickPlan:${input.clientRequestId}`;
+
+      if (input.items.some((item) => !isTodayOrTomorrow(item.date))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "只可以排今日或聽日" });
       }
 
+      const ent = await getFamilyEntitlements(familyId, userId);
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+
+      const refs = input.items.map((item) => parseRecipeRef(item.recipeId));
+      const officialIds = [...new Set(refs.filter((ref) => ref?.kind === "official").map((ref) => ref!.id))];
+      const customIds = [...new Set(refs.filter((ref) => ref?.kind === "user").map((ref) => ref!.id))];
+      const [officialRows, customRows] = await Promise.all([
+        officialIds.length > 0
+          ? db
+              .select({ id: officialRecipes.id, name: officialRecipes.name })
+              .from(officialRecipes)
+              .where(and(inArray(officialRecipes.id, officialIds), eq(officialRecipes.isActive, true)))
+          : Promise.resolve([] as Array<{ id: number; name: string }>),
+        customIds.length > 0
+          ? db
+              .select({ id: customRecipes.id, name: customRecipes.name })
+              .from(customRecipes)
+              .where(and(
+                inArray(customRecipes.id, customIds),
+                eq(customRecipes.isDraft, false),
+                or(
+                  eq(customRecipes.familyId, familyId),
+                  and(eq(customRecipes.familyId, 0), eq(customRecipes.visibility, "public")),
+                ),
+              ))
+          : Promise.resolve([] as Array<{ id: number; name: string }>),
+      ]);
+      const visibleNames = new Map<string, string>();
+      officialRows.forEach((row) => visibleNames.set(`official_${row.id}`, row.name));
+      customRows.forEach((row) => visibleNames.set(`user_${row.id}`, row.name));
+      if (input.items.some((item) => !visibleNames.has(item.recipeId))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "所選食譜不存在或不在此廚房" });
+      }
+
+      const starterFree = input.items.every((item) =>
+        STARTER_NAMES.has(String(visibleNames.get(item.recipeId) ?? "").trim()),
+      );
+      const credits = ent.isPaid || starterFree ? 0 : 1;
+      const idempotencyKey = `accept:${input.clientRequestId}`;
+
       const result = await db.transaction(async (tx) => {
+        const reservation = await reserveUsageInTransaction(tx, {
+          familyId,
+          userId,
+          kind: "ai_plan",
+          limits: ent.limits,
+          idempotencyKey,
+          cost: { credits },
+          metadata: { source: "quickPlan.accept", starter: starterFree },
+        });
+
+        if (reservation.status !== "reserved") {
+          const existingPlans = await tx
+            .select({ id: mealPlans.id })
+            .from(mealPlans)
+            .where(and(eq(mealPlans.familyId, familyId), eq(mealPlans.note, note)));
+          return {
+            mealPlanCount: existingPlans.length,
+            shoppingCount: 0,
+            newPlanIds: existingPlans.map((row) => row.id),
+          };
+        }
+
+        const dates = [...new Set(input.items.map((item) => item.date))];
+        const existing = await tx
+          .select({ date: mealPlans.date })
+          .from(mealPlans)
+          .where(and(
+            eq(mealPlans.familyId, familyId),
+            eq(mealPlans.mealType, "dinner"),
+            inArray(mealPlans.date, dates),
+          ))
+          .limit(1);
+        if (existing.length > 0) {
+          throw new TRPCError({ code: "CONFLICT", message: "所選日期已有排餐，請先喺 Planner 修改" });
+        }
+
         const inserted = await tx.insert(mealPlans).values(
           input.items.map((item) => ({
-            familyId: ctx.activeFamilyId!,
+            familyId,
             date: item.date,
             mealType: "dinner" as const,
             recipeId: item.recipeId,
@@ -348,9 +423,9 @@ export const quickPlanRouter = router({
             recipeNameId: item.recipeNameId ?? null,
             recipeImage: item.recipeImage ?? null,
             status: "confirmed" as const,
-            proposedByUserId: String(ctx.user.id),
+            proposedByUserId: userId,
             proposedByName: ctx.user.name || "",
-            note: `quickPlan:${input.clientRequestId}`,
+            note,
           })),
         ).returning({ id: mealPlans.id });
 
@@ -414,10 +489,11 @@ export const quickPlanRouter = router({
         if (rows.length > 0) {
           await tx.insert(shoppingItems).values(rows);
         }
+        await commitUsageInTransaction(tx, reservation.eventId);
         return { mealPlanCount: inserted.length, shoppingCount: rows.length, newPlanIds: inserted.map((row) => row.id) };
-      });
+      }).catch((error) => usageLimitToTRPC(error));
 
-      await recordFamilySeenNames(ctx.activeFamilyId, [...new Set(input.items.map((item) => item.recipeName))]);
+      await recordFamilySeenNames(familyId, [...new Set(input.items.map((item) => item.recipeName))]);
       return result;
     }),
 

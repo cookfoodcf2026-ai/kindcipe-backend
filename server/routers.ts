@@ -249,7 +249,8 @@ const familyRouter = router({
       
       const existing = await getFamilyMemberByUserId(family.id, String(ctx.user.id));
       if (existing) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Already a member" });
+        joinAttempts.delete(attemptKey);
+        return { success: true, family, alreadyMember: true as const };
       }
 
       const myFamilies = await getUserFamilies(String(ctx.user.id));
