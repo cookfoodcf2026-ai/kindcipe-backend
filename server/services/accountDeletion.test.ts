@@ -18,8 +18,11 @@ import {
 type PersonalRow = { userId: string; value?: string };
 type FinancialRow = Record<string, unknown> & { userId?: string };
 
+const STALE_PENDING_MS = 10 * 60 * 1000;
+
 class MemoryStore implements AccountDeletionStore {
   request: DeletionRequestRow | null = null;
+  requestUpdatedAt: Date | null = null;
   families: DeletionFamily[] = [];
   subscriptions: DeletionStripeSubscription[] = [];
   personalRows: Record<string, PersonalRow[]> = {
@@ -46,12 +49,25 @@ class MemoryStore implements AccountDeletionStore {
   async claimDeletionRequest(userId: string): Promise<ClaimDeletionRequestResult> {
     if (!this.request) {
       this.request = { userId, status: "pending", step: "stripe_cancel", lastError: null, attempts: 1 };
+      this.requestUpdatedAt = new Date();
       return { kind: "claimed", request: { ...this.request } };
     }
     if (this.request.status === "completed") {
       return { kind: "completed", request: { ...this.request } };
     }
     if (this.request.status === "pending") {
+      const updatedAt = this.requestUpdatedAt ?? new Date();
+      if (Date.now() - updatedAt.getTime() > STALE_PENDING_MS) {
+        this.request = {
+          ...this.request,
+          status: "pending",
+          step: "stripe_cancel",
+          lastError: null,
+          attempts: this.request.attempts + 1,
+        };
+        this.requestUpdatedAt = new Date();
+        return { kind: "claimed", request: { ...this.request } };
+      }
       return { kind: "pending", request: { ...this.request } };
     }
     this.request = {
@@ -61,6 +77,7 @@ class MemoryStore implements AccountDeletionStore {
       lastError: null,
       attempts: this.request.attempts + 1,
     };
+    this.requestUpdatedAt = new Date();
     return { kind: "claimed", request: { ...this.request } };
   }
 
@@ -73,6 +90,7 @@ class MemoryStore implements AccountDeletionStore {
       lastError,
       attempts: this.request?.attempts ?? 1,
     };
+    this.requestUpdatedAt = new Date();
     this.failedSteps.push(step);
   }
 
@@ -121,6 +139,7 @@ class MemoryStore implements AccountDeletionStore {
       lastError: null,
       attempts: this.request?.attempts ?? 1,
     };
+    this.requestUpdatedAt = new Date();
   }
 }
 
@@ -462,4 +481,58 @@ test("a concurrent second call does not start a parallel cancellation", async ()
   const result = await first;
   assert.equal(result.success, true);
   assert.equal(store.purgeCalls, 1);
+});
+
+test("a fresh pending claim stays pending", async () => {
+  const store = new MemoryStore();
+  store.request = {
+    userId: "user-1",
+    status: "pending",
+    step: "stripe_cancel",
+    lastError: null,
+    attempts: 1,
+  };
+  store.requestUpdatedAt = new Date();
+
+  const claim = await store.claimDeletionRequest("user-1");
+
+  assert.equal(claim.kind, "pending");
+  assert.equal(claim.request.attempts, 1);
+});
+
+test("a pending claim older than 10 minutes is taken over", async () => {
+  const store = new MemoryStore();
+  store.request = {
+    userId: "user-1",
+    status: "pending",
+    step: "purge",
+    lastError: "process died mid-purge",
+    attempts: 2,
+  };
+  store.requestUpdatedAt = new Date(Date.now() - 11 * 60 * 1000);
+
+  const claim = await store.claimDeletionRequest("user-1");
+
+  assert.equal(claim.kind, "claimed");
+  assert.equal(claim.request.attempts, 3);
+  assert.equal(claim.request.step, "stripe_cancel");
+  assert.equal(claim.request.lastError, null);
+  assert.equal(store.request?.status, "pending");
+});
+
+test("a completed claim returns completed without takeover", async () => {
+  const store = new MemoryStore();
+  store.request = {
+    userId: "user-1",
+    status: "completed",
+    step: "done",
+    lastError: null,
+    attempts: 3,
+  };
+  store.requestUpdatedAt = new Date(Date.now() - 60 * 60 * 1000);
+
+  const claim = await store.claimDeletionRequest("user-1");
+
+  assert.equal(claim.kind, "completed");
+  assert.equal(claim.request.attempts, 3);
 });

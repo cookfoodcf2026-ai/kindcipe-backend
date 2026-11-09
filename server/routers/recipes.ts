@@ -14,6 +14,7 @@
 
 import { TRPCError } from "@trpc/server";
 import { recipeSortOrder } from "../utils/recipeSort";
+import { officialOrderBy, resolveOfficialSearchOrder } from "../utils/officialRecipeOrder";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, startLlmMeter, MessageContent, TextContent, ImageContent } from "../_core/llm";
@@ -2972,6 +2973,7 @@ ${TAGS_RULE}`;
       search: z.string().optional(),
       tag: z.string().optional(),
       cookTimeMax: z.number().optional(),
+      order: z.enum(["daily", "fastest", "newest"]).default("daily"),
       limit: z.number().int().min(1).max(500).default(50),
       offset: z.number().int().min(0).default(0),
     }))
@@ -3004,7 +3006,7 @@ ${TAGS_RULE}`;
 
       const rows = await db.select().from(officialRecipes)
         .where(and(...conditions))
-        .orderBy(desc(officialRecipes.createdAt))
+        .orderBy(...officialOrderBy(input.order))
         .limit(input.limit)
         .offset(input.offset);
 
@@ -3029,6 +3031,7 @@ ${TAGS_RULE}`;
       source: z.enum(["all", "official", "user", "kol", "hot", "ai"]).optional(),  // 搜尋來源：all=全部(含AI)，official=只官方，user=只我的(不含AI)，kol=只 KOL，hot=熱門，ai=只AI生成
       // 排序：popular（預設，舊行為 popularity→createdAt）／newest（新匯入排先）／updated（最近編輯）
       sort: z.enum(["popular", "newest", "updated"]).optional(),
+      order: z.enum(["daily", "fastest", "newest"]).optional(),
       limit: z.number().int().min(1).max(1000).default(20),
       offset: z.number().int().min(0).default(0),
       cursor: z.number().int().min(0).optional(),
@@ -3323,7 +3326,13 @@ ${TAGS_RULE}`;
         updatedAt: customRecipes.updatedAt,
         id: customRecipes.id,
       } as const;
-      for (const key of sortOrder.official) orderByOfficial.push(desc(officialCols[key]));
+      const officialSearchOrder = resolveOfficialSearchOrder(input);
+      if (officialSearchOrder) {
+        orderByOfficial.length = 0;
+        orderByOfficial.push(...officialOrderBy(officialSearchOrder));
+      } else {
+        for (const key of sortOrder.official) orderByOfficial.push(desc(officialCols[key]));
+      }
       for (const key of sortOrder.custom) orderByCustom.push(desc(customCols[key]));
 
       // 根據 source 參數決定是否查詢官方/自訂食譜

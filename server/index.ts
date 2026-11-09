@@ -12,9 +12,11 @@ import { createContext } from "./_core/context";
 import { initSentry, captureException, flushSentry } from "./_core/sentry";
 import { setLlmCostSink } from "./_core/llm";
 import { recordLlmCostEvent } from "./services/llmCost";
+import { logRecipeRefFlagsOnce } from "./config/flags";
 
 async function startServer() {
   initSentry();
+  logRecipeRefFlagsOnce();
   setLlmCostSink(recordLlmCostEvent);
   const app = express();
   const server = createServer(app);

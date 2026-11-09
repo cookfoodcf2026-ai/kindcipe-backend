@@ -493,6 +493,10 @@ function toDeletionRequestRow(row: any): DeletionRequestRow {
   };
 }
 
+// A pending request older than this is presumed abandoned (process died after
+// claiming) and may be taken over so the user is not locked out forever.
+const STALE_PENDING_MS = 10 * 60 * 1000;
+
 async function claimDeletionRequest(userId: string): Promise<ClaimDeletionRequestResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -513,6 +517,28 @@ async function claimDeletionRequest(userId: string): Promise<ClaimDeletionReques
       return { kind: "completed", request: toDeletionRequestRow(existing) };
     }
     if (existing.status === "pending") {
+      const updatedAtMs = existing.updatedAt
+        ? new Date(existing.updatedAt).getTime()
+        : Number.NaN;
+      if (Number.isFinite(updatedAtMs) && Date.now() - updatedAtMs > STALE_PENDING_MS) {
+        // Take over a stale pending request. FOR UPDATE still serialises this
+        // with concurrent callers, so only one of them wins the takeover.
+        const [takenOver] = await tx
+          .update(deletionRequests)
+          .set({
+            status: "pending",
+            step: "stripe_cancel",
+            lastError: null,
+            attempts: existing.attempts + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(deletionRequests.userId, userId))
+          .returning();
+        console.warn(
+          `[account-deletion] taking over stale pending request userId=${userId} previousAttempts=${existing.attempts}`
+        );
+        return { kind: "claimed", request: toDeletionRequestRow(takenOver) };
+      }
       return { kind: "pending", request: toDeletionRequestRow(existing) };
     }
     // failed -> retry in place. The FOR UPDATE lock makes concurrent retries
@@ -931,6 +957,21 @@ export async function updateShoppingItemDetails(
   if (Object.keys(set).length === 0) return;
   await db.update(shoppingItems).set(set).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
 }
+/** Backfill/repair the recipe link on an existing shopping row (merge path). */
+export async function updateShoppingItemIdentity(
+  id: number,
+  familyId: number,
+  links: { fromRecipeId?: string | null; fromMealPlanId?: number | null }
+) {
+  const db = await getDb();
+  if (!db) return;
+  const set: Record<string, unknown> = {};
+  if ("fromRecipeId" in links) set.fromRecipeId = links.fromRecipeId;
+  if ("fromMealPlanId" in links) set.fromMealPlanId = links.fromMealPlanId;
+  if (Object.keys(set).length === 0) return;
+  await db.update(shoppingItems).set(set).where(and(eq(shoppingItems.id, id), eq(shoppingItems.familyId, familyId)));
+}
+
 export async function approveShoppingItem(id: number, familyId: number) {
   const db = await getDb();
   if (!db) return;
@@ -1064,6 +1105,28 @@ export async function getMealPlansByDateRange(familyId: number, startDate: strin
   ).orderBy(mealPlans.date, mealPlans.mealType);
   
   return plans;
+}
+
+/**
+ * Family-scoped plan lookup used by shopping identity (add / addBatch /
+ * read-time normalizer). One `IN` query; missing ids are simply absent.
+ */
+export async function getMealPlanRecipeRows(
+  familyId: number,
+  planIds: number[]
+): Promise<Map<number, { recipeId: string | null; date: string | null }>> {
+  const result = new Map<number, { recipeId: string | null; date: string | null }>();
+  if (planIds.length === 0) return result;
+  const db = await getDb();
+  if (!db) return result;
+  const rows = await db
+    .select({ id: mealPlans.id, recipeId: mealPlans.recipeId, date: mealPlans.date })
+    .from(mealPlans)
+    .where(and(eq(mealPlans.familyId, familyId), inArray(mealPlans.id, planIds)));
+  for (const row of rows) {
+    result.set(row.id, { recipeId: row.recipeId ?? null, date: row.date ?? null });
+  }
+  return result;
 }
 
 export async function addMealPlan(data: InsertMealPlan) {

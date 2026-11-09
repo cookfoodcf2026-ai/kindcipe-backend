@@ -74,6 +74,8 @@ import {
   getRecipeIngredients,
   getMealPlans,
   addShoppingItemsBatch,
+  getMealPlanRecipeRows,
+  updateShoppingItemIdentity,
   getPantryItems,
   getShoppingItems,
   getShoppingItemsSolo,
@@ -128,9 +130,38 @@ import {
 import { sendFamilyJoinEmail, sendPasswordResetEmail, sendVerificationEmail } from "./_core/email";
 import { msg } from "./_core/msg";
 import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families, type InsertShoppingItem } from "../drizzle/schema";
-import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { planShoppingBatch, persistShoppingItemWithRetry, resolveShoppingAddLink, type ShoppingIdentityDeps } from "./lib/shoppingIdentity";
+import { applyMealPlanDateUpdate, mealPlanRefWriteValue, resolveMealPlanRefOrThrow, validateMealPlanRefBatch } from "./lib/mealPlanIdentity";
+import { createShoppingNormalizer } from "./lib/shoppingNormalizer";
+import { loadIdentityMetrics } from "./ops/identityMetrics";
 
 const joinAttempts = new Map<string, { count: number; resetAt: number }>();
+
+/** Cross-request read-time repair cache (LRU + 60s TTL). */
+const shoppingNormalizer = createShoppingNormalizer({
+  lookup: { getMealPlanRows: getMealPlanRecipeRows },
+  ttlMs: 60_000,
+});
+
+function shoppingIdentityDeps(): ShoppingIdentityDeps {
+  return {
+    getMealPlanRows: getMealPlanRecipeRows,
+    log: (event, data) => console.warn(`[identity] ${event}`, data ?? {}),
+    metric: (name, tags) => console.log(`[identity] metric=${name}`, tags ?? {}),
+  };
+}
+
+function hkToday(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 
 const familyRouter = router({
   get: protectedProcedure
@@ -552,8 +583,9 @@ const familyRouter = router({
 const shoppingRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.activeFamilyId) {
-      // Family 用戶：返回家庭購物車
-      return getShoppingItems(ctx.activeFamilyId);
+      // Family 用戶：返回家庭購物車（讀取時修復 legacy/孤兒 recipe link）
+      const rows = await getShoppingItems(ctx.activeFamilyId);
+      return shoppingNormalizer.normalizeRows(ctx.activeFamilyId, rows);
     } else {
       // Solo 用戶：返回自己嘅購物車
       return getShoppingItemsSolo(ctx.user.id);
@@ -620,39 +652,42 @@ const shoppingRouter = router({
         autoNameId = l10n.nameId;
       }
       
-      try {
-        await addShoppingItem({
+      const link = await resolveShoppingAddLink(
+        {
           familyId: ctx.activeFamilyId!,
-          name: sanitizedName,
-          nameEn: (input.nameEn || autoNameEn)?.slice(0, 128),
-          nameFil: (input.nameFil || autoNameFil)?.slice(0, 128),
-          nameId: (input.nameId || autoNameId)?.slice(0, 128),
-          category: input.category?.slice(0, 64),
-          quantity: input.quantity?.slice(0, 64),
-          unit: input.unit?.slice(0, 32),
-          estimatedPrice: input.estimatedPrice,
-          status,
-          proposedByUserId: ctx.user.id,
-          proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
-          fromRecipeId: input.fromRecipeId?.slice(0, 64),
-          fromRecipeName: input.fromRecipeName?.slice(0, 128),
-          fromMealPlanId: input.fromMealPlanId,
-          plannedDate: input.plannedDate,
-          commonIngredientId: input.commonIngredientId ?? null,
-        });
+          fromMealPlanId: input.fromMealPlanId ?? null,
+          fromRecipeId: input.fromRecipeId ?? null,
+        },
+        shoppingIdentityDeps(),
+      );
+
+      const payload = {
+        familyId: ctx.activeFamilyId!,
+        name: sanitizedName,
+        nameEn: (input.nameEn || autoNameEn)?.slice(0, 128),
+        nameFil: (input.nameFil || autoNameFil)?.slice(0, 128),
+        nameId: (input.nameId || autoNameId)?.slice(0, 128),
+        category: input.category?.slice(0, 64),
+        quantity: input.quantity?.slice(0, 64),
+        unit: input.unit?.slice(0, 32),
+        estimatedPrice: input.estimatedPrice,
+        status,
+        proposedByUserId: ctx.user.id,
+        proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
+        fromRecipeId: link.fromRecipeId ?? undefined,
+        fromRecipeName: input.fromRecipeName?.slice(0, 128),
+        fromMealPlanId: link.fromMealPlanId ?? undefined,
+        plannedDate: input.plannedDate,
+        commonIngredientId: input.commonIngredientId ?? null,
+      };
+
+      // First attempt uses the full payload; the single retry keeps the links
+      // too, and exhaustion is a hard error (never a silent orphan).
+      try {
+        await persistShoppingItemWithRetry(payload, addShoppingItem);
       } catch (err) {
         console.error("[shopping.add] Failed:", err);
-        // If insert fails, try once more with minimal data
-        try {
-          await addShoppingItem({
-            familyId: ctx.activeFamilyId!,
-            name: sanitizedName || "Unnamed item",
-            status,
-          });
-        } catch (retryErr) {
-          console.error("[shopping.add] Retry also failed:", retryErr);
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to add item. Please try again." });
-        }
+        throw err;
       }
       broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
       return { success: true };
@@ -672,6 +707,7 @@ const shoppingRouter = router({
         fromRecipeId: z.string().max(64).optional(),
         fromRecipeName: z.string().max(128).optional(),
         fromMealPlanId: z.number().int().optional(),
+        plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })),
       fromRecipeId: z.string().max(64).optional(),
       fromRecipeName: z.string().max(128).optional(),
@@ -688,57 +724,55 @@ const shoppingRouter = router({
       const existingItems = await getShoppingItems(ctx.activeFamilyId);
       const activeItems = existingItems.filter(i => i.status !== "bought");
 
-      function mergeQty(existing: string | null | undefined, adding: string | undefined): string {
-        const a = parseFloat(existing ?? "");
-        const b = parseFloat(adding ?? "");
-        if (!isNaN(a) && !isNaN(b)) {
-          const sum = parseFloat((a + b).toFixed(2));
-          return String(sum);
-        }
-        return existing || adding || "";
-      }
+      const planned = await planShoppingBatch(
+        {
+          familyId: ctx.activeFamilyId,
+          items: input.items.map((item) => ({
+            name: item.name,
+            unit: item.unit ?? null,
+            quantity: item.quantity ?? null,
+            plannedDate: item.plannedDate ?? null,
+            fromRecipeId: item.fromRecipeId ?? null,
+            fromMealPlanId: item.fromMealPlanId ?? null,
+          })),
+          fallbackPlannedDate: input.plannedDate ?? null,
+          fallbackFromRecipeId: input.fromRecipeId ?? null,
+          fallbackFromMealPlanId: input.fromMealPlanId ?? null,
+          existing: activeItems,
+        },
+        shoppingIdentityDeps(),
+      );
 
-      const toInsert: typeof input.items = [];
-      const toUpdate: { id: number; quantity: string }[] = [];
-
-      for (const item of input.items) {
-        const match = activeItems.find(
-          i => i.name.trim() === item.name.trim() &&
-               (i.unit ?? "").trim() === (item.unit ?? "").trim() &&
-               (i.plannedDate ?? "") === (input.plannedDate ?? "")
-        );
-        if (match) {
-          // Handle null quantity: treat null as undefined (no quantity specified)
-          const itemQty = item.quantity ?? undefined;
-          toUpdate.push({ id: match.id, quantity: mergeQty(match.quantity, itemQty) });
-        } else {
-          toInsert.push(item);
-        }
-      }
-
-      for (const u of toUpdate) {
+      for (const u of planned.updates) {
         await updateShoppingItemDetails(u.id, ctx.activeFamilyId, { quantity: u.quantity });
+        await updateShoppingItemIdentity(u.id, ctx.activeFamilyId, {
+          fromRecipeId: u.fromRecipeId,
+          fromMealPlanId: u.fromMealPlanId,
+        });
       }
 
-      if (toInsert.length > 0) {
-        const rows = toInsert.map((item) => ({
-          familyId: ctx.activeFamilyId!,
-          name: item.name.trim().slice(0, 128),
-          nameEn: item.nameEn?.slice(0, 128),
-          nameFil: item.nameFil?.slice(0, 128),
-          nameId: item.nameId?.slice(0, 128),
-          category: item.category?.slice(0, 64),
-          quantity: item.quantity?.slice(0, 64),
-          unit: item.unit?.slice(0, 32),
-          status: status as "pending" | "active",
-          proposedByUserId: ctx.user.id,
-          proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
-          fromRecipeId: item.fromRecipeId ?? input.fromRecipeId?.slice(0, 64),
-          fromRecipeName: item.fromRecipeName ?? input.fromRecipeName?.slice(0, 128),
-          fromMealPlanId: item.fromMealPlanId ?? input.fromMealPlanId,
-          plannedDate: input.plannedDate,
-          commonIngredientId: item.commonIngredientId ?? null,
-        })).filter(row => {
+      if (planned.inserts.length > 0) {
+        const rows = planned.inserts.map((insert) => {
+          const item = input.items[insert.index];
+          return {
+            familyId: ctx.activeFamilyId!,
+            name: insert.name.slice(0, 128),
+            nameEn: item.nameEn?.slice(0, 128),
+            nameFil: item.nameFil?.slice(0, 128),
+            nameId: item.nameId?.slice(0, 128),
+            category: item.category?.slice(0, 64),
+            quantity: insert.quantity?.slice(0, 64),
+            unit: insert.unit?.slice(0, 32),
+            status: status as "pending" | "active",
+            proposedByUserId: ctx.user.id,
+            proposedByName: ctx.user.name || (ctx.activeFamilyRole === "helper" ? "Helper" : "Member"),
+            fromRecipeId: insert.fromRecipeId ?? undefined,
+            fromRecipeName: item.fromRecipeName ?? input.fromRecipeName?.slice(0, 128),
+            fromMealPlanId: insert.fromMealPlanId ?? undefined,
+            plannedDate: insert.plannedDate ?? undefined,
+            commonIngredientId: item.commonIngredientId ?? null,
+          };
+        }).filter(row => {
           // Filter out rows with null quantity (should not happen due to schema, but safety check)
           return row.quantity !== null;
         });
@@ -758,7 +792,12 @@ const shoppingRouter = router({
       }
 
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "shopping", ctx.user.id);
-      return { success: true, count: toInsert.length + toUpdate.length, merged: toUpdate.length };
+      return {
+        success: true,
+        count: planned.inserts.length + planned.updates.length,
+        merged: planned.updates.length,
+        items: planned.reports,
+      };
     }),
 
   toggleBought: protectedProcedure
@@ -1057,6 +1096,9 @@ const mealPlanRouter = router({
       
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const refValidation = resolveMealPlanRefOrThrow(input.recipeId);
+      const recipeId = mealPlanRefWriteValue(refValidation);
       
       // Check if today has eat-out set for dinner
       let hasConflict = false;
@@ -1086,7 +1128,7 @@ const mealPlanRouter = router({
           and(
             eq(mealPlans.familyId, ctx.activeFamilyId),
             eq(mealPlans.date, input.date),
-            eq(mealPlans.recipeId, input.recipeId)
+            eq(mealPlans.recipeId, recipeId)
           )
         );
       
@@ -1124,7 +1166,7 @@ const mealPlanRouter = router({
         familyId: ctx.activeFamilyId!,
         date: input.date,
         mealType: input.mealType,
-        recipeId: input.recipeId,
+        recipeId: recipeId,
         recipeName: input.recipeName,
         recipeNameEn: input.recipeNameEn,
         recipeNameFil: input.recipeNameFil,
@@ -1148,7 +1190,7 @@ const mealPlanRouter = router({
           status: ingredientStatus,
           proposedByUserId: ctx.user.id,
           proposedByName: ctx.user.name || (needsApproval ? "Member" : "Owner"),
-          fromRecipeId: input.recipeId,
+          fromRecipeId: recipeId,
           fromRecipeName: input.recipeName,
           fromMealPlanId: newPlanId,
           plannedDate: shoppingDate,
@@ -1166,6 +1208,7 @@ const mealPlanRouter = router({
         }
         await addShoppingItems(rows);
       }
+      if (newPlanId) shoppingNormalizer.invalidate(ctx.activeFamilyId, newPlanId);
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       const famLang = await getFamilyLanguage(ctx.activeFamilyId);
       const mealLabel = msg(famLang, `push.mealType.${input.mealType}`);
@@ -1190,7 +1233,7 @@ const mealPlanRouter = router({
         }).catch(() => {});
       }
       // Increment recipe popularity (+5 for meal plan addition - high intent action)
-      incrementRecipePopularity(input.recipeId, 5).catch(() => {});
+      incrementRecipePopularity(recipeId, 5).catch(() => {});
       return { 
         success: true, 
         status, 
@@ -1233,6 +1276,17 @@ const mealPlanRouter = router({
 
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // Every ref is validated before the transaction starts; one bad item
+      // rejects the whole batch (atomic). Invalid/raw refs are never persisted.
+      const refBatch = validateMealPlanRefBatch(input.items.map((item) => item.recipeId));
+      if (!refBatch.ok) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `invalid_recipe_ref: ${JSON.stringify(refBatch.errors)}`,
+        });
+      }
+      const resolvedRecipeIds = refBatch.writes;
 
       const targetMealTypes = [...new Set(input.items.map((item) => item.mealType))];
 
@@ -1295,7 +1349,9 @@ const mealPlanRouter = router({
         let skippedDueToDuplicate = false;
         let skippedDueToEatOut = false;
 
-        for (const item of input.items) {
+        for (let itemIndex = 0; itemIndex < input.items.length; itemIndex++) {
+          const item = input.items[itemIndex];
+          const itemRecipeId = resolvedRecipeIds[itemIndex] ?? resolveMealPlanRefOrThrow(item.recipeId).value;
           // Check for eat-out conflict (dinner only) — unless user forced (確定必加)
           let hasConflict = false;
           if (item.mealType === "dinner" && !input.force) {
@@ -1319,7 +1375,7 @@ const mealPlanRouter = router({
               .where(and(
                 eq(mealPlans.familyId, ctx.activeFamilyId!),
                 eq(mealPlans.date, item.date),
-                eq(mealPlans.recipeId, item.recipeId),
+                eq(mealPlans.recipeId, itemRecipeId),
               ))
               .limit(1);
             if (dupPlans.length > 0) {
@@ -1338,7 +1394,7 @@ const mealPlanRouter = router({
             familyId: ctx.activeFamilyId!,
             date: item.date,
             mealType: item.mealType,
-            recipeId: item.recipeId,
+            recipeId: itemRecipeId,
             recipeName: item.recipeName,
             recipeNameEn: item.recipeNameEn,
             recipeNameFil: item.recipeNameFil,
@@ -1352,7 +1408,7 @@ const mealPlanRouter = router({
           successfulItems.push({
             date: item.date,
             mealType: item.mealType,
-            recipeId: item.recipeId,
+            recipeId: itemRecipeId,
             recipeName: item.recipeName,
             newPlanId: inserted[0]?.id,
           });
@@ -1362,6 +1418,10 @@ const mealPlanRouter = router({
       });
 
       const { successfulItems, skippedDays, skippedCount, skippedDueToDuplicate, skippedDueToEatOut } = txResult;
+
+      for (const item of successfulItems) {
+        if (item.newPlanId) shoppingNormalizer.invalidate(ctx.activeFamilyId, item.newPlanId);
+      }
 
       // Broadcast + push notification
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
@@ -1483,28 +1543,36 @@ const mealPlanRouter = router({
         warning = `${input.newDate} 已有同一食譜（${mealLabels}），已成功移動`;
       }
       
-      await db.update(mealPlans)
-        .set({ date: input.newDate })
-        .where(and(eq(mealPlans.id, input.id), eq(mealPlans.familyId, ctx.activeFamilyId)));
-      
-      if (input.moveShoppingItems) {
-        const targetShoppingDate = input.shoppingDate || input.newDate;
-        if (targetShoppingDate > input.newDate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "購物日期不能遲過排餐日" });
-        }
-        await db.update(shoppingItems)
-          .set({ plannedDate: targetShoppingDate })
-          .where(and(
-            eq(shoppingItems.familyId, ctx.activeFamilyId),
-            or(
-              eq(shoppingItems.fromMealPlanId, input.id),
-              and(
-                eq(shoppingItems.fromRecipeName, plan.recipeName),
-                eq(shoppingItems.plannedDate, plan.date),
-              ),
-            ),
-          ));
-      }
+      const familyId = ctx.activeFamilyId;
+      await db.transaction(async (tx) => {
+        await applyMealPlanDateUpdate(
+          {
+            updatePlanDate: async (scopedFamilyId, planId, newDate) => {
+              await tx.update(mealPlans)
+                .set({ date: newDate })
+                .where(and(eq(mealPlans.id, planId), eq(mealPlans.familyId, scopedFamilyId)));
+            },
+            updateShoppingDateByPlanId: async (scopedFamilyId, planId, plannedDate) => {
+              // Keyed ONLY by from_meal_plan_id: name + old-date matching could
+              // move another plan's rows or a legacy orphan.
+              await tx.update(shoppingItems)
+                .set({ plannedDate })
+                .where(and(
+                  eq(shoppingItems.familyId, scopedFamilyId),
+                  eq(shoppingItems.fromMealPlanId, planId),
+                ));
+            },
+          },
+          {
+            familyId,
+            planId: input.id,
+            newDate: input.newDate,
+            moveShoppingItems: input.moveShoppingItems,
+            shoppingDate: input.shoppingDate ?? null,
+          },
+        );
+      });
+      shoppingNormalizer.invalidate(familyId, input.id);
       
       if (ctx.activeFamilyId) broadcastToFamily(ctx.activeFamilyId, "mealPlan", ctx.user.id);
       return { success: true, warning };
@@ -1525,6 +1593,7 @@ const mealPlanRouter = router({
       }
       
       await deleteMealPlan(input.id, ctx.activeFamilyId);
+      shoppingNormalizer.invalidate(ctx.activeFamilyId, input.id);
       
       if (!input.keepRelatedItems) {
         await deleteShoppingItemsByMealPlan(ctx.activeFamilyId, plan.id);
@@ -1881,6 +1950,16 @@ const opsRouter = router({
     .query(async ({ input }) => {
       return listAdminAuditLogs(input?.limit ?? 100);
     }),
+});
+
+const internalRouter = router({
+  metrics: router({
+    identity: adminProcedure
+      .input(z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional())
+      .query(async ({ input }) => {
+        return loadIdentityMetrics(input?.day ?? hkToday());
+      }),
+  }),
 });
 
 // A session token must carry a non-empty name: verifySession() rejects "" and every
@@ -2387,6 +2466,7 @@ export const appRouter = router({
   billing: billingRouter,
   aiChat: aiChatRouter,
   ops: opsRouter,
+  internal: internalRouter,
 });
 
 export type AppRouter = typeof appRouter;
