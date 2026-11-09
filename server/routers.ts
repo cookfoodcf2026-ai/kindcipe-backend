@@ -95,6 +95,7 @@ import {
   addRecipeNote,
   deleteRecipeNote,
   getUserByEmail,
+  getUserById,
   getUserByOpenId,
   upsertUser,
   createEmailUser,
@@ -124,7 +125,7 @@ import {
   getFamilyLanguage,
   setUserLanguage,
 } from "./db";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./_core/email";
+import { sendFamilyJoinEmail, sendPasswordResetEmail, sendVerificationEmail } from "./_core/email";
 import { msg } from "./_core/msg";
 import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMembers, families, type InsertShoppingItem } from "../drizzle/schema";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
@@ -281,13 +282,45 @@ const familyRouter = router({
         });
       }
       
-      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member") });
+      const memberName = input.nickname || ctx.user.name || (input.familyRole === "helper" ? "Helper" : "Member");
+      await addFamilyMember({ familyId: family.id, userId: String(ctx.user.id), familyRole: input.familyRole, nickname: memberName });
       if (sub?.status === "trial" || sub?.status === "active") {
         await markTrialUsedForUser(String(ctx.user.id));
       }
       
       // Success — reset rate limit counter
       joinAttempts.delete(attemptKey);
+
+      // Notify the owner (best-effort). Never blocks a successful join.
+      if (String(ctx.user.id) !== String(family.ownerId)) {
+        try {
+          broadcastToFamily(family.id, "memberJoined", {
+            userId: String(ctx.user.id),
+            name: memberName,
+            familyRole: input.familyRole,
+          });
+          const [ownerTokens, lang, owner] = await Promise.all([
+            getPushTokensByUser(String(family.ownerId)),
+            getFamilyLanguage(family.id),
+            getUserById(family.ownerId),
+          ]);
+          sendPushNotifications(ownerTokens, {
+            title: msg(lang, "push.memberJoined.title", { kitchen: family.name }),
+            body: msg(lang, "push.memberJoined.body", { name: memberName }),
+            data: { type: "family_member_joined", familyId: family.id },
+          }).catch(() => {});
+          if (owner?.email) {
+            sendFamilyJoinEmail({
+              email: owner.email,
+              language: owner.language,
+              memberName,
+              kitchenName: family.name,
+            }).catch(() => {});
+          }
+        } catch {
+          // Swallow: join already succeeded.
+        }
+      }
       
       return { success: true, family };
     }),

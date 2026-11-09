@@ -101,6 +101,54 @@ export async function sendVerificationEmail(params: { email: string; name?: stri
   }
 }
 
+const APP_URL = "https://app.kindcipe.com";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Notify a family owner that someone joined their kitchen.
+ * Language follows the owner's stored preference, falling back to zh-TW.
+ */
+export async function sendFamilyJoinEmail(params: {
+  email: string;
+  language?: string | null;
+  memberName: string;
+  kitchenName: string;
+}) {
+  const lang = normalizeLang(params.language);
+  const subject = msg(lang, "email.join.subject", { name: params.memberName, kitchen: params.kitchenName });
+  const cta = msg(lang, "email.join.cta");
+  const text = [
+    msg(lang, "email.join.intro", { name: params.memberName }),
+    "",
+    `${cta}: ${APP_URL}`,
+    "",
+    msg(lang, "email.join.footer"),
+  ].join("\n");
+
+  const html = `
+  <div style="font-family:-apple-system,Segoe UI,PingFang HK,Microsoft JhengHei,sans-serif;background:#FAF8F5;padding:32px">
+    <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:28px">
+      <h1 style="margin:0 0 8px;color:#013E77;font-size:22px">Kindcipe</h1>
+      <p style="margin:0 0 20px;color:#1F2937;font-size:15px">${escapeHtml(msg(lang, "email.join.intro", { name: params.memberName }))}</p>
+      <p style="margin:0 0 24px">
+        <a href="${APP_URL}" style="display:inline-block;background:#013E77;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-size:15px;font-weight:600">${escapeHtml(cta)}</a>
+      </p>
+      <p style="margin:0;color:#9CA3AF;font-size:12px">${escapeHtml(msg(lang, "email.join.footer"))}</p>
+    </div>
+    <p style="text-align:center;color:#9CA3AF;font-size:12px;margin-top:20px">© Kindcipe · https://kindcipe.com</p>
+  </div>`;
+
+  await sendTransactionalEmail({ email: params.email, subject, text, html });
+}
+
 export async function sendTransactionalEmail(params: {
   email: string;
   subject: string;

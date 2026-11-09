@@ -30,12 +30,20 @@ const M: Record<string, Record<Lang, string>> = {
   "email.verify.heading": { "zh-TW": "驗證你的電郵", en: "Verify your email", fil: "I-verify ang iyong email", id: "Verifikasi email Anda" },
   "email.verify.codeLabel": { "zh-TW": "你的驗證碼", en: "Your code", fil: "Ang code mo", id: "Kode Anda" },
   "email.verify.validShort": { "zh-TW": "10 分鐘內有效", en: "Valid for 10 minutes", fil: "Valid sa loob ng 10 minuto", id: "Berlaku 10 menit" },
+  "email.join.subject": { "zh-TW": "{{name}} 加入咗你嘅廚房「{{kitchen}}」", en: "{{name}} joined your kitchen \"{{kitchen}}\"", fil: "Sumali si {{name}} sa iyong kusina na \"{{kitchen}}\"", id: "{{name}} bergabung ke dapur Anda \"{{kitchen}}\"" },
+  "email.join.intro": { "zh-TW": "{{name}} 用邀請碼加入咗你嘅廚房。", en: "{{name}} joined your kitchen with your invite code.", fil: "Sumali si {{name}} sa iyong kusina gamit ang iyong invite code.", id: "{{name}} bergabung ke dapur Anda menggunakan kode undangan Anda." },
+  "email.join.cta": { "zh-TW": "打開 Kindcipe 睇下", en: "Open Kindcipe to take a look", fil: "Buksan ang Kindcipe para tingnan", id: "Buka Kindcipe untuk melihat" },
+  "email.join.footer": { "zh-TW": "你收到呢封係因為有人加入你嘅廚房。", en: "You received this because someone joined your kitchen.", fil: "Natanggap mo ito dahil may sumali sa iyong kusina.", id: "Anda menerima ini karena seseorang bergabung ke dapur Anda." },
 
   // ── Push: shopping approval ──
   "push.shoppingApproved.title": { "zh-TW": "✅ 採購已批准", en: "✅ Purchase approved", fil: "✅ Naaprubahan ang pagbili", id: "✅ Pembelian disetujui" },
   "push.shoppingApproved.body": { "zh-TW": "已批准採購：{{name}}", en: "Purchase approved: {{name}}", fil: "Naaprubahan: {{name}}", id: "Disetujui: {{name}}" },
   "push.shoppingRejected.title": { "zh-TW": "❌ 採購未批准", en: "❌ Purchase not approved", fil: "❌ Hindi naaprubahan ang pagbili", id: "❌ Pembelian tidak disetujui" },
   "push.shoppingRejected.body": { "zh-TW": "未批准採購：{{name}}", en: "Purchase not approved: {{name}}", fil: "Hindi naaprubahan: {{name}}", id: "Tidak disetujui: {{name}}" },
+
+  // ── Push: family member joined ──
+  "push.memberJoined.title": { "zh-TW": "🎉 新成員加入 {{kitchen}}", en: "New member joined {{kitchen}}", fil: "🎉 Bagong miyembro sa {{kitchen}}", id: "🎉 Anggota baru bergabung ke {{kitchen}}" },
+  "push.memberJoined.body": { "zh-TW": "{{name}} 加入咗你廚房", en: "{{name}} joined your kitchen", fil: "Sumali si {{name}} sa iyong kusina", id: "{{name}} bergabung ke dapur Anda" },
 
   // ── Push: meal plan ──
   "push.mealProposed.title": { "zh-TW": "🍽️ {{actor}} 提議排餐", en: "🍽️ {{actor}} proposed a meal", fil: "🍽️ Nag-propose ng pagkain si {{actor}}", id: "🍽️ {{actor}} mengusulkan makan" },
