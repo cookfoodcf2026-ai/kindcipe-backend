@@ -15,6 +15,7 @@ import { eatOutRouter } from "./routers/eatOut";
 import { subscriptionRouter } from "./routers/subscription";
 import { billingRouter } from "./routers/billing";
 import { getPromoState } from "./services/promo";
+import { requestAccountDeletion } from "./services/accountDeletionRuntime";
 import { getUsageSummary } from "./services/usage";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { aiChatRouter } from "./routers/aiChat";
@@ -115,7 +116,6 @@ import {
   getRemovedFamilyMember,
   addRemovedFamilyMember,
   addRedirectLog,
-  deleteUserAccount,
   getCommonIngredientById,
   resolveCommonIngredientByName,
   resolveIngredientL10n,
@@ -2363,8 +2363,8 @@ export const appRouter = router({
       if (!user) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "請先登入" });
       }
-      // 刪除帳戶：處理所屬家庭（擁有人轉移／刪家庭）＋刪除用戶資料
-      await deleteUserAccount(user.id);
+      // 先取消可取消嘅 Stripe 訂閱；失敗就中止（DB 用戶資料唔會改），再一個 transaction 清資料。
+      await requestAccountDeletion(String(user.id));
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;

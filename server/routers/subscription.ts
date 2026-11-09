@@ -8,15 +8,43 @@ import { isSignedTransaction, verifySignedTransaction } from "../_core/appleIap"
 import {
   activateFamilySubscription,
   getFamilySubscription,
+  getIapTransactionByAppAccountToken,
+  getIapTransactionByOriginalAndProduct,
   getIapTransactionByTransactionId,
+  hasActiveStripeSubscription,
   insertIapTransaction,
+  updateIapTransaction,
 } from "../db";
 import { getPromoState, redeemFoundingCode, redeemTrialCode } from "../services/promo";
+import {
+  IapError,
+  type IapStore,
+  resolveIapProduct,
+  verifyIapPurchase,
+} from "../services/iapSubscription";
 
-const VALID_PRODUCTS: Record<string, { plan: "monthly" | "yearly"; days: number }> = {
-  kindcipe_monthly_30: { plan: "monthly", days: 30 },
-  kindcipe_yearly_288: { plan: "yearly", days: 365 },
+// Single source of truth lives in iapSubscription.ts; re-exported here so the
+// router module still exposes the product table it owns.
+export { LEGACY_PRODUCT_ALIASES, VALID_PRODUCTS } from "../services/iapSubscription";
+
+const iapStore: IapStore = {
+  hasActiveStripeSubscription,
+  getByTransactionId: getIapTransactionByTransactionId,
+  getByOriginalAndProduct: getIapTransactionByOriginalAndProduct,
+  getByAppAccountToken: getIapTransactionByAppAccountToken,
+  insert: insertIapTransaction,
+  update: updateIapTransaction,
+  activateFamily: activateFamilySubscription,
 };
+
+function trpcErrorFor(err: IapError): TRPCError {
+  switch (err.code) {
+    case "ALREADY_SUBSCRIBED":
+      return new TRPCError({ code: "CONFLICT", message: err.message });
+    default:
+      return new TRPCError({ code: "BAD_REQUEST", message: err.message });
+  }
+}
 
 export const subscriptionRouter = router({
   /** Get current kitchen's subscription (mirrors family.subscription) */
@@ -39,21 +67,26 @@ export const subscriptionRouter = router({
       productId: z.string().min(1),
       transactionDate: z.string().optional(),
       purchaseToken: z.string().nullable().optional(),
+      appAccountToken: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
       }
-      const product = VALID_PRODUCTS[input.productId];
+      const product = resolveIapProduct(input.productId);
       if (!product) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "未知產品 ID" });
       }
 
       // ── Real verification (Phase 0) ────────────────────────────────────────
       // iOS clients send the App Store signed transaction (JWS). Verify the
-      // signature + cert chain, then derive the real transactionId/productId.
+      // signature + cert chain, then derive the real transaction fields.
       let verifiedTxnId: string | null = null;
+      let verifiedOriginalTxnId: string | null = null;
       let verifiedExpiresAt: number | null = null;
+      let verifiedRevocationDate: number | null = null;
+      let verifiedEnvironment: string | null = null;
+      let verifiedAppAccountToken: string | null = null;
       if (isSignedTransaction(input.receipt)) {
         let payload;
         try {
@@ -62,15 +95,20 @@ export const subscriptionRouter = router({
           console.error("[verifyIap] signed transaction rejected:", (e as Error).message);
           throw new TRPCError({ code: "BAD_REQUEST", message: "購買憑證驗證失敗" });
         }
-        if (payload.productId !== input.productId) {
+        const payloadProduct = resolveIapProduct(payload.productId);
+        if (!payloadProduct || payloadProduct.productId !== product.productId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "產品 ID 不符" });
         }
         const expectedBundle = process.env.APPLE_BUNDLE_ID;
         if (expectedBundle && payload.bundleId !== expectedBundle) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Bundle ID 不符" });
         }
-        verifiedTxnId = payload.originalTransactionId;
+        verifiedTxnId = payload.transactionId;
+        verifiedOriginalTxnId = payload.originalTransactionId ?? payload.transactionId;
         verifiedExpiresAt = payload.expiresDate ?? null;
+        verifiedRevocationDate = payload.revocationDate ?? null;
+        verifiedEnvironment = payload.environment ?? null;
+        verifiedAppAccountToken = payload.appAccountToken ?? null;
       } else if (process.env.NODE_ENV === "production") {
         // In production we refuse unverifiable receipts.
         throw new TRPCError({ code: "BAD_REQUEST", message: "需要有效的 App Store 交易憑證" });
@@ -79,32 +117,32 @@ export const subscriptionRouter = router({
       const txnDate = input.transactionDate ? new Date(input.transactionDate) : new Date();
       const transactionId = verifiedTxnId
         ? `apple_${verifiedTxnId}`
-        : `${ctx.user.id}_${input.productId}_${Math.floor(txnDate.getTime() / 1000)}`;
+        : `${ctx.user.id}_${product.productId}_${Math.floor(txnDate.getTime() / 1000)}`;
+      const originalTransactionId = verifiedOriginalTxnId ?? transactionId;
 
-      // Idempotency: already processed → return current status without re-extending
-      const existing = await getIapTransactionByTransactionId(transactionId);
-      if (existing) {
-        const sub = await getFamilySubscription(ctx.activeFamilyId);
-        return { status: "active", plan: existing.planType, expiresAt: sub?.subscriptionExpiresAt ? sub.subscriptionExpiresAt.toISOString() : null, duplicate: true };
+      try {
+        return await verifyIapPurchase(iapStore, {
+          familyId: ctx.activeFamilyId,
+          userId: String(ctx.user.id),
+          appAccountToken: input.appAccountToken ?? null,
+          verified: {
+            transactionId: verifiedTxnId ?? transactionId,
+            originalTransactionId,
+            productId: product.productId,
+            expiresAt: verifiedExpiresAt != null ? new Date(verifiedExpiresAt) : null,
+            revocationDate:
+              verifiedRevocationDate != null ? new Date(verifiedRevocationDate) : null,
+            environment: verifiedEnvironment,
+            appAccountToken: verifiedAppAccountToken,
+            transactionDate: txnDate,
+            receipt: input.receipt,
+            purchaseToken: input.purchaseToken ?? null,
+          },
+        });
+      } catch (e) {
+        if (e instanceof IapError) throw trpcErrorFor(e);
+        throw e;
       }
-
-      const now = new Date();
-      const expiresAt = verifiedExpiresAt
-        ? new Date(verifiedExpiresAt)
-        : new Date(now.getTime() + product.days * 24 * 60 * 60 * 1000);
-      await activateFamilySubscription(ctx.activeFamilyId, product.plan, expiresAt);
-      await insertIapTransaction({
-        familyId: ctx.activeFamilyId,
-        userId: String(ctx.user.id),
-        productId: input.productId,
-        planType: product.plan,
-        receipt: input.receipt,
-        purchaseToken: input.purchaseToken ?? null,
-        transactionId,
-        transactionDate: txnDate,
-      });
-
-      return { status: "active", plan: product.plan, expiresAt: expiresAt.toISOString(), duplicate: false };
     }),
 
   /**

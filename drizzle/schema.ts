@@ -560,14 +560,56 @@ export const iapTransactions = pgTable("iap_transactions", {
   receipt: text("receipt").notNull(),
   purchaseToken: text("purchase_token"),
   transactionId: varchar("transaction_id", { length: 256 }).notNull(),
+  /** Apple's stable subscription chain id; renewals share this value. */
+  originalTransactionId: varchar("original_transaction_id", { length: 256 }),
   transactionDate: timestamp("transaction_date").notNull(),
+  /** Apple-reported period end (ms epoch from the signed transaction). */
+  expiresAt: timestamp("expires_at"),
+  /** active | expired | billing_retry | refunded | revoked */
+  status: varchar("status", { length: 32 }).notNull().default("active"),
+  /** Production | Sandbox */
+  environment: varchar("environment", { length: 16 }),
+  revocationDate: timestamp("revocation_date"),
+  /** StoreKit appAccountToken used to bind the purchase to a family/user. */
+  appAccountToken: varchar("app_account_token", { length: 128 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
   txnUniq: uniqueIndex("iap_transactions_transaction_id_unique").on(t.transactionId),
+  originalProductUniq: uniqueIndex("iap_transactions_original_product_unique").on(
+    t.originalTransactionId,
+    t.productId
+  ),
+  appAccountTokenIdx: index("iap_transactions_app_account_token_idx").on(t.appAccountToken),
 }));
 
 export type IapTransaction = typeof iapTransactions.$inferSelect;
 export type InsertIapTransaction = typeof iapTransactions.$inferInsert;
+
+// ─── Apple App Store Server Notifications (V2) ───────────────────────────────
+// One row per notificationUUID so replayed notifications are a no-op. A
+// dedicated table (instead of a column on iap_transactions) keeps the full
+// event history: notifications can arrive before a purchase is verified, for
+// unknown event types, or for transactions that never reach our DB.
+export const appleNotifications = pgTable("apple_notifications", {
+  id: serial("id").primaryKey(),
+  notificationUuid: varchar("notification_uuid", { length: 128 }).notNull(),
+  notificationType: varchar("notification_type", { length: 64 }).notNull(),
+  subtype: varchar("subtype", { length: 64 }),
+  familyId: integer("family_id"),
+  originalTransactionId: varchar("original_transaction_id", { length: 256 }),
+  transactionId: varchar("transaction_id", { length: 256 }),
+  environment: varchar("environment", { length: 16 }),
+  /** Family subscription status derived from the event (active/expired). */
+  status: varchar("status", { length: 32 }),
+  signedDate: timestamp("signed_date"),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+}, (t) => ({
+  uuidUniq: uniqueIndex("apple_notifications_uuid_unique").on(t.notificationUuid),
+}));
+
+export type AppleNotification = typeof appleNotifications.$inferSelect;
+export type InsertAppleNotification = typeof appleNotifications.$inferInsert;
 
 // ─── Stripe Subscriptions (web billing) ───────────────────────────────────────
 // Web pays via Stripe; iOS keeps Apple IAP; Android stays free until Play
@@ -955,3 +997,42 @@ export const aiPhotoUsage = pgTable("ai_photo_usage", {
 
 export type AiPhotoUsage = typeof aiPhotoUsage.$inferSelect;
 export type InsertAiPhotoUsage = typeof aiPhotoUsage.$inferInsert;
+
+// ─── Account Deletion Requests ───────────────────────────────────────────────
+// One row per user. `pending` blocks a parallel deletion; `failed` is
+// retryable; `completed` makes repeat calls a no-op.
+export const deletionRequests = pgTable("deletion_requests", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  /** pending | completed | failed */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  /** stripe_cancel | purge | done */
+  step: varchar("step", { length: 32 }),
+  lastError: text("last_error"),
+  attempts: integer("attempts").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type DeletionRequest = typeof deletionRequests.$inferSelect;
+export type InsertDeletionRequest = typeof deletionRequests.$inferInsert;
+
+// ─── R2 Deletion Queue (chunk B deletes the objects) ─────────────────────────
+// `key` is either an exact object key or a trailing-slash prefix. Chunk A only
+// enqueues the family screenshot prefix; it never deletes R2 objects.
+export const r2DeletionQueue = pgTable("r2_deletion_queue", {
+  id: serial("id").primaryKey(),
+  familyId: integer("family_id"),
+  key: text("key").notNull().unique(),
+  /** pending | deleted | failed */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").default(0).notNull(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+});
+
+export type R2DeletionQueueRow = typeof r2DeletionQueue.$inferSelect;
+export type InsertR2DeletionQueueRow = typeof r2DeletionQueue.$inferInsert;

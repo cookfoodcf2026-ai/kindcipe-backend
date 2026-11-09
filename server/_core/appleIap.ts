@@ -43,6 +43,9 @@ export interface AppleTransactionPayload {
   bundleId: string;
   expiresDate?: number;
   purchaseDate?: number;
+  revocationDate?: number;
+  environment?: string;
+  appAccountToken?: string;
 }
 
 /** Decode the base64url payload of a JWS without verifying (for extraction). */
@@ -54,12 +57,16 @@ function decodePayload<T>(jws: string): T {
 }
 
 /**
- * Verify a JWS signed transaction.
- * Returns the decoded payload on success, throws on failure.
+ * Verify a JWS signed by Apple (App Store Server API transaction or App Store
+ * Server Notification V2). Verifies the ES256 signature and the x5c chain up
+ * to Apple's root CA, then returns the decoded payload.
+ *
+ * The payload shape is caller-defined — transaction and notification payloads
+ * differ, but the signature/chain checks are identical.
  */
-export function verifySignedTransaction(jws: string): AppleTransactionPayload {
+export function verifyJws<T>(jws: string): T {
   const parts = jws.split(".");
-  if (parts.length !== 3) throw new Error("Invalid signed transaction");
+  if (parts.length !== 3) throw new Error("Invalid signed payload");
 
   const header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as {
     alg?: string;
@@ -96,14 +103,24 @@ export function verifySignedTransaction(jws: string): AppleTransactionPayload {
   });
   if (!rootCa) throw new Error("Cert chain does not reach Apple root CA");
 
-  // 3. Extract the transaction payload.
-  const payload = decodePayload<{
+  return decodePayload<T>(jws);
+}
+
+/**
+ * Verify a JWS signed transaction.
+ * Returns the decoded payload on success, throws on failure.
+ */
+export function verifySignedTransaction(jws: string): AppleTransactionPayload {
+  const payload = verifyJws<{
     transactionId?: string;
     originalTransactionId?: string;
     productId?: string;
     bundleId?: string;
     expiresDate?: number;
     purchaseDate?: number;
+    revocationDate?: number;
+    environment?: string;
+    appAccountToken?: string;
   }>(jws);
 
   if (!payload.transactionId || !payload.productId || !payload.bundleId) {
@@ -117,6 +134,9 @@ export function verifySignedTransaction(jws: string): AppleTransactionPayload {
     bundleId: payload.bundleId,
     expiresDate: payload.expiresDate,
     purchaseDate: payload.purchaseDate,
+    revocationDate: payload.revocationDate,
+    environment: payload.environment,
+    appAccountToken: payload.appAccountToken,
   };
 }
 

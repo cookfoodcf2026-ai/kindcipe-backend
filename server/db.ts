@@ -24,6 +24,7 @@ import {
   users,
   weeklyMenu,
   iapTransactions,
+  appleNotifications,
   aiChatUsage,
   passwordResetTokens,
   emailVerificationCodes,
@@ -39,12 +40,36 @@ import {
   type InsertRedirectLog,
   type InsertShoppingItem,
   type InsertIapTransaction,
+  type InsertAppleNotification,
   type InsertPasswordResetToken,
   redirectLogs,
   recipeNotes,
   aiChefSeenRecipes,
   stripeSubscriptions,
+  aiChatSessions,
+  userRecipeCollections,
+  aiPhotoUsage,
+  aiChefMealState,
+  chefQueryLog,
+  usageEvents,
+  billingReminders,
+  familyUsageMonthly,
+  aiChefFamilySafety,
+  earlybirdRedemptions,
+  deletionRequests,
+  r2DeletionQueue,
 } from "../drizzle/schema";
+import type {
+  AccountDeletionStore,
+  ClaimDeletionRequestResult,
+  DeletionFamily,
+  DeletionRequestRow,
+  DeletionStep,
+} from "./services/accountDeletion";
+import {
+  DELETED_USER_TOMBSTONE,
+  REDACTED_IAP_RECEIPT,
+} from "./services/accountDeletion";
 import { ENV } from "./_core/env";
 import { isCanceledTrial } from "./services/billingRules";
 import {
@@ -414,8 +439,14 @@ export async function deleteFamily(familyId: number) {
   });
 }
 
-// 喺 transaction 內刪除一個家庭及其所有資料（供 deleteFamily / deleteUserAccount 共用）
-async function deleteFamilyData(tx: any, familyId: number) {
+// 喺 transaction 內刪除一個家庭及其所有資料（供 deleteFamily / account deletion 共用）
+// retainFinancials：帳戶刪除要保留會計紀錄；家庭 dissolve 維持原本行為。
+// extended：帳戶刪除要清埋之前漏咗嘅家庭層個人資料。
+async function deleteFamilyData(
+  tx: any,
+  familyId: number,
+  opts: { retainFinancials?: boolean; extended?: boolean } = {}
+) {
   await tx.delete(shoppingItems).where(eq(shoppingItems.familyId, familyId));
   await tx.delete(pantryItems).where(eq(pantryItems.familyId, familyId));
   await tx.delete(mealPlans).where(eq(mealPlans.familyId, familyId));
@@ -432,55 +463,286 @@ async function deleteFamilyData(tx: any, familyId: number) {
   // 孤兒表（之前漏咗 → dissolve 後仍殘留）
   await tx.delete(promoCodeRedemptions).where(eq(promoCodeRedemptions.familyId, familyId));
   await tx.delete(aiChefSeenRecipes).where(eq(aiChefSeenRecipes.familyId, familyId));
-  await tx.delete(stripeSubscriptions).where(eq(stripeSubscriptions.familyId, familyId));
-  await tx.delete(iapTransactions).where(eq(iapTransactions.familyId, familyId));
+  if (!opts.retainFinancials) {
+    await tx.delete(stripeSubscriptions).where(eq(stripeSubscriptions.familyId, familyId));
+    await tx.delete(iapTransactions).where(eq(iapTransactions.familyId, familyId));
+  }
+  if (opts.extended) {
+    await tx.delete(weeklyMenu).where(eq(weeklyMenu.familyId, familyId));
+    await tx.delete(billingReminders).where(eq(billingReminders.familyId, familyId));
+    await tx.delete(familyUsageMonthly).where(eq(familyUsageMonthly.familyId, familyId));
+    await tx.delete(usageEvents).where(eq(usageEvents.familyId, familyId));
+    await tx.delete(chefQueryLog).where(eq(chefQueryLog.familyId, familyId));
+    await tx.delete(aiChefFamilySafety).where(eq(aiChefFamilySafety.familyId, familyId));
+    await tx.delete(aiChefMealState).where(eq(aiChefMealState.familyId, familyId));
+  }
   await tx.delete(redirectLogs).where(eq(redirectLogs.familyId, familyId));
   await tx.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
   await tx.delete(families).where(eq(families.id, familyId));
 }
 
-// 刪除用戶帳戶：處理佢所屬家庭（擁有人轉移／無其他人就刪家庭）＋刪除用戶資料
-export async function deleteUserAccount(userId: string | number) {
+// ─── Account deletion store (used by server/services/accountDeletion.ts) ─────
+
+function toDeletionRequestRow(row: any): DeletionRequestRow {
+  return {
+    userId: String(row.userId),
+    status: row.status,
+    step: row.step ?? null,
+    lastError: row.lastError ?? null,
+    attempts: Number(row.attempts ?? 0),
+  };
+}
+
+async function claimDeletionRequest(userId: string): Promise<ClaimDeletionRequestResult> {
   const db = await getDb();
-  if (!db) return;
-  const userIdStr = String(userId);
-  await db.transaction(async (tx) => {
-    const memberships = await tx.select().from(familyMembers).where(eq(familyMembers.userId, userIdStr));
-    for (const m of memberships) {
-      const familyId = m.familyId;
-      const others = await tx.select().from(familyMembers)
-        .where(and(eq(familyMembers.familyId, familyId), ne(familyMembers.userId, userIdStr)));
-      if (m.familyRole === "owner") {
-        if (others.length === 0) {
-          // 唯一擁有人，冇其他成員 -> 成個家庭連資料一齊刪
-          await deleteFamilyData(tx, familyId);
-        } else {
-          // 有其他成員 -> 轉移擁有人俾下一個 owner/admin（冇就第一個成員），再移除離場用戶
-          const next = others.find(x => x.familyRole === "owner" || x.familyRole === "admin") ?? others[0];
-          await tx.update(familyMembers).set({ familyRole: "owner" }).where(eq(familyMembers.id, next.id));
-          await tx.delete(familyMembers).where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, userIdStr)));
-        }
-      } else {
-        // 成員（非擁有人）-> 只移除成員身份
-        await tx.delete(familyMembers).where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, userIdStr)));
-      }
+  if (!db) throw new Error("Database not available");
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(deletionRequests)
+      .where(eq(deletionRequests.userId, userId))
+      .for("update");
+    if (!existing) {
+      const [inserted] = await tx
+        .insert(deletionRequests)
+        .values({ userId, status: "pending", step: "stripe_cancel", attempts: 1 })
+        .returning();
+      return { kind: "claimed", request: toDeletionRequestRow(inserted) };
     }
-    // 刪除用戶個人資料（清埋 identities/email/chat/bookmarks/billing，否則「永久刪除」係假，
-    // 且殘留 user_identities 會令同一個 Google/Apple 帳號再登入時生成 ghost 用戶）
-    await tx.delete(userIdentities).where(eq(userIdentities.userId, userIdStr));
-    await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userIdStr));
-    await tx.delete(aiChatUsage).where(eq(aiChatUsage.userId, userIdStr));
-    await tx.delete(importUsage).where(eq(importUsage.userId, userIdStr));
-    await tx.delete(favoriteItems).where(eq(favoriteItems.userId, userIdStr));
-    await tx.delete(recipeNotes).where(eq(recipeNotes.userId, userIdStr));
-    await tx.delete(recipeEvents).where(eq(recipeEvents.userId, userIdStr));
-    await tx.delete(purchaseHistory).where(eq(purchaseHistory.userId, userIdStr));
-    await tx.delete(iapTransactions).where(eq(iapTransactions.userId, userIdStr));
-    await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userIdStr));
-    await tx.delete(pushTokens).where(eq(pushTokens.userId, userIdStr));
-    await tx.delete(users).where(eq((users.id as any), userIdStr));
+    if (existing.status === "completed") {
+      return { kind: "completed", request: toDeletionRequestRow(existing) };
+    }
+    if (existing.status === "pending") {
+      return { kind: "pending", request: toDeletionRequestRow(existing) };
+    }
+    // failed -> retry in place. The FOR UPDATE lock makes concurrent retries
+    // serialise: the second caller sees `pending` instead of double-running.
+    const [updated] = await tx
+      .update(deletionRequests)
+      .set({
+        status: "pending",
+        step: "stripe_cancel",
+        lastError: null,
+        attempts: existing.attempts + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(deletionRequests.userId, userId))
+      .returning();
+    return { kind: "claimed", request: toDeletionRequestRow(updated) };
   });
 }
+
+async function markDeletionFailed(userId: string, step: DeletionStep, lastError: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(deletionRequests)
+    .set({ status: "failed", step, lastError: lastError.slice(0, 2000), updatedAt: new Date() })
+    .where(eq(deletionRequests.userId, userId));
+}
+
+async function getDeletionContext(userId: string): Promise<{
+  families: DeletionFamily[];
+  subscriptions: Array<{
+    familyId: number;
+    userId: string;
+    stripeSubscriptionId: string;
+    status: string;
+  }>;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db
+    .select({
+      familyId: familyMembers.familyId,
+      role: familyMembers.familyRole,
+      ownerId: families.ownerId,
+    })
+    .from(familyMembers)
+    .innerJoin(families, eq(families.id, familyMembers.familyId))
+    .where(eq(familyMembers.userId, userId));
+
+  const familyIds = [...new Set(rows.map((row) => row.familyId))];
+  const memberRows = familyIds.length
+    ? await db
+        .select({ familyId: familyMembers.familyId, userId: familyMembers.userId })
+        .from(familyMembers)
+        .where(inArray(familyMembers.familyId, familyIds))
+    : [];
+  const subscriptions = familyIds.length
+    ? await db
+        .select({
+          familyId: stripeSubscriptions.familyId,
+          userId: stripeSubscriptions.userId,
+          stripeSubscriptionId: stripeSubscriptions.stripeSubscriptionId,
+          status: stripeSubscriptions.status,
+        })
+        .from(stripeSubscriptions)
+        .where(inArray(stripeSubscriptions.familyId, familyIds))
+    : [];
+
+  return {
+    families: rows.map((row) => ({
+      familyId: row.familyId,
+      role: row.role,
+      ownerId: row.ownerId,
+      otherMemberCount: memberRows.filter(
+        (member) => member.familyId === row.familyId && member.userId !== userId
+      ).length,
+    })),
+    subscriptions: subscriptions.flatMap((sub) =>
+      sub.stripeSubscriptionId
+        ? [{
+            familyId: sub.familyId,
+            userId: sub.userId,
+            stripeSubscriptionId: sub.stripeSubscriptionId,
+            status: sub.status,
+          }]
+        : []
+    ),
+  };
+}
+
+async function purgeUserAccount(params: { userId: string; families: DeletionFamily[] }): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const userId = params.userId;
+  await db.transaction(async (tx) => {
+    const now = new Date();
+    const dissolved = params.families
+      .filter((family) => family.role === "owner" && family.otherMemberCount === 0)
+      .map((family) => family.familyId);
+    const dissolvedSet = new Set(dissolved);
+    const shared = params.families.filter((family) => !dissolvedSet.has(family.familyId));
+    const sharedIds = shared.map((family) => family.familyId);
+
+    // 1. Financial rows: keep accounting fields, remove personal identifiers.
+    await tx
+      .update(stripeSubscriptions)
+      .set({ userId: DELETED_USER_TOMBSTONE, stripeCustomerId: null, updatedAt: now })
+      .where(eq(stripeSubscriptions.userId, userId));
+    await tx
+      .update(iapTransactions)
+      .set({
+        userId: DELETED_USER_TOMBSTONE,
+        receipt: REDACTED_IAP_RECEIPT,
+        purchaseToken: null,
+        appAccountToken: null,
+        updatedAt: now,
+      })
+      .where(eq(iapTransactions.userId, userId));
+    await tx
+      .update(earlybirdRedemptions)
+      .set({ userId: DELETED_USER_TOMBSTONE, updatedAt: now })
+      .where(eq(earlybirdRedemptions.userId, userId));
+    // apple_notifications has no user id; its transaction ids are the
+    // accounting record and are kept as-is.
+
+    // 2. User-owned personal rows.
+    await tx.delete(aiChatSessions).where(eq(aiChatSessions.userId, userId));
+    await tx.delete(userRecipeCollections).where(eq(userRecipeCollections.userId, userId));
+    await tx.delete(aiPhotoUsage).where(eq(aiPhotoUsage.userId, userId));
+    await tx.delete(aiChefMealState).where(eq(aiChefMealState.userId, userId));
+    await tx.delete(chefQueryLog).where(eq(chefQueryLog.userId, userId));
+    await tx.delete(usageEvents).where(eq(usageEvents.userId, userId));
+    await tx.delete(aiChatUsage).where(eq(aiChatUsage.userId, userId));
+    await tx.delete(importUsage).where(eq(importUsage.userId, userId));
+    await tx.delete(favoriteItems).where(eq(favoriteItems.userId, userId));
+    await tx.delete(recipeNotes).where(eq(recipeNotes.userId, userId));
+    await tx.delete(recipeEvents).where(eq(recipeEvents.userId, userId));
+    await tx.delete(purchaseHistory).where(eq(purchaseHistory.userId, userId));
+    await tx.delete(redirectLogs).where(eq(redirectLogs.userId, userId));
+    await tx.delete(pushTokens).where(eq(pushTokens.userId, userId));
+    await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+    await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
+    await tx.delete(userIdentities).where(eq(userIdentities.userId, userId));
+    await tx.delete(users).where(eq((users.id as any), userId));
+
+    // 3. Shared family content stays, but the leaving user's personal
+    //    identifiers must not remain attached to it.
+    if (sharedIds.length > 0) {
+      await tx
+        .update(weeklyMenu)
+        .set({ setByUserId: DELETED_USER_TOMBSTONE })
+        .where(and(inArray(weeklyMenu.familyId, sharedIds), eq(weeklyMenu.setByUserId, userId)));
+      await tx
+        .update(familyEatOut)
+        .set({ setByUserId: DELETED_USER_TOMBSTONE })
+        .where(and(inArray(familyEatOut.familyId, sharedIds), eq(familyEatOut.setByUserId, userId)));
+      await tx
+        .update(shoppingItems)
+        .set({ proposedByUserId: DELETED_USER_TOMBSTONE, proposedByName: null })
+        .where(and(inArray(shoppingItems.familyId, sharedIds), eq(shoppingItems.proposedByUserId, userId)));
+      await tx
+        .update(shoppingItems)
+        .set({ boughtByUserId: DELETED_USER_TOMBSTONE, boughtByName: null })
+        .where(and(inArray(shoppingItems.familyId, sharedIds), eq(shoppingItems.boughtByUserId, userId)));
+      await tx
+        .update(mealPlans)
+        .set({ proposedByUserId: DELETED_USER_TOMBSTONE, proposedByName: null })
+        .where(and(inArray(mealPlans.familyId, sharedIds), eq(mealPlans.proposedByUserId, userId)));
+      await tx
+        .update(mealPlans)
+        .set({ confirmedByUserId: DELETED_USER_TOMBSTONE })
+        .where(and(inArray(mealPlans.familyId, sharedIds), eq(mealPlans.confirmedByUserId, userId)));
+      await tx
+        .update(customRecipes)
+        .set({ createdByUserId: DELETED_USER_TOMBSTONE })
+        .where(and(inArray(customRecipes.familyId, sharedIds), eq(customRecipes.createdByUserId, userId)));
+      await tx
+        .update(customRecipes)
+        .set({ approvedByUserId: DELETED_USER_TOMBSTONE })
+        .where(and(inArray(customRecipes.familyId, sharedIds), eq(customRecipes.approvedByUserId, userId)));
+      await tx
+        .delete(removedFamilyMembers)
+        .where(and(inArray(removedFamilyMembers.familyId, sharedIds), eq(removedFamilyMembers.userId, userId)));
+    }
+
+    // 4. Families whose sole owner left: delete family content (financial rows
+    //    stay) and queue the only R2 prefix we can attribute today.
+    for (const familyId of dissolved) {
+      await deleteFamilyData(tx, familyId, { retainFinancials: true, extended: true });
+      await tx
+        .insert(r2DeletionQueue)
+        .values({
+          familyId,
+          key: `recipe-screenshots/f${familyId}/`,
+          status: "pending",
+        })
+        .onConflictDoNothing({ target: r2DeletionQueue.key });
+    }
+
+    // 5. Families with other members: transfer ownership, then drop membership.
+    for (const family of shared) {
+      if (family.role === "owner") {
+        const others = await tx
+          .select()
+          .from(familyMembers)
+          .where(and(eq(familyMembers.familyId, family.familyId), ne(familyMembers.userId, userId)));
+        const next = others.find((member) => member.familyRole === "owner" || member.familyRole === "admin") ?? others[0];
+        if (next) {
+          await tx.update(familyMembers).set({ familyRole: "owner" }).where(eq(familyMembers.id, next.id));
+          await tx.update(families).set({ ownerId: String(next.userId), updatedAt: now }).where(eq(families.id, family.familyId));
+        }
+      }
+      await tx.delete(familyMembers).where(
+        and(eq(familyMembers.familyId, family.familyId), eq(familyMembers.userId, userId))
+      );
+    }
+
+    await tx
+      .update(deletionRequests)
+      .set({ status: "completed", step: "done", lastError: null, completedAt: now, updatedAt: now })
+      .where(eq(deletionRequests.userId, userId));
+  });
+}
+
+export const accountDeletionStore: AccountDeletionStore = {
+  claimDeletionRequest,
+  markDeletionFailed,
+  getDeletionContext,
+  purgeAccount: purgeUserAccount,
+};
 
 // ─── Families ─────────────────────────────────────────────────────────────────
 export async function createFamily(data: InsertFamily) {
@@ -1754,6 +2016,93 @@ export async function insertIapTransaction(data: InsertIapTransaction) {
   const db = await getDb();
   if (!db) return;
   await db.insert(iapTransactions).values(data).onConflictDoNothing({ target: [iapTransactions.transactionId] });
+}
+
+/** Find the row for an Apple subscription chain + product (renewals share it). */
+export async function getIapTransactionByOriginalAndProduct(
+  originalTransactionId: string,
+  productId: string
+) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(iapTransactions)
+    .where(and(
+      eq(iapTransactions.originalTransactionId, originalTransactionId),
+      eq(iapTransactions.productId, productId)
+    ))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Latest row for an Apple subscription chain (any product). */
+export async function getIapTransactionByOriginalTransactionId(originalTransactionId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(iapTransactions)
+    .where(eq(iapTransactions.originalTransactionId, originalTransactionId))
+    .orderBy(desc(iapTransactions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Find the family/user a StoreKit appAccountToken is already bound to. */
+export async function getIapTransactionByAppAccountToken(appAccountToken: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(iapTransactions)
+    .where(eq(iapTransactions.appAccountToken, appAccountToken))
+    .orderBy(desc(iapTransactions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateIapTransaction(id: number, patch: Partial<InsertIapTransaction>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(iapTransactions)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(iapTransactions.id, id));
+}
+
+/** Is the family currently paying through Stripe (non-IAP)? */
+export async function hasActiveStripeSubscription(familyId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db.select({ id: stripeSubscriptions.id })
+    .from(stripeSubscriptions)
+    .where(and(
+      eq(stripeSubscriptions.familyId, familyId),
+      inArray(stripeSubscriptions.status, ["active", "trialing", "past_due"])
+    ))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Downgrade a family after an Apple expiry/refund/revoke. */
+export async function expireFamilySubscription(familyId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(families)
+    .set({ subscriptionStatus: "expired", maxMembers: 2 })
+    .where(eq(families.id, familyId));
+}
+
+// ─── Apple notification helpers ──────────────────────────────────────────────
+
+export async function getAppleNotificationByUuid(notificationUuid: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(appleNotifications)
+    .where(eq(appleNotifications.notificationUuid, notificationUuid))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function insertAppleNotification(data: InsertAppleNotification) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(appleNotifications).values(data)
+    .onConflictDoNothing({ target: [appleNotifications.notificationUuid] });
 }
 
 // ─── Import Usage helpers ─────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerSocialAuthRoutes } from "./auth";
 import { registerStripeWebhook } from "./_core/stripeWebhook";
+import { registerAppleNotifications } from "./_core/appleNotifications";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { initSentry, captureException, flushSentry } from "./_core/sentry";
@@ -43,6 +44,7 @@ async function startServer() {
   const isServerToServerCallback = (path: string): boolean =>
     /^\/api\/auth\/[^/]+\/callback\/?$/.test(path) ||
     path === "/api/stripe/webhook" ||
+    path === "/api/apple/notifications" ||
     path.startsWith("/api/webhooks/");
 
   const corsMiddleware = cors({
@@ -112,6 +114,9 @@ async function startServer() {
 
   // Social auth routes (Google, Apple)
   registerSocialAuthRoutes(app);
+
+  // Apple App Store Server Notifications V2 (signedPayload JWS in the JSON body)
+  registerAppleNotifications(app);
 
   // tRPC API — mounted on both the versioned path (/api/v1/trpc) and the
   // legacy path (/api/trpc) so already-shipped clients keep working.
