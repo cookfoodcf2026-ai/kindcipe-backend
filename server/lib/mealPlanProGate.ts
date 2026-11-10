@@ -1,12 +1,12 @@
 /**
- * KOL (creator) recipe gate for meal-plan writes.
+ * KOL (creator) recipes are FREE for every plan since 2026-11-10 (owner
+ * decision): free users can view, save, add to a meal plan and push their
+ * ingredients to the shopping list.
  *
- * Product rule: KOL recipes are viewable by free families, but adding one to a
- * meal plan is a Pro capability. A user's own recipes (sourceType
- * "user"/"imported"/"ai"/"manual") and official recipes are never gated.
+ * Rationale: three separate KOL gates (search / save / shopping) each shipped
+ * with its own bug; one "always allow" rule removes the whole failure class.
  *
- * Pure: callers supply the resolved ref, its custom_recipes sourceType and the
- * family's Pro status. No DB, no I/O.
+ * The helpers below are kept so call sites stay typed, but they never block.
  */
 import { TRPCError } from "@trpc/server";
 import { parseRecipeRef, type RecipeRef } from "./recipeRef";
@@ -25,13 +25,9 @@ export type PlanItemGateDecision =
   | { ok: true; skipped: false; reason: null }
   | { ok: false; skipped: true; reason: typeof PRO_REQUIRED_REASON };
 
-/** Only `user_<n>` rows whose sourceType is "kol" are gated, and only for free families. */
-export function evaluatePlanItemGate(input: PlanItemGateInput): PlanItemGateDecision {
-  const isKol = input.ref.type === "user" && input.sourceType === "kol";
-  if (!isKol || input.isPro) {
-    return { ok: true, skipped: false, reason: null };
-  }
-  return { ok: false, skipped: true, reason: PRO_REQUIRED_REASON };
+/** Always allows. Kept for call-site compatibility. */
+export function evaluatePlanItemGate(_input: PlanItemGateInput): PlanItemGateDecision {
+  return { ok: true, skipped: false, reason: null };
 }
 
 export interface ShoppingRecipeGateInput {
@@ -42,17 +38,12 @@ export interface ShoppingRecipeGateInput {
   isPro: boolean;
 }
 
-/**
- * Same KOL rule as meal plans, applied to shopping ingredients. Official refs,
- * plain text items (no ref) and user/imported/AI recipes stay free.
- */
+/** Always allows. Kept for call-site compatibility. */
 export function evaluateShoppingRecipeGate(
   input: ShoppingRecipeGateInput,
 ): PlanItemGateDecision {
   const ref = parseRecipeRef(input.fromRecipeId ?? null);
-  if (!ref) {
-    return { ok: true, skipped: false, reason: null };
-  }
+  if (!ref) return { ok: true, skipped: false, reason: null };
   return evaluatePlanItemGate({
     ref,
     sourceType: ref.type === "user" ? input.sourceType : null,
@@ -60,14 +51,9 @@ export function evaluateShoppingRecipeGate(
   });
 }
 
-/**
- * Typed error used by the single-item write path. Standard tRPC code
- * (FORBIDDEN) keeps the message unmasked; the machine-readable subtype is the
- * `PRO_REQUIRED` message prefix plus `cause.code` (same pattern as
- * EMAIL_NOT_VERIFIED / invalid_recipe_ref in this repo).
- */
 export type ProRequiredContext = "plan" | "shopping";
 
+/** Kept for parity with other typed errors; unused while KOL is free. */
 export function proRequiredError(context: ProRequiredContext = "plan"): TRPCError {
   const where = context === "shopping" ? "加入購物清單" : "加入餐單";
   return new TRPCError({
@@ -77,7 +63,10 @@ export function proRequiredError(context: ProRequiredContext = "plan"): TRPCErro
   });
 }
 
-export function assertPlanItemGate(decision: PlanItemGateDecision, context: ProRequiredContext = "plan"): void {
+export function assertPlanItemGate(
+  decision: PlanItemGateDecision,
+  context: ProRequiredContext = "plan",
+): void {
   if (!decision.ok) throw proRequiredError(context);
 }
 

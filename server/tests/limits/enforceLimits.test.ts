@@ -159,13 +159,13 @@ test("cross-month: counter is keyed by getYearMonthKey and resets next month", a
   await assert.doesNotReject(() => ledger.createCustom(scope));
 });
 
-test("quickPlan.accept: free family + KOL recipe → skipped pro_required (pro allowed)", () => {
+test("quickPlan.accept: KOL recipe is free for every plan (no pro_required skip)", () => {
   const free = evaluatePlanItemGate({
     ref: { type: "user", id: 701 },
     sourceType: "kol",
     isPro: false,
   });
-  assert.deepEqual(free, { ok: false, skipped: true, reason: PRO_REQUIRED_REASON });
+  assert.deepEqual(free, { ok: true, skipped: false, reason: null });
 
   const pro = evaluatePlanItemGate({
     ref: { type: "user", id: 701 },
@@ -179,8 +179,6 @@ test("quickPlan.accept: free family + KOL recipe → skipped pro_required (pro a
     "utf8",
   );
   assert.match(source, /evaluatePlanItemGate/);
-  assert.match(source, /proSkippedItems/);
-  assert.match(source, /proRequiredError/);
 });
 
 test("saveKolRecipe: free users can save and KOL provenance is preserved", () => {

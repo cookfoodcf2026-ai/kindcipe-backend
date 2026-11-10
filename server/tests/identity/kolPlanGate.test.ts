@@ -35,19 +35,11 @@ function addOne(input: {
   return "inserted";
 }
 
-test("free family + KOL recipe → mealPlan.add rejects with PRO_REQUIRED", () => {
-  let caught: unknown;
-  try {
-    addOne({ ref: userRef(701), sourceType: "kol", isPro: false });
-  } catch (error) {
-    caught = error;
-  }
-
-  assert.ok(caught instanceof TRPCError, "expected a TRPCError");
-  assert.equal(caught.code, "FORBIDDEN");
-  assert.equal(caught.message.startsWith("PRO_REQUIRED:"), true);
-  assert.equal((caught.cause as { code?: string } | undefined)?.code, "PRO_REQUIRED");
-  assert.equal(isProRequiredError(caught), true);
+test("free family + KOL recipe → mealPlan.add succeeds (KOL is free since 2026-11-10)", () => {
+  assert.equal(
+    addOne({ ref: userRef(701), sourceType: "kol", isPro: false }),
+    "inserted",
+  );
 });
 
 test("pro family + KOL recipe → mealPlan.add succeeds", () => {
@@ -74,7 +66,7 @@ test("free family + official recipe → mealPlan.add succeeds", () => {
   );
 });
 
-test("free family addBatch: 1 KOL + 2 own → 2 inserted, KOL skipped pro_required", () => {
+test("free family addBatch: 1 KOL + 2 own → all 3 inserted (KOL is free)", () => {
   const items: Array<{ ref: RecipeRef; sourceType: string | null }> = [
     { ref: userRef(801), sourceType: "kol" },
     { ref: userRef(802), sourceType: "manual" },
@@ -98,10 +90,8 @@ test("free family addBatch: 1 KOL + 2 own → 2 inserted, KOL skipped pro_requir
     }
   });
 
-  assert.deepEqual(insertedIndexes, [1, 2]);
-  assert.deepEqual(skippedItems, [
-    { index: 0, ok: false, skipped: true, reason: PRO_REQUIRED_REASON },
-  ]);
+  assert.deepEqual(insertedIndexes, [0, 1, 2]);
+  assert.deepEqual(skippedItems, []);
 });
 
 test("listKol works for a free family (no assertProFeature gate)", () => {
