@@ -8493,11 +8493,16 @@ export const aiRecipeRouter = router({
             });
             const byName = rows.filter((c: any) => matchesByTermName(c, pattern));
             const chosen = (byName.length > 0 ? byName : rows.filter((c: any) => matchesByTermIngredient(c, pattern))).slice(0, 3);
-            if (chosen.length > 0) {
-              result.recipes = chosen as any;
+            const mapped = chosen
+              .map((row: any) => rowToSuggestedRecipe(row))
+              .filter((recipe): recipe is SuggestedRecipe => !!recipe);
+            const dropped = chosen.length - mapped.length;
+            if (dropped > 0) console.warn(`[AI Chef] salvage dropped cards=${dropped}`);
+            if (mapped.length > 0) {
+              result.recipes = mapped;
               result.clarifyReason = undefined;
               result.content = aiReply(input.lang ?? "zh-TW", "libByKeyword", { kw: String(term) });
-              console.log(`[AI Chef] salvage_zero_card term=${term} byName=${byName.length} cards=${chosen.length}`);
+              console.log(`[AI Chef] salvage_zero_card term=${term} byName=${byName.length} cards=${mapped.length}`);
             }
           }
         } catch (err) {
