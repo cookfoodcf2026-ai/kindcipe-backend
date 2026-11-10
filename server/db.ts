@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, lte, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { getYearMonthKey } from "./services/monthKey";
 import {
   InsertUser,
   commonIngredients,
@@ -11,6 +12,7 @@ import {
   families,
   favoriteItems,
   importUsage,
+  customRecipeUsage,
   mealPlans,
   officialRecipes,
   userIdentities,
@@ -459,6 +461,7 @@ async function deleteFamilyData(
   await tx.delete(recipeEvents).where(eq(recipeEvents.familyId, familyId));
   await tx.delete(favoriteItems).where(eq(favoriteItems.familyId, familyId));
   await tx.delete(importUsage).where(eq(importUsage.familyId, familyId));
+  await tx.delete(customRecipeUsage).where(eq(customRecipeUsage.familyId, familyId));
   await tx.delete(aiChatUsage).where(eq(aiChatUsage.familyId, familyId));
   // 孤兒表（之前漏咗 → dissolve 後仍殘留）
   await tx.delete(promoCodeRedemptions).where(eq(promoCodeRedemptions.familyId, familyId));
@@ -673,6 +676,7 @@ async function purgeUserAccount(params: { userId: string; families: DeletionFami
     await tx.delete(usageEvents).where(eq(usageEvents.userId, userId));
     await tx.delete(aiChatUsage).where(eq(aiChatUsage.userId, userId));
     await tx.delete(importUsage).where(eq(importUsage.userId, userId));
+    await tx.delete(customRecipeUsage).where(eq(customRecipeUsage.userId, userId));
     await tx.delete(favoriteItems).where(eq(favoriteItems.userId, userId));
     await tx.delete(recipeNotes).where(eq(recipeNotes.userId, userId));
     await tx.delete(recipeEvents).where(eq(recipeEvents.userId, userId));
@@ -1446,16 +1450,25 @@ export async function getCustomRecipes(familyId: number) {
 }
 
 /**
- * Count custom recipes created by a family in the current calendar month.
+ * Map of custom_recipes.id -> source_type for the given ids.
+ * Used by meal-plan writers to detect KOL recipes without loading full rows.
  */
-export async function countCustomRecipesCreatedThisMonth(familyId: number): Promise<number> {
+export async function getCustomRecipeSourceTypes(
+  ids: number[]
+): Promise<Map<number, string | null>> {
+  const result = new Map<number, string | null>();
+  const uniqueIds = [...new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (uniqueIds.length === 0) return result;
   const db = await getDb();
-  if (!db) return 0;
-  const ym = new Date().toISOString().slice(0, 7); // "2026-08"
-  const rows = await db.select({ count: sql<number>`count(*)::int` })
+  if (!db) return result;
+  const rows = await db.select({
+    id: customRecipes.id,
+    sourceType: customRecipes.sourceType,
+  })
     .from(customRecipes)
-    .where(and(eq(customRecipes.familyId, familyId), sql`to_char(${customRecipes.createdAt}, 'YYYY-MM') = ${ym}`));
-  return rows[0]?.count ?? 0;
+    .where(inArray(customRecipes.id, uniqueIds));
+  for (const row of rows) result.set(row.id, row.sourceType ?? null);
+  return result;
 }
 
 // ─── Recipe Events (analytics / ranking) ─────────────────────────────────────
@@ -2188,12 +2201,6 @@ export interface FamilyUsageHistoryMonthRow extends FamilyUsageHistoryRow {
   members: FamilyUsageHistoryMemberRow[];
 }
 
-function getYearMonthKey(date = new Date()): string {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
-
 function getRecentYearMonths(months: number): string[] {
   const safeMonths = Math.max(1, Math.floor(months));
   const now = new Date();
@@ -2219,7 +2226,7 @@ export async function assertFamilyQuota(familyId: number): Promise<number> {
     throw new TRPCError({ code: "NOT_FOUND", message: "家庭不存在" });
   }
   
-  const limit = family.maxImportsPerMonth ?? 20;
+  const limit = family.maxImportsPerMonth;
   const count = await getImportUsage(familyId);
   
   if (count >= limit) {

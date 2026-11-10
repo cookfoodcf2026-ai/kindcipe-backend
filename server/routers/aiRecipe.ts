@@ -36,6 +36,8 @@ import { getBackendBaseUrl, storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
 import { getFamilyEntitlements } from "../services/entitlements";
+import { assertCustomRecipeLimit } from "../services/limitEnforcement";
+import { recordCustomRecipeCreate, type QuotaScope } from "../services/recipeQuota";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, quickReplyLabel } from "../services/aiChefLifecycle";
@@ -7839,6 +7841,8 @@ export const aiRecipeRouter = router({
       }
 
       let saved: Awaited<ReturnType<typeof insertCustomRecipe>>;
+      const scope: QuotaScope = { familyId, userId, plan: ent.plan };
+      await assertCustomRecipeLimit(scope, ent.limits);
       try {
         saved = await runWithUsage(
           {
@@ -7847,9 +7851,10 @@ export const aiRecipeRouter = router({
             kind: "custom_recipe",
             limits: ent.limits,
             idempotencyKey: `ai_save:${familyId}:${userId}:${randomUUID()}`,
-            cost: { customRecipes: 1 },
+            cost: {},
           },
-          () => insertCustomRecipe({
+          async () => {
+          const row = await insertCustomRecipe({
         familyId,
         createdByUserId: userId,
         name: parsed.name,
@@ -7876,7 +7881,10 @@ export const aiRecipeRouter = router({
         sourceType: "manual",
         sourceAuthor: undefined,
         isAiGenerated: true,
-          })
+          });
+          await recordCustomRecipeCreate(scope);
+          return row;
+          }
         );
       } catch (error) {
         usageLimitToTRPC(error);

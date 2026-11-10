@@ -36,7 +36,9 @@ import { enqueueRecipeTranslation, invalidateTranslationIfSourceChanged, runMete
 import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
 import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
-import { assertUsageAvailable, commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
+import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
+import { assertCustomRecipeLimit, assertImportLimit } from "../services/limitEnforcement";
+import { recordCustomRecipeCreate, recordImportCreate, type QuotaScope } from "../services/recipeQuota";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
 import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -2534,11 +2536,7 @@ async function assertImportAvailable(familyId: number, userId: string): Promise<
   const ent = await getFamilyEntitlements(familyId, userId);
   if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
   if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
-  await assertUsageAvailable({
-    familyId,
-    limits: ent.limits,
-    cost: { credits: 1, imports: 1 },
-  });
+  await assertImportLimit({ familyId, userId, plan: ent.plan }, ent.limits);
 }
 
 /** LLM 成本計量（只記錄成本，唔扣 credit） */
@@ -3872,6 +3870,10 @@ ${TAGS_RULE}`;
       const ent = await getFamilyEntitlements(familyId, userId);
       if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
       if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+      const scope: QuotaScope = { familyId, userId, plan: ent.plan };
+
+      await assertCustomRecipeLimit(scope, ent.limits);
+      if (!input.isAiGenerated) await assertImportLimit(scope, ent.limits);
 
       let reservationId: number | undefined;
       if (!input.isAiGenerated) {
@@ -3882,7 +3884,7 @@ ${TAGS_RULE}`;
             kind: "import",
             limits: ent.limits,
             idempotencyKey: `import:${familyId}:${userId}:${crypto.randomUUID()}`,
-            cost: { credits: 1, imports: 1 },
+            cost: { credits: 1 },
           });
           reservationId = reservation.eventId;
         } catch (error) {
@@ -4030,6 +4032,9 @@ ${TAGS_RULE}`;
         }),
         scenarioTagsUser: serializeUserScenarioTags(input.scenarios),
       }).returning();
+
+      await recordCustomRecipeCreate(scope);
+      if (!input.isAiGenerated) await recordImportCreate(scope);
 
       if (reservationId) await commitUsage(reservationId);
 
@@ -4221,6 +4226,15 @@ ${TAGS_RULE}`;
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+      const ent = await getFamilyEntitlements(ctx.activeFamilyId, String(ctx.user.id));
+      if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+      const scope: QuotaScope = {
+        familyId: ctx.activeFamilyId,
+        userId: String(ctx.user.id),
+        plan: ent.plan,
+      };
+      await assertCustomRecipeLimit(scope, ent.limits);
+
       const isDraft = input.isDraft;
       if (!isDraft) {
         const contentGate = checkRecipeContent(input.ingredients, input.steps);
@@ -4281,6 +4295,8 @@ ${TAGS_RULE}`;
           dishType: input.dishType, ingredients: baseIngredients, steps: baseSteps, tags: input.tags,
         }),
       }).returning();
+
+      await recordCustomRecipeCreate(scope);
 
       return { success: true, id: inserted.id };
     }),
@@ -4647,9 +4663,16 @@ ${TAGS_RULE}`;
     .input(z.object({ id: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: 'BAD_REQUEST', message: '請先加入家庭廚房' });
-      if (ctx.clientPlatform !== "native") {
-        await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
-      }
+      const ent = await getFamilyEntitlements(ctx.activeFamilyId, String(ctx.user.id));
+      if (!ent) throw new TRPCError({ code: 'NOT_FOUND', message: '找不到家庭廚房' });
+      const scope: QuotaScope = {
+        familyId: ctx.activeFamilyId,
+        userId: String(ctx.user.id),
+        plan: ent.plan,
+      };
+      await assertCustomRecipeLimit(scope, ent.limits);
+      // KOL saves are a Pro capability on every client platform, including native.
+      await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
       const [kol] = await db.select().from(customRecipes)
@@ -4669,7 +4692,7 @@ ${TAGS_RULE}`;
         recipeCategory: kol.recipeCategory, dishType: kol.dishType,
         ingredients: kol.ingredients, steps: kol.steps,
         stepsEn: kol.stepsEn, stepsFil: kol.stepsFil, stepsId: kol.stepsId,
-        tags: kol.tags, sourceType: "manual",
+        tags: kol.tags, sourceType: "kol",
         sourceUrl: kol.sourceUrl, sourceAuthor: kol.sourceAuthor,
         visibility: "private",
         scenarioTags: kol.scenarioTags ?? computeScenarioTags({
@@ -4678,6 +4701,7 @@ ${TAGS_RULE}`;
           ingredients: kol.ingredients, steps: kol.steps, tags: kol.tags,
         }),
       }).returning();
+      await recordCustomRecipeCreate(scope);
       return { success: true, id: inserted.id };
     }),
 
@@ -5003,9 +5027,6 @@ ${TAGS_RULE}`;
     }).optional())
     .query(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) return [];
-      if (ctx.clientPlatform !== "native") {
-        await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
-      }
       const db = await getDb();
       if (!db) return [];
 

@@ -68,6 +68,17 @@ export async function getFamilyEntitlements(
   };
 }
 
+/**
+ * Single source of truth for "is this family Pro?" — same check that
+ * `assertProFeature` uses (`getFamilySubscription().isPaid`). Callers that
+ * need to gate a capability without throwing should use this instead of
+ * re-reading subscription rows themselves.
+ */
+export async function isPro(familyId: number): Promise<boolean> {
+  const sub = await getFamilySubscription(familyId);
+  return Boolean(sub?.isPaid);
+}
+
 export async function assertWritable(familyId: number, userId: string): Promise<void> {
   const ent = await getFamilyEntitlements(familyId, userId);
   if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });

@@ -17,6 +17,7 @@ import { billingRouter } from "./routers/billing";
 import { getPromoState } from "./services/promo";
 import { requestAccountDeletion } from "./services/accountDeletionRuntime";
 import { getUsageSummary } from "./services/usage";
+import { countCustomRecipeUsage, countImportUsage, type QuotaScope } from "./services/recipeQuota";
 import { commonIngredientRouter } from "./routers/commonIngredient";
 import { aiChatRouter } from "./routers/aiChat";
 import { protectedProcedure, publicProcedure, adminProcedure, csProcedure, auditorProcedure, familyWriteProcedure, router } from "./_core/trpc";
@@ -49,7 +50,7 @@ import {
   getFamilyUsageHistory,
   getFamilyUsageHistoryWithMembers,
   getFamilyUsageByMember,
-  countCustomRecipesCreatedThisMonth,
+  getCustomRecipeSourceTypes,
   upsertPushToken,
   getPushTokensByFamily,
   getPushTokensByUserIds,
@@ -133,7 +134,9 @@ import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMember
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { planShoppingBatch, persistShoppingItemWithRetry, resolveShoppingAddLink, type ShoppingIdentityDeps } from "./lib/shoppingIdentity";
 import { applyMealPlanDateUpdate, mealPlanRefWriteValue, resolveMealPlanRefOrThrow, validateMealPlanRefBatch } from "./lib/mealPlanIdentity";
+import { PRO_REQUIRED_REASON, assertPlanItemGate, evaluatePlanItemGate } from "./lib/mealPlanProGate";
 import { createShoppingNormalizer } from "./lib/shoppingNormalizer";
+import { getFamilyEntitlements, isPro } from "./services/entitlements";
 import { loadIdentityMetrics } from "./ops/identityMetrics";
 
 const joinAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -404,24 +407,29 @@ const familyRouter = router({
   usage: protectedProcedure.query(async ({ ctx }) => {
     if (!ctx.activeFamilyId) return null;
     const familyId = ctx.activeFamilyId;
-    const [sub, summary] = await Promise.all([
-      getFamilySubscription(familyId),
+    const userId = String(ctx.user.id);
+    const ent = await getFamilyEntitlements(familyId, userId);
+    if (!ent) return null;
+    const scope: QuotaScope = { familyId, userId, plan: ent.plan };
+    const [summary, customRecipesUsed, importsUsed] = await Promise.all([
       getUsageSummary(familyId),
+      countCustomRecipeUsage(scope),
+      countImportUsage(scope),
     ]);
-    const aiLimit = sub?.aiChatLimit ?? 15;
+    const aiLimit = ent.limits.aiCredits;
     return {
       imports: {
-        used: summary.imports,
-        limit: sub?.maxImportsPerMonth ?? 10,
+        used: importsUsed,
+        limit: ent.limits.imports,
       },
       customRecipes: {
-        used: summary.customRecipes,
-        limit: sub ? sub.maxCustomRecipesPerMonth : 5,
+        used: customRecipesUsed,
+        limit: ent.limits.customRecipes,
       },
       aiCredits: {
         used: summary.aiCredits,
         limit: aiLimit,
-        ...(sub?.legacyAiCredits != null ? { legacy: sub.legacyAiCredits } : {}),
+        ...(ent.legacyAiCredits != null ? { legacy: ent.legacyAiCredits } : {}),
       },
       // Backward-compatible alias kept for existing clients.
       aiChat: {
@@ -1100,6 +1108,14 @@ const mealPlanRouter = router({
 
       const refValidation = resolveMealPlanRefOrThrow(input.recipeId);
       const recipeId = mealPlanRefWriteValue(refValidation);
+
+      // KOL recipes are viewable but only Pro families may add them to a plan.
+      const ref = refValidation.ref!;
+      const sourceType = ref.type === "user"
+        ? (await getCustomRecipeSourceTypes([ref.id])).get(ref.id) ?? null
+        : null;
+      const pro = sourceType === "kol" ? await isPro(ctx.activeFamilyId) : false;
+      assertPlanItemGate(evaluatePlanItemGate({ ref, sourceType, isPro: pro }));
       
       // Check if today has eat-out set for dinner
       let hasConflict = false;
@@ -1289,6 +1305,23 @@ const mealPlanRouter = router({
       }
       const resolvedRecipeIds = refBatch.writes;
 
+      // KOL recipes are viewable but only Pro families may add them to a plan.
+      // Decide once per ref (one subscription check per batch), then let the
+      // transaction skip only the gated items instead of failing the batch.
+      const refs = refBatch.validations.map((validation) => validation.ref!);
+      const sourceTypeById = await getCustomRecipeSourceTypes(
+        refs.filter((ref) => ref.type === "user").map((ref) => ref.id),
+      );
+      const hasKol = refs.some(
+        (ref) => ref.type === "user" && sourceTypeById.get(ref.id) === "kol",
+      );
+      const pro = hasKol ? await isPro(ctx.activeFamilyId) : false;
+      const gateDecisions = refs.map((ref) => evaluatePlanItemGate({
+        ref,
+        sourceType: ref.type === "user" ? sourceTypeById.get(ref.id) ?? null : null,
+        isPro: pro,
+      }));
+
       const targetMealTypes = [...new Set(input.items.map((item) => item.mealType))];
 
       // All destructive replace + inserts happen in one transaction. A mid-way failure
@@ -1308,6 +1341,7 @@ const mealPlanRouter = router({
             if (eatOutRows.length > 0) {
               return {
                 successfulItems: [],
+                proSkippedItems: [],
                 skippedDays: [...new Set(eatOutRows.map((row) => row.date))],
                 skippedCount: input.items.length,
                 skippedDueToDuplicate: false,
@@ -1345,6 +1379,16 @@ const mealPlanRouter = router({
           recipeName: string;
           newPlanId?: number;
         }> = [];
+        const proSkippedItems: Array<{
+          index: number;
+          date: string;
+          mealType: string;
+          recipeId: string;
+          recipeName: string;
+          ok: false;
+          skipped: true;
+          reason: typeof PRO_REQUIRED_REASON;
+        }> = [];
         const skippedDays = new Set<string>();
         let skippedCount = 0;
         let skippedDueToDuplicate = false;
@@ -1353,6 +1397,22 @@ const mealPlanRouter = router({
         for (let itemIndex = 0; itemIndex < input.items.length; itemIndex++) {
           const item = input.items[itemIndex];
           const itemRecipeId = resolvedRecipeIds[itemIndex] ?? resolveMealPlanRefOrThrow(item.recipeId).value;
+
+          const gate = gateDecisions[itemIndex];
+          if (gate && !gate.ok) {
+            proSkippedItems.push({
+              index: itemIndex,
+              date: item.date,
+              mealType: item.mealType,
+              recipeId: itemRecipeId,
+              recipeName: item.recipeName,
+              ok: false,
+              skipped: true,
+              reason: gate.reason,
+            });
+            continue;
+          }
+
           // Check for eat-out conflict (dinner only) — unless user forced (確定必加)
           let hasConflict = false;
           if (item.mealType === "dinner" && !input.force) {
@@ -1415,10 +1475,24 @@ const mealPlanRouter = router({
           });
         }
 
-        return { successfulItems, skippedDays: [...skippedDays], skippedCount, skippedDueToDuplicate, skippedDueToEatOut };
+        return {
+          successfulItems,
+          proSkippedItems,
+          skippedDays: [...skippedDays],
+          skippedCount,
+          skippedDueToDuplicate,
+          skippedDueToEatOut,
+        };
       });
 
-      const { successfulItems, skippedDays, skippedCount, skippedDueToDuplicate, skippedDueToEatOut } = txResult;
+      const {
+        successfulItems,
+        proSkippedItems,
+        skippedDays,
+        skippedCount,
+        skippedDueToDuplicate,
+        skippedDueToEatOut,
+      } = txResult;
 
       for (const item of successfulItems) {
         if (item.newPlanId) shoppingNormalizer.invalidate(ctx.activeFamilyId, item.newPlanId);
@@ -1463,6 +1537,8 @@ const mealPlanRouter = router({
         skippedCount,
         skippedDays,
         items: successfulItems,
+        skippedItems: proSkippedItems,
+        skippedProCount: proSkippedItems.length,
         skippedDueToDuplicate,
         skippedDueToEatOut,
       };

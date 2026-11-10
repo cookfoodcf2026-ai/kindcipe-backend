@@ -6,6 +6,11 @@ import { customRecipes, mealPlans, officialRecipes, shoppingItems } from "../../
 import { getDb } from "../db";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { commitUsageInTransaction, reserveUsageInTransaction, usageLimitToTRPC } from "../services/usage";
+import {
+  PRO_REQUIRED_REASON,
+  evaluatePlanItemGate,
+  proRequiredError,
+} from "../lib/mealPlanProGate";
 import { categorizeIngredientName, hasUsableMainIngredient, isUsableIngredientName, normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity } from "../utils/mealDiversity";
 import {
@@ -349,7 +354,7 @@ export const quickPlanRouter = router({
           : Promise.resolve([] as Array<{ id: number; name: string }>),
         customIds.length > 0
           ? db
-              .select({ id: customRecipes.id, name: customRecipes.name })
+              .select({ id: customRecipes.id, name: customRecipes.name, sourceType: customRecipes.sourceType })
               .from(customRecipes)
               .where(and(
                 inArray(customRecipes.id, customIds),
@@ -359,7 +364,7 @@ export const quickPlanRouter = router({
                   and(eq(customRecipes.familyId, 0), eq(customRecipes.visibility, "public")),
                 ),
               ))
-          : Promise.resolve([] as Array<{ id: number; name: string }>),
+          : Promise.resolve([] as Array<{ id: number; name: string; sourceType: string | null }>),
       ]);
       const visibleNames = new Map<string, string>();
       officialRows.forEach((row) => visibleNames.set(`official_${row.id}`, row.name));
@@ -368,7 +373,38 @@ export const quickPlanRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "所選食譜不存在或不在此廚房" });
       }
 
-      const starterFree = input.items.every((item) =>
+      // Same KOL gate as mealPlan.add/addBatch: free families cannot put a KOL
+      // recipe into a plan. Skip blocked rows; reject only when nothing is left.
+      const sourceTypeById = new Map(customRows.map((row) => [row.id, row.sourceType ?? null]));
+      const gateDecisions = input.items.map((item) => {
+        const ref = parseRecipeRef(item.recipeId);
+        if (!ref) return { ok: true as const, skipped: false as const, reason: null };
+        return evaluatePlanItemGate({
+          ref: { type: ref.kind, id: ref.id },
+          sourceType: ref.kind === "user" ? sourceTypeById.get(ref.id) ?? null : null,
+          isPro: ent.isPaid,
+        });
+      });
+      const allowedIndexes = gateDecisions
+        .map((decision, index) => (decision.ok ? index : -1))
+        .filter((index) => index >= 0);
+      const proSkippedItems = input.items.flatMap((item, index) => {
+        const decision = gateDecisions[index];
+        if (decision.ok) return [];
+        return [{
+          index,
+          date: item.date,
+          recipeId: item.recipeId,
+          recipeName: item.recipeName,
+          ok: false as const,
+          skipped: true as const,
+          reason: PRO_REQUIRED_REASON,
+        }];
+      });
+      if (allowedIndexes.length === 0) throw proRequiredError();
+      const allowedItems = allowedIndexes.map((index) => input.items[index]);
+
+      const starterFree = allowedItems.every((item) =>
         STARTER_NAMES.has(String(visibleNames.get(item.recipeId) ?? "").trim()),
       );
       const credits = ent.isPaid || starterFree ? 0 : 1;
@@ -394,10 +430,11 @@ export const quickPlanRouter = router({
             mealPlanCount: existingPlans.length,
             shoppingCount: 0,
             newPlanIds: existingPlans.map((row) => row.id),
+            proSkippedItems,
           };
         }
 
-        const dates = [...new Set(input.items.map((item) => item.date))];
+        const dates = [...new Set(allowedItems.map((item) => item.date))];
         const existing = await tx
           .select({ date: mealPlans.date })
           .from(mealPlans)
@@ -412,7 +449,7 @@ export const quickPlanRouter = router({
         }
 
         const inserted = await tx.insert(mealPlans).values(
-          input.items.map((item) => ({
+          allowedItems.map((item) => ({
             familyId,
             date: item.date,
             mealType: "dinner" as const,
@@ -447,7 +484,7 @@ export const quickPlanRouter = router({
           plannedDate: string;
         }>();
 
-        input.items.forEach((item, index) => {
+        allowedItems.forEach((item, index) => {
           const planId = inserted[index]?.id;
           if (!planId) return;
           for (const ing of normalizeRecipeIngredients(item.ingredients)) {
@@ -490,10 +527,15 @@ export const quickPlanRouter = router({
           await tx.insert(shoppingItems).values(rows);
         }
         await commitUsageInTransaction(tx, reservation.eventId);
-        return { mealPlanCount: inserted.length, shoppingCount: rows.length, newPlanIds: inserted.map((row) => row.id) };
+        return {
+          mealPlanCount: inserted.length,
+          shoppingCount: rows.length,
+          newPlanIds: inserted.map((row) => row.id),
+          proSkippedItems,
+        };
       }).catch((error) => usageLimitToTRPC(error));
 
-      await recordFamilySeenNames(familyId, [...new Set(input.items.map((item) => item.recipeName))]);
+      await recordFamilySeenNames(familyId, [...new Set(allowedItems.map((item) => item.recipeName))]);
       return result;
     }),
 

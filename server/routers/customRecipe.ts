@@ -11,7 +11,6 @@ import {
   insertCustomRecipe,
   updateCustomRecipeById,
   deleteCustomRecipeById,
-  incrementImportUsage,
   getPushTokensByFamily,
   getFamilyLanguage,
 } from "../db";
@@ -21,6 +20,8 @@ import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { checkRecipeContent } from "../services/importQuality";
 import { getFamilyEntitlements } from "../services/entitlements";
 import { runWithUsage, usageLimitToTRPC } from "../services/usage";
+import { assertCustomRecipeLimit, assertImportLimit } from "../services/limitEnforcement";
+import { recordCustomRecipeCreate, recordImportCreate, type QuotaScope } from "../services/recipeQuota";
 import { serializeUserScenarioTags } from "../utils/scenario";
 import { enqueueRecipeTranslation } from "../services/translationQueue";
 import { validateGeneratedRecipeSteps } from "../services/recipeStepQuality";
@@ -71,85 +72,92 @@ export const customRecipeRouter = router({
       }
 
       const isImport = Boolean(input.sourceType && input.sourceType !== "manual");
-      const cost = isImport ? { credits: 1, imports: 1 } : { customRecipes: 1 };
+      const scope: QuotaScope = { familyId, userId, plan: ent.plan };
+
+      await assertCustomRecipeLimit(scope, ent.limits);
+      if (isImport) await assertImportLimit(scope, ent.limits);
+
+      const createRecipe = async () => {
+        let normalizedIngredients = input.ingredients;
+        if (input.ingredients) {
+          try {
+            const parsed = JSON.parse(input.ingredients);
+            if (Array.isArray(parsed)) {
+              normalizedIngredients = JSON.stringify(normalizeRecipeIngredients(parsed));
+            }
+          } catch { /* keep as-is */ }
+        }
+
+        let normalizedSteps = input.steps;
+        if (input.isAiGenerated) {
+          let parsedIngredients: any[] = [];
+          let parsedSteps: unknown = null;
+          try { parsedIngredients = JSON.parse(String(normalizedIngredients ?? "[]")); } catch { parsedIngredients = []; }
+          try { parsedSteps = JSON.parse(String(input.steps ?? "[]")); } catch { parsedSteps = null; }
+          const stepTexts = Array.isArray(parsedSteps)
+            ? parsedSteps.map((step: any) => typeof step === "string" ? step : step?.instruction)
+            : parsedSteps;
+          const quality = validateGeneratedRecipeSteps({ ingredients: parsedIngredients, steps: stepTexts });
+          if (!quality.ok) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `步驟未通過驗證：${quality.issues.slice(0, 3).join("；")}` });
+          }
+          normalizedSteps = JSON.stringify(stepTexts);
+        }
+
+        // 空卡唔准入庫（同 importUser 用同一道閘）；draft 例外
+        if (!(input as any).isDraft) {
+          let ingArr: any[] = [];
+          let stepArr: any[] = [];
+          try { ingArr = JSON.parse(String(normalizedIngredients ?? "[]")); } catch { ingArr = []; }
+          try { stepArr = JSON.parse(String(input.steps ?? "[]")); } catch { stepArr = []; }
+          const gate = checkRecipeContent(ingArr, stepArr);
+          if (!gate.ok) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: gate.message });
+          }
+        }
+
+        const { scenarios, ...recipeInput } = input;
+        const recipe = await insertCustomRecipe({
+          ...recipeInput,
+          steps: normalizedSteps,
+          scenarioTagsUser: serializeUserScenarioTags(scenarios),
+          ingredients: normalizedIngredients,
+          familyId,
+          createdByUserId: userId,
+        });
+
+        // Monthly create ledger: never decremented by customRecipe.delete.
+        await recordCustomRecipeCreate(scope);
+        if (isImport) await recordImportCreate(scope);
+
+        if (recipe?.id) enqueueRecipeTranslation(recipe.id, familyId);
+        if (isImport) {
+          const tokens = await getPushTokensByFamily(familyId);
+          const lang = await getFamilyLanguage(familyId);
+          sendPushNotifications(tokens, {
+            title: msg(lang, "push.newRecipe.title"),
+            body: msg(lang, "push.newRecipe.body", { name: input.name }),
+            data: { type: "recipe_imported", recipeId: String(recipe?.id ?? "") },
+          }).catch(() => {});
+        }
+
+        return recipe;
+      };
+
+      if (!isImport) return createRecipe();
 
       try {
         return await runWithUsage(
           {
             familyId,
             userId,
-            kind: isImport ? "import" : "custom_recipe",
+            kind: "import",
             limits: ent.limits,
             idempotencyKey: `custom:${ctx.activeFamilyId}:${ctx.user.id}:${randomUUID()}`,
-            cost,
+            cost: { credits: 1 },
             metadata: { name: input.name, sourceType: input.sourceType ?? "manual" },
           },
-          async () => {
-            let normalizedIngredients = input.ingredients;
-            if (input.ingredients) {
-              try {
-                const parsed = JSON.parse(input.ingredients);
-                if (Array.isArray(parsed)) {
-                  normalizedIngredients = JSON.stringify(normalizeRecipeIngredients(parsed));
-                }
-              } catch { /* keep as-is */ }
-            }
-
-            let normalizedSteps = input.steps;
-            if (input.isAiGenerated) {
-              let parsedIngredients: any[] = [];
-              let parsedSteps: unknown = null;
-              try { parsedIngredients = JSON.parse(String(normalizedIngredients ?? "[]")); } catch { parsedIngredients = []; }
-              try { parsedSteps = JSON.parse(String(input.steps ?? "[]")); } catch { parsedSteps = null; }
-              const stepTexts = Array.isArray(parsedSteps)
-                ? parsedSteps.map((step: any) => typeof step === "string" ? step : step?.instruction)
-                : parsedSteps;
-              const quality = validateGeneratedRecipeSteps({ ingredients: parsedIngredients, steps: stepTexts });
-              if (!quality.ok) {
-                throw new TRPCError({ code: "BAD_REQUEST", message: `步驟未通過驗證：${quality.issues.slice(0, 3).join("；")}` });
-              }
-              normalizedSteps = JSON.stringify(stepTexts);
-            }
-
-            // 空卡唔准入庫（同 importUser 用同一道閘）；draft 例外
-            if (!(input as any).isDraft) {
-              let ingArr: any[] = [];
-              let stepArr: any[] = [];
-              try { ingArr = JSON.parse(String(normalizedIngredients ?? "[]")); } catch { ingArr = []; }
-              try { stepArr = JSON.parse(String(input.steps ?? "[]")); } catch { stepArr = []; }
-              const gate = checkRecipeContent(ingArr, stepArr);
-              if (!gate.ok) {
-                throw new TRPCError({ code: "BAD_REQUEST", message: gate.message });
-              }
-            }
-
-            const { scenarios, ...recipeInput } = input;
-            const recipe = await insertCustomRecipe({
-              ...recipeInput,
-              steps: normalizedSteps,
-              scenarioTagsUser: serializeUserScenarioTags(scenarios),
-              ingredients: normalizedIngredients,
-              familyId,
-              createdByUserId: userId,
-            });
-
-            if (recipe?.id) enqueueRecipeTranslation(recipe.id, familyId);
-            if (isImport) {
-              try { await incrementImportUsage(userId, familyId); } catch { /* history only */ }
-            }
-
-            if (isImport) {
-              const tokens = await getPushTokensByFamily(familyId);
-              const lang = await getFamilyLanguage(familyId);
-              sendPushNotifications(tokens, {
-                title: msg(lang, "push.newRecipe.title"),
-                body: msg(lang, "push.newRecipe.body", { name: input.name }),
-                data: { type: "recipe_imported", recipeId: String(recipe?.id ?? "") },
-              }).catch(() => {});
-            }
-
-            return recipe;
-          }
+          createRecipe
         );
       } catch (error) {
         usageLimitToTRPC(error);
