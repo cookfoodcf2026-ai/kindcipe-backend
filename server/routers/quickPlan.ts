@@ -11,6 +11,7 @@ import {
   evaluatePlanItemGate,
   proRequiredError,
 } from "../lib/mealPlanProGate";
+import { toCardRef } from "../lib/cardRef";
 import { categorizeIngredientName, hasUsableMainIngredient, isUsableIngredientName, normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity } from "../utils/mealDiversity";
 import {
@@ -94,7 +95,7 @@ function parseRecipeRef(recipeId: string): { kind: "official" | "user"; id: numb
 
 function toPlanRecipe(recipe: SuggestedRecipe) {
   return {
-    recipeId: recipeRef(recipe),
+    recipeId: recipeRef(recipe) ?? "",
     name: recipe.name,
     nameEn: recipe.nameEn,
     nameFil: recipe.nameFil,
@@ -278,12 +279,28 @@ export const quickPlanRouter = router({
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     const rows = (await execSearchRecipes(db, { query: "", limit: 800 }, ctx.activeFamilyId ?? undefined)).recipes as Record<string, unknown>[];
     const byName = new Map(rows.map((r) => [String(r.name ?? "").trim(), r]));
-    return STARTER_SETS.map((names) =>
-      names
-        .map((n) => byName.get(n))
-        .filter(Boolean)
-        .map((r) => toPlanRecipe(r as unknown as SuggestedRecipe)),
-    );
+    const sets = STARTER_SETS.map((names, setIndex) => {
+      const missingNames: string[] = [];
+      const resolved = names.map((name) => {
+        const card = byName.get(name);
+        if (!card) {
+          missingNames.push(name);
+          return null;
+        }
+        const ref = toCardRef(card);
+        if (!ref) {
+          missingNames.push(name);
+          return null;
+        }
+        return toPlanRecipe({ ...card, ...ref } as unknown as SuggestedRecipe);
+      });
+      if (missingNames.length > 0) {
+        console.warn("[quickPlan] starterPool drop set", setIndex, missingNames);
+        return null;
+      }
+      return resolved as ReturnType<typeof toPlanRecipe>[];
+    });
+    return sets.filter((set): set is ReturnType<typeof toPlanRecipe>[] => set !== null);
   }),
 
   accept: familyWriteProcedure
@@ -294,7 +311,12 @@ export const quickPlanRouter = router({
           z.object({
             date: z.string().regex(DATE_RE),
             buyDate: z.string().regex(DATE_RE),
-            recipeId: z.string().regex(/^(official|user)_\d+$/),
+            recipeId: z
+              .string()
+              .regex(/^(official|user)_\d+$/)
+              .nullish()
+              .transform((v) => v ?? "")
+              .catch(""),
             recipeName: z.string().min(1).max(128),
             recipeNameEn: z.string().max(128).optional().nullable(),
             recipeNameFil: z.string().max(128).optional().nullable(),
@@ -321,6 +343,16 @@ export const quickPlanRouter = router({
       }
       if (ctx.activeFamilyRole !== "owner" && ctx.activeFamilyRole !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only family owner or admin can plan meals" });
+      }
+      const missingRecipeIdCount = input.items.filter((item) => !item.recipeId).length;
+      if (missingRecipeIdCount > 0) {
+        console.warn(
+          `[quickPlan] accept missing recipeId family=${ctx.activeFamilyId} user=${ctx.user.id} count=${missingRecipeIdCount}`,
+        );
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "部分菜式資料未完成載入，請重新整理新手餐單再儲存。",
+        });
       }
       if (input.items.some((item) => item.buyDate > item.date)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "買餸日期不可遲過用餐日期" });

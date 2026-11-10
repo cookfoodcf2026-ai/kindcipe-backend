@@ -18,7 +18,11 @@ if (!TEST_DB) {
   const createdFamilies: number[] = [];
   const createdUsers: string[] = [];
   const createdRecipes: number[] = [];
-  const STARTER = ["粟米蛋花湯", "豉汁蒸排骨", "蝦仁炒蛋", "蒜蓉炒菜心"];
+  const STARTER_SETS = [
+    ["粟米蛋花湯", "豉汁蒸排骨", "蝦仁炒蛋", "蒜蓉炒菜心"],
+    ["紫菜豆腐魚蛋湯", "豉油雞翼", "勝瓜炒蝦仁", "白灼蠔油菜心"],
+    ["生菜魚肉", "蒜蓉豆豉蒸雞髀肉", "花甲蒸水蛋", "魚香茄子"],
+  ];
 
   function hkToday(): string {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -87,6 +91,29 @@ if (!TEST_DB) {
     }));
   }
 
+  /** Mirrors onboarding.tsx:188-208 when it posts the cards it received. */
+  function acceptPayloadFromCards(cards: any[], date = hkToday()) {
+    return cards.map((card) => ({
+      date,
+      buyDate: date,
+      recipeId: card.recipeId,
+      recipeName: card.name,
+      recipeNameEn: card.nameEn ?? null,
+      recipeNameFil: card.nameFil ?? null,
+      recipeNameId: card.nameId ?? null,
+      recipeImage: card.thumbnailUrl ?? card.image ?? null,
+      ingredients: (card.ingredients ?? []).map((ing: any) => ({
+        name: ing.name,
+        nameEn: ing.nameEn,
+        nameFil: ing.nameFil,
+        nameId: ing.nameId,
+        quantity: String(ing.quantity ?? ""),
+        unit: String(ing.unit ?? ""),
+        category: ing.category ?? "",
+      })),
+    }));
+  }
+
   async function monthlyCredits(familyId: number) {
     const [row] = await sql`
       select coalesce(ai_credits, 0)::int as credits
@@ -97,8 +124,10 @@ if (!TEST_DB) {
   }
 
   test.before(async () => {
-    for (let i = 0; i < STARTER.length; i++) {
-      await addRecipe(STARTER[i], i === 0 ? "soup" : "meat");
+    for (const names of STARTER_SETS) {
+      for (let i = 0; i < names.length; i++) {
+        await addRecipe(names[i], i === 0 ? "soup" : "meat");
+      }
     }
   });
 
@@ -144,15 +173,13 @@ if (!TEST_DB) {
   test("starter accept charges 0 credits", async () => {
     const { userId, familyId } = await makeFamily("starter-accept");
     const caller = quickPlanRouter.createCaller(ctx(userId, familyId));
-    const recipes = await Promise.all(STARTER.map(async (name, i) => {
-      const [row] = await sql`select id, name from official_recipes where name = ${name} and is_active = true limit 1`;
-      assert.ok(row, `starter recipe ${name} must be seeded`);
-      return { id: row.id as number, name: row.name as string, dishType: i === 0 ? "soup" : "meat" };
-    }));
+    const pool: any = await caller.starterPool();
+    const cards = pool[0];
+    assert.equal(cards.length, 4, "starter set A must be fully seeded");
 
     await caller.accept({
       clientRequestId: "starter-free-1",
-      items: acceptItems(recipes),
+      items: acceptPayloadFromCards(cards),
     });
 
     assert.equal(await monthlyCredits(familyId), 0);
@@ -161,6 +188,116 @@ if (!TEST_DB) {
       where family_id = ${familyId} and idempotency_key = 'accept:starter-free-1'`;
     assert.equal(event.credits, 0);
     assert.equal(event.status, "consumed");
+  });
+
+  test("starterPool returns a canonical recipeId on every card", async () => {
+    const { userId, familyId } = await makeFamily("starter-pool-refs");
+    const caller = quickPlanRouter.createCaller(ctx(userId, familyId));
+
+    const pool: any = await caller.starterPool();
+    assert.equal(pool.length, 3, "three starter sets");
+    const cards = pool.flat();
+    assert.equal(cards.length, 12, "all 12 starter cards must resolve");
+    for (const card of cards) {
+      assert.match(
+        String(card.recipeId ?? ""),
+        /^(official|user)_[1-9][0-9]*$/,
+        `${card.name} must carry a resolvable ref`,
+      );
+    }
+  });
+
+  test("starterPool drops a whole set when one starter name is missing", async () => {
+    const { userId, familyId } = await makeFamily("starter-pool-drop-set");
+    const caller = quickPlanRouter.createCaller(ctx(userId, familyId));
+    const missingName = "蝦仁炒蛋";
+    const rows = await sql`
+      select id from official_recipes
+      where name = ${missingName} and is_active = true`;
+    assert.ok(rows.length > 0, `${missingName} must be seeded before the test`);
+    const ids = rows.map((r: any) => r.id as number);
+
+    const warnings: any[][] = [];
+    const originalWarn = console.warn;
+    try {
+      console.warn = (...args: any[]) => { warnings.push(args); };
+      await sql`update official_recipes set is_active = false where id in ${sql(ids)}`;
+
+      const pool: any = await caller.starterPool();
+
+      assert.equal(pool.length, 2, "set A must be dropped as a whole, not compressed");
+      const setANames = new Set(STARTER_SETS[0]);
+      for (const set of pool) {
+        assert.ok(
+          !set.some((card: any) => setANames.has(String(card.name))),
+          "no surviving set may contain a name from set A",
+        );
+        assert.equal(set.length, 4, "every returned set must keep all 4 cards");
+      }
+      const expected = STARTER_SETS.slice(1);
+      pool.forEach((set: any[], i: number) => {
+        assert.deepEqual(
+          set.map((card: any) => String(card.name)),
+          expected[i],
+          `returned set ${i} must keep its STARTER_SETS row order`,
+        );
+      });
+      const dropWarn = warnings.find((args) =>
+        args[0] === "[quickPlan] starterPool drop set" &&
+        args[1] === 0 &&
+        Array.isArray(args[2]) &&
+        (args[2] as string[]).includes(missingName),
+      );
+      assert.ok(dropWarn, "a drop-set warning must name set 0 and the missing name");
+    } finally {
+      console.warn = originalWarn;
+      await sql`update official_recipes set is_active = true where id in ${sql(ids)}`;
+    }
+  });
+
+  test("accept from starterPool set B writes 4 plans, shopping, 0 credits", async () => {
+    const { userId, familyId } = await makeFamily("starter-set-b");
+    const caller = quickPlanRouter.createCaller(ctx(userId, familyId));
+    const pool: any = await caller.starterPool();
+    const cards = pool[1];
+    assert.equal(cards.length, 4, "starter set B must be fully seeded");
+
+    const result: any = await caller.accept({
+      clientRequestId: "starter-free-set-b",
+      items: acceptPayloadFromCards(cards),
+    });
+
+    assert.equal(result.mealPlanCount, 4);
+    const [plans] = await sql`
+      select count(*)::int as n from meal_plans
+      where family_id = ${familyId} and note = 'quickPlan:starter-free-set-b'`;
+    assert.equal(plans.n, 4);
+    const [shopping] = await sql`
+      select count(*)::int as n from shopping_items where family_id = ${familyId}`;
+    assert.ok(shopping.n > 0, "starter accept must create shopping items");
+    assert.equal(await monthlyCredits(familyId), 0);
+    const [event] = await sql`
+      select credits, status from usage_events
+      where family_id = ${familyId} and idempotency_key = 'accept:starter-free-set-b'`;
+    assert.equal(event.credits, 0);
+    assert.equal(event.status, "consumed");
+  });
+
+  test("accept with null recipeId returns a friendly BAD_REQUEST", async () => {
+    const { userId, familyId } = await makeFamily("missing-ref");
+    const caller = quickPlanRouter.createCaller(ctx(userId, familyId));
+    const officialId = await addRecipe("測試缺少Ref菜", "meat");
+    const [item] = acceptItems([{ id: officialId, name: "測試缺少Ref菜" }]);
+
+    await assert.rejects(
+      () => caller.accept({ clientRequestId: "missing-ref-1", items: [{ ...item, recipeId: null }] }),
+      (error: any) => {
+        assert.equal(error?.code, "BAD_REQUEST");
+        assert.match(String(error?.message ?? ""), /重新整理/);
+        assert.doesNotMatch(String(error?.message ?? ""), /invalid_type/);
+        return true;
+      },
+    );
   });
 
   test("non-starter accept charges exactly 1 credit", async () => {
