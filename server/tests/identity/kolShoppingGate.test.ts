@@ -169,7 +169,7 @@ test("shopping router wires the KOL gate into add / addBatch / auto-add", () => 
 
   const addBlock = source.slice(addStart, batchStart);
   assert.match(addBlock, /kolGatedIndexes\(/);
-  assert.match(addBlock, /proRequiredError\(\)/);
+  assert.match(addBlock, /proRequiredError\(\s*"shopping"\s*\)/);
 
   const batchEnd = source.indexOf("  toggleBought: protectedProcedure", batchStart);
   assert.notEqual(batchEnd, -1, "shopping.toggleBought must exist");

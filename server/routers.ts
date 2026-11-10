@@ -703,7 +703,7 @@ const shoppingRouter = router({
 
       // KOL ingredients are a Pro capability; plain/official/own stay free.
       const [kolGated] = await kolGatedIndexes(ctx.activeFamilyId, [link.fromRecipeId]);
-      if (kolGated) throw proRequiredError();
+      if (kolGated) throw proRequiredError("shopping");
 
       const payload = {
         familyId: ctx.activeFamilyId!,

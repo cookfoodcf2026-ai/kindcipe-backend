@@ -66,16 +66,19 @@ export function evaluateShoppingRecipeGate(
  * `PRO_REQUIRED` message prefix plus `cause.code` (same pattern as
  * EMAIL_NOT_VERIFIED / invalid_recipe_ref in this repo).
  */
-export function proRequiredError(): TRPCError {
+export type ProRequiredContext = "plan" | "shopping";
+
+export function proRequiredError(context: ProRequiredContext = "plan"): TRPCError {
+  const where = context === "shopping" ? "加入購物清單" : "加入餐單";
   return new TRPCError({
     code: "FORBIDDEN",
-    message: `${PRO_REQUIRED_ERROR_CODE}: 網紅食譜只限 Pro 用戶加入餐單。`,
-    cause: { code: PRO_REQUIRED_ERROR_CODE },
+    message: `${PRO_REQUIRED_ERROR_CODE}: 網紅食譜只限 Pro 用戶${where}。`,
+    cause: { code: PRO_REQUIRED_ERROR_CODE, context },
   });
 }
 
-export function assertPlanItemGate(decision: PlanItemGateDecision): void {
-  if (!decision.ok) throw proRequiredError();
+export function assertPlanItemGate(decision: PlanItemGateDecision, context: ProRequiredContext = "plan"): void {
+  if (!decision.ok) throw proRequiredError(context);
 }
 
 export function isProRequiredError(error: unknown): boolean {
