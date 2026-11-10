@@ -545,10 +545,30 @@ export const importUsage = pgTable("import_usage", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
   familyMonthUserUniq: uniqueIndex("import_usage_family_month_user_unique").on(t.familyId, t.yearMonth, t.userId),
+  userMonthIdx: index("import_usage_user_month_idx").on(t.userId, t.yearMonth),
 }));
 
 export type ImportUsage = typeof importUsage.$inferSelect;
 export type InsertImportUsage = typeof importUsage.$inferInsert;
+
+// ─── Custom Recipe Usage (never-refunded monthly create ledger) ───────────────
+// Mirrors import_usage: one row per (family, month, user). Free plans count by
+// user_id + year_month (summed across kitchens); paid plans count by
+// family_id + year_month. Deleting a recipe never touches this table.
+export const customRecipeUsage = pgTable("custom_recipe_usage", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  familyId: integer("family_id").notNull().default(0),
+  yearMonth: varchar("year_month", { length: 7 }).notNull(),
+  count: integer("count").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  familyMonthUserUniq: uniqueIndex("custom_recipe_usage_family_month_user_unique").on(t.familyId, t.yearMonth, t.userId),
+  userMonthIdx: index("custom_recipe_usage_user_month_idx").on(t.userId, t.yearMonth),
+}));
+
+export type CustomRecipeUsage = typeof customRecipeUsage.$inferSelect;
+export type InsertCustomRecipeUsage = typeof customRecipeUsage.$inferInsert;
 
 // ─── IAP Transactions (subscription receipts) ─────────────────────────────────
 export const iapTransactions = pgTable("iap_transactions", {

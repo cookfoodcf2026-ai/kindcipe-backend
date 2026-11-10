@@ -7,6 +7,9 @@ import {
   llmCostMonthly,
 } from "../../drizzle/schema";
 import type { LlmCostEvent } from "../_core/llm";
+import { getYearMonthKey } from "./monthKey";
+
+export { getYearMonthKey } from "./monthKey";
 
 export class LlmBudgetError extends Error {
   code = "LLM_BUDGET" as const;
@@ -15,10 +18,6 @@ export class LlmBudgetError extends Error {
     super(reason === "family_cap" ? "Family AI budget reached" : "Member AI budget reached");
     this.reason = reason;
   }
-}
-
-export function getYearMonthKey(date = new Date()): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 export function getNextResetAt(date = new Date()): string {

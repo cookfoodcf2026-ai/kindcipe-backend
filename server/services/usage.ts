@@ -3,6 +3,10 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { familyUsageMonthly, usageEvents } from "../../drizzle/schema";
 import type { PlanLimits } from "./entitlementPolicy";
+import { limitReachedError, type LimitFeature } from "./limitPolicy";
+import { getYearMonthKey } from "./monthKey";
+
+export { getYearMonthKey } from "./monthKey";
 
 export type UsageKind =
   | "ai_chat"
@@ -33,12 +37,6 @@ export class UsageLimitError extends Error {
     this.limit = limit;
     this.used = used;
   }
-}
-
-export function getYearMonthKey(date = new Date()): string {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
 }
 
 function rowsOf(result: unknown): any[] {
@@ -326,15 +324,19 @@ export async function runWithUsage<T>(
 
 export function usageLimitToTRPC(error: unknown): never {
   if (error instanceof UsageLimitError) {
-    const label =
-      error.reason === "AI_CREDITS"
-        ? "AI 用量"
-        : error.reason === "IMPORTS"
-          ? "匯入"
-          : "自訂食譜";
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: `${label}已達到上限（${error.used}/${error.limit}），升級方案可解鎖更多。`,
+    if (error.reason === "AI_CREDITS") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: `AI 用量已達到上限（${error.used}/${error.limit}），升級方案可解鎖更多。`,
+      });
+    }
+    const feature: LimitFeature =
+      error.reason === "IMPORTS" ? "imports" : "custom_recipes";
+    throw limitReachedError({
+      ok: false,
+      feature,
+      limit: error.limit,
+      used: error.used,
     });
   }
   throw error;
