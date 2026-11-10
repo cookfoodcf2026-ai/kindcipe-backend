@@ -21,7 +21,9 @@ const postgres = require("postgres");
     if (famIds.length) {
       starterMeals = (await sql`select count(*)::int n from meal_plans where family_id in ${sql(famIds)} and coalesce(proposed_by_user_id,'') = ${r.id}`)[0].n;
     }
-    const onboarded = starterMeals > 0 ? "✅" : "❌";
+    const ageMin = (Date.now() - new Date(r.created_at).getTime()) / 60000;
+    // 太新嘅用戶仍有機會正在 onboarding：10 分鐘內未完成只標「進行中」，唔好報 ❌
+    const onboarded = starterMeals > 0 ? "✅" : ageMin < 10 ? "⏳" : "❌";
 
     // Voluntary behaviour (after onboarding)
     const ownRecipes = (await sql`select count(*)::int n from custom_recipes where created_by_user_id = ${r.id}`)[0].n;
