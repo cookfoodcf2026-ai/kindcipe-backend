@@ -1,5 +1,6 @@
 import { deriveRecipeFacets, deriveRecipeTags, type DerivedTagInput } from "./chefDerivedTags";
 import type { ChefDishType, ChefMethod, ChefSlots } from "./chefSlots";
+import { toCardRef } from "../lib/cardRef";
 
 export type ChefLibraryRecipe = {
   id: string;
@@ -69,8 +70,14 @@ export function toChefLibraryRecipe(row: Record<string, unknown>): ChefLibraryRe
     tags: asStringArray(row.tags),
   };
   const existing = asStringArray(row.derivedTags);
+  const ref = toCardRef({ source: row.source, id: row.id });
+  const cardId = ref?.officialId != null
+    ? `official_${ref.officialId}`
+    : ref?.customId != null
+      ? `user_${ref.customId}`
+      : `ai_${String(row.id ?? row.name ?? "unknown")}`;
   return {
-    id: `${source}:${String(row.id ?? row.name ?? "")}`,
+    id: cardId,
     name: String(row.name ?? ""),
     ingredients,
     tags: asStringArray(row.tags),

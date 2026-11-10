@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { toCardRef } from "../lib/cardRef";
 import { aiReply } from "../_core/aiReply";
 import { shouldChargeChefRequest } from "./aiChefPolicy";
 import { buildClientMessageKey, getIdempotencyDecision, type IdempotencyCached } from "./aiChefIdempotency";
@@ -150,8 +151,9 @@ function statusFor(
 }
 
 function cardId(recipe: ChefRecipeLike, index: number): string {
-  if (recipe.officialId != null) return `official_${recipe.officialId}`;
-  if (recipe.customId != null) return `custom_${recipe.customId}`;
+  const ref = toCardRef({ officialId: recipe.officialId, customId: recipe.customId });
+  if (ref?.officialId != null) return `official_${ref.officialId}`;
+  if (ref?.customId != null) return `user_${ref.customId}`;
   return `ai_${index}_${recipe.name}`;
 }
 
