@@ -1,5 +1,5 @@
 import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import { ForbiddenError } from "@shared/_core/errors";
+import { ForbiddenError, UnauthorizedError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
@@ -79,13 +79,23 @@ const createOAuthHttpClient = (): AxiosInstance =>
     timeout: AXIOS_TIMEOUT_MS,
   });
 
-class SDKServer {
+export type SDKUserStore = Pick<
+  typeof db,
+  "getUserByOpenId" | "upsertUser"
+>;
+
+export class SDKServer {
   private readonly client: AxiosInstance;
   private readonly oauthService: OAuthService;
+  private readonly userStore: SDKUserStore;
 
-  constructor(client: AxiosInstance = createOAuthHttpClient()) {
+  constructor(
+    client: AxiosInstance = createOAuthHttpClient(),
+    userStore: SDKUserStore = db
+  ) {
     this.client = client;
     this.oauthService = new OAuthService(this.client);
+    this.userStore = userStore;
   }
 
   private deriveLoginMethod(
@@ -288,24 +298,13 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
+    let user = await this.userStore.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // The OAuth server is not configured in production, so a verified session
+    // for an unknown openId can never be recovered by re-syncing. Fail closed
+    // with a 401 instead of calling the OAuth endpoint and returning a 500.
     if (!user) {
-      try {
-        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
-        await db.upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || null,
-          email: userInfo.email ?? null,
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-          lastSignedIn: signedInAt,
-        });
-        user = await db.getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
-      }
+      throw UnauthorizedError("Session no longer valid");
     }
 
     if (!user) {
@@ -316,7 +315,7 @@ class SDKServer {
       throw ForbiddenError("Session expired, please sign in again");
     }
 
-    await db.upsertUser({
+    await this.userStore.upsertUser({
       openId: user.openId,
       lastSignedIn: signedInAt,
     });
