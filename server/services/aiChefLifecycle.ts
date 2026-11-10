@@ -104,7 +104,7 @@ export function hashChefPayload(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
 
-function quickReplyLabel(actionId: ChefReply["quickReplies"][number]["actionId"], lang: string): string {
+export function quickReplyLabel(actionId: ChefReply["quickReplies"][number]["actionId"], lang: string): string {
   const zh: Record<string, string> = {
     complete_cards: "補齊卡數",
     swap_cards: "換一批",
@@ -115,6 +115,7 @@ function quickReplyLabel(actionId: ChefReply["quickReplies"][number]["actionId"]
     retry_search: "再搜尋",
     retry_later: "遲啲再試",
     import_recipe: "匯入食譜",
+    relax_role: "放寬類別",
   };
   const en: Record<string, string> = {
     complete_cards: "Complete set",
@@ -126,6 +127,7 @@ function quickReplyLabel(actionId: ChefReply["quickReplies"][number]["actionId"]
     retry_search: "Search again",
     retry_later: "Try later",
     import_recipe: "Import a recipe",
+    relax_role: "Relax category",
   };
   if (/^(?:en|fil|id)/i.test(lang)) return en[actionId] ?? en.ai_generate;
   return zh[actionId] ?? zh.ai_generate;

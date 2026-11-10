@@ -17,14 +17,22 @@ interface LogEntry {
 function makeDeps(options: {
   rows?: Map<number, MealPlanLookupRow>;
   calls?: number[][];
-} = {}): { deps: ShoppingIdentityDeps; logs: LogEntry[]; metrics: string[]; calls: number[][] } {
+} = {}): {
+  deps: ShoppingIdentityDeps;
+  logs: LogEntry[];
+  metrics: string[];
+  metricCalls: Array<{ name: string; tags?: Record<string, unknown> }>;
+  calls: number[][];
+} {
   const logs: LogEntry[] = [];
   const metrics: string[] = [];
+  const metricCalls: Array<{ name: string; tags?: Record<string, unknown> }> = [];
   const calls: number[][] = options.calls ?? [];
   const rows = options.rows ?? new Map<number, MealPlanLookupRow>();
   return {
     logs,
     metrics,
+    metricCalls,
     calls,
     deps: {
       async getMealPlanRows(_familyId, planIds) {
@@ -39,8 +47,9 @@ function makeDeps(options: {
       log(event, data) {
         logs.push({ event, data });
       },
-      metric(name) {
+      metric(name, tags) {
         metrics.push(name);
+        metricCalls.push({ name, tags });
       },
     },
   };
@@ -272,4 +281,37 @@ test("shopping_add_retry_params captures the retry payload with links", async ()
   });
 
   assert.deepEqual(captured, [payload, payload]);
+});
+
+test("shopping_add_planned_date_fallback emits one metric", async () => {
+  const rows = new Map<number, MealPlanLookupRow>([
+    [10, { recipeId: "official_42", date: "2026-02-01" }],
+  ]);
+  const { deps, metricCalls } = makeDeps({ rows });
+
+  await resolveShoppingAddLink(
+    { familyId: 3, fromMealPlanId: 10, plannedDate: null },
+    deps,
+  );
+
+  const fallback = metricCalls.filter((call) => call.name === "shopping_planned_date_fallback");
+  assert.equal(fallback.length, 1);
+  assert.deepEqual(fallback[0].tags, { familyId: 3, count: 1 });
+});
+
+test("shopping_add_explicit_planned_date does not emit fallback metric", async () => {
+  const rows = new Map<number, MealPlanLookupRow>([
+    [10, { recipeId: "official_42", date: "2026-02-01" }],
+  ]);
+  const { deps, metricCalls } = makeDeps({ rows });
+
+  await resolveShoppingAddLink(
+    { familyId: 3, fromMealPlanId: 10, plannedDate: "2026-02-02" },
+    deps,
+  );
+
+  assert.equal(
+    metricCalls.filter((call) => call.name === "shopping_planned_date_fallback").length,
+    0,
+  );
 });

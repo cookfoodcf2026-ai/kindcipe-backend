@@ -38,8 +38,8 @@ import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVarian
 import { getFamilyEntitlements } from "../services/entitlements";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
-import { applyTruthfulContract, buildChefReply, hashChefPayload } from "../services/aiChefLifecycle";
-import { validateChefReply, claimsRecipeCards } from "../services/chefResponse";
+import { applyTruthfulContract, buildChefReply, hashChefPayload, quickReplyLabel } from "../services/aiChefLifecycle";
+import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
 import { extractTypedAvoid } from "../utils/typedAvoid";
 import { stripAvoidClauses } from "../utils/avoidClause";
@@ -1928,13 +1928,106 @@ function isSoupRecipe(recipe: SuggestedRecipe): boolean {
 
 // 換卡（庫內搜尋）用：只保留同 dishType 嘅 rows，令「換」一定換返同類（湯→湯、肉→肉）。
 // 空 dishType 或唔係 swap 就原樣回（唔篩），避免誤傷非 swap 路徑。
+export function swapRoleDishType(dishType: string): DishType | undefined {
+  const key = String(dishType ?? "").trim().toLowerCase();
+  if (!key) return undefined;
+  // The client marker may use a role name rather than a canonical dish type.
+  // Noodle cards are stored/classified as "carb"; "any" is used by older
+  // clients for the same noodle swap and must not silently yield 0.
+  if (key === "noodle" || key === "any") return "carb";
+  return normalizeDishType(key);
+}
+
 export function filterRowsForSwap(
   rows: Record<string, unknown>[],
   dishType: string,
 ): Record<string, unknown>[] {
-  const target = (dishType ?? "").trim();
-  if (!target) return rows;
+  const raw = String(dishType ?? "").trim();
+  if (!raw) return rows;
+  const target = swapRoleDishType(raw);
+  if (!target) return [];
   return rows.filter((row) => classifyDishType(row) === target);
+}
+
+function excludeRowsByName(
+  rows: Record<string, unknown>[],
+  excludeNames: Iterable<string> = [],
+): Record<string, unknown>[] {
+  const excluded = new Set([...excludeNames].map((name) => normalizeName(String(name))).filter(Boolean));
+  if (excluded.size === 0) return rows;
+  return rows.filter((row) => !excluded.has(normalizeName(String(row?.name ?? ""))));
+}
+
+/** Quick replies offered when a library-only swap genuinely has no cards. */
+export const SWAP_NO_CARDS_QUICK_REPLIES: ChefQuickReply[] = [
+  {
+    actionId: "ai_generate",
+    labelKey: "aiChef.aiGenerate",
+    label: quickReplyLabel("ai_generate", "zh-TW"),
+  },
+  {
+    actionId: "relax_role",
+    labelKey: "aiChef.relaxRole",
+    label: quickReplyLabel("relax_role", "zh-TW"),
+  },
+];
+
+const SWAP_ROLE_QUERY: Record<string, string> = {
+  meat: "肉",
+  seafood: "海鮮",
+  vegetable: "菜",
+  soup: "湯",
+  dessert: "甜品",
+  noodle: "麵",
+  carb: "麵",
+  drink: "飲品",
+};
+
+/** The broad query for the SAME role; never maps one role onto another. */
+export function swapRelaxedRoleQuery(role: string, fallbackQuery = ""): string {
+  const key = String(role ?? "").trim().toLowerCase();
+  return SWAP_ROLE_QUERY[key] ?? String(fallbackQuery ?? "").trim();
+}
+
+/**
+ * Swap relaxation contract: when the strict swap query produced no candidate
+ * for the requested role, retry exactly once with the broad same-role query.
+ * The caller is responsible for dropping excludeNames / seen / scenario when
+ * it builds `search`. Rows from a different role are always discarded.
+ */
+export async function retrySwapOnceRelaxed(params: {
+  role: string;
+  fallbackQuery?: string;
+  firstRows?: Record<string, unknown>[];
+  excludeNames?: string[];
+  count?: number;
+  search: (query: string) => Promise<{ ok: boolean; rows: Record<string, unknown>[] }>;
+}): Promise<{ attempted: boolean; relaxedQuery?: string; rows: Record<string, unknown>[]; searchFailed: boolean }> {
+  const role = String(params.role ?? "").trim();
+  if (!role) return { attempted: false, rows: [], searchFailed: false };
+  const count = Math.max(1, Math.floor(params.count ?? 1));
+  const usableFirstRows = excludeRowsByName(
+    filterRowsForSwap(params.firstRows ?? [], role),
+    params.excludeNames ?? [],
+  );
+  if (usableFirstRows.length > 0) {
+    return { attempted: false, rows: [], searchFailed: false };
+  }
+  const relaxedQuery = swapRelaxedRoleQuery(role, params.fallbackQuery);
+  if (!relaxedQuery) return { attempted: false, rows: [], searchFailed: false };
+  const searched = await params.search(relaxedQuery);
+  if (!searched.ok) {
+    return { attempted: true, relaxedQuery, rows: [], searchFailed: true };
+  }
+  return {
+    attempted: true,
+    relaxedQuery,
+    rows: excludeRowsByName(
+      filterRowsForSwap(searched.rows, role),
+      params.excludeNames ?? [],
+    ).slice(0, count),
+    searchFailed: false,
+  };
 }
 
 // 將餸再細分「家族」（麵/飯/點心/其他），避免 3 餸 1 湯抽到兩款麵/兩款飯
@@ -4040,7 +4133,7 @@ async function processAIChefChatCore(
   knownAllergens?: string[],
   slotPipelineOverride?: ChefSlotPipelineOverride,
   traceId?: string,
-): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent }> {
+): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent; status?: "no_cards" | "clarify"; quickReplies?: ChefQuickReply[] }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -5363,6 +5456,11 @@ async function processAIChefChatCore(
     });
     if (poolFiltered.length >= 2) safeRows = poolFiltered;
 
+    // A swap message carries its own role marker. It must go through the swap
+    // path so excludeNames / role filtering / relaxed retry are honoured — the
+    // generic explicit-term shortcut below uses 7-day seen and can dead-end at
+    // 0 cards in ~0.3s.
+    const isSwapMessage = /庫內搜尋：|同類別：/.test(lastUserText);
     const explicitTermCandidate = extractMealIngredients(lastUserText)[0] ?? "";
     // Scenario words are not dishes: 「素食」「高蛋白」 would otherwise be treated as
     // an explicit item and dead-end at 0 cards on the hotkey path.
@@ -5370,7 +5468,7 @@ async function processAIChefChatCore(
     const explicitTerm = isSpecificFoodTerm(explicitTermCandidate) && !SCENARIO_WORDS_RE.test(explicitTermCandidate)
       ? explicitTermCandidate
       : "";
-    if (explicitTerm) {
+    if (explicitTerm && !isSwapMessage) {
       const semanticRows = safeRows.filter((row) => rowMatchesFoodQuery(row, explicitTerm));
       const scenarioRank = (row: Record<string, unknown>) =>
         search?.scenario && safeParseJsonArray((row as any).scenarioTags).map(String).includes(search.scenario) ? 0 : 1;
@@ -5446,6 +5544,39 @@ async function processAIChefChatCore(
       // 保留原本次序（湯位置不變），下游用 index 對應角色
       let di = 0;
       return picked.map((r) => (isSoupR(r) ? r : ((div.dishes as SuggestedRecipe[])[di++] ?? r)));
+    };
+
+    /**
+     * Library swap relaxation:
+     *  - retry ONCE with the broad same-role keyword
+     *  - drop excludeNames, the 7-day seen set and scenario filters
+     *  - always re-filter to the requested role, so relaxation can never cross
+     *    into a different dish type
+     */
+    const tryRelaxedSwap = async (role: string, fallbackQuery: string, count: number) => {
+      const retry = await retrySwapOnceRelaxed({
+        role,
+        fallbackQuery,
+        // The caller only gets here after the strict pass served 0 cards, so
+        // force exactly one relaxed attempt.
+        firstRows: [],
+        excludeNames,
+        count,
+        // Relaxed = same-role keyword only: no keyword, 7-day dedupe, scenario
+        // or cook-time filters. Current card names stay excluded.
+        search: async (query) => {
+          const found = await trySearch(query, 80);
+          return { ok: found.ok, rows: found.ok ? found.rows : [] };
+        },
+      });
+      const safeRoleRows = avoidIngredients.length > 0
+        ? retry.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+        : retry.rows;
+      const cards = retry.attempted
+        ? rowsToSuggested(safeRoleRows, mkExcludeSets([], []), Math.max(1, count))
+        : [];
+      console.log(`[AI Chef][swap] relaxed attempted=${retry.attempted ? 1 : 0} role=${role} query="${retry.relaxedQuery ?? ""}" rows=${safeRoleRows.length} served=${cards.length}`);
+      return { ...retry, roleRows: safeRoleRows, cards };
     };
 
     if (isMealLib) {
@@ -5569,13 +5700,15 @@ async function processAIChefChatCore(
       // 結構化搜尋（hotkey / pantry）：execSearchRecipes 支援 tags/cookTimeMax，行 7 日去重 + fresh 優先
       // 換卡（message 含「庫內搜尋：」）係同一個 session 內 refresh：只排除「現卡 + 已換過」，
       // 唔受 7 日 seen 限制，否則測試期間換兩三次就會被 seen 塞滿 → 太早話「冇卡」。
-      const isSwapRequest = /庫內搜尋：/.test(lastUserText);
+      const isSwapRequest = /庫內搜尋：|同類別：/.test(lastUserText);
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const effExcludeSets = isSwapRequest
         ? mkExcludeSets(excludeNames, excludeNames)
         : excludeSets;
       const swapRows = (rows: Record<string, unknown>[]) =>
-        isSwapRequest ? filterRowsForSwap(rows, swapDishType) : rows;
+        isSwapRequest
+          ? excludeRowsByName(filterRowsForSwap(rows, swapDishType), excludeNames)
+          : rows;
       const searchCount = search.count ?? 1;
       let searchRows: Record<string, unknown>[] = [];
       if (db) {
@@ -5619,6 +5752,24 @@ async function processAIChefChatCore(
           : aiReply(lang, "libOne");
         return { content, recipes: picked, llmUsed };
       }
+      if (isSwapRequest && swapDishType) {
+        const relaxed = await tryRelaxedSwap(swapDishType, search.query ?? "", searchCount);
+        if (relaxed.cards.length > 0) {
+          console.log(`[AI Chef] library swap relaxed: ${relaxed.cards.length} recipes role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}"`);
+          await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
+          return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards, llmUsed };
+        }
+        console.log(`[AI Chef] library swap no_cards role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
+        return {
+          content: aiReply(lang, "libNone"),
+          recipes: [],
+          alternatives: toAlternativeCards(relaxed.roleRows, relaxed.relaxedQuery || swapDishType, allergenList),
+          llmUsed,
+          clarifyReason: "library_miss",
+          status: "clarify" as const,
+          quickReplies: SWAP_NO_CARDS_QUICK_REPLIES.map((reply) => ({ ...reply })),
+        };
+      }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
@@ -5641,7 +5792,10 @@ async function processAIChefChatCore(
         console.log(`[AI Chef] lib_search_fail swap query="${swapQuery}" reason=${swapSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
-      const singleRows = swapSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients));
+      const singleRows = excludeRowsByName(
+        swapSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)),
+        excludeNames,
+      );
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
       const swapSets = mkExcludeSets(excludeNames, excludeNames);
@@ -5666,6 +5820,24 @@ async function processAIChefChatCore(
           if (sameType.length > 0) picked = sameType;
         }
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
+      }
+      if (swapDishType) {
+        const relaxed = await tryRelaxedSwap(swapDishType, swapQuery, 3);
+        if (relaxed.cards.length > 0) {
+          console.log(`[AI Chef] library swap relaxed: ${relaxed.cards.length} recipes role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}"`);
+          await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
+          return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards.slice(0, 3), llmUsed };
+        }
+        console.log(`[AI Chef] library swap no_cards role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
+        return {
+          content: aiReply(lang, "libNone"),
+          recipes: [],
+          alternatives: toAlternativeCards(relaxed.roleRows, relaxed.relaxedQuery || swapQuery, allergenList),
+          llmUsed,
+          clarifyReason: "library_miss",
+          status: "clarify" as const,
+          quickReplies: SWAP_NO_CARDS_QUICK_REPLIES.map((reply) => ({ ...reply })),
+        };
       }
     } else {
       const rawTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
@@ -8879,7 +9051,10 @@ export const aiRecipeRouter = router({
         const libMs = input.aiEntry === "swap_ai" ? 0 : generateMs;
         const aiMs = input.aiEntry === "swap_ai" ? generateMs : 0;
         console.log(`[AI Chef][swap] phase=lib ms=${libMs} served=${served} ai=${aiCardsCount} credits=${creditsCharged}`);
-        console.log(`[AI Chef][swap] phase=ai ms=${aiMs} served=${served} ai=${aiCardsCount} credits=${creditsCharged}`);
+        // Library mode has no AI phase; logging one with ms=0 was misleading.
+        if (mode !== "library") {
+          console.log(`[AI Chef][swap] phase=ai ms=${aiMs} served=${served} ai=${aiCardsCount} credits=${creditsCharged}`);
+        }
         console.log(`[AI Chef][swap] phase=total ms=${Date.now() - swapStartedAt} served=${served} ai=${aiCardsCount} credits=${creditsCharged} timeout=${timeout ? 1 : 0}`);
       }
       if (clientMessageIdEnabled) {

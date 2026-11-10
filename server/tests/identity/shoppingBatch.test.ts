@@ -11,14 +11,22 @@ import {
 function makeDeps(options: {
   rows?: Map<number, MealPlanLookupRow>;
   calls?: number[][];
-} = {}): { deps: ShoppingIdentityDeps; logs: string[]; metrics: string[]; calls: number[][] } {
+} = {}): {
+  deps: ShoppingIdentityDeps;
+  logs: string[];
+  metrics: string[];
+  metricCalls: Array<{ name: string; tags?: Record<string, unknown> }>;
+  calls: number[][];
+} {
   const logs: string[] = [];
   const metrics: string[] = [];
+  const metricCalls: Array<{ name: string; tags?: Record<string, unknown> }> = [];
   const calls: number[][] = options.calls ?? [];
   const rows = options.rows ?? new Map<number, MealPlanLookupRow>();
   return {
     logs,
     metrics,
+    metricCalls,
     calls,
     deps: {
       async getMealPlanRows(_familyId, planIds) {
@@ -33,8 +41,9 @@ function makeDeps(options: {
       log(event) {
         logs.push(event);
       },
-      metric(name) {
+      metric(name, tags) {
         metrics.push(name);
+        metricCalls.push({ name, tags });
       },
     },
   };
@@ -345,4 +354,40 @@ test("shopping_batch_dedupe_matrix covers backfill, different recipe and preserv
   const updateC = result.updates.find((row) => row.id === 3);
   assert.ok(updateC);
   assert.equal(updateC.fromRecipeId, "official_1");
+});
+
+test("shopping_batch_planned_date_fallback emits one metric with count", async () => {
+  const rows = new Map<number, MealPlanLookupRow>([
+    [10, { recipeId: "official_42", date: "2026-02-01" }],
+  ]);
+  const { deps, metricCalls } = makeDeps({ rows });
+  const items: BatchShoppingItemInput[] = [
+    { name: "A", fromMealPlanId: 10 },
+    { name: "B", fromMealPlanId: 10 },
+  ];
+
+  const result = await planShoppingBatch({ familyId: 7, items, existing: [] }, deps);
+
+  assert.equal(result.inserts.length, 2);
+  const fallback = metricCalls.filter((call) => call.name === "shopping_planned_date_fallback");
+  assert.equal(fallback.length, 1, "exactly one metric per batch");
+  assert.deepEqual(fallback[0].tags, { familyId: 7, count: 2 });
+});
+
+test("shopping_batch_explicit_planned_date does not emit fallback metric", async () => {
+  const rows = new Map<number, MealPlanLookupRow>([
+    [10, { recipeId: "official_42", date: "2026-02-01" }],
+  ]);
+  const { deps, metricCalls } = makeDeps({ rows });
+  const items: BatchShoppingItemInput[] = [
+    { name: "A", fromMealPlanId: 10, plannedDate: "2026-02-02" },
+    { name: "B", fromMealPlanId: 10, plannedDate: "2026-02-03" },
+  ];
+
+  await planShoppingBatch({ familyId: 7, items, existing: [] }, deps);
+
+  assert.equal(
+    metricCalls.filter((call) => call.name === "shopping_planned_date_fallback").length,
+    0,
+  );
 });

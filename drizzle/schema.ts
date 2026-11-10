@@ -782,7 +782,9 @@ export const chefQueryLog = pgTable("chef_query_log", {
   id: serial("id").primaryKey(),
   familyId: integer("family_id"),
   userId: text("user_id"),
-  rawText: text("raw_text").notNull(),
+  // Nullable so clearHistory can scrub the stored conversation text while
+  // keeping the row for billing/quota audit.
+  rawText: text("raw_text"),
   slots: jsonb("slots"),
   relaxLevel: integer("relax_level"),
   candidates: integer("candidates"),

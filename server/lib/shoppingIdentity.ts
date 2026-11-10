@@ -199,7 +199,12 @@ function resolveWithRows(
 }
 
 export async function resolveShoppingAddLink(
-  input: { familyId: number; fromMealPlanId?: number | null; fromRecipeId?: string | null },
+  input: {
+    familyId: number;
+    fromMealPlanId?: number | null;
+    fromRecipeId?: string | null;
+    plannedDate?: string | null;
+  },
   deps: ShoppingIdentityDeps,
 ): Promise<ResolvedShoppingLink> {
   const planIds = input.fromMealPlanId != null ? [input.fromMealPlanId] : [];
@@ -210,6 +215,12 @@ export async function resolveShoppingAddLink(
       code: "BAD_REQUEST",
       message: `invalid_recipe_ref: ${input.fromRecipeId ?? "null"}`,
     });
+  }
+  const planDate = input.fromMealPlanId != null
+    ? rows.get(input.fromMealPlanId)?.date
+    : null;
+  if (input.plannedDate == null && planDate != null) {
+    deps.metric?.("shopping_planned_date_fallback", { familyId: input.familyId, count: 1 });
   }
   return link;
 }
@@ -299,6 +310,7 @@ export async function planShoppingBatch(
   }));
 
   const reports: BatchItemReport[] = [];
+  let plannedDateFallbackCount = 0;
 
   for (let index = 0; index < input.items.length; index++) {
     const item = input.items[index];
@@ -342,6 +354,15 @@ export async function planShoppingBatch(
       ?? rows.get(planId ?? -1)?.date
       ?? input.fallbackPlannedDate
       ?? null;
+
+    if (
+      item.plannedDate == null &&
+      input.fallbackPlannedDate == null &&
+      planId != null &&
+      rows.get(planId)?.date != null
+    ) {
+      plannedDateFallbackCount++;
+    }
 
     const incoming: WorkingEntry = {
       kind: "insert",
@@ -415,6 +436,13 @@ export async function planShoppingBatch(
         fromMealPlanId: entry.fromMealPlanId,
       });
     }
+  }
+
+  if (plannedDateFallbackCount > 0) {
+    deps.metric?.("shopping_planned_date_fallback", {
+      familyId: input.familyId,
+      count: plannedDateFallbackCount,
+    });
   }
 
   return { inserts, updates, reports };

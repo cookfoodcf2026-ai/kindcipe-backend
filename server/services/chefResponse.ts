@@ -19,7 +19,8 @@ export type ChefActionId =
   | "retry_later"
   | "complete_cards"
   | "swap_cards"
-  | "accept_partial";
+  | "accept_partial"
+  | "relax_role";
 
 export interface ChefCardSnapshot {
   cardId: string;

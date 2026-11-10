@@ -657,6 +657,7 @@ const shoppingRouter = router({
           familyId: ctx.activeFamilyId!,
           fromMealPlanId: input.fromMealPlanId ?? null,
           fromRecipeId: input.fromRecipeId ?? null,
+          plannedDate: input.plannedDate ?? null,
         },
         shoppingIdentityDeps(),
       );
