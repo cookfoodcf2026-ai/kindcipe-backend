@@ -44,6 +44,8 @@ export interface BatchShoppingItemInput {
   plannedDate?: string | null;
   fromRecipeId?: string | null;
   fromMealPlanId?: number | null;
+  /** Pre-computed entitlement gate; gated items are reported and never merged/inserted. */
+  skipReason?: "pro_required" | null;
 }
 
 export interface ExistingShoppingItem {
@@ -78,7 +80,7 @@ export interface BatchItemReport {
   index: number;
   ok: boolean;
   skipped: boolean;
-  reason?: LinkReason | "invalid_name";
+  reason?: LinkReason | "invalid_name" | "pro_required";
   action: "insert" | "merge";
   fromRecipeId: string | null;
   fromMealPlanId: number | null;
@@ -325,6 +327,19 @@ export async function planShoppingBatch(
         reason: "invalid_name",
         action: "insert",
         fromRecipeId: null,
+        fromMealPlanId: planId,
+      });
+      continue;
+    }
+
+    if (item.skipReason) {
+      reports.push({
+        index,
+        ok: false,
+        skipped: true,
+        reason: item.skipReason,
+        action: "insert",
+        fromRecipeId: item.fromRecipeId ?? input.fallbackFromRecipeId ?? null,
         fromMealPlanId: planId,
       });
       continue;

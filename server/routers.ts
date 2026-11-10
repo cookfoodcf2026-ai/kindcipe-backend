@@ -134,7 +134,8 @@ import { mealPlans, shoppingItems, weeklyMenu, familyEatOut, removedFamilyMember
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { planShoppingBatch, persistShoppingItemWithRetry, resolveShoppingAddLink, type ShoppingIdentityDeps } from "./lib/shoppingIdentity";
 import { applyMealPlanDateUpdate, mealPlanRefWriteValue, resolveMealPlanRefOrThrow, validateMealPlanRefBatch } from "./lib/mealPlanIdentity";
-import { PRO_REQUIRED_REASON, assertPlanItemGate, evaluatePlanItemGate } from "./lib/mealPlanProGate";
+import { PRO_REQUIRED_REASON, assertPlanItemGate, evaluatePlanItemGate, evaluateShoppingRecipeGate, proRequiredError } from "./lib/mealPlanProGate";
+import { parseRecipeRef } from "./lib/recipeRef";
 import { createShoppingNormalizer } from "./lib/shoppingNormalizer";
 import { getFamilyEntitlements, isPro } from "./services/entitlements";
 import { loadIdentityMetrics } from "./ops/identityMetrics";
@@ -153,6 +154,36 @@ function shoppingIdentityDeps(): ShoppingIdentityDeps {
     log: (event, data) => console.warn(`[identity] ${event}`, data ?? {}),
     metric: (name, tags) => console.log(`[identity] metric=${name}`, tags ?? {}),
   };
+}
+
+/**
+ * KOL shopping gate. One source-type query per call and at most one Pro check.
+ * Returns a boolean per input ref: true means "gated for this family".
+ * Official refs, plain text (no ref) and own/imported/AI recipes are never gated.
+ */
+async function kolGatedIndexes(
+  familyId: number,
+  rawRefs: Array<string | null | undefined>,
+): Promise<boolean[]> {
+  const refs = rawRefs.map((raw) => parseRecipeRef(raw ?? null));
+  const userIds = [
+    ...new Set(refs.flatMap((ref) => (ref?.type === "user" ? [ref.id] : []))),
+  ];
+  const sourceTypes = await getCustomRecipeSourceTypes(userIds);
+  const hasKol = refs.some(
+    (ref) => ref?.type === "user" && sourceTypes.get(ref.id) === "kol",
+  );
+  const pro = hasKol ? await isPro(familyId) : false;
+  return rawRefs.map((raw, index) => {
+    const ref = refs[index];
+    const sourceType = ref?.type === "user" ? sourceTypes.get(ref.id) ?? null : null;
+    const decision = evaluateShoppingRecipeGate({
+      fromRecipeId: raw ?? null,
+      sourceType,
+      isPro: pro,
+    });
+    return !decision.ok;
+  });
 }
 
 function hkToday(): string {
@@ -670,6 +701,10 @@ const shoppingRouter = router({
         shoppingIdentityDeps(),
       );
 
+      // KOL ingredients are a Pro capability; plain/official/own stay free.
+      const [kolGated] = await kolGatedIndexes(ctx.activeFamilyId, [link.fromRecipeId]);
+      if (kolGated) throw proRequiredError();
+
       const payload = {
         familyId: ctx.activeFamilyId!,
         name: sanitizedName,
@@ -733,16 +768,24 @@ const shoppingRouter = router({
       const existingItems = await getShoppingItems(ctx.activeFamilyId);
       const activeItems = existingItems.filter(i => i.status !== "bought");
 
+      // Gate per item before planning so a blocked KOL row never merges into
+      // (and inflates) a normal row; the rest of the batch still inserts.
+      const kolGated = await kolGatedIndexes(
+        ctx.activeFamilyId,
+        input.items.map((item) => item.fromRecipeId ?? input.fromRecipeId ?? null),
+      );
+
       const planned = await planShoppingBatch(
         {
           familyId: ctx.activeFamilyId,
-          items: input.items.map((item) => ({
+          items: input.items.map((item, index) => ({
             name: item.name,
             unit: item.unit ?? null,
             quantity: item.quantity ?? null,
             plannedDate: item.plannedDate ?? null,
             fromRecipeId: item.fromRecipeId ?? null,
             fromMealPlanId: item.fromMealPlanId ?? null,
+            skipReason: kolGated[index] ? PRO_REQUIRED_REASON : null,
           })),
           fallbackPlannedDate: input.plannedDate ?? null,
           fallbackFromRecipeId: input.fromRecipeId ?? null,
@@ -1033,8 +1076,16 @@ const shoppingRouter = router({
         fromMealPlanId: number;
         plannedDate: string;
       }> = [];
+
+      // Auto-add path after planning: skip KOL plans for free families, but
+      // keep adding ingredients from every other plan in the request.
+      const kolGated = await kolGatedIndexes(
+        ctx.activeFamilyId,
+        mealPlanRows.map((mp) => mp.recipeId),
+      );
       
-      for (const mp of mealPlanRows) {
+      for (const [index, mp] of mealPlanRows.entries()) {
+        if (kolGated[index]) continue;
         const recipeId = mp.recipeId;
         const recipeName = mp.recipeName;
         const plannedDate = mp.date;

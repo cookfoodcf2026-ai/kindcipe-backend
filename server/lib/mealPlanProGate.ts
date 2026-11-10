@@ -9,7 +9,7 @@
  * family's Pro status. No DB, no I/O.
  */
 import { TRPCError } from "@trpc/server";
-import type { RecipeRef } from "./recipeRef";
+import { parseRecipeRef, type RecipeRef } from "./recipeRef";
 
 export const PRO_REQUIRED_ERROR_CODE = "PRO_REQUIRED";
 export const PRO_REQUIRED_REASON = "pro_required";
@@ -32,6 +32,32 @@ export function evaluatePlanItemGate(input: PlanItemGateInput): PlanItemGateDeci
     return { ok: true, skipped: false, reason: null };
   }
   return { ok: false, skipped: true, reason: PRO_REQUIRED_REASON };
+}
+
+export interface ShoppingRecipeGateInput {
+  /** Canonical `official_<n>` / `user_<n>` ref carried by the shopping item. */
+  fromRecipeId: string | null | undefined;
+  /** custom_recipes.source_type for `user_<n>` refs; null/undefined otherwise. */
+  sourceType: string | null | undefined;
+  isPro: boolean;
+}
+
+/**
+ * Same KOL rule as meal plans, applied to shopping ingredients. Official refs,
+ * plain text items (no ref) and user/imported/AI recipes stay free.
+ */
+export function evaluateShoppingRecipeGate(
+  input: ShoppingRecipeGateInput,
+): PlanItemGateDecision {
+  const ref = parseRecipeRef(input.fromRecipeId ?? null);
+  if (!ref) {
+    return { ok: true, skipped: false, reason: null };
+  }
+  return evaluatePlanItemGate({
+    ref,
+    sourceType: ref.type === "user" ? input.sourceType : null,
+    isPro: input.isPro,
+  });
 }
 
 /**

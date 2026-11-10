@@ -34,7 +34,7 @@ import { AI_FILLED_TAG, isTextGroundingWarningEnabled } from "../services/import
 import { applyParseGrounding, issueParseToken, resolveImportIngredients } from "../services/importParseTokenStore";
 import { enqueueRecipeTranslation, invalidateTranslationIfSourceChanged, runMeteredTranslation } from "../services/translationQueue";
 import { classifyImportParseResult, emitImportParseEvent, importTelemetrySource, type ImportStepsSource } from "../services/importTelemetry";
-import { assertProFeature, getFamilyEntitlements } from "../services/entitlements";
+import { getFamilyEntitlements } from "../services/entitlements";
 import { startRecipeImportMeter } from "../services/recipeImportMeter";
 import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
 import { assertCustomRecipeLimit, assertImportLimit } from "../services/limitEnforcement";
@@ -3036,9 +3036,8 @@ ${TAGS_RULE}`;
     }))
     .query(async ({ ctx, input }) => {
       try {
-        if (input.source === "kol" && ctx.activeFamilyId && ctx.clientPlatform !== "native") {
-          await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
-        }
+        // KOL recipes are viewable by free users (owner decision 2026-11-10);
+        // only ADDING a KOL recipe to a meal plan requires Pro (mealPlanProGate).
         const db = await getDb();
         if (!db) return { recipes: [], total: 0, officialCount: 0, customCount: 0, aiCount: 0, kolCount: 0, nextCursor: undefined };
 
@@ -4671,8 +4670,8 @@ ${TAGS_RULE}`;
         plan: ent.plan,
       };
       await assertCustomRecipeLimit(scope, ent.limits);
-      // KOL saves are a Pro capability on every client platform, including native.
-      await assertProFeature(ctx.activeFamilyId, String(ctx.user.id), "kol");
+      // Saving a KOL recipe into your own kitchen is free (owner decision
+      // 2026-11-10). Only meal-plan and shopping-list use is gated.
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
       const [kol] = await db.select().from(customRecipes)

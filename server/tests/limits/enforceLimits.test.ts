@@ -183,7 +183,7 @@ test("quickPlan.accept: free family + KOL recipe → skipped pro_required (pro a
   assert.match(source, /proRequiredError/);
 });
 
-test("native saveKolRecipe: Pro gate applies and KOL provenance is preserved", () => {
+test("saveKolRecipe: free users can save and KOL provenance is preserved", () => {
   const source = readFileSync(
     new URL("../../routers/recipes.ts", import.meta.url),
     "utf8",
@@ -194,8 +194,9 @@ test("native saveKolRecipe: Pro gate applies and KOL provenance is preserved", (
   assert.notEqual(end, -1, "saveKolRecipe block end must be found");
   const block = source.slice(start, end);
 
-  assert.match(block, /assertProFeature\(/);
+  assert.doesNotMatch(block, /assertProFeature\(/);
   assert.doesNotMatch(block, /clientPlatform/);
+  assert.match(block, /assertCustomRecipeLimit\(/);
   assert.match(block, /sourceType:\s*"kol"/);
   assert.doesNotMatch(block, /sourceType:\s*"manual"/);
 });
