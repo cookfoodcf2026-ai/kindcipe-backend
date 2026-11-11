@@ -4064,6 +4064,10 @@ export type ChefPipelineTelemetry = {
 // gets a non-enumerable copy for the router log (never leaks into the response).
 const CHEF_PIPELINE_TELEMETRY = new WeakMap<object, ChefPipelineTelemetry>();
 const CHEF_PIPELINE_RESULT_META = Symbol("chefPipelineTelemetry");
+// Keyed by the caller's inputMessages array (same pattern as telemetry) so the
+// postcondition wrapper can apply the exact swap exclusion set computed by the
+// core without recomputing it after the core has recorded its own served names.
+const CHEF_SWAP_EXCLUSION = new WeakMap<object, string[]>();
 
 function setChefPipelineTelemetry(messages: object, telemetry: ChefPipelineTelemetry): void {
   CHEF_PIPELINE_TELEMETRY.set(messages, telemetry);
@@ -4083,6 +4087,14 @@ function attachChefPipelineTelemetry(result: object, telemetry: ChefPipelineTele
 
 function readChefPipelineTelemetry(result: object): ChefPipelineTelemetry | undefined {
   return (result as Record<symbol, ChefPipelineTelemetry | undefined>)[CHEF_PIPELINE_RESULT_META];
+}
+
+function setSwapExclusion(messages: object, names: string[]): void {
+  CHEF_SWAP_EXCLUSION.set(messages, names);
+}
+
+function getSwapExclusion(messages: object): string[] | undefined {
+  return CHEF_SWAP_EXCLUSION.get(messages);
 }
 
 export type ChefSlotPipelineOverride = {
@@ -4218,6 +4230,21 @@ async function processAIChefChatCore(
     .map((m) => textOf(m))
     .filter(Boolean);
   const stateKey = stateUserId ?? (typeof userId === "number" && Number.isFinite(userId) ? String(userId) : undefined);
+  // Swap invariant: a swap may never return a name the client excluded, a name
+  // the server already showed, or (later in the pipeline) a name this swap chain
+  // produced. The server seen set is read once here, before anything is recorded.
+  const isSwapTurn = /庫內搜尋：|同類別：/.test(lastUserText);
+  let swapExcludeNames: string[] | undefined;
+  if (isSwapTurn) {
+    const stateSeenNames = familyId && stateKey
+      ? (await getLastMealState(familyId, stateKey))?.cardNames ?? []
+      : [];
+    swapExcludeNames = [...new Set([...excludeNames, ...stateSeenNames, ...seenSplit.seen7d])]
+      .map((name) => normalizeName(String(name)))
+      .filter(Boolean);
+    setSwapExclusion(inputMessages, swapExcludeNames);
+    mergedExclude.push(...swapExcludeNames);
+  }
   const historyHasMealShape = Boolean(
     (previousText && planChefTurn(previousText)?.shape)
     || previousTexts.some((text) => planChefTurn(text)?.shape),
@@ -4343,7 +4370,12 @@ async function processAIChefChatCore(
   };
 
   // 將 DB search rows 轉成正確 SuggestedRecipe（source 由 r.source 決定，官方=official）
-  const rowsToSuggested = (rows: Record<string, unknown>[], ex: ExcludeSets, count: number): SuggestedRecipe[] => {
+  const rowsToSuggested = (
+    rows: Record<string, unknown>[],
+    ex: ExcludeSets,
+    count: number,
+    opts: { allowReuse?: boolean } = {},
+  ): SuggestedRecipe[] => {
     const fresh: SuggestedRecipe[] = [];
     const reused: SuggestedRecipe[] = [];
     for (const r of rows) {
@@ -4400,7 +4432,19 @@ async function processAIChefChatCore(
       };
       (isRowExcluded(ex, r) ? reused : fresh).push(rec);
     }
-    // 優先非排除，池盡先翻兜（永遠有卡）
+    // 優先非排除，池盡先翻兜（永遠有卡）。
+    // Swap 例外：池盡就回少啲卡，唔准翻兜任何被排除嘅名。
+    if (opts.allowReuse === false) {
+      const seenNames = new Set<string>();
+      return shuffleArr(fresh)
+        .filter((recipe) => {
+          const key = normalizeName(recipe.name);
+          if (!key || seenNames.has(key)) return false;
+          seenNames.add(key);
+          return true;
+        })
+        .slice(0, count);
+    }
     return [...shuffleArr(fresh), ...shuffleArr(reused)].slice(0, count);
   };
 
@@ -5705,7 +5749,7 @@ async function processAIChefChatCore(
       const isSwapRequest = /庫內搜尋：|同類別：/.test(lastUserText);
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const effExcludeSets = isSwapRequest
-        ? mkExcludeSets(excludeNames, excludeNames)
+        ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
         : excludeSets;
       const swapRows = (rows: Record<string, unknown>[]) =>
         isSwapRequest
@@ -5742,7 +5786,7 @@ async function processAIChefChatCore(
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount);
+      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -5776,7 +5820,7 @@ async function processAIChefChatCore(
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
-      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount);
+      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -5800,8 +5844,8 @@ async function processAIChefChatCore(
       );
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
-      const swapSets = mkExcludeSets(excludeNames, excludeNames);
-      let picked = rowsToSuggested(singleRows, swapSets, 6);
+      const swapSets = mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames);
+      let picked = rowsToSuggested(singleRows, swapSets, 6, { allowReuse: false });
       if (picked.length > 1) {
         // 名直接含 swapQuery 嘅排最前（換湯先至係真湯），fresh 優先次序保留喺第二層
         picked = [...picked].sort((a, b) => (b.name.includes(swapQuery) ? 1 : 0) - (a.name.includes(swapQuery) ? 1 : 0));
@@ -6722,6 +6766,7 @@ export async function applyZeroCardInsurance(
     searchOverride?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>;
     telemetry?: ChefPipelineTelemetry;
     hasImage?: boolean;
+    excludeNames?: string[];
   },
 ): Promise<CoreResult> {
   // Top up thin answers too (「有咩湯水」used to come back with a single card).
@@ -6865,7 +6910,10 @@ export async function applyZeroCardInsurance(
         trendingNames = [];
       }
       const trendRank = new Map(trendingNames.map((name, index) => [normalizeName(name), index]));
-      const libraryPool = rows.map((row) => {
+      const refillRows = (params.excludeNames?.length ?? 0) > 0
+        ? excludeRowsByName(rows, params.excludeNames)
+        : rows;
+      const libraryPool = refillRows.map((row) => {
         const recipe = toChefLibraryRecipe(row);
         const rank = trendRank.get(normalizeName(recipe.name));
         if (rank !== undefined) recipe.popularity = 100 - Math.min(99, rank);
@@ -7030,6 +7078,7 @@ export async function processAIChefChat(
     searchOverride,
     telemetry,
     hasImage,
+    excludeNames: getSwapExclusion(inputMessages as any),
   });
   if (telemetry) attachChefPipelineTelemetry(insured, telemetry);
   return insured;
