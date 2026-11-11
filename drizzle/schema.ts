@@ -187,6 +187,7 @@ export const familyEatOut = pgTable("family_eat_out", {
   familyId: integer("family_id").notNull(),
   date: varchar("date", { length: 16 }).notNull(), // YYYY-MM-DD
   setByUserId: text("set_by_user_id").notNull(),
+  planSnapshot: jsonb("plan_snapshot"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
