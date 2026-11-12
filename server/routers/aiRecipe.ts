@@ -340,6 +340,10 @@ const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
 const LIBRARY_POOL_CACHE: Map<number, { at: number; rows: Record<string, unknown>[] }> = new Map();
 const LIBRARY_POOL_TTL_MS = 60_000;
 const MAX_RECENT_PER_FAMILY = 40;
+// Safety valve for reading the whole 7-day seen window. The window itself is
+// intentionally unbounded (every seen name must be excluded), but a pathological
+// family must not be able to make this query explode. Do not lower below 2000.
+const MAX_SEEN_WINDOW_ROWS = 2000;
 let lastSeenWriteMs = 0;
 
 function nextSeenTimestamp(): number {
@@ -380,6 +384,17 @@ export async function recordServedLibraryCards(familyId: number | undefined, car
   await recordFamilySeenNames(familyId, cards.map((card) => card.name));
 }
 
+/** Split seen rows by window: official uses 7d, custom uses 1d. */
+export function splitSeenWindowRows(
+  rows: Array<{ name: string; seenAt: number | string | Date }>,
+  now: number = Date.now(),
+): { seen7d: string[]; seen1d: string[] } {
+  return {
+    seen7d: rows.map(r => r.name),
+    seen1d: rows.filter(r => now - new Date(r.seenAt).getTime() < SEEN_CUSTOM_EXPIRY_MS).map(r => r.name),
+  };
+}
+
 /** Split recently-shown names by window: official uses 7d, custom uses 1d. */
 export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen7d: string[]; seen1d: string[] }> {
   if (familyId === undefined) return { seen7d: [], seen1d: [] };
@@ -388,15 +403,16 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
     const db = await getDb();
     if (db) {
       const cutoff = new Date(now - SEEN_EXPIRY_MS);
+      // Return the whole 7-day window (not just the newest 40) so every already-
+      // shown official recipe is excluded. Newest-first order feeds the
+      // oldest-first recycle logic in pickSoupMeal.
       const rows = await db
         .select({ name: aiChefSeenRecipes.name, seenAt: aiChefSeenRecipes.seenAt })
         .from(aiChefSeenRecipes)
         .where(and(eq(aiChefSeenRecipes.familyId, familyId), gt(aiChefSeenRecipes.seenAt, cutoff)))
         .orderBy(desc(aiChefSeenRecipes.seenAt), aiChefSeenRecipes.name)
-        .limit(MAX_RECENT_PER_FAMILY);
-      const seen7d = rows.map(r => r.name);
-      const seen1d = rows.filter(r => now - new Date(r.seenAt).getTime() < SEEN_CUSTOM_EXPIRY_MS).map(r => r.name);
-      return { seen7d, seen1d };
+        .limit(MAX_SEEN_WINDOW_ROWS);
+      return splitSeenWindowRows(rows, now);
     }
   } catch (e) {
     console.warn("[AI Chef] getFamilySeenNamesSplit DB failed, fallback memory:", (e as Error)?.message);
@@ -405,10 +421,7 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
   const live = entries
     .filter(e => now - e.seenAt < SEEN_EXPIRY_MS)
     .sort((a, b) => b.seenAt - a.seenAt || a.name.localeCompare(b.name));
-  return {
-    seen7d: live.map(e => e.name),
-    seen1d: live.filter(e => now - e.seenAt < SEEN_CUSTOM_EXPIRY_MS).map(e => e.name),
-  };
+  return splitSeenWindowRows(live, now);
 }
 
 export async function recordFamilySeenNames(familyId: number | undefined, names: string[]): Promise<void> {
@@ -2128,7 +2141,7 @@ function toAlternativeCards(rows: Record<string, unknown>[], term: string, aller
   return allergens.length > 0 ? filterAllergenCards(cards, allergens) : cards;
 }
 
-export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = []): SuggestedRecipe[] {
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void): SuggestedRecipe[] {
   // 忌口／過敏原喺「揀任何一張卡之前」就要剔走（包括湯）。
   // 之前只有部分 caller 先過濾，library 路徑嘅湯就繞過咗 → 實測出花生湯。
   if (avoid.length > 0) rows = rows.filter((row) => !rowContainsAvoid(row, avoid));
@@ -2280,21 +2293,58 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     });
     return out;
   };
-  const pickN = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
-    if (n <= 0 || arr.length === 0) return [];
-    const fresh = arr.filter(r => !isRowExcluded(ex, r));
-    const reused = arr.filter(r => isRowExcluded(ex, r));
-    return keywordFirst(fresh.length > 0 ? fresh : reused).slice(0, n);
+  // seenOrder is newest-first (0 = seen most recently). When a category runs out
+  // of unseen names we recycle the names the family has not seen for the longest,
+  // i.e. the highest seen index first. Names excluded for other reasons (client
+  // exclusion, trending) are not in seenOrder and go last.
+  const seenRank = new Map<string, number>();
+  seenOrder.forEach((name, index) => {
+    const key = normalizeName(name);
+    if (key && !seenRank.has(key)) seenRank.set(key, index);
+  });
+  const recycleOldestFirst = (arr: Record<string, unknown>[]): Record<string, unknown>[] =>
+    arr
+      .map((row, index) => ({
+        row,
+        index,
+        rank: seenRank.get(normalizeName(String(row.name ?? ""))),
+      }))
+      .sort((a, b) => {
+        if (a.rank === undefined && b.rank === undefined) return a.index - b.index;
+        if (a.rank === undefined) return 1;
+        if (b.rank === undefined) return -1;
+        return b.rank - a.rank || a.index - b.index;
+      })
+      .map((entry) => entry.row);
+  const reportRecycle = (dishType: string, recycled: Record<string, unknown>[]): void => {
+    if (!onRecycle) return;
+    const seenCount = recycled.filter(
+      (row) => seenRank.has(normalizeName(String(row.name ?? ""))),
+    ).length;
+    if (seenCount > 0) onRecycle(dishType, seenCount);
   };
 
-  const soup = pickN(soupPool, Math.min(soupCount, 3));
-  const usedFams = new Set<string>();
-  // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），custom 優先，fresh 優先次序保留
-  const pickNByFamily = (arr: Record<string, unknown>[], n: number): Record<string, unknown>[] => {
+  const pickN = (arr: Record<string, unknown>[], n: number, dishType: string): Record<string, unknown>[] => {
     if (n <= 0 || arr.length === 0) return [];
     const fresh = arr.filter(r => !isRowExcluded(ex, r));
     const reused = arr.filter(r => isRowExcluded(ex, r));
-    const pool = (fresh.length > 0 ? fresh : reused).sort((a, b) => {
+    const picked = keywordFirst(fresh).slice(0, n);
+    if (picked.length < n) {
+      const recycled = recycleOldestFirst(reused).slice(0, n - picked.length);
+      reportRecycle(dishType, recycled);
+      picked.push(...recycled);
+    }
+    return picked;
+  };
+
+  const soup = pickN(soupPool, Math.min(soupCount, 3), "soup");
+  const usedFams = new Set<string>();
+  // 揀餸時偏好同已揀「唔同家族」嘅餸（避免兩款麵/兩款飯），custom 優先，fresh 優先次序保留
+  const pickNByFamily = (arr: Record<string, unknown>[], n: number, dishType: string): Record<string, unknown>[] => {
+    if (n <= 0 || arr.length === 0) return [];
+    const fresh = arr.filter(r => !isRowExcluded(ex, r));
+    const reused = arr.filter(r => isRowExcluded(ex, r));
+    const orderFresh = (pool: Record<string, unknown>[]) => [...pool].sort((a, b) => {
       if (scenarioKeywordActive) {
         const ka = hasElectricKeyword(a) ? 0 : 1;
         const kb = hasElectricKeyword(b) ? 0 : 1;
@@ -2307,16 +2357,24 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
       const pb = usedFams.has(dishFamily(String(b.name ?? ""))) ? 1 : 0;
       return pa - pb || Math.random() - 0.5;
     });
-    return pool.slice(0, n);
+    const picked = orderFresh(fresh).slice(0, n);
+    if (picked.length < n) {
+      const recycled = recycleOldestFirst(reused)
+        .filter((row) => !picked.includes(row))
+        .slice(0, n - picked.length);
+      reportRecycle(dishType, recycled);
+      picked.push(...recycled);
+    }
+    return picked;
   };
-  const addDish = (arr: Record<string, unknown>[], n: number) => {
-    const picked = pickNByFamily(arr, n);
+  const addDish = (arr: Record<string, unknown>[], n: number, dishType: string) => {
+    const picked = pickNByFamily(arr, n, dishType);
     picked.forEach(r => usedFams.add(dishFamily(String(r.name ?? ""))));
     return picked;
   };
 
   let dishes: Record<string, unknown>[] = [];
-  dishes = dishes.concat(addDish(meatPool, 1));
+  dishes = dishes.concat(addDish(meatPool, 1, "meat"));
   // 海鮮位：魚/豆腐/蛋 50%、魷魚/蜆/蝦 30%、其他海鮮 20%（weighted，魚豆腐蛋出最多）
   const seafoodSlot = () => {
     const nm = (r: Record<string, unknown>) => String(r.name ?? "");
@@ -2324,35 +2382,35 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     const isSquidClamShrimp = (r: Record<string, unknown>) => /魷魚|章魚|墨魚|蜆|蠔|蝦/.test(nm(r));
     if (scenarioKeywordActive) {
       const keywordSeafood = seafoodPool.filter(hasElectricKeyword);
-      if (keywordSeafood.length > 0) return addDish(keywordSeafood, 1);
+      if (keywordSeafood.length > 0) return addDish(keywordSeafood, 1, "seafood");
     }
     const groups = [
       { arr: seafoodPool.filter(isFishTofuEgg), w: 50 },
       { arr: seafoodPool.filter(isSquidClamShrimp), w: 30 },
       { arr: seafoodPool.filter(r => !isFishTofuEgg(r) && !isSquidClamShrimp(r)), w: 20 },
     ].filter(g => g.arr.length > 0);
-    if (groups.length === 0) return addDish(seafoodPool, 1);
+    if (groups.length === 0) return addDish(seafoodPool, 1, "seafood");
     const total = groups.reduce((s, g) => s + g.w, 0);
     let r = Math.random() * total;
-    for (const g of groups) { r -= g.w; if (r <= 0) return addDish(g.arr, 1); }
-    return addDish(groups[groups.length - 1].arr, 1);
+    for (const g of groups) { r -= g.w; if (r <= 0) return addDish(g.arr, 1, "seafood"); }
+    return addDish(groups[groups.length - 1].arr, 1, "seafood");
   };
   dishes = dishes.concat(seafoodSlot());
-  dishes = dishes.concat(addDish(vegPool, 1));
+  dishes = dishes.concat(addDish(vegPool, 1, "vegetable"));
   // 主食（麵/飯）唔做餸（上面 pool 已排除）。先 1肉+1海鮮+1菜，缺就先由 otherPool 補，再到全 dishPool 補齊 dishCount 餸
   let want = dishCount - dishes.length;
   if (want > 0) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(otherPool.filter(r => !already.has(r)), want));
+    dishes = dishes.concat(addDish(otherPool.filter(r => !already.has(r)), want, "other"));
   }
   if (dishes.length < dishCount) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length));
+    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length, "dish"));
   }
   // 極兜底：連非主食餸都唔夠先准用主食（保證唔少過 dishCount 餸）
   if (dishes.length < dishCount) {
     const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length));
+    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length, "dish"));
   }
 
   let picked = [...soup, ...dishes];
@@ -4057,6 +4115,9 @@ export type ChefPipelineTelemetry = {
   relaxLevel: number | null;
   candidates: number;
   reason: string;
+  // Set only when a category ran dry and already-seen recipes were recycled,
+  // e.g. "soup:1,seafood:2". Logged to chef_query_log.reason (no new column).
+  recycle?: string;
 };
 
 // Keyed by the caller's inputMessages array so the wrapper can read the same
@@ -4280,6 +4341,17 @@ async function processAIChefChatCore(
     reason: "not_run",
   };
   setChefPipelineTelemetry(inputMessages, pipelineTelemetry);
+  // Oldest-first recycle counts, e.g. Map { soup => 1 }. Flushed into
+  // pipelineTelemetry.recycle so chef_query_log.reason can distinguish
+  // "no fresh recipes left" from a normal pick.
+  const recycleCounts = new Map<string, number>();
+  const noteRecycle = (dishType: string, count: number): void => {
+    if (count <= 0) return;
+    recycleCounts.set(dishType, (recycleCounts.get(dishType) ?? 0) + count);
+    pipelineTelemetry.recycle = [...recycleCounts.entries()]
+      .map(([type, n]) => `${type}:${n}`)
+      .join(",");
+  };
   let requestedCount = chefIntent.requested.total > 0 ? chefIntent.requested.total : null;
   let forceNoCards = hasImage || !chefIntent.wantsCards;
   let isPlain = !chefIntent.wantsCards;
@@ -5204,7 +5276,7 @@ async function processAIChefChatCore(
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
       const vegSafe = avoidIngredients.length > 0 ? vegPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegPool.rows;
-      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, "vegetarian", seenSplit.seen7d, avoidIngredients);
+      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, "vegetarian", seenSplit.seen7d, avoidIngredients, noteRecycle);
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0 ? arr.map((r) => ({ ...r, servings: people })) : arr;
       const cards = applyServings(vegPicked);
@@ -5638,7 +5710,7 @@ async function processAIChefChatCore(
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
       // 診斷用（暫時）：如果 avoid 有值但仲出到忌口食材，呢行會顯示 pool 有冇被過濾。
       console.log(`[AI Chef] meal_lib avoid=${avoidIngredients.join("|") || "none"} pool=${safeRows.length} dishes=${libCount.dishCount} soups=${libCount.soupCount}`);
-      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients);
+      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle);
       // OC review：diversify 會再由 pool 揀卡，所以 pool 必須同一個「已剔忌口」版本，
       // 唔可以靠上游巧合。呢個 filter 係 idempotent，重複做無害。
       const poolForDiversify = avoidIngredients.length > 0
@@ -6218,12 +6290,24 @@ async function processAIChefChatCore(
       const safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
-      const libMealRaw = pickSoupMeal(safeLibRows, excludeSets, mealCount.dishCount, mealCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients);
+      const libMealRecycle = new Map<string, number>();
+      const libMealRaw = pickSoupMeal(
+        safeLibRows,
+        excludeSets,
+        mealCount.dishCount,
+        mealCount.soupCount,
+        search?.scenario,
+        seenSplit.seen7d,
+        avoidIngredients,
+        (type, n) => libMealRecycle.set(type, (libMealRecycle.get(type) ?? 0) + n),
+      );
       // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
       let libMeal = libMealRaw;
+      let libMealRecycleUsed = libMealRecycle;
       if ((process.env.MEAL_DIVERSITY_ENABLED ?? "false") !== "false" && libMealRaw.length >= 2) {
         const before = collisionScore(libMealRaw as any[]);
         if (before > 0) {
+          const retryRecycle = new Map<string, number>();
           const retry = pickSoupMeal(
             safeLibRows,
             mkExcludeSets([...seenSplit.seen7d, ...libMealRaw.map((r) => r.name)], [...seenSplit.seen1d]),
@@ -6231,15 +6315,19 @@ async function processAIChefChatCore(
             mealCount.soupCount,
             search?.scenario,
             seenSplit.seen7d,
+            [],
+            (type, n) => retryRecycle.set(type, (retryRecycle.get(type) ?? 0) + n),
           );
           const after = collisionScore(retry as any[]);
           if (retry.length >= libMealRaw.length && after < before) {
             libMeal = retry;
+            libMealRecycleUsed = retryRecycle;
             console.log(`[AI Chef] diversity repick collisions=${before}->${after}`);
           }
         }
       }
       if (libMeal.length > 0) {
+        for (const [type, n] of libMealRecycleUsed) noteRecycle(type, n);
         const libNames = libMeal.map(r => r.name);
         await recordFamilySeenNames(familyId, libNames);
         if (libMeal.length >= totalWanted) {
@@ -9292,7 +9380,7 @@ export const aiRecipeRouter = router({
         credits: creditsCharged,
         llmCalls: meter.calls,
         durationMs: Date.now() - reqStartedAt,
-        reason: `${result.clarifyReason ?? effectiveIntent.reason}${pipelineTelemetry?.skipReason ? `|skip=${pipelineTelemetry.skipReason}` : ""}`,
+        reason: `${result.clarifyReason ?? effectiveIntent.reason}${pipelineTelemetry?.skipReason ? `|skip=${pipelineTelemetry.skipReason}` : ""}${pipelineTelemetry?.recycle ? `|recycle=${pipelineTelemetry.recycle}` : ""}`,
         servedSources: sources,
       });
 
