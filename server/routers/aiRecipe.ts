@@ -4296,10 +4296,17 @@ async function processAIChefChatCore(
   // produced. The server seen set is read once here, before anything is recorded.
   const isSwapTurn = /庫內搜尋：|同類別：/.test(lastUserText);
   let swapExcludeNames: string[] | undefined;
+  // Names a swap may never recycle: the client's exclusions (other cards + the
+  // current card) and the session's last meal. Names that are merely inside the
+  // 7-day seen window are NOT here — they may be recycled oldest-first.
+  let swapHardExcludeNames: string[] = [];
   if (isSwapTurn) {
     const stateSeenNames = familyId && stateKey
       ? (await getLastMealState(familyId, stateKey))?.cardNames ?? []
       : [];
+    swapHardExcludeNames = [...new Set([...excludeNames, ...stateSeenNames])]
+      .map((name) => normalizeName(String(name)))
+      .filter(Boolean);
     swapExcludeNames = [...new Set([...excludeNames, ...stateSeenNames, ...seenSplit.seen7d])]
       .map((name) => normalizeName(String(name)))
       .filter(Boolean);
@@ -4446,7 +4453,7 @@ async function processAIChefChatCore(
     rows: Record<string, unknown>[],
     ex: ExcludeSets,
     count: number,
-    opts: { allowReuse?: boolean } = {},
+    opts: { allowReuse?: boolean; seenOrder?: string[]; hardExclude?: string[]; dishType?: string } = {},
   ): SuggestedRecipe[] => {
     const fresh: SuggestedRecipe[] = [];
     const reused: SuggestedRecipe[] = [];
@@ -4505,10 +4512,11 @@ async function processAIChefChatCore(
       (isRowExcluded(ex, r) ? reused : fresh).push(rec);
     }
     // 優先非排除，池盡先翻兜（永遠有卡）。
-    // Swap 例外：池盡就回少啲卡，唔准翻兜任何被排除嘅名。
+    // Swap 例外：fresh 優先；唔夠先由「只係喺 7 日 seen window」嘅池
+    // oldest-first 翻兜（hardExclude 永不再出）；仍然冇卡就回空，行 no_cards。
     if (opts.allowReuse === false) {
       const seenNames = new Set<string>();
-      return shuffleArr(fresh)
+      const picked = shuffleArr(fresh)
         .filter((recipe) => {
           const key = normalizeName(recipe.name);
           if (!key || seenNames.has(key)) return false;
@@ -4516,6 +4524,44 @@ async function processAIChefChatCore(
           return true;
         })
         .slice(0, count);
+      if (picked.length >= count) return picked;
+      const hardExclude = new Set(
+        (opts.hardExclude ?? []).map((name) => normalizeName(String(name))).filter(Boolean),
+      );
+      // seenOrder is newest-first (0 = seen most recently), so highest rank is oldest.
+      const seenRank = new Map<string, number>();
+      (opts.seenOrder ?? []).forEach((name, index) => {
+        const key = normalizeName(String(name));
+        if (key && !seenRank.has(key)) seenRank.set(key, index);
+      });
+      const recycledPool = reused
+        .filter((recipe) => {
+          const key = normalizeName(recipe.name);
+          return Boolean(key) && !hardExclude.has(key);
+        })
+        .map((recipe, index) => ({
+          recipe,
+          index,
+          rank: seenRank.get(normalizeName(recipe.name)),
+        }))
+        .sort((a, b) => {
+          if (a.rank === undefined && b.rank === undefined) return a.index - b.index;
+          if (a.rank === undefined) return 1;
+          if (b.rank === undefined) return -1;
+          return b.rank - a.rank || a.index - b.index;
+        })
+        .map((entry) => entry.recipe);
+      let recycledCount = 0;
+      for (const recipe of recycledPool) {
+        if (picked.length >= count) break;
+        const key = normalizeName(recipe.name);
+        if (!key || seenNames.has(key)) continue;
+        seenNames.add(key);
+        picked.push(recipe);
+        recycledCount++;
+      }
+      if (recycledCount > 0) noteRecycle(opts.dishType?.trim() || "any", recycledCount);
+      return picked;
     }
     return [...shuffleArr(fresh), ...shuffleArr(reused)].slice(0, count);
   };
@@ -5858,7 +5904,7 @@ async function processAIChefChatCore(
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false } : {});
+      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -5892,7 +5938,7 @@ async function processAIChefChatCore(
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
-      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false } : {});
+      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -5905,6 +5951,7 @@ async function processAIChefChatCore(
       console.warn(`[AI Chef] structured fallback empty scenario=${scenarioKey || "none"} -> incomplete_set`);
       return buildIncompleteSetFallback(lang, llmUsed);
     } else if (swapQuery) {
+      const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const swapSearch = await trySearch(swapQuery, 30);
       if (!swapSearch.ok) {
         console.log(`[AI Chef] lib_search_fail swap query="${swapQuery}" reason=${swapSearch.reason}`);
@@ -5917,26 +5964,23 @@ async function processAIChefChatCore(
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
       const swapSets = mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames);
-      let picked = rowsToSuggested(singleRows, swapSets, 6, { allowReuse: false });
+      // 先按 dishType 過濾，再交畀 rowsToSuggested 翻兜；否則會翻兜錯類再被濾走。
+      const swapFilteredRows = filterRowsForSwap(singleRows, swapDishType);
+      let picked = rowsToSuggested(swapFilteredRows, swapSets, 6, {
+        allowReuse: false,
+        seenOrder: seenSplit.seen7d,
+        hardExclude: swapHardExcludeNames,
+        dishType: swapDishType,
+      });
       if (picked.length > 1) {
         // 名直接含 swapQuery 嘅排最前（換湯先至係真湯），fresh 優先次序保留喺第二層
         picked = [...picked].sort((a, b) => (b.name.includes(swapQuery) ? 1 : 0) - (a.name.includes(swapQuery) ? 1 : 0));
-      }
-      // 強制「同 dishType 替換」（前端 marker「同類別：meat/soup/...」）—— 湯卡換湯、肉卡換肉
-      const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
-      if (swapDishType) {
-        const filtered = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
-        picked = filtered;
       }
       // 食譜庫換 = 純食譜庫：唔用 AI 生成、唔落 generic 池（避免換錯類 / 變 AI 卡）。
       // 搵唔到同類 → 返回空，由前端決定 repeat 定轉 AI。
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}" dishType="${swapDishType}")`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
-        if (swapDishType) {
-          const sameType = picked.filter(r => classifyDishType({ name: r.name, tags: r.tags, dishType: r.dishType, soupType: r.soupType } as unknown as Record<string, unknown>) === swapDishType);
-          if (sameType.length > 0) picked = sameType;
-        }
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
       }
       if (swapDishType) {

@@ -50,12 +50,13 @@ test("swap never returns a name the client excluded, even when it is the only ca
   assert.ok((result.recipes ?? []).every((recipe) => recipe.name !== "清蒸海魚"));
 });
 
-test("swap never returns a name already shown in this session, even when it is the only candidate", async () => {
-  await recordFamilySeenNames(880002, ["清蒸海魚"]);
+test("swap recycles a name that is only in the 7-day seen window", async () => {
+  const familyId = 880002;
+  await recordFamilySeenNames(familyId, ["清蒸海魚"]);
 
   const result = await processAIChefChat(
     [{ role: "user", content: "換一張 庫內搜尋：海鮮" }],
-    880002,
+    familyId,
     undefined,
     "library",
     [],
@@ -70,7 +71,12 @@ test("swap never returns a name already shown in this session, even when it is t
     async () => [seafoodA],
   );
 
-  assert.ok((result.recipes ?? []).every((recipe) => recipe.name !== "清蒸海魚"));
+  assert.equal(result.recipes.length, 1);
+  assert.equal(result.recipes[0]?.name, "清蒸海魚");
+  assert.ok(
+    (result.recipes ?? []).every((recipe) => (recipe.source ?? "ai") !== "ai"),
+    "a recycled swap card must stay a library card, never an AI card",
+  );
 });
 
 test("a second swap in the same session returns no name from the first result", async () => {
@@ -96,13 +102,15 @@ test("a second swap in the same session returns no name from the first result", 
 
   const firstServed = first.recipes[0]?.name;
   assert.ok(firstServed, "first swap should serve a card");
+  // The client sends the cards currently on screen as excludeNames on every swap.
+  const firstCardNames = first.recipes.map((recipe) => recipe.name);
 
   const second = await processAIChefChat(
     [{ role: "user", content: "換一張 庫內搜尋：海鮮" }],
     familyId,
     undefined,
     "library",
-    [],
+    firstCardNames,
     undefined,
     "zh-TW",
     [],
@@ -120,6 +128,99 @@ test("a second swap in the same session returns no name from the first result", 
 const seenRow = (id: number, name: string, dishType: string, source = "official") => ({
   ...row(id, name, dishType),
   source,
+});
+
+test("swap with an exhausted 7-day window recycles the oldest-seen same-category recipe", async () => {
+  const familyId = 880020;
+  const names = ["肉甲", "肉乙", "肉丙", "肉丁", "肉戊"];
+  // Oldest → newest, so the 7-day window (newest-first) ends with 肉甲.
+  for (const name of names) await recordFamilySeenNames(familyId, [name]);
+  const pool = names.map((name, i) => seenRow(300 + i, name, "meat"));
+
+  const result = await processAIChefChat(
+    [{ role: "user", content: "換一張 庫內搜尋：肉；同類別：meat" }],
+    familyId,
+    undefined,
+    "library",
+    [],
+    undefined,
+    "zh-TW",
+    [],
+    false,
+    {},
+    "replace",
+    true,
+    true,
+    async () => pool,
+  );
+
+  assert.ok(result.recipes.length > 0, "an exhausted window must still serve a card");
+  assert.equal(result.recipes[0].name, "肉甲", "must recycle the recipe seen longest ago");
+  assert.equal(result.recipes[0].dishType, "meat");
+  assert.ok(
+    result.recipes.every((recipe) => (recipe.source ?? "ai") !== "ai"),
+    "recycled swap cards must stay library cards",
+  );
+});
+
+test("swap never recycles a hard-excluded name from the client", async () => {
+  const familyId = 880021;
+  const names = ["硬甲", "硬乙"];
+  for (const name of names) await recordFamilySeenNames(familyId, [name]);
+  const pool = names.map((name, i) => seenRow(320 + i, name, "meat"));
+
+  const result = await processAIChefChat(
+    [{ role: "user", content: "換一張 庫內搜尋：肉；同類別：meat" }],
+    familyId,
+    undefined,
+    "library",
+    ["硬甲"],
+    undefined,
+    "zh-TW",
+    [],
+    false,
+    {},
+    "replace",
+    true,
+    true,
+    async () => pool,
+  );
+
+  assert.equal(result.recipes.length, 1);
+  assert.equal(result.recipes[0].name, "硬乙");
+  assert.ok(result.recipes.every((recipe) => recipe.name !== "硬甲"));
+});
+
+test("a swap response never serves the same name twice", async () => {
+  const familyId = 880022;
+  const names = ["重甲", "重乙"];
+  for (const name of names) await recordFamilySeenNames(familyId, [name]);
+  const pool = [
+    seenRow(340, "重甲", "meat"),
+    seenRow(341, "重甲", "meat"),
+    seenRow(342, "重乙", "meat"),
+  ];
+
+  const result = await processAIChefChat(
+    [{ role: "user", content: "換一張 庫內搜尋：肉；同類別：meat" }],
+    familyId,
+    undefined,
+    "library",
+    [],
+    undefined,
+    "zh-TW",
+    [],
+    false,
+    {},
+    "replace",
+    true,
+    true,
+    async () => pool,
+  );
+
+  const cardNames = result.recipes.map((recipe) => recipe.name);
+  assert.ok(cardNames.length > 0);
+  assert.equal(cardNames.length, new Set(cardNames).size, "duplicate names must be deduped");
 });
 
 test("more than 40 seen names are all excluded when fresh names exist", () => {
