@@ -4,6 +4,7 @@ import {
   mkExcludeSets,
   pickSoupMeal,
   processAIChefChat,
+  readChefPipelineTelemetry,
   recordFamilySeenNames,
   splitSeenWindowRows,
 } from "../routers/aiRecipe";
@@ -187,4 +188,62 @@ test("a category with zero fresh names recycles oldest-first", () => {
   assert.equal(picked.length, 1);
   assert.equal(picked[0].name, "肉戊", "should recycle the recipe seen longest ago");
   assert.deepEqual(recycled, [{ dishType: "meat", count: 1 }]);
+});
+
+test("recycle counts are request-scoped", async () => {
+  const familyA = 880010;
+  const familyB = 880011;
+  const poolA = [
+    seenRow(201, "肉甲", "meat"),
+    seenRow(202, "肉乙", "meat"),
+    seenRow(203, "肉丙", "meat"),
+    seenRow(204, "湯甲", "soup"),
+  ];
+  const poolB = [
+    seenRow(211, "菜甲", "vegetable"),
+    seenRow(212, "菜乙", "vegetable"),
+    seenRow(213, "湯乙", "soup"),
+  ];
+  await recordFamilySeenNames(familyA, poolA.map((r) => r.name));
+  await recordFamilySeenNames(familyB, poolB.map((r) => r.name));
+
+  const run = (familyId: number, text: string, rows: Record<string, unknown>[]) =>
+    processAIChefChat(
+      [{ role: "user", content: text }],
+      familyId,
+      undefined,
+      "library",
+      [],
+      undefined,
+      "zh-TW",
+      [],
+      false,
+      {},
+      "replace",
+      false,
+      false,
+      async () => rows,
+    );
+
+  const [resultA, resultB] = await Promise.all([
+    run(familyA, "3餸1湯", poolA),
+    run(familyB, "2餸1湯", poolB),
+  ]);
+  const recycleA = readChefPipelineTelemetry(resultA)?.recycle ?? "";
+  const recycleB = readChefPipelineTelemetry(resultB)?.recycle ?? "";
+
+  assert.match(recycleA, /(^|,)soup:\d+/, "request A should record the recycled soup");
+  assert.match(recycleA, /(^|,)meat:\d+/, "request A should record the recycled meat");
+  assert.doesNotMatch(recycleA, /(^|,)vegetable:/, "request A must not see request B's counts");
+  assert.match(recycleB, /(^|,)soup:\d+/, "request B should record the recycled soup");
+  assert.match(recycleB, /(^|,)vegetable:\d+/, "request B should record the recycled vegetable");
+  assert.doesNotMatch(recycleB, /(^|,)meat:/, "request B must not see request A's counts");
+
+  const countSum = (value: string) =>
+    value
+      .split(",")
+      .filter(Boolean)
+      .reduce((sum, part) => sum + Number(part.split(":")[1] ?? 0), 0);
+  assert.equal(countSum(recycleA), resultA.recipes.length, "request A count should match its recycled cards");
+  assert.equal(countSum(recycleB), resultB.recipes.length, "request B count should match its recycled cards");
 });

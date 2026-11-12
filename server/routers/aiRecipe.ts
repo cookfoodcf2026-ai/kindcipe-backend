@@ -4146,7 +4146,7 @@ function attachChefPipelineTelemetry(result: object, telemetry: ChefPipelineTele
   });
 }
 
-function readChefPipelineTelemetry(result: object): ChefPipelineTelemetry | undefined {
+export function readChefPipelineTelemetry(result: object): ChefPipelineTelemetry | undefined {
   return (result as Record<symbol, ChefPipelineTelemetry | undefined>)[CHEF_PIPELINE_RESULT_META];
 }
 
