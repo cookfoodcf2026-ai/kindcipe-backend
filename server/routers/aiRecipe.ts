@@ -35,7 +35,7 @@ import { findFoodTermPattern, matchesByTermName, matchesByTermIngredient, pickDi
 import { getBackendBaseUrl, storageGetSignedUrl } from "../storage";
 import { officialRecipes, customRecipes, pantryItems, aiChefSeenRecipes } from "../../drizzle/schema";
 import { normalizeQuery, segmentQuery, resolveForeignToChinese, getKeywordVariants } from "./recipes";
-import { getFamilyEntitlements } from "../services/entitlements";
+import { getFamilyEntitlements, type FamilyEntitlements } from "../services/entitlements";
 import { assertCustomRecipeLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, type QuotaScope } from "../services/recipeQuota";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
@@ -7447,6 +7447,129 @@ async function fillStepsLLM(input: { name: string; description?: string; ingredi
   }
 }
 
+export type FillIngredientsInput = {
+  name: string;
+  description?: string;
+  sourceUrl?: string;
+  sourceText?: string;
+};
+
+export type FillIngredient = {
+  name: string;
+  quantity?: string;
+  unit?: string;
+  nameEn?: string;
+  nameFil?: string;
+  nameId?: string;
+};
+
+export type FillIngredientsDeps = {
+  getFamilyEntitlements: typeof getFamilyEntitlements;
+  startLlmMeter: typeof startLlmMeter;
+  runWithUsage: typeof runWithUsage;
+  incrementAiChatUsage: typeof incrementAiChatUsage;
+  generate: (input: FillIngredientsInput) => Promise<FillIngredient[] | null>;
+  localizeIngredients: (ingredients: FillIngredient[]) => Promise<FillIngredient[] | null>;
+  newRequestId: () => string;
+};
+
+/** AI 補材料：只構思材料清單，唔會產生或改動步驟。 */
+async function fillIngredientsLLM(input: FillIngredientsInput): Promise<FillIngredient[] | null> {
+  try {
+    const prompt = `你係家常菜食譜助手。請為以下菜式構思一份合理嘅材料清單，只列材料，唔准寫任何做法或步驟。
+菜名：${input.name}
+${input.description ? `簡介：${input.description}` : ""}
+${input.sourceText ? `原帖文字（只作參考）：${input.sourceText}` : ""}
+${input.sourceUrl ? `來源連結（只係一條連結，唔知實際內容；唔准照抄或假設）：${input.sourceUrl}` : ""}
+規則：
+- 提供 6 至 20 項材料。
+- name 只寫繁體中文材料名，唔准包含做法、句子、步驟、餐具或標點（。！？）。
+- quantity 同 unit 要合理（例如 quantity:"200", unit:"克"；"適量" 可以冇 unit）。
+- 唔確定就用常見寫法並保持簡單；唔准虛構罕見品牌或來源。
+- 只回傳 JSON：{"ingredients":[{"name":"...","quantity":"...","unit":"..."}]}`;
+    const resp = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 1200,
+      temperature: 0.4,
+      timeoutMs: AI_RECIPE_LLM_TIMEOUT_MS,
+      maxRetries: 1,
+      responseFormat: { type: "json_object" },
+    });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    let parsed: any = extractJSON<Record<string, unknown>>(raw);
+    if (!parsed) { try { parsed = JSON.parse(repairJSON(raw)); } catch { parsed = null; } }
+    const list = Array.isArray(parsed?.ingredients)
+      ? parsed.ingredients
+      : Array.isArray(parsed) ? parsed : [];
+    const ingredients: FillIngredient[] = [];
+    for (const item of list) {
+      const source = typeof item === "string" ? { name: item } : item;
+      const name = String(source?.name ?? "").trim();
+      if (!name || name.length > 40) continue;
+      if (/[。！？\n]/.test(name)) continue;
+      const quantity = source?.quantity == null ? "" : String(source.quantity).trim();
+      const unit = source?.unit == null ? "" : String(source.unit).trim();
+      ingredients.push({
+        name,
+        ...(quantity ? { quantity } : {}),
+        ...(unit ? { unit } : {}),
+      });
+      if (ingredients.length >= 20) break;
+    }
+    return ingredients.filter((ing, index) => ingredients.findIndex((x) => x.name === ing.name) === index);
+  } catch (e) {
+    console.warn("[fillIngredients] failed:", (e as Error)?.message);
+    return null;
+  }
+}
+
+/**
+ * Pure-ish core of `fillIngredients`, with dependencies injected so the
+ * no-DB gate can exercise the guards / refund / quota paths.
+ *
+ * Localisation note: `localizeSuggestedRecipe` is recipe-shaped (name + steps +
+ * description); this endpoint only has ingredients, so we reuse its ingredient
+ * branch directly via `localizeIngredientNames` and never touch steps.
+ */
+export async function runFillIngredients(
+  deps: FillIngredientsDeps,
+  params: { familyId: number; userId: string; input: FillIngredientsInput },
+): Promise<{ ingredients: FillIngredient[]; aiGenerated: true }> {
+  const { familyId, userId, input } = params;
+  const ent: FamilyEntitlements | null = await deps.getFamilyEntitlements(familyId, userId);
+  if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
+  if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
+  deps.startLlmMeter({ familyId, userId, route: "ai_fill_ingredients", requestId: deps.newRequestId() });
+  try {
+    const generated = await deps.runWithUsage(
+      {
+        familyId,
+        userId,
+        kind: "ai_edit",
+        limits: ent.limits,
+        idempotencyKey: `ai_fill_ingredients:${familyId}:${userId}:${deps.newRequestId()}`,
+        cost: { credits: 1 },
+      },
+      async () => {
+        const result = await deps.generate(input);
+        if (!result || result.length < 3) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補材料失敗，請再試。" });
+        }
+        return result;
+      }
+    );
+    try { await deps.incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
+    let ingredients = generated;
+    try {
+      const localized = await deps.localizeIngredients(generated);
+      if (Array.isArray(localized) && localized.length === generated.length) ingredients = localized;
+    } catch { /* 翻譯失敗 → 用原文 */ }
+    return { ingredients, aiGenerated: true };
+  } catch (error) {
+    usageLimitToTRPC(error);
+  }
+}
+
 /** C6：由食物相生成 1 個相似食譜（AI 創作，vision）。回傳 null 表示失敗。 */
 async function generateFromImageLLM(imageUrls: string[]): Promise<SuggestedRecipe | null> {
   try {
@@ -7715,6 +7838,30 @@ export const aiRecipeRouter = router({
       } catch (error) {
         usageLimitToTRPC(error);
       }
+    }),
+
+  // AI 補材料：只補材料清單，保留原有（或空白）步驟
+  fillIngredients: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(200),
+      description: z.string().max(2000).optional(),
+      sourceUrl: z.string().url().max(500).optional(),
+      sourceText: z.string().max(4000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
+      return runFillIngredients(
+        {
+          getFamilyEntitlements,
+          startLlmMeter,
+          runWithUsage,
+          incrementAiChatUsage,
+          generate: fillIngredientsLLM,
+          localizeIngredients: localizeIngredientNames,
+          newRequestId: randomUUID,
+        },
+        { familyId: ctx.activeFamilyId, userId: String(ctx.user.id), input }
+      );
     }),
 
   previewEdit: familyWriteProcedure
