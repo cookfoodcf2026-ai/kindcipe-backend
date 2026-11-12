@@ -40,7 +40,7 @@ import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../ser
 import { assertCustomRecipeLimit, assertImportLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, recordImportCreate, type QuotaScope } from "../services/recipeQuota";
 import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
-import { eq, and, or, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
+import { eq, and, or, asc, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
@@ -3309,8 +3309,10 @@ ${TAGS_RULE}`;
         orderByCustom.push(desc(relevanceScoreCustom));
       }
 
-      // 排序：由 recipeSortOrder 決定（每種模式都以 id 收尾，避免同秒並列令分頁重複／漏項）
+      // 排序：由 recipeSortOrder 決定。newest 以 md5(id) 打散同秒批次（仍先排 created_at），
+      // 其他模式及相關度查詢維持 id DESC 作分頁穩定器。
       const sortOrder = recipeSortOrder(input.sort ?? "popular");
+      const isNewest = input.sort === "newest" && searchKeywords.length === 0;
       const officialCols = {
         popularity: officialRecipes.popularity,
         createdAt: officialRecipes.createdAt,
@@ -3328,9 +3330,17 @@ ${TAGS_RULE}`;
         orderByOfficial.length = 0;
         orderByOfficial.push(...officialOrderBy(officialSearchOrder));
       } else {
-        for (const key of sortOrder.official) orderByOfficial.push(desc(officialCols[key]));
+        for (const key of sortOrder.official) {
+          orderByOfficial.push(isNewest && key === "id"
+            ? asc(sql`md5(${officialRecipes.id}::text)`)
+            : desc(officialCols[key]));
+        }
       }
-      for (const key of sortOrder.custom) orderByCustom.push(desc(customCols[key]));
+      for (const key of sortOrder.custom) {
+        orderByCustom.push(isNewest && key === "id"
+          ? asc(sql`md5(${customRecipes.id}::text)`)
+          : desc(customCols[key]));
+      }
 
       // 根據 source 參數決定是否查詢官方/自訂食譜
       const isHotQuery = input.source === "hot";
