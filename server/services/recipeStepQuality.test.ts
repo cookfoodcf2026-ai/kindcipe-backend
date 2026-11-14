@@ -3,7 +3,8 @@ import test from "node:test";
 import { filterValidGeneratedRecipes, hasJsonFragmentStepText, isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "./recipeStepQuality";
 import { shouldChargeChefRequest } from "./aiChefPolicy";
 import { finalizeChefRequest } from "./aiChefFinalization";
-import { generateMissingRecipes } from "../routers/aiRecipe";
+import { generateMissingRecipes, mkExcludeSets, normalizeLibraryRow, pickSoupMeal } from "../routers/aiRecipe";
+import { isDisplayableRecipe, qualityVerdict } from "./recipeQuality";
 import { findUnsafeRecipeTranslations } from "../utils/recipeTranslationGuard";
 
 test("accepts ordinary Chinese steps, including ratios", () => {
@@ -119,6 +120,69 @@ test("translation guard rejects CJK in any _en field", () => {
   assert.deepEqual(findUnsafeRecipeTranslations({
     tipsEn: "先落鑊炒香。",
   }), ["tipsEn contains CJK"]);
+});
+
+test("library raw JSON steps are parsed before the quality gate, so the card survives", () => {
+  const rawRow = {
+    id: 9001,
+    name: "洋蔥炒蛋",
+    ingredients: JSON.stringify([{ name: "洋蔥" }, { name: "雞蛋" }]),
+    steps: JSON.stringify([
+      { instruction: "洋蔥切絲，雞蛋打散。", duration: 4 },
+      { instruction: "中火炒蛋至半熟，盛起。", duration: 2 },
+      { instruction: "炒香洋蔥，回鑊拌勻。", duration: 3 },
+      { instruction: "加鹽調味，上碟。", duration: 1 },
+    ]),
+    tags: JSON.stringify(["家常"]),
+    dishType: "vegetable",
+    recipeCategory: "蔬菜",
+    cookTime: 20,
+    servings: 4,
+    difficulty: "easy",
+  };
+
+  const row = normalizeLibraryRow(rawRow, "official");
+  assert.ok(Array.isArray(row.steps), "normalizeLibraryRow must parse the JSON steps string");
+
+  const cards = pickSoupMeal([row], mkExcludeSets([], []), 1, 0);
+  assert.equal(cards.length, 1, "library card must survive pickSoupMeal");
+  assert.deepEqual(cards[0].steps, [
+    "洋蔥切絲，雞蛋打散。",
+    "中火炒蛋至半熟，盛起。",
+    "炒香洋蔥，回鑊拌勻。",
+    "加鹽調味，上碟。",
+  ]);
+  const verdict = qualityVerdict(cards[0], { source: "library" });
+  assert.equal(verdict.ok, true, verdict.reasons.join("；"));
+});
+
+test("clean 5-step AI main dish passes the quality gate", () => {
+  const card = {
+    name: "番茄炒蛋",
+    ingredients: [{ name: "番茄" }, { name: "雞蛋" }],
+    steps: [
+      "番茄切塊，雞蛋打散備用。",
+      "熱鑊落油，倒入蛋液炒至半熟。",
+      "盛起雞蛋，原鑊炒香番茄。",
+      "番茄軟身後回鑊拌勻。",
+      "加鹽調味後上碟。",
+    ],
+  };
+  assert.equal(isDisplayableRecipe(card, { source: "ai", role: "meat" }), true);
+});
+
+test("truncated 3-step AI main dish is rejected normally but accepted on salvage", () => {
+  const truncated = {
+    name: "番茄炒蛋",
+    ingredients: [{ name: "番茄" }, { name: "雞蛋" }],
+    steps: [
+      "番茄切塊，雞蛋打散備用。",
+      "熱鑊落油，倒入蛋液炒至半熟。",
+      "盛起雞蛋，原鑊炒香番茄。",
+    ],
+  };
+  assert.equal(isDisplayableRecipe(truncated, { source: "ai", role: "meat" }), false);
+  assert.equal(isDisplayableRecipe(truncated, { source: "ai", role: "meat", path: "salvage" }), true);
 });
 
 test("translation guard rejects long copied fil/id names but exempts short proper nouns", () => {

@@ -1458,6 +1458,23 @@ function safeParseJsonArray(value: unknown): unknown[] {
   return [];
 }
 
+export function normalizeLibraryRow(r: Record<string, unknown>, source: "official" | "custom"): Record<string, unknown> {
+  return {
+    source, id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description,
+    descriptionEn: r.descriptionEn, descriptionFil: r.descriptionFil, descriptionId: r.descriptionId, cookTime: r.cookTime,
+    servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
+    ingredients: safeParseJsonArray(r.ingredients as string).slice(0, 8),
+    steps: safeParseJsonArray(r.steps as string), stepsEn: safeParseJsonArray(r.stepsEn as string), stepsFil: safeParseJsonArray(r.stepsFil as string), stepsId: safeParseJsonArray(r.stepsId as string),
+    tags: safeParseJsonArray(r.tags as string),
+    thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
+    scenarioTags: (() => {
+      const userTags = safeParseJsonArray(r.scenarioTagsUser as string).map(String).filter(Boolean);
+      return userTags.length > 0 ? userTags : safeParseJsonArray(r.scenarioTags as string).map(String);
+    })(),
+    scenarioSource: safeParseJsonArray(r.scenarioTagsUser as string).map(String).filter(Boolean).length > 0 ? "user" : "derived",
+  };
+}
+
 const UNION_SCENARIOS = new Set(["highProtein", "vegetarian"]);
 
 function scenarioTagsCondition(table: any, scenario: string) {
@@ -1596,20 +1613,8 @@ export async function execSearchRecipes(
     console.log(`[AI Chef] scenario=${args.scenario} scenario_source=${userRows > 0 ? "user" : "derived"} userRows=${userRows} derivedRows=${allRaw.length - userRows}`);
   }
 
-  const mapRow = (r: Record<string, unknown>, source: "official" | "custom") => ({
-    source, id: r.id, name: r.name, nameEn: r.nameEn, nameFil: r.nameFil, nameId: r.nameId, description: r.description,
-    descriptionEn: r.descriptionEn, descriptionFil: r.descriptionFil, descriptionId: r.descriptionId, cookTime: r.cookTime,
-    servings: r.servings, difficulty: r.difficulty, category: r.recipeCategory,
-    ingredients: safeParseJsonArray(r.ingredients as string).slice(0, 8),
-    steps: safeParseJsonArray(r.steps as string), stepsEn: safeParseJsonArray(r.stepsEn as string), stepsFil: safeParseJsonArray(r.stepsFil as string), stepsId: safeParseJsonArray(r.stepsId as string),
-    tags: safeParseJsonArray(r.tags as string),
-    thumbnailUrl: r.thumbnailUrl, image: r.image, dishType: r.dishType,
-    scenarioTags: (() => {
-      const userTags = safeParseJsonArray(r.scenarioTagsUser as string).map(String).filter(Boolean);
-      return userTags.length > 0 ? userTags : safeParseJsonArray(r.scenarioTags as string).map(String);
-    })(),
-    scenarioSource: safeParseJsonArray(r.scenarioTagsUser as string).map(String).filter(Boolean).length > 0 ? "user" : "derived",
-  });
+  const mapRow = (r: Record<string, unknown>, source: "official" | "custom") =>
+    normalizeLibraryRow(r, source);
 
   // custom 優先，但唔可以擠走全部 official（避免 family 自訂太多令換卡只剩 AI）：
   // custom 先佔最多一半，其餘 official，再補 custom。
