@@ -71,6 +71,7 @@ import {
 } from "../services/usage";
 import { claimAiPhotoUsage, hongKongDay, releaseAiPhotoUsage } from "../services/aiPhotoUsage";
 import { filterValidGeneratedRecipes, isStructurallyCorruptStepText, validateGeneratedRecipeSteps } from "../services/recipeStepQuality";
+import { isDisplayableRecipe, qualityVerdict, type QualityVerdict, type RecipeQualityContext } from "../services/recipeQuality";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -187,7 +188,7 @@ const aiRecipeCardSchema = z.object({
     unit: z.string().default(""),
   })).min(2),
   instructions: z.array(z.string()).default([]),
-  steps: z.array(z.string().min(1)).min(5).refine(
+  steps: z.array(z.string().min(1)).min(1).refine(
     (steps) => steps.every((step) => !isStructurallyCorruptStepText(step)),
     { message: "steps 含 JSON 碎片或非文字內容" },
   ),
@@ -503,7 +504,7 @@ export async function retryRecipeOutputOnce(
   const reason = getRecipeRetryReason(input);
   if (!reason) return { ...input, retried: false, retrySucceeded: false, reason };
   const retriedContent = await retry();
-  const parsed = parseRecipeWithFallback(retriedContent, input.lang ?? "zh-TW");
+  const parsed = parseRecipeWithFallback(retriedContent, input.lang ?? "zh-TW", { salvage: true });
   return {
     content: parsed.content,
     recipes: parsed.recipes,
@@ -710,9 +711,15 @@ function escapeControlCharsInJsonStrings(input: string): string {
   return out;
 }
 
-function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { content: string; recipes: SuggestedRecipe[] } {
+function parseRecipeWithFallback(
+  llmContent: string,
+  lang: string = "zh-TW",
+  options: { salvage?: boolean } = {},
+): { content: string; recipes: SuggestedRecipe[] } {
   llmContent = escapeControlCharsInJsonStrings(llmContent);
   const parseStart = Date.now();
+  const salvageCtx: RecipeQualityContext = options.salvage ? { path: "salvage" } : {};
+  const manualSalvageOptions: ManualConvertQualityOptions = options.salvage ? { path: "salvage" } : {};
   
   let content = llmContent;
   let recipes: SuggestedRecipe[] = [];
@@ -727,14 +734,14 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
       if (Array.isArray(parsed.recipes)) {
         const validated = aiRecipeBatchSchema.safeParse(parsed);
         if (validated.success) {
-          recipes = convertRecipeDataToSuggestedRecipe(validated.data);
+          recipes = convertRecipeDataToSuggestedRecipe(validated.data, salvageCtx);
           console.log(`[AI Chef] Direct JSON parse: ${recipes.length} recipes in ${Date.now() - parseStart}ms`);
           return { content, recipes };
       } else {
         // Zod validation failed - manually convert recipes without schema
         console.warn(`[AI Chef] Zod validation failed, using manual conversion:`, validated.error.issues.slice(0, 2));
         const manualReplyText = typeof parsed.replyText === 'string' ? parsed.replyText : undefined;
-        recipes = manuallyConvertRecipes(parsed.recipes, manualReplyText);
+        recipes = manuallyConvertRecipes(parsed.recipes, manualReplyText, manualSalvageOptions);
         if (recipes.length > 0) {
           content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
           console.log(`[AI Chef] Manual conversion: ${recipes.length} recipes in ${Date.now() - parseStart}ms`);
@@ -756,13 +763,13 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
     if (Array.isArray(extracted.recipes)) {
       const validated = aiRecipeBatchSchema.safeParse(extracted);
       if (validated.success) {
-        recipes = convertRecipeDataToSuggestedRecipe(validated.data);
+        recipes = convertRecipeDataToSuggestedRecipe(validated.data, salvageCtx);
         console.log(`[AI Chef] ExtractJSON parse: ${recipes.length} recipes in ${Date.now() - parseStart}ms`);
         return { content, recipes };
       } else {
         // Manual fallback
         const manualReplyText = typeof extracted.replyText === 'string' ? extracted.replyText : undefined;
-        recipes = manuallyConvertRecipes(extracted.recipes, manualReplyText);
+        recipes = manuallyConvertRecipes(extracted.recipes, manualReplyText, manualSalvageOptions);
         if (recipes.length > 0) {
           content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
           console.log(`[AI Chef] Manual extract conversion: ${recipes.length} recipes`);
@@ -794,12 +801,12 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
         if (Array.isArray(repairedParsed.recipes)) {
           const validated = aiRecipeBatchSchema.safeParse(repairedParsed);
           if (validated.success) {
-            recipes = convertRecipeDataToSuggestedRecipe(validated.data);
+            recipes = convertRecipeDataToSuggestedRecipe(validated.data, salvageCtx);
             console.log(`[AI Chef] repairJSON parse: ${recipes.length} recipes in ${Date.now() - parseStart}ms`);
             return { content, recipes };
           } else {
             const manualReplyText = typeof repairedParsed.replyText === "string" ? repairedParsed.replyText : undefined;
-            recipes = manuallyConvertRecipes(repairedParsed.recipes, manualReplyText);
+            recipes = manuallyConvertRecipes(repairedParsed.recipes, manualReplyText, manualSalvageOptions);
             if (recipes.length > 0) {
               content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
               console.log(`[AI Chef] repairJSON manual conversion: ${recipes.length} recipes`);
@@ -819,7 +826,7 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
       const salvaged = salvageJSON(llmContent);
       if (salvaged && "recipes" in salvaged && Array.isArray(salvaged.recipes)) {
         const manualReplyText = typeof salvaged.replyText === "string" ? salvaged.replyText : undefined;
-        recipes = manuallyConvertRecipes(salvaged.recipes, manualReplyText);
+        recipes = manuallyConvertRecipes(salvaged.recipes, manualReplyText, manualSalvageOptions);
         if (recipes.length > 0) {
           content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
           console.log(`[AI Chef] salvageJSON parse: ${recipes.length} recipes`);
@@ -838,7 +845,7 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
     if (salvagedObjects.length > 0) {
       const replyMatch = llmContent.match(/"replyText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
       const manualReplyText = replyMatch?.[1]?.replace(/\\n/g, "\n").replace(/\\"/g, '"');
-      recipes = manuallyConvertRecipes(salvagedObjects, manualReplyText, 3);
+      recipes = manuallyConvertRecipes(salvagedObjects, manualReplyText, { path: "salvage" });
       if (recipes.length > 0) {
         content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
         console.log(`[AI Chef] balanced salvage: ${recipes.length} recipes`);
@@ -859,7 +866,7 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
         const parsed = JSON.parse(jsonStr);
         if (Array.isArray(parsed.recipes)) {
           const manualReplyText = typeof parsed.replyText === 'string' ? parsed.replyText : undefined;
-          recipes = manuallyConvertRecipes(parsed.recipes, manualReplyText);
+          recipes = manuallyConvertRecipes(parsed.recipes, manualReplyText, manualSalvageOptions);
           if (recipes.length > 0) {
             content = manualReplyText || aiReply(lang, "recommendN", { n: recipes.length });
             console.log(`[AI Chef] Slice parse: ${recipes.length} recipes`);
@@ -893,9 +900,26 @@ function parseRecipeWithFallback(llmContent: string, lang: string = "zh-TW"): { 
  */
 const TEMPLATE_INGREDIENT_NAMES = new Set(["主要食材", "調味料", "配料"]);
 
-function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5): SuggestedRecipe[] {
+type ManualConvertQualityOptions = {
+  minSteps?: number;
+  role?: string;
+  dishType?: string;
+  source?: string;
+  path?: "salvage";
+};
+
+function manuallyConvertRecipes(
+  recipes: any[],
+  replyText?: string,
+  options: number | ManualConvertQualityOptions = {},
+): SuggestedRecipe[] {
   if (!Array.isArray(recipes)) return [];
-  
+
+  const explicitMinSteps = typeof options === "number" ? options : options.minSteps;
+  const baseCtx: RecipeQualityContext = typeof options === "number"
+    ? { source: "ai" }
+    : { source: options.source ?? "ai", role: options.role, dishType: options.dishType, path: options.path };
+
   return recipes.map((r: any): SuggestedRecipe | null => {
     try {
       const name = String(r.name ?? r.title ?? "").trim();
@@ -926,8 +950,28 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5
       const stepsId = mapSteps(r.stepsId);
       
       const validIngredients = ingredients.filter((i: any) => i.name && i.name !== "未知食材" && !TEMPLATE_INGREDIENT_NAMES.has(i.name));
-      if (steps.length < minSteps) return null;
-      if (validIngredients.length < 2) return null;
+      const dishType = baseCtx.dishType ?? classifyDishType({
+        name,
+        tags: r.tags,
+        dishType: r.dishType,
+        soupType: r.soupType,
+        recipeCategory: r.recipeCategory,
+      } as unknown as Record<string, unknown>);
+      const verdict = qualityVerdict(
+        { name, ingredients: validIngredients, steps },
+        { ...baseCtx, dishType, minSteps: explicitMinSteps },
+      );
+      if (!verdict.ok) {
+        console.warn("[recipeQuality] rejected", {
+          route: "manualConvert",
+          name,
+          steps: verdict.steps,
+          minSteps: verdict.minSteps,
+          reasons: verdict.reasons,
+          source: baseCtx.source,
+        });
+        return null;
+      }
 
       return {
         name,
@@ -958,7 +1002,10 @@ function manuallyConvertRecipes(recipes: any[], replyText?: string, minSteps = 5
 /**
  * Helper: Convert validated Zod schema data to SuggestedRecipe[]
  */
-function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeResponseSchema>): SuggestedRecipe[] {
+function convertRecipeDataToSuggestedRecipe(
+  data: z.infer<typeof aiRecipeResponseSchema>,
+  qualityOverride: RecipeQualityContext = {},
+): SuggestedRecipe[] {
   const soupBaseIngredients = ['水', '上湯', '高湯', '清湯', '湯底', '鹽', '糖', '薑', '蔥', '蒜頭'];
 
   const toRecipe = (item: {
@@ -1012,9 +1059,26 @@ function convertRecipeDataToSuggestedRecipe(data: z.infer<typeof aiRecipeRespons
     const filteredIngredients = recipe.ingredients.filter((ing) => !isPlaceholderIngredientName(ing.name));
     const actualIngredients = filteredIngredients.filter((ing) => !soupBaseIngredients.includes(ing.name.trim()));
     const actualSteps = recipe.steps.filter((step) => step.trim().length > 0);
-    const isValid = recipe.name && recipe.name !== "未命名食譜" && recipe.name.length > 1 && actualSteps.length >= 5 && actualIngredients.length >= 2;
-    if (!isValid) return null;
-    return { ...recipe, ingredients: actualIngredients, steps: actualSteps };
+    const candidate = { ...recipe, ingredients: actualIngredients, steps: actualSteps };
+    const dishType = classifyDishType({
+      name: candidate.name,
+      tags: candidate.tags,
+      dishType: candidate.dishType,
+      soupType: candidate.soupType,
+    } as unknown as Record<string, unknown>);
+    const verdict = qualityVerdict(candidate, { source: "ai", dishType, ...qualityOverride });
+    if (!verdict.ok) {
+      console.warn("[recipeQuality] rejected", {
+        route: "parse",
+        name: candidate.name,
+        steps: verdict.steps,
+        minSteps: verdict.minSteps,
+        reasons: verdict.reasons,
+        source: "ai",
+      });
+      return null;
+    }
+    return candidate;
   };
 
   if ("recipes" in data) {
@@ -2645,7 +2709,9 @@ async function generateOneType(
         console.warn("[AI Chef] meal item bad JSON:", raw.slice(0, 120));
         return null;
       }
-      const converted = manuallyConvertRecipes([extracted], undefined, (isDessert || isSoup) ? 4 : 5);
+      const converted = manuallyConvertRecipes([extracted], undefined, {
+        role: isSoup ? "soup" : isDessert ? "dessert" : undefined,
+      });
       const recipe = converted[0] ?? null;
       if (recipe && !recipe.dishType) recipe.dishType = expectedType;
       return recipe;
@@ -2673,8 +2739,9 @@ async function generateOneType(
     return t !== "soup" && t !== "dessert" && t !== "drink";
   };
 
+  const qualityCtx = { source: "ai", role: isSoup ? "soup" : isDessert ? "dessert" : undefined } as const;
   const stepsOk = (rec: SuggestedRecipe | null): boolean =>
-    !!rec && validateGeneratedRecipeSteps(rec).ok;
+    !!rec && isDisplayableRecipe(rec, qualityCtx);
 
   // Original type retry only: no extra retry for step quality.
   const first = await attempt("");
@@ -2686,7 +2753,7 @@ async function generateOneType(
       : "（再強調：你一定要生成一道主菜/小炒，唔可以係湯、羹、湯麵、飯。）";
   const second = await attempt(retryHint);
   if (validateType(second) && stepsOk(second)) return second;
-  const fallback = [second, first].find((rec) => rec && validateGeneratedRecipeSteps(rec).ok);
+  const fallback = [second, first].find((rec) => rec && isDisplayableRecipe(rec, qualityCtx));
   if (fallback) {
     console.warn(`[AI Chef] ${expectedType} slot type-invalid — keeping step-safe fallback`);
     return fallback;
@@ -2809,7 +2876,25 @@ export function dropSeenAiCards(recipes: SuggestedRecipe[], seenNames: Iterable<
   return recipes.filter((recipe) => {
     if (recipe.source && recipe.source !== "ai") return true;
     const name = normalizeName(recipe.name);
-    return !excluded.some((seen) => seen && (seen === name || nameSimilarity(seen, name) >= 0.6));
+    const isSeen = excluded.some((seen) => seen && (seen === name || nameSimilarity(seen, name) >= 0.6));
+    if (!isSeen) return true;
+    const dishType = classifyDishType({
+      name: recipe.name,
+      tags: recipe.tags,
+      dishType: recipe.dishType,
+      soupType: recipe.soupType,
+    } as unknown as Record<string, unknown>);
+    const verdict = qualityVerdict(recipe, { source: recipe.source, dishType });
+    console.warn("[recipeQuality] dropped", {
+      route: "dropSeenAiCards",
+      name: recipe.name,
+      steps: verdict.steps,
+      minSteps: verdict.minSteps,
+      reasons: ["seen_before"],
+      source: recipe.source ?? null,
+      hasImage: Boolean(recipe.image || recipe.thumbnailUrl),
+    });
+    return false;
   });
 }
 
@@ -5461,12 +5546,19 @@ async function processAIChefChatCore(
       return [{ recipe, role, source: "ai" as const }];
     };
     const validateRole = (recipe: SuggestedRecipe, role: RequestedRole): boolean => {
-      const name = String(recipe?.name ?? "").trim();
-      if (!name || name === "未命名食譜" || name.length < 2) return false;
-      if (!Array.isArray(recipe.ingredients) || recipe.ingredients.filter((i) => String(i?.name ?? "").trim()).length < 2) return false;
-      const isLibrary = recipe.source === "official" || recipe.source === "custom";
-      const minSteps = isLibrary ? 1 : (role === "dessert" || role === "soup") ? 4 : 5;
-      if (!Array.isArray(recipe.steps) || recipe.steps.filter((s) => String(s ?? "").trim()).length < minSteps) return false;
+      const verdict = qualityVerdict(recipe, { source: recipe.source, role });
+      if (!verdict.ok) {
+        console.warn("[recipeQuality] rejected", {
+          route: "validateRole",
+          name: recipe?.name,
+          steps: verdict.steps,
+          minSteps: verdict.minSteps,
+          reasons: verdict.reasons,
+          source: recipe?.source ?? null,
+          hasImage: Boolean(recipe?.image || recipe?.thumbnailUrl),
+        });
+        return false;
+      }
       return roleCandidate({
         name: recipe.name,
         tags: recipe.tags,
@@ -6418,10 +6510,19 @@ async function processAIChefChatCore(
     };
     const validateAI = (recipe: SuggestedRecipe, role: RequestedRole): boolean => {
       const name = String(recipe?.name ?? "").trim();
-      if (!name || name === "未命名食譜" || name.length < 2) return false;
-      if (!Array.isArray(recipe.ingredients) || recipe.ingredients.filter((i) => String(i?.name ?? "").trim()).length < 2) return false;
-      const minSteps = (role === "soup" || role === "dessert") ? 4 : 5;
-      if (!Array.isArray(recipe.steps) || recipe.steps.filter((x) => String(x ?? "").trim()).length < minSteps) return false;
+      const verdict = qualityVerdict(recipe, { source: recipe.source ?? "ai", role });
+      if (!verdict.ok) {
+        console.warn("[recipeQuality] rejected", {
+          route: "validateAI",
+          name: recipe?.name,
+          steps: verdict.steps,
+          minSteps: verdict.minSteps,
+          reasons: verdict.reasons,
+          source: recipe?.source ?? "ai",
+          hasImage: Boolean(recipe?.image || recipe?.thumbnailUrl),
+        });
+        return false;
+      }
       const type = classifyDishType({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
       if (role === "soup") return type === "soup" || isSoupRecipe(recipe);
       if (role === "dessert") return type === "dessert";
@@ -6661,11 +6762,26 @@ async function processAIChefChatCore(
   if (!forceNoCards) {
     recipes = recipes.filter((recipe) => {
       const isLibraryRecipe = Boolean(recipe.officialId || recipe.customId || recipe.source === "official" || recipe.source === "custom");
-      const hasName = Boolean(recipe.name && recipe.name !== "未命名食譜" && recipe.name.trim().length >= 2);
-      const hasIngredients = Array.isArray(recipe.ingredients) && recipe.ingredients.length >= 2;
-      const minSteps = isLibraryRecipe ? 1 : (isDessertRecipe(recipe) || isSoupRecipe(recipe)) ? 4 : 5;
-      const hasSteps = Array.isArray(recipe.steps) && recipe.steps.length >= minSteps;
-      return hasName && hasIngredients && hasSteps;
+      const role = isDessertRecipe(recipe) ? "dessert" : isSoupRecipe(recipe) ? "soup" : undefined;
+      const ctx = {
+        source: isLibraryRecipe ? "library" : recipe.source ?? "ai",
+        role,
+        ...(recoveredFromRetry ? { path: "salvage" as const } : {}),
+      };
+      const verdict = qualityVerdict(recipe, ctx);
+      if (!verdict.ok) {
+        console.warn("[recipeQuality] rejected", {
+          route: "final_filter",
+          name: recipe.name,
+          steps: verdict.steps,
+          minSteps: verdict.minSteps,
+          reasons: verdict.reasons,
+          source: ctx.source,
+          hasImage: Boolean(recipe.image || recipe.thumbnailUrl),
+        });
+        return false;
+      }
+      return true;
     });
   }
 
@@ -7702,13 +7818,18 @@ export async function runFillIngredients(
   }
 }
 
+type GeneratedFromImageResult = {
+  recipe: SuggestedRecipe;
+  quality: QualityVerdict;
+};
+
 /** C6：由食物相生成 1 個相似食譜（AI 創作，vision）。回傳 null 表示失敗。 */
-async function generateFromImageLLM(imageUrls: string[]): Promise<SuggestedRecipe | null> {
+async function generateFromImageLLM(imageUrls: string[]): Promise<GeneratedFromImageResult | null> {
   try {
     const basePrompt = `睇以下食物相，**生成一個相似嘅家常菜食譜（AI 創作）**。分析相中菜式（食材、醬汁、煮法），產生一個合理、可煮嘅食譜。
 烹飪邏輯（務必合理）：嫩肉（牛／豬／雞）唔好長時間煮；炒／快煮類肉類最後落；海鮮唔好過熟；蔬菜保持爽脆；醬汁要配主材料；唔好亂組合。
 用繁體中文。**只寫中文，唔好提供英文／菲律賓文／印尼文翻譯**；翻譯由系統另外處理。
-包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-6 步）。
+包含：名稱、描述、煮食時間（分鐘）、難度、份量、食材清單（名稱、數量、單位）、步驟（請精簡，4-6 步；湯／甜品最少 4 步，主菜最少 5 步）。
 ${CHINESE_STEPS_PROMPT_RULES}
 回傳 JSON：{"recipes":[{"name":"...","cookTime":30,"servings":2,"difficulty":"簡單","description":"...","ingredients":[{"name":"...","quantity":"...","unit":"..."}],"steps":["..."]}]}`;
 
@@ -7736,9 +7857,23 @@ ${CHINESE_STEPS_PROMPT_RULES}
           : [];
       recipe = manuallyConvertRecipes(candidates, undefined)[0] ?? null;
     }
-    const quality = recipe ? validateGeneratedRecipeSteps(recipe) : null;
-    if (!recipe || !quality?.ok) {
-      console.warn("[generateFromImage] step quality rejected:", quality?.issues.join("；") ?? "no_recipe");
+    const dishType = recipe
+      ? classifyDishType({
+          name: recipe.name,
+          tags: recipe.tags,
+          dishType: recipe.dishType,
+          soupType: recipe.soupType,
+        } as unknown as Record<string, unknown>)
+      : undefined;
+    const quality = qualityVerdict(recipe, { source: recipe?.source ?? "ai", dishType });
+    if (!recipe || !quality.ok) {
+      console.warn("[recipeQuality] rejected", {
+        route: "generateFromImage",
+        name: recipe?.name,
+        steps: quality.steps,
+        minSteps: quality.minSteps,
+        reasons: recipe ? quality.reasons : ["no_recipe"],
+      });
       return null;
     }
     // Force translations to go through localizeSuggestedRecipe (second call), so
@@ -7746,7 +7881,7 @@ ${CHINESE_STEPS_PROMPT_RULES}
     recipe.stepsEn = undefined;
     recipe.stepsFil = undefined;
     recipe.stepsId = undefined;
-    return recipe;
+    return { recipe, quality };
   } catch (e) {
     console.warn("[generateFromImage] failed:", (e as Error)?.message);
     return null;
@@ -7906,7 +8041,7 @@ export const aiRecipeRouter = router({
         }
       }
       try {
-        const recipe = await runWithUsage(
+        const generated = await runWithUsage(
           {
             familyId,
             userId,
@@ -7917,14 +8052,14 @@ export const aiRecipeRouter = router({
           },
           async () => {
             const urls = await Promise.all(input.storageKeys.map((k) => storageGetSignedUrl(k)));
-            const generated = await generateFromImageLLM(urls);
-            if (!generated) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
-            return generated;
+            const result = await generateFromImageLLM(urls);
+            if (!result) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 生成失敗，請再試。" });
+            return result;
           }
         );
         try { await incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
-        const localized = await localizeSuggestedRecipe(recipe);
-        return { recipe: localized };
+        const localized = await localizeSuggestedRecipe(generated.recipe);
+        return { recipe: localized, quality: generated.quality };
       } catch (error) {
         usageLimitToTRPC(error);
       }
