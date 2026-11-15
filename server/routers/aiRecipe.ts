@@ -6,6 +6,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, repairTruncatedJson, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel, partialSetReply } from "../_core/aiReply";
 import { parseChefConstraints } from "../services/chefConstraints";
+import { buildChefConstraintLayer, computeConstraintShadow } from "../services/chefConstraintLayer";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
@@ -8932,6 +8933,10 @@ export const aiRecipeRouter = router({
         throw error;
       }
       const generateMs = Date.now() - reqStartedAt;
+      // Snapshot BEFORE any existing postcondition/avoid filter runs. The
+      // constraint-layer shadow compares this raw pool against the existing
+      // filtered result; it must never feed back into result.recipes.
+      const preFilterCards = Array.isArray(result.recipes) ? [...result.recipes] : [];
       if (avoidIngredients.length > 0) {
         // Shadow telemetry only: records what the unified matcher would drop
         // from the pre-filter cards. Never used to decide the response.
@@ -9615,6 +9620,16 @@ export const aiRecipeRouter = router({
       const pipelineTelemetry = readChefPipelineTelemetry(result);
       const avoidShadow = (result as any).__avoidShadow
         ?? summarizeAvoidShadow(result.recipes ?? [], avoidIngredients, ALLERGEN_GROUPS);
+      // C1a: decision layer + shadow diff. Read-only: the flag does not gate any
+      // response/credit path yet, and the shadow result is only logged below.
+      const constraintLayer = buildChefConstraintLayer(lastUserText(input.messages) ?? "");
+      const constraintShadow = computeConstraintShadow(
+        preFilterCards,
+        result.recipes ?? [],
+        constraintLayer,
+        avoidIngredients,
+        (card, matcher) => cardPassesHardConstraint(card as SuggestedRecipe, matcher),
+      );
       const textAvoidCount = typedAvoid.length;
       const clientAvoidCount = input.avoidIngredients?.length ?? 0;
       const constraintSource = textAvoidCount > 0 && clientAvoidCount > 0
@@ -9641,6 +9656,8 @@ export const aiRecipeRouter = router({
             wouldDropNames: avoidShadow.wouldDropNames,
             removedByTerm: avoidShadow.removedByTerm,
             matcher: AVOID_MATCHER_VERSION,
+            constraintLayerFlag: flagState.flags.ai_chef_constraint_layer === true,
+            constraintShadow,
             ...((result as any)?.__debug ?? {}),
             finalNames: (result as any)?.__finalNames,
           },
