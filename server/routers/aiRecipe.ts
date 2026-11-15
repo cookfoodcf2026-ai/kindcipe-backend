@@ -7023,23 +7023,6 @@ export function applyChefCardConstraint(
   // A tag the user named is the stronger constraint; re-checking a vague
   // dishType (breakfast → snack) on top of it deleted 燕麥/粥.
   const enforceDishType = Boolean(safeSlots.dishType) && (safeSlots.tags?.length ?? 0) === 0;
-  // Explicit exclusions from the parse ("唔要牛") must drop those cards here too.
-  const slotAvoid = (safeSlots.avoid ?? []).map((term) => normalizeName(term)).filter(Boolean);
-  // Taste words are attributes, not ingredients: 「走辣」 must drop spicy cards.
-  const TASTE_AVOID: Record<string, RegExp> = {
-    "辣": /辣|麻辣|酸辣|spicy|chilli|chili/i,
-    "甜": /甜|糖|dessert|甜品/i,
-    "炸": /炸|deep.?fry/i,
-  };
-  const violatesAvoid = (card: any) => {
-    if (slotAvoid.length === 0) return false;
-    const hay = normalizeName([card.name, ...(Array.isArray(card.ingredients) ? card.ingredients.map((i: any) => String(i?.name ?? i)) : [])].join(" "));
-    return slotAvoid.some((term) => {
-      const taste = Object.keys(TASTE_AVOID).find((key) => term.includes(key));
-      if (taste) return TASTE_AVOID[taste].test(String(card.name ?? "")) || (card.tags ?? []).some((tag: string) => TASTE_AVOID[taste].test(String(tag)));
-      return hay.includes(term);
-    });
-  };
   // A named dish ("韓國炸雞") must appear in the card; otherwise the answer is a
   // different dish that merely shares a word (薑蔥滑雞 for Korean fried chicken).
   const slotKeyword = safeSlots.keyword ? normalizeName(safeSlots.keyword) : "";
@@ -7049,7 +7032,7 @@ export function applyChefCardConstraint(
     return !hay.includes(slotKeyword);
   };
   const mealShape = detectMealShapeLoose(text);
-  const constrained = result.recipes.filter((card) => !violatesAvoid(card) && !missingKeyword(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && !(safeSlots.protein === "seafood" && !mealShape && isPureEggTofuCard(card)) && validateGeneratedCard(
+  const constrained = result.recipes.filter((card) => !missingKeyword(card) && (!enforceDishType || matchesDishTypeName(card.name, safeSlots.dishType!)) && !(safeSlots.protein === "seafood" && !mealShape && isPureEggTofuCard(card)) && validateGeneratedCard(
     {
       name: card.name,
       cookTime: card.cookTime,
