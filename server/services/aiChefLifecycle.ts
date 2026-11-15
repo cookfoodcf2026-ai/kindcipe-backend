@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { toCardRef } from "../lib/cardRef";
-import { aiReply } from "../_core/aiReply";
+import { aiReply, partialSetReply } from "../_core/aiReply";
 import { shouldChargeChefRequest } from "./aiChefPolicy";
 import { buildClientMessageKey, getIdempotencyDecision, type IdempotencyCached } from "./aiChefIdempotency";
 import {
@@ -238,8 +238,8 @@ export function buildChefReply(params: {
           : (result.content || aiReply(lang, "libNone")))
       : params.templateText && status === "cards"
         ? aiReply(lang, operation === "append" ? "cardsAdded" : "cardsReady")
-        : params.templateText && status === "partial_cards" && requested <= 3 && params.explicitMealShape === true
-          ? aiReply(lang, "partialSet", { served, total: requested })
+        : params.templateText && status === "partial_cards" && params.explicitMealShape === true
+          ? partialSetReply(lang, { served, total: requested, missingRoles })
           : result.content;
   const quickReplies = status === "partial_cards" && clarifyReason === "ai_partial"
     ? [
@@ -301,6 +301,18 @@ export function buildChefReply(params: {
     sources,
     quickReplies: quickRepliesWithLabels,
   };
+}
+
+/**
+ * Warnings for an incomplete (partial) chef response. `credits_refunded` is only
+ * truthful when nothing was actually charged; a charged partial must say so.
+ */
+export function partialResponseWarnings(
+  missingRoles: readonly RequestedRole[],
+  creditsCharged: number,
+): string[] {
+  if (missingRoles.length === 0) return [];
+  return ["incomplete_set", creditsCharged > 0 ? "credits_charged_partial" : "credits_refunded"];
 }
 
 /** Add contract fields only when the flag is enabled. OFF must be a no-op. */

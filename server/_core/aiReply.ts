@@ -109,10 +109,10 @@ const DICT: Record<string, Dict> = {
     id: "Menambahkan resep ini:",
   },
   partialSet: {
-    "zh-TW": "我搵到 {{served}} 個，但未能完成你要求嘅 {{total}} 個：",
-    en: "I found {{served}} of the {{total}} recipes you requested:",
-    fil: "Nakahanap ako ng {{served}} sa {{total}} recipe na hiniling mo:",
-    id: "Saya menemukan {{served}} dari {{total}} resep yang Anda minta:",
+    "zh-TW": "我搵到 {{served}} 個，但未能完成你要求嘅 {{total}} 個：仲欠 {{missingDetail}}。",
+    en: "I found {{served}} of the {{total}} recipes you requested; still missing {{missingDetail}}.",
+    fil: "Nakahanap ako ng {{served}} sa {{total}} recipe na hiniling mo; kulang pa ang {{missingDetail}}.",
+    id: "Saya menemukan {{served}} dari {{total}} resep yang Anda minta; masih kurang {{missingDetail}}.",
   },
 };
 
@@ -136,6 +136,53 @@ export function aiReply(
     }
   }
   return s;
+}
+
+function missingDetailLabel(
+  dishCount: number,
+  soupCount: number,
+  lang: string | undefined | null,
+): string {
+  const l = lang === "en" || lang === "fil" || lang === "id" ? lang : "zh-TW";
+  const parts: string[] = [];
+  if (dishCount > 0) {
+    if (l === "en") parts.push(`${dishCount} ${dishCount === 1 ? "dish" : "dishes"}`);
+    else if (l === "fil") parts.push(`${dishCount} ulam`);
+    else if (l === "id") parts.push(`${dishCount} lauk`);
+    else parts.push(`${dishCount} 道菜`);
+  }
+  if (soupCount > 0) {
+    if (l === "en") parts.push(`${soupCount} ${soupCount === 1 ? "soup" : "soups"}`);
+    else if (l === "fil") parts.push(`${soupCount} sabaw`);
+    else if (l === "id") parts.push(`${soupCount} sup`);
+    else parts.push(`${soupCount} 個湯`);
+  }
+  const join = l === "en" ? " and " : l === "zh-TW" ? "、" : l === "fil" ? " at " : " dan ";
+  return parts.join(join);
+}
+
+export type PartialSetReplyParams = {
+  served: number;
+  total: number;
+  missingRoles: readonly string[];
+};
+
+/**
+ * Partial-set copy that states how many dishes / soups are still missing.
+ * `missingRoles` is the structured role list produced by the chef pipeline.
+ */
+export function partialSetReply(
+  lang: string | undefined | null,
+  { served, total, missingRoles }: PartialSetReplyParams,
+): string {
+  const soupMissing = missingRoles.filter((role) => role === "soup").length;
+  const dishMissing = Math.max(0, missingRoles.length - soupMissing);
+  return aiReply(lang, "partialSet", {
+    served,
+    total,
+    missing: missingRoles.length,
+    missingDetail: missingDetailLabel(dishMissing, soupMissing, lang),
+  });
 }
 
 /** Localized dish-set label, e.g. "3 餸 1 湯" / "3 dishes + 1 soup". */

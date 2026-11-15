@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, or, ilike, desc, lte, gt, sql, notInArray, inArray, not } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, repairTruncatedJson, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
-import { aiReply, dishLabel } from "../_core/aiReply";
+import { aiReply, dishLabel, partialSetReply } from "../_core/aiReply";
 import { parseChefConstraints } from "../services/chefConstraints";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
@@ -45,7 +45,7 @@ import { assertCustomRecipeLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, type QuotaScope } from "../services/recipeQuota";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
-import { applyTruthfulContract, buildChefReply, hashChefPayload, quickReplyLabel } from "../services/aiChefLifecycle";
+import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
 import { extractTypedAvoid } from "../utils/typedAvoid";
@@ -5706,7 +5706,7 @@ async function processAIChefChatCore(
       const explicitMealRequest = Boolean(detectMealShapeLoose(lastUserText))
         && /[0-9一二兩三四五六七八九十]\s*(?:道|款|個菜|樣菜|樣餸|餸)|餸|湯/u.test(lastUserText);
       const content = assembled.missingRoles.length > 0 && explicitMealRequest
-        ? aiReply(lang, "partialSet", { served: assembled.served, total: assembled.requested })
+        ? partialSetReply(lang, { served: assembled.served, total: assembled.requested, missingRoles: assembled.missingRoles })
         : missingIngredient && assembled.sources.ai === 0
           ? ingredientMissReply(lang, missingIngredient.term, cards.map((recipe) => recipe.name))
           : assembled.sources.ai > 0
@@ -6661,7 +6661,7 @@ async function processAIChefChatCore(
         : aiReply(lang, "madeTonight", { dish: roleDishLabel });
     } else if (cards.length > 0) {
       parallelContent = detectMealShapeLoose(lastUserText)
-        ? aiReply(lang, "partialSet", { served: cards.length, total: requested.total })
+        ? partialSetReply(lang, { served: cards.length, total: requested.total, missingRoles: missing })
         : aiReply(lang, "libPlusAi", { lib: cards.length, ai: 0 });
     } else {
       parallelContent = aiReply(lang, "cantRecommend");
@@ -9455,6 +9455,12 @@ export const aiRecipeRouter = router({
         : requested > served
           ? effectiveIntent.requested.roles.slice(served)
           : [];
+      // 用戶真係講咗「N 道／餸／湯」但交唔齊：用 structured missingRoles 講清楚
+      // 仲欠幾多道菜／幾個湯，覆蓋 legacy 同 truthful contract 兩條路。
+      const explicitMealShape = /[0-9一二兩三四五六七八九十]\s*(?:道|款|個菜|樣菜|樣餸|餸)|餸|湯/u.test(lastUserText(input.messages) ?? "");
+      if (served > 0 && missingRoles.length > 0 && explicitMealShape) {
+        result.content = partialSetReply(responseLang, { served, total: requested, missingRoles });
+      }
       const sources = (result.recipes ?? []).reduce(
         (acc, recipe) => {
           if (recipe.source === "official" || recipe.source === "custom") acc.library += 1;
@@ -9477,7 +9483,7 @@ export const aiRecipeRouter = router({
           lang: responseLang,
           templateText: true,
           operation: input.operation,
-          explicitMealShape: /[0-9一二兩三四五六七八九十]\s*(?:道|款|個菜|樣菜|樣餸|餸)|餸|湯/u.test(lastUserText(input.messages) ?? ""),
+          explicitMealShape,
           result: {
             content: result.content,
             recipes: result.recipes,
@@ -9538,7 +9544,10 @@ export const aiRecipeRouter = router({
             served,
             missingRoles,
             sources,
-            warnings: missingRoles.length > 0 ? ["incomplete_set", "credits_refunded"] : [],
+            warnings: partialResponseWarnings(
+              missingRoles,
+              shouldCharge && reservationId !== undefined ? requestedCredits : 0,
+            ),
           };
           if (contract) {
             const contractCards = contract.recipes;

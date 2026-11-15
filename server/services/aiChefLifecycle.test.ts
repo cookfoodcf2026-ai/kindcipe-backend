@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aiReply } from "../_core/aiReply";
+import { aiReply, partialSetReply } from "../_core/aiReply";
 import { resolveChefIntent } from "./chefIntent";
 import { processAIChefChat } from "../routers/aiRecipe";
 import {
   ChefIdempotencyConflictError,
+  partialResponseWarnings,
   runChefLifecycle,
   type ChefRequestKey,
   type ChefRequestStore,
@@ -271,4 +272,31 @@ test("same clientMessageId with different payload conflicts before charging", as
   );
   assert.equal(ledger.runCalls, 1);
   assert.equal(ledger.credits, 1);
+});
+
+test("partial warnings: charged partial never claims credits_refunded", () => {
+  const warnings = partialResponseWarnings(["soup"], 1);
+  assert.equal(warnings.includes("credits_refunded"), false);
+  assert.ok(warnings.includes("incomplete_set"));
+  assert.ok(warnings.includes("credits_charged_partial"));
+});
+
+test("partial warnings: unpaid partial claims credits_refunded", () => {
+  const warnings = partialResponseWarnings(["soup"], 0);
+  assert.ok(warnings.includes("credits_refunded"));
+  assert.equal(warnings.includes("credits_charged_partial"), false);
+});
+
+test("partial warnings: complete set has no warnings", () => {
+  assert.deepEqual(partialResponseWarnings([], 1), []);
+  assert.deepEqual(partialResponseWarnings([], 0), []);
+});
+
+test("partial copy states missing dishes and soup in every locale", () => {
+  const roles = ["any", "any", "soup"];
+  assert.match(partialSetReply("zh-TW", { served: 1, total: 4, missingRoles: roles }), /2 道菜、1 個湯/);
+  assert.match(partialSetReply("en", { served: 1, total: 4, missingRoles: roles }), /2 dishes and 1 soup/);
+  assert.match(partialSetReply("fil", { served: 1, total: 4, missingRoles: roles }), /2 ulam at 1 sabaw/);
+  assert.match(partialSetReply("id", { served: 1, total: 4, missingRoles: roles }), /2 lauk dan 1 sup/);
+  assert.match(partialSetReply("zh-TW", { served: 3, total: 4, missingRoles: ["soup"] }), /1 個湯/);
 });
