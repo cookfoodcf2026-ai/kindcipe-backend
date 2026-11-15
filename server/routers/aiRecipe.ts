@@ -6,7 +6,7 @@ import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc"
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, repairTruncatedJson, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel, partialSetReply } from "../_core/aiReply";
 import { parseChefConstraints } from "../services/chefConstraints";
-import { buildChefConstraintLayer, computeConstraintShadow } from "../services/chefConstraintLayer";
+import { applyConstraintGate, buildChefConstraintLayer, computeConstraintShadow } from "../services/chefConstraintLayer";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
@@ -9371,6 +9371,25 @@ export const aiRecipeRouter = router({
         }
       }
 
+      // C2: only when AI_CHEF_CONSTRAINT_LAYER is ON, let the new layer narrow
+      // the final safe cards. Flag OFF keeps the exact same array (and thus the
+      // exact same served/credit path). Zero-card output is vetoed back to the
+      // old cards so flag ON can never turn a working request into 0 cards.
+      const constraintLayer = buildChefConstraintLayer(lastUserText(input.messages) ?? "");
+      const constraintGate = applyConstraintGate(
+        result.recipes ?? [],
+        constraintLayer,
+        avoidIngredients,
+        (card, matcher) => cardPassesHardConstraint(card as SuggestedRecipe, matcher),
+        flagState.flags.ai_chef_constraint_layer === true,
+      );
+      const constraintApplied = constraintGate.applied;
+      const constraintVetoReason = constraintGate.vetoReason;
+      if (constraintApplied) result.recipes = constraintGate.cards;
+      if (constraintVetoReason) {
+        console.log(`[AI Chef] constraint_veto reason=${constraintVetoReason} old=${result.recipes.length}`);
+      }
+
       (result as any).__finalNames = (result.recipes ?? []).map((r: any) => r.name);
       const served = result.recipes?.length ?? 0;
       const requested = effectiveIntent.requested.total;
@@ -9620,9 +9639,9 @@ export const aiRecipeRouter = router({
       const pipelineTelemetry = readChefPipelineTelemetry(result);
       const avoidShadow = (result as any).__avoidShadow
         ?? summarizeAvoidShadow(result.recipes ?? [], avoidIngredients, ALLERGEN_GROUPS);
-      // C1a: decision layer + shadow diff. Read-only: the flag does not gate any
-      // response/credit path yet, and the shadow result is only logged below.
-      const constraintLayer = buildChefConstraintLayer(lastUserText(input.messages) ?? "");
+      // C1a: decision layer + shadow diff. Read-only: the shadow result is only
+      // logged below; the response/credit path is changed exclusively by the C2
+      // gate above.
       const constraintShadow = computeConstraintShadow(
         preFilterCards,
         result.recipes ?? [],
@@ -9657,6 +9676,9 @@ export const aiRecipeRouter = router({
             removedByTerm: avoidShadow.removedByTerm,
             matcher: AVOID_MATCHER_VERSION,
             constraintLayerFlag: flagState.flags.ai_chef_constraint_layer === true,
+            constraintApplied,
+            constraintVeto: constraintVetoReason,
+            constraintVetoReason,
             constraintShadow,
             ...((result as any)?.__debug ?? {}),
             finalNames: (result as any)?.__finalNames,

@@ -142,3 +142,85 @@ test("constraint layer flag defaults OFF and never changes served/recipes/credit
   assert.deepEqual(summarize(on), summarize(off));
   assert.equal(summarize(on).credits, summarize(off).credits);
 });
+
+test("constraint gate: flag OFF returns the exact same cards (no mutation)", async () => {
+  const { applyConstraintGate, buildChefConstraintLayer } = await import("./chefConstraintLayer");
+  const { cardPassesHardConstraint } = await import("../routers/aiRecipe");
+  const cards = [card("蒜蓉蒸蝦", ["蝦"]), card("蒜蓉炒菜心", ["菜心"])];
+  const result = applyConstraintGate(
+    cards,
+    buildChefConstraintLayer("唔要海鮮，整三餸一湯"),
+    [],
+    (item, input) => cardPassesHardConstraint(item, input),
+    false,
+  );
+  assert.equal(result.cards, cards);
+  assert.equal(result.applied, false);
+  assert.equal(result.vetoReason, null);
+  assert.deepEqual(result.cards.map((item) => item.name), ["蒜蓉蒸蝦", "蒜蓉炒菜心"]);
+});
+
+test("constraint gate: flag ON drops seafood and keeps the 4-card set", async () => {
+  const { applyConstraintGate, buildChefConstraintLayer } = await import("./chefConstraintLayer");
+  const { cardPassesHardConstraint } = await import("../routers/aiRecipe");
+  const pool = [
+    card("蒜蓉蒸蝦", ["蝦"]),
+    card("清蒸鱸魚", ["鱸魚"]),
+    card("蒜香白酒煮青口", ["青口"]),
+    card("豉椒炒蜆", ["蜆"]),
+    card("蒜蓉炒菜心", ["菜心"]),
+    card("番茄炒蛋", ["番茄", "蛋"]),
+    card("魚香茄子", ["茄子"]),
+    card("涼拌青瓜", ["青瓜"]),
+  ];
+  const result = applyConstraintGate(
+    pool,
+    buildChefConstraintLayer("唔要海鮮，整三餸一湯"),
+    [],
+    (item, input) => cardPassesHardConstraint(item, input),
+    true,
+  );
+  assert.equal(result.applied, true);
+  assert.equal(result.vetoReason, null);
+  assert.equal(result.cards.length, 4);
+  assert.equal(result.cards.some((item) => /蝦|青口|蜆|鱸魚/.test(item.name)), false);
+});
+
+test("constraint gate: zero-card new result is vetoed back to old cards", async () => {
+  const { applyConstraintGate, buildChefConstraintLayer, CONSTRAINT_ZERO_VETO } = await import("./chefConstraintLayer");
+  const { cardPassesHardConstraint } = await import("../routers/aiRecipe");
+  const cards = [card("蒜蓉蒸蝦", ["蝦"])];
+  const result = applyConstraintGate(
+    cards,
+    buildChefConstraintLayer("唔要海鮮"),
+    [],
+    (item, input) => cardPassesHardConstraint(item, input),
+    true,
+  );
+  assert.equal(result.cards, cards);
+  assert.equal(result.applied, false);
+  assert.equal(result.vetoReason, CONSTRAINT_ZERO_VETO);
+  assert.equal(result.vetoReason, "new_zero_when_old_had_cards");
+  assert.equal(result.cards.length, 1);
+});
+
+test("constraint gate: flag ON keeps a partial new result (never forces 0)", async () => {
+  const { applyConstraintGate, buildChefConstraintLayer } = await import("./chefConstraintLayer");
+  const { cardPassesHardConstraint } = await import("../routers/aiRecipe");
+  const cards = [
+    card("蒜蓉蒸蝦", ["蝦"]),
+    card("蒜蓉炒菜心", ["菜心"]),
+    card("番茄炒蛋", ["番茄", "蛋"]),
+    card("涼拌青瓜", ["青瓜"]),
+  ];
+  const result = applyConstraintGate(
+    cards,
+    buildChefConstraintLayer("唔要海鮮"),
+    [],
+    (item, input) => cardPassesHardConstraint(item, input),
+    true,
+  );
+  assert.equal(result.applied, true);
+  assert.equal(result.vetoReason, null);
+  assert.equal(result.cards.length, 3);
+});

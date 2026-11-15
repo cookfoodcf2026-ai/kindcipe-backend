@@ -145,6 +145,42 @@ function cardNames<T extends { name?: unknown }>(cards: T[]): string[] {
   return cards.map((card) => String(card?.name ?? "").trim()).filter(Boolean);
 }
 
+export const CONSTRAINT_ZERO_VETO = "new_zero_when_old_had_cards";
+
+export type ConstraintGateResult<T> = {
+  cards: T[];
+  applied: boolean;
+  vetoReason: string | null;
+};
+
+/**
+ * Commit C2: the only place where the constraint layer may change the response.
+ *
+ * The gate is applied to the already-safe `cards` (i.e. after avoid, vegetarian,
+ * allergen and legacy postcondition filtering), so the new layer can only
+ * narrow the current result and can never resurrect a card that a safety filter
+ * removed. Flag OFF returns the exact same array reference.
+ *
+ * Hard veto: if the new layer would return zero cards while the old layer had
+ * cards, keep the old cards. Maintaining today's output is more important than
+ * enforcing the new matcher.
+ */
+export function applyConstraintGate<T extends { name?: unknown }>(
+  cards: T[],
+  layer: ChefConstraintLayer,
+  avoidIngredients: string[],
+  passes: (card: T, input: ConstraintMatcherInput) => boolean,
+  enabled: boolean,
+): ConstraintGateResult<T> {
+  if (!enabled) return { cards, applied: false, vetoReason: null };
+  const matcher = constraintMatcherInput(layer, avoidIngredients);
+  const newCards = cards.filter((card) => passes(card, matcher));
+  if (newCards.length === 0 && cards.length > 0) {
+    return { cards, applied: false, vetoReason: CONSTRAINT_ZERO_VETO };
+  }
+  return { cards: newCards, applied: true, vetoReason: null };
+}
+
 /**
  * Diagnostic only. `newCards` is produced by the injected matcher (the router
  * passes the real `cardPassesHardConstraint`), `oldCards` is the existing
