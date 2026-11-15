@@ -21,7 +21,7 @@ const NEGATION_RE = /(?:唔係|不是|唔會|冇|沒有|not|isn't|is not)\s*$/u;
 const FLAVOUR_ONLY = new Set(["太辣", "油", "太油", "咸", "太咸", "甜", "太甜", "酸", "苦"]);
 const CATEGORY_WORDS = new Set(["海鮮", "肉", "辣"]);
 // 「走」只可以跟封閉集合；「走地雞」係食材名，唔係 avoid。
-const WALK_TOKENS = new Set(["辣", "青", "蔥", "蒜", "洋蔥", "芫茜", "油", "冰", "甜", "鹽", "豉油"]);
+export const WALK_TOKENS = new Set(["辣", "青", "蔥", "蒜", "洋蔥", "芫茜", "油", "冰", "甜", "鹽", "豉油"]);
 
 function looksLikeIngredient(token: string): boolean {
   if (FLAVOUR_ONLY.has(token)) return false;

@@ -26,3 +26,23 @@ test("avoid clause: 唔食牛肉只剝該項", () => {
 test("avoid clause: 正常句子不變", () => {
   assert.equal(stripAvoidClauses("我想食番茄炒蛋"), "我想食番茄炒蛋");
 });
+
+test("avoid clause: 句首『唔要海鮮』被剝走", () => {
+  assert.equal(stripAvoidClauses("唔要海鮮，整三餸一湯"), "整三餸一湯");
+});
+
+test("avoid clause: 句首『唔要牛』被剝走", () => {
+  assert.equal(stripAvoidClauses("唔要牛，整三餸一湯"), "整三餸一湯");
+});
+
+test("avoid clause: 句首『走辣』被剝走", () => {
+  assert.equal(stripAvoidClauses("走辣，整三餸一湯"), "整三餸一湯");
+});
+
+test("avoid clause: 『走地雞』係食材名，唔會被當成忌口", () => {
+  assert.equal(stripAvoidClauses("走地雞三餸一湯"), "走地雞三餸一湯");
+});
+
+test("avoid clause: 句號後嘅『唔要蝦』都被剝走", () => {
+  assert.equal(stripAvoidClauses("3 餸 1 湯。唔要蝦"), "3 餸 1 湯");
+});

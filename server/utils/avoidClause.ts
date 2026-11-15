@@ -9,6 +9,8 @@
  * 冇冒號嘅（例如「避免太油」）唔動，因為唔一定係食材清單。
  */
 
+import { WALK_TOKENS } from "./typedAvoid";
+
 const AVOID_KEYWORDS = [
   "避免", "忌口", "戒口", "過敏", "敏感",
   "唔想食", "唔食", "唔要", "不要", "不吃", "走",
@@ -30,8 +32,17 @@ export function stripAvoidClauses(text: string): string {
     );
     out = out.replace(re, " ");
   }
-  // 「我想食雞，唔食牛肉」— 冇冒號但明顯係忌口嘅單項，都剝走
-  out = out.replace(/[，,；;]\s*(?:唔食|唔要|不要|不吃|走)\s*[^\s，,；;。]*/gu, " ");
+  // 「我想食雞，唔食牛肉」— 冇冒號但明顯係忌口嘅單項，都剝走。
+  // 邊界包括句首同句號後，令「唔要海鮮，整三餸一湯」都剝到。
+  out = out.replace(
+    /(?:^|[，,；;。])\s*(?:唔食|唔要|不要|不吃)\s*[^\s，,；;。]*/gu,
+    " ",
+  );
+  // 「走」只跟封閉集合（沿用 typedAvoid 嘅 WALK_TOKENS）；「走地雞」係食材名，唔剝。
+  out = out.replace(
+    /(?:^|[，,；;。])\s*走\s*([^\s，,；;。]{1,3})/gu,
+    (match, token: string) => (WALK_TOKENS.has(token) ? " " : match),
+  );
   return out
     .replace(/\s+([，,；;。、])/gu, "$1")   // 標點前唔留空格
     .replace(/^[，,；;。、\s]+/u, "")      // 開頭唔留殘餘標點
