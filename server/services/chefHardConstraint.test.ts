@@ -121,6 +121,12 @@ test("hard v2: 品類詞 avoid 海鮮 過濾海鮮卡", () => {
   assert.equal(cardPassesHardConstraint(card("蒜蓉炒菜心", ["菜心"]), input), true);
 });
 
+test("hard v2: avoid 海鮮 唔會誤殺魚香茄子（假朋友）但會剔清蒸鱸魚", () => {
+  const input = { text: "有咩推介", avoidIngredients: ["海鮮"] };
+  assert.equal(cardPassesHardConstraint(card("魚香茄子", ["茄子"]), input), true);
+  assert.equal(cardPassesHardConstraint(card("清蒸鱸魚", ["鱸魚"]), input), false);
+});
+
 test("hard v2: 品類詞 avoid 肉 過濾肉卡", () => {
   const input = { text: "有咩推介", avoidIngredients: ["肉"] };
   assert.equal(cardPassesHardConstraint(card("豉汁蒸排骨", ["排骨"]), input), false);
