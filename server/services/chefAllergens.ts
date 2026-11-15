@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { aiChefFamilySafety } from "../../drizzle/schema";
 import { getDb } from "../db";
 import type { SuggestedRecipe } from "../routers/aiRecipe";
+import { filterCardsByAvoid } from "./chefAvoidMatcher";
 
 export const ALLERGEN_GROUPS: Record<string, string[]> = {
   "蝦": ["蝦", "蝦仁", "大蝦", "蝦球", "shrimp", "prawn"],
@@ -35,20 +36,11 @@ export function detectDeclaredAllergens(text: string): string[] {
   return [...found];
 }
 
-function recipeAllergenText(recipe: { name?: unknown; ingredients?: unknown }): string {
-  const ingredients = Array.isArray(recipe.ingredients)
-    ? recipe.ingredients.map((ingredient: any) => typeof ingredient === "string" ? ingredient : ingredient?.name ?? "").join(" ")
-    : "";
-  return normalize(`${recipe.name ?? ""} ${ingredients}`);
-}
-
 export function filterAllergenCards<T extends { name?: unknown; ingredients?: unknown }>(recipes: T[], allergens: string[]): T[] {
   if (allergens.length === 0) return recipes;
-  const terms = [...new Set(allergens.flatMap((allergen) => ALLERGEN_GROUPS[allergen] ?? [allergen]))].map(normalize).filter(Boolean);
-  return recipes.filter((recipe) => {
-    const haystack = recipeAllergenText(recipe);
-    return !terms.some((term) => haystack.includes(term));
-  });
+  // Same matcher as the chat avoid path: name + ingredients only, allergen
+  // groups passed in as extra terms so group semantics stay unchanged.
+  return filterCardsByAvoid(recipes, allergens, ALLERGEN_GROUPS);
 }
 
 export function allergenSafetyReply(lang: string, allergens: string[]): string {

@@ -13,11 +13,15 @@ const ALLERGEN_HINTS = [
   "蝦", "蟹", "龍蝦", "貝", "蜆", "蠔", "青口", "帶子", "魷魚", "八爪魚",
   "魚", "奶", "牛奶", "芝士", "牛油", "忌廉", "蛋", "雞蛋", "麵筋", "麩質",
   "小麥", "蕎麥", "芒果", "榴槤", "奇異果", "芹菜", "芥末", "亞硫酸", "味精",
+  // Category / single-protein words the legacy token regex missed.
+  "海鮮", "牛", "豬", "雞",
 ];
 
 const NEGATION_RE = /(?:唔係|不是|唔會|冇|沒有|not|isn't|is not)\s*$/u;
 const FLAVOUR_ONLY = new Set(["太辣", "油", "太油", "咸", "太咸", "甜", "太甜", "酸", "苦"]);
 const CATEGORY_WORDS = new Set(["海鮮", "肉", "辣"]);
+// 「走」只可以跟封閉集合；「走地雞」係食材名，唔係 avoid。
+const WALK_TOKENS = new Set(["辣", "青", "蔥", "蒜", "洋蔥", "芫茜", "油", "冰", "甜", "鹽", "豉油"]);
 
 function looksLikeIngredient(token: string): boolean {
   if (FLAVOUR_ONLY.has(token)) return false;
@@ -70,19 +74,27 @@ export function extractTypedAvoid(text: string): string[] {
     const token = cleanToken(match[1]);
     if (token && looksLikeIngredient(token)) found.add(token);
   }
-  // 唔要 X / 唔食 X / 不要 X / 走 X（只取單一詞，避免食咗整句）
-  for (const match of source.matchAll(/(?:唔要|唔食|不要|不吃|走)\s*([^\s，,。；;、！!？?]{1,6})/gu)) {
+  // 唔要 X / 唔食 X / 不要 X / 不吃 X（只取單一詞，避免食咗整句）
+  for (const match of source.matchAll(/(?:唔要|唔食|不要|不吃)\s*([^\s，,。；;、！!？?]{1,6})/gu)) {
     const before = source.slice(0, match.index ?? 0);
     if (NEGATION_RE.test(before)) continue;
     const token = cleanToken(match[1]);
     // 只接納已知致敏原或明顯食材名，否則「唔要太油」會被當食材
-    if (token && (ALLERGEN_HINTS.includes(token) || /[肉魚蝦蟹菜瓜豆蛋奶蔥蒜薑椒菇]/.test(token))) {
+    if (token && looksLikeIngredient(token)) {
       found.add(token);
     }
   }
+  // 走 X：只准封閉集合；「走地雞」唔會被抽成 avoid。
+  for (const match of source.matchAll(/走\s*([^\s，,。；;、！!？?]{1,3})/gu)) {
+    const before = source.slice(0, match.index ?? 0);
+    if (NEGATION_RE.test(before)) continue;
+    const token = cleanToken(match[1]);
+    if (token && WALK_TOKENS.has(token)) found.add(token);
+  }
   // 英文 no / avoid / allergic to
   const EN_ALLERGENS = ["peanut", "peanuts", "nut", "nuts", "dairy", "milk", "gluten", "wheat",
-    "shellfish", "shrimp", "prawn", "crab", "egg", "eggs", "soy", "sesame", "fish"];
+    "shellfish", "shrimp", "prawn", "crab", "egg", "eggs", "soy", "sesame", "fish",
+    "seafood", "meat", "beef", "pork", "chicken"];
   for (const match of source.matchAll(/(?:^|[.,;!?]\s*)(?:no|avoid|without|allergic to)\s+([a-z][a-z\s-]{2,30})/giu)) {
     const first = match[1].trim().split(/\s+/)[0].toLowerCase();
     if (EN_ALLERGENS.includes(first)) found.add(first);

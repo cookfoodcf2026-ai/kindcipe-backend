@@ -11,7 +11,12 @@ import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
-import { addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, filterAllergenCards, getFamilyAllergens } from "../services/chefAllergens";
+import { ALLERGEN_GROUPS, addFamilyAllergens, applyAllergenGuard, detectDeclaredAllergens, filterAllergenCards, getFamilyAllergens } from "../services/chefAllergens";
+import {
+  AVOID_MATCHER_VERSION,
+  recipeContainsAvoid as unifiedRecipeContainsAvoid,
+  summarizeAvoidShadow,
+} from "../services/chefAvoidMatcher";
 import { fallbackQueriesForFoodTerm, findFoodTerm, foodItemType, hasRequestVerb, proteinFamilyForTerm, roleForFoodTerm, CATEGORY_TO_TERMS } from "../services/foodLexicon";
 import { getChatQuotaState } from "../services/chatQuota";
 import { dispatchChefTurn, normalizeDispatchContract, categoryRolesForDispatch, type ChefDispatch } from "../services/chefDispatcher";
@@ -1180,31 +1185,17 @@ export type SuggestedRecipe = {
 };
 
 // Avoid-list matching is intentionally conservative: allergens must never be
-// suggested just because the library result happened to look tasty.
-const AVOID_TERM_EXPANSIONS: Record<string, string[]> = {
-  花生: ["花生", "peanut", "groundnut"],
-  堅果: ["堅果", "果仁", "花生", "杏仁", "腰果", "核桃", "合桃", "榛子", "開心果", "almond", "cashew", "walnut", "pecan", "nut"],
-  海鮮: ["海鮮", "魚", "蝦", "蟹", "蜆", "蠔", "魷魚", "章魚", "帶子", "海參", "鮑魚", "seafood", "fish", "shrimp", "prawn", "crab", "squid", "oyster", "scallop"],
-  甲殼類: ["蝦", "蟹", "龍蝦", "甲殼", "shrimp", "prawn", "crab", "lobster", "crustacean"],
-  蛋: ["蛋", "雞蛋", "蛋黃", "蛋白", "egg"],
-  奶: ["奶", "牛奶", "芝士", "牛油", "忌廉", "奶油", "乳酪", "milk", "cheese", "butter", "cream", "yogurt"],
-  麩質: ["麵", "麵包", "麵粉", "意粉", "烏冬", "麥", "麩", "wheat", "flour", "bread", "pasta", "noodle", "gluten"],
-  大豆: ["大豆", "黃豆", "豆腐", "豆乾", "豆皮", "腐竹", "豉油", "生抽", "老抽", "醬油", "soy", "tofu"],
-  芝麻: ["芝麻", "sesame"],
-};
-
-function expandAvoidTerms(avoid: string[]): string[] {
-  const terms = new Set<string>();
-  for (const raw of avoid) {
-    const key = String(raw ?? "").trim();
-    if (!key) continue;
-    terms.add(key.toLowerCase());
-    for (const term of AVOID_TERM_EXPANSIONS[key] ?? []) terms.add(term.toLowerCase());
-    for (const term of CATEGORY_TO_TERMS[key] ?? []) terms.add(term.toLowerCase());
-  }
-  return [...terms];
+// suggested just because the library result happened to look tasty. The single
+// matcher lives in chefAvoidMatcher.ts and scans name + ingredients only.
+export function recipeContainsAvoid(
+  recipe: { name?: unknown; ingredients?: unknown },
+  avoid: string[],
+): boolean {
+  return unifiedRecipeContainsAvoid(recipe, avoid, ALLERGEN_GROUPS);
 }
 
+// Full-text helper for food-query/library-role matching. NOT used by avoid
+// matching anymore: avoid is deliberately name + ingredients only.
 function recipeText(value: { name?: unknown; description?: unknown; tags?: unknown; ingredients?: unknown; recipeCategory?: unknown }): string {
   const ingredients = Array.isArray(value.ingredients)
     ? value.ingredients.map((ing: any) => typeof ing === "string" ? ing : ing?.name ?? "").join(" ")
@@ -1214,15 +1205,6 @@ function recipeText(value: { name?: unknown; description?: unknown; tags?: unkno
     .filter(Boolean)
     .map((part) => String(part).toLowerCase())
     .join(" ");
-}
-
-export function recipeContainsAvoid(
-  recipe: { name?: unknown; description?: unknown; tags?: unknown; ingredients?: unknown; recipeCategory?: unknown },
-  avoid: string[],
-): boolean {
-  if (!avoid.length) return false;
-  const haystack = recipeText(recipe);
-  return expandAvoidTerms(avoid).some((term) => term.length > 0 && haystack.includes(term));
 }
 
 function rowContainsAvoid(row: Record<string, unknown>, avoid: string[]): boolean {
@@ -1251,13 +1233,76 @@ const HARD_PROTEIN_GROUPS = [
 ];
 const HARD_MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉|chicken|beef|pork|lamb|mutton|duck|goose|turkey|bacon|ham|sausage|meat|steak|fish|shrimp|prawn|crab|shellfish|oyster|clam|squid|octopus|tuna|salmon|mackerel|cod|sardine|seafood/i;
 
-function hardIsMeat(raw: unknown): boolean {
+export function hardIsMeat(raw: unknown): boolean {
   const name = String(raw ?? "");
   if (!name) return false;
   if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
   // Strip vegetarian-safe words that contain a meat character before testing.
   const cleaned = name.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|鹹鴨蛋|鴨蛋|鵪鶉蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
   return HARD_MEAT_RE.test(cleaned);
+}
+
+function rowHasServableSteps(row: Record<string, unknown>): boolean {
+  const steps = Array.isArray(row.steps) ? row.steps : [];
+  return steps.some((step: any) => String(step?.instruction ?? step?.text ?? step ?? "").trim());
+}
+
+function rowIngredientNames(row: Record<string, unknown>): string[] {
+  const ingredients = Array.isArray(row.ingredients) ? row.ingredients : [];
+  return ingredients.map((ingredient: any) =>
+    typeof ingredient === "string" ? ingredient : String(ingredient?.name ?? ""),
+  );
+}
+
+/**
+ * A soup is vegetarian when the ingredient names carry no meat/seafood word.
+ * Deliberately ingredient-based, not tag-based: production had 37 soups but
+ * only 2 tagged vegetarian, while several untagged soups were already meat-free.
+ */
+export function isVegetarianSoupRow(row: Record<string, unknown>): boolean {
+  if (classifyDishType(row) !== "soup") return false;
+  if (hardIsMeat(String(row.name ?? ""))) return false;
+  return !rowIngredientNames(row).some((name) => hardIsMeat(name));
+}
+
+export function countVegetarianSoups(rows: Record<string, unknown>[]): number {
+  const names = new Set<string>();
+  for (const row of rows) {
+    if (!rowHasServableSteps(row) || !isVegetarianSoupRow(row)) continue;
+    const key = normalizeName(String(row.name ?? "")).toLowerCase();
+    if (key) names.add(key);
+  }
+  return names.size;
+}
+
+/** Union extra meat-free soups into the vegetarian pool; never changes roles. */
+export function widenVegetarianSoupPool(
+  baseRows: Record<string, unknown>[],
+  extraRows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const names = new Set(baseRows.map((row) => normalizeName(String(row.name ?? "")).toLowerCase()).filter(Boolean));
+  const out = [...baseRows];
+  for (const row of extraRows) {
+    if (!isVegetarianSoupRow(row)) continue;
+    const key = normalizeName(String(row.name ?? "")).toLowerCase();
+    if (!key || names.has(key)) continue;
+    names.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+export function vegetarianSoupShortfallReply(lang: string, count: number, needed = 1): string {
+  if (lang.startsWith("en")) {
+    return `I only have ${count} vegetarian soup recipe${count === 1 ? "" : "s"} right now, so I can't fill ${needed} soup slot${needed === 1 ? "" : "s"} without swapping in a non-soup dish. Try fewer soups, or relax the vegetarian filter.`;
+  }
+  if (lang.startsWith("fil")) {
+    return `May ${count} vegetarian soup recipe${count === 1 ? "" : "s"} lang sa ngayon, kaya hindi ko mapupuno ang ${needed} soup slot nang hindi gumagamit ng non-soup dish. Subukan ang mas kaunting sabaw, o luwagan ang vegetarian filter.`;
+  }
+  if (lang.startsWith("id")) {
+    return `Saya hanya punya ${count} resep sup vegetarian saat ini, jadi saya tidak bisa mengisi ${needed} slot sup tanpa memakai hidangan non-sup. Coba kurangi sup, atau longgarkan filter vegetarian.`;
+  }
+  return `素食湯我而家只有 ${count} 款，湊唔到 ${needed} 個湯位；我唔會用餸菜頂替湯。可以試下減少湯，或者放寬素食要求。`;
 }
 
 export function cardPassesHardConstraint(
@@ -5411,12 +5456,39 @@ async function processAIChefChatCore(
         console.log(`[AI Chef] lib_search_fail vegetarian_meal reason=${vegPool.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
-      const vegSafe = avoidIngredients.length > 0 ? vegPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegPool.rows;
-      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, "vegetarian", seenSplit.seen7d, avoidIngredients, noteRecycle);
+      let vegSafe = avoidIngredients.length > 0 ? vegPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegPool.rows;
+      // Production had 37 soups but only 2 tagged vegetarian. Widen the soup
+      // pool with ingredient-based judgement; never swap a soup slot for a dish.
+      if (soupCount > 0 && countVegetarianSoups(vegSafe) < soupCount) {
+        const fullPool = await trySearch("", 400);
+        if (fullPool.ok) {
+          const extraSafe = avoidIngredients.length > 0
+            ? fullPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+            : fullPool.rows;
+          const before = vegSafe.length;
+          vegSafe = widenVegetarianSoupPool(vegSafe, extraSafe);
+          const available = countVegetarianSoups(vegSafe);
+          console.log(`[AI Chef] vegetarian soup pool widened added=${vegSafe.length - before} available=${available} wanted=${soupCount}`);
+        } else {
+          console.warn(`[AI Chef] lib_search_fail vegetarian_soup_widen reason=${fullPool.reason}`);
+        }
+      }
+      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, undefined, seenSplit.seen7d, avoidIngredients, noteRecycle);
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0 ? arr.map((r) => ({ ...r, servings: people })) : arr;
       const cards = applyServings(vegPicked);
       if (cards.length > 0) {
+        const servedSoups = cards.filter((card) => isSoupRecipe(card)).length;
+        if (soupCount > 0 && servedSoups < soupCount) {
+          const available = countVegetarianSoups(vegSafe);
+          console.warn(`[AI Chef] vegetarian soup shortfall available=${available} wanted=${soupCount} served=${servedSoups}`);
+          return {
+            content: vegetarianSoupShortfallReply(lang, available, soupCount),
+            recipes: [],
+            llmUsed,
+            clarifyReason: "library_miss",
+          };
+        }
         await recordFamilySeenNames(familyId, cards.map((r) => r.name));
         const dishSetLabel = dishLabel(dishCount, soupCount, lang);
         console.log(`[AI Chef] vegetarian meal served=${cards.length} wanted=${chefIntent.requested.total}`);
@@ -8878,6 +8950,13 @@ export const aiRecipeRouter = router({
       }
       const generateMs = Date.now() - reqStartedAt;
       if (avoidIngredients.length > 0) {
+        // Shadow telemetry only: records what the unified matcher would drop
+        // from the pre-filter cards. Never used to decide the response.
+        Object.defineProperty(result, "__avoidShadow", {
+          value: summarizeAvoidShadow(result.recipes ?? [], avoidIngredients, ALLERGEN_GROUPS),
+          enumerable: false,
+          configurable: true,
+        });
         const safeRecipes = result.recipes.filter((recipe) => !recipeContainsAvoid(recipe, avoidIngredients));
         if (safeRecipes.length !== result.recipes.length) {
           console.warn(`[AI Chef] removed ${result.recipes.length - safeRecipes.length} recipe(s) containing avoid ingredients`);
@@ -9542,6 +9621,17 @@ export const aiRecipeRouter = router({
         finalResponse.idempotency = { decision: "miss", creditsCharged, llmCalls: meter.calls };
       }
       const pipelineTelemetry = readChefPipelineTelemetry(result);
+      const avoidShadow = (result as any).__avoidShadow
+        ?? summarizeAvoidShadow(result.recipes ?? [], avoidIngredients, ALLERGEN_GROUPS);
+      const textAvoidCount = typedAvoid.length;
+      const clientAvoidCount = input.avoidIngredients?.length ?? 0;
+      const constraintSource = textAvoidCount > 0 && clientAvoidCount > 0
+        ? "both"
+        : textAvoidCount > 0
+          ? "text"
+          : clientAvoidCount > 0
+            ? "client"
+            : "none";
       void logChefQuery({
         familyId: familyId ?? null,
         userId: ctx.user?.id != null ? String(ctx.user.id) : null,
@@ -9554,6 +9644,11 @@ export const aiRecipeRouter = router({
             wanted: requested,
             served,
             sources,
+            constraintSource,
+            wouldDrop: avoidShadow.wouldDrop,
+            wouldDropNames: avoidShadow.wouldDropNames,
+            removedByTerm: avoidShadow.removedByTerm,
+            matcher: AVOID_MATCHER_VERSION,
             ...((result as any)?.__debug ?? {}),
             finalNames: (result as any)?.__finalNames,
           },

@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardPassesHardConstraint, hasHardConstraint, filterRowsForSwap } from "../routers/aiRecipe";
+import {
+  cardPassesHardConstraint,
+  countVegetarianSoups,
+  filterRowsForSwap,
+  hasHardConstraint,
+  isVegetarianSoupRow,
+  mkExcludeSets,
+  pickSoupMeal,
+  vegetarianSoupShortfallReply,
+  widenVegetarianSoupPool,
+} from "../routers/aiRecipe";
 
 const card = (name: string, ingredients: string[] = [], extra: Record<string, unknown> = {}): any => ({
   name,
@@ -152,4 +162,60 @@ test("真蛋白請求仍然生效：我要食蛋", () => {
   const input = { text: "我想食蛋" };
   assert.equal(cardPassesHardConstraint(card("番茄炒蛋"), input), true);
   assert.equal(cardPassesHardConstraint(card("清炒時蔬"), input), false);
+});
+
+const row = (name: string, ingredients: string[], extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  name,
+  ingredients: ingredients.map((ingredient) => ({ name: ingredient })),
+  steps: ["1. 煮"],
+  tags: [],
+  source: "official",
+  ...extra,
+});
+
+test("A2: 素湯用食材判斷，唔靠 vegetarian tag", () => {
+  assert.equal(isVegetarianSoupRow(row("冬瓜湯", ["冬瓜", "薑"])), true);
+  assert.equal(isVegetarianSoupRow(row("番茄薯仔湯", ["番茄", "薯仔"])), true);
+  assert.equal(isVegetarianSoupRow(row("青紅蘿蔔豬骨湯", ["豬骨", "青蘿蔔"])), false);
+  assert.equal(isVegetarianSoupRow(row("魚湯", ["魚"])), false);
+  assert.equal(isVegetarianSoupRow(row("蒜蓉炒菜心", ["菜心"])), false);
+});
+
+test("A2: 放寬只加素湯，唔會加肉湯／改 role", () => {
+  const base = [row("冬瓜湯", ["冬瓜"])];
+  const extra = [
+    row("番茄薯仔湯", ["番茄", "薯仔"]),
+    row("青紅蘿蔔豬骨湯", ["豬骨"]),
+    row("蒜蓉炒菜心", ["菜心"]),
+  ];
+  const widened = widenVegetarianSoupPool(base, extra);
+  assert.deepEqual(widened.map((item) => item.name), ["冬瓜湯", "番茄薯仔湯"]);
+  assert.equal(countVegetarianSoups(widened), 2);
+});
+
+test("A2: 素食 3餸1湯 用 fixture pool 出到 ≥1 湯（4 張）", () => {
+  const pool = widenVegetarianSoupPool(
+    [row("冬瓜湯", ["冬瓜"])],
+    [
+      row("番茄薯仔湯", ["番茄", "薯仔"]),
+      row("青紅蘿蔔豬骨湯", ["豬骨"]),
+    ],
+  );
+  const dishes = [
+    row("豉汁蒸排骨", ["排骨"]),
+    row("蒜蓉蒸蝦", ["蝦"]),
+    row("蒜蓉炒菜心", ["菜心"]),
+  ];
+  const picked = pickSoupMeal([...pool, ...dishes], mkExcludeSets([], []), 3, 1);
+  assert.ok(picked.length >= 4, `served=${picked.length}`);
+  assert.ok(picked.some((card) => /湯/.test(card.name)), "must include a soup");
+  assert.equal(picked.filter((card) => /湯/.test(card.name)).length, 1);
+});
+
+test("A2: 真係唔夠素湯時，文案帶真實 N", () => {
+  const zh = vegetarianSoupShortfallReply("zh-TW", 2, 1);
+  assert.match(zh, /素食湯/);
+  assert.match(zh, /2/);
+  const en = vegetarianSoupShortfallReply("en", 0, 1);
+  assert.match(en, /0 vegetarian soup/);
 });
