@@ -128,3 +128,40 @@ test("swap: keyword-only swap without 同類別 marker never returns the current
     "a keyword-only swap may never recycle the current card",
   );
 });
+
+test("swap: keyword-only without 同類別 returns at most one card and never the current card", async () => {
+  const prompt = "請從食譜庫提供最多 3 個替換「蒜香牛油三文魚配西蘭花」嘅食譜。庫內搜尋：海鮮";
+  const result = await run(910007, [replaced, seafoodA, seafoodB], undefined, {
+    prompt,
+    structuredSearch: undefined,
+  });
+
+  assert.ok(
+    (result.recipes ?? []).length <= 1,
+    `a swap must never serve more than one card, got ${(result.recipes ?? []).length}`,
+  );
+  assert.ok(
+    (result.recipes ?? []).every((recipe) => recipe.name !== "蒜香牛油三文魚配西蘭花"),
+    "excludeNames card must never be recycled by a keyword-only swap",
+  );
+});
+
+// NOTE: the state-seen half of swapHardExcludeNames cannot be exercised here:
+// DATABASE_URL is deleted, so getLastMealState() and stateKey are unavailable
+// (userId/stateUserId are not passed). This test only locks the excludeNames
+// half through the relaxed retry; the state-seen half needs a DB integration test.
+test("swap: relaxed retry never returns an excludeNames card", async () => {
+  const prompt = "請從食譜庫提供最多 3 個替換「蒜香牛油三文魚配西蘭花」嘅食譜。庫內搜尋：三文魚；同類別：seafood";
+  const search = async (query: string) => {
+    if (query === "三文魚") return [replaced];
+    if (query === "海鮮") return [replaced, seafoodA];
+    return [replaced, seafoodA, seafoodB];
+  };
+  const result = await run(910008, [replaced, seafoodA, seafoodB], search, {
+    prompt,
+    structuredSearch: undefined,
+  });
+
+  assert.equal(result.recipes.length, 1);
+  assert.equal(result.recipes[0]?.name, seafoodA.name);
+});

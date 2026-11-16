@@ -5426,7 +5426,9 @@ async function processAIChefChatCore(
   }
   if (keywordMatches.length > 0) {
     const first = keywordMatches[0];
-    const wanted = Math.min(first.rows.length, Math.max(2, search?.count ?? 2));
+    const wanted = isSwapTurn
+      ? 1
+      : Math.min(first.rows.length, Math.max(2, search?.count ?? 2));
     const swapDishType = isSwapTurn ? (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim() : "";
     const keywordRows = isSwapTurn ? filterRowsForSwap(first.rows, swapDishType) : first.rows;
     const keywordSets = isSwapTurn
@@ -5438,7 +5440,7 @@ async function processAIChefChatCore(
       wanted,
       isSwapTurn ? { allowReuse: false, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {},
     );
-    if (cards.length >= 2) {
+    if (cards.length >= (isSwapTurn ? 1 : 2)) {
       console.log(`[AI Chef] library keyword_match item="${first.term}" rows=${first.rows.length} served=${cards.length} reason=keyword_match`);
       await recordServedLibraryCards(familyId, cards);
       return {
@@ -5920,7 +5922,7 @@ async function processAIChefChatCore(
         // The caller only gets here after the strict pass served 0 cards, so
         // force exactly one relaxed attempt.
         firstRows: [],
-        excludeNames,
+        excludeNames: swapHardExcludeNames,
         count,
         // Relaxed = same-role keyword only: no keyword, 7-day dedupe, scenario
         // or cook-time filters. Current card names stay excluded.
