@@ -9226,7 +9226,8 @@ export const aiRecipeRouter = router({
       // 候選剔走（production 2026-11-16: removed=1 kept=0 served=0）。換卡只准靠
       // avoidIngredients（前端＋session＋訊息內 唔要／避免）同 cookTime 過濾。
       const isLibrarySwapPostcondition =
-        mode === "library" && /庫內搜尋：|同類別：/.test(rawPostconditionText);
+        mode === "library" &&
+        (input.aiEntry === "swap_ai" || /庫內搜尋：|同類別：/.test(rawPostconditionText));
       const postconditionText = isLibrarySwapPostcondition
         ? ""
         : stripAvoidClauses(rawPostconditionText);
