@@ -165,3 +165,49 @@ test("swap: relaxed retry never returns an excludeNames card", async () => {
   assert.equal(result.recipes.length, 1);
   assert.equal(result.recipes[0]?.name, seafoodA.name);
 });
+
+// Regression (production 2026-11-16): swapping「雞胸藜麥 Poke Bowl」returned 0
+// cards because「雞胸」in the swap sentence was read as a protein constraint and
+// the only same-dishType candidate「番茄芝士焗豬肉丸」was dropped (kept=0).
+test("swap: dish name in the swap sentence must not act as a constraint", async () => {
+  const prev = process.env.AI_CHEF_HARD_CONSTRAINT_V2;
+  process.env.AI_CHEF_HARD_CONSTRAINT_V2 = "true";
+  try {
+    const prompt = "請從食譜庫提供最多 3 個替換「雞胸藜麥 Poke Bowl」嘅食譜。庫內搜尋：肉；同類別：meat";
+    const meatball = row(20, "番茄芝士焗豬肉丸", "meat");
+    const result = await run(910009, [meatball], undefined, {
+      prompt,
+      structuredSearch: undefined,
+    });
+
+    assert.equal(result.recipes.length, 1);
+    assert.equal(result.recipes[0]?.name, meatball.name);
+  } finally {
+    if (prev === undefined) delete process.env.AI_CHEF_HARD_CONSTRAINT_V2;
+    else process.env.AI_CHEF_HARD_CONSTRAINT_V2 = prev;
+  }
+});
+
+test("swap: explicit 唔要 term still filters", async () => {
+  const prev = process.env.AI_CHEF_HARD_CONSTRAINT_V2;
+  process.env.AI_CHEF_HARD_CONSTRAINT_V2 = "true";
+  try {
+    const prompt = "請從食譜庫提供最多 3 個替換「雞胸藜麥 Poke Bowl」嘅食譜。庫內搜尋：肉；同類別：meat 唔要豬";
+    const pork = {
+      ...row(21, "番茄芝士焗豬肉丸", "meat"),
+      ingredients: [
+        { name: "豬肉丸", quantity: "200", unit: "克" },
+        { name: "番茄", quantity: "2", unit: "個" },
+      ],
+    };
+    const result = await run(910010, [pork], undefined, {
+      prompt,
+      structuredSearch: undefined,
+    });
+
+    assert.equal(result.recipes.length, 0);
+  } finally {
+    if (prev === undefined) delete process.env.AI_CHEF_HARD_CONSTRAINT_V2;
+    else process.env.AI_CHEF_HARD_CONSTRAINT_V2 = prev;
+  }
+});

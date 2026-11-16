@@ -4484,6 +4484,14 @@ async function processAIChefChatCore(
   // the server already showed, or (later in the pipeline) a name this swap chain
   // produced. The server seen set is read once here, before anything is recorded.
   const isSwapTurn = /庫內搜尋：|同類別：/.test(lastUserText);
+  // 換卡：訊息內明確「唔要／避免」要喺揀卡前就過濾，唔可以只等 router 嘅
+  // postcondition（processAIChefChat 直呼時冇嗰層）。前端／session 嘅 avoid 照舊保留。
+  if (isSwapTurn && mode === "library") {
+    const typedSwapAvoid = extractTypedAvoid(lastUserText);
+    if (typedSwapAvoid.length > 0) {
+      avoidIngredients = [...new Set([...avoidIngredients, ...typedSwapAvoid])];
+    }
+  }
   let swapExcludeNames: string[] | undefined;
   // Names a swap may never recycle: the client's exclusions (other cards + the
   // current card) and the session's last meal. Names that are merely inside the
@@ -9212,7 +9220,16 @@ export const aiRecipeRouter = router({
       }
       // 「避免：蝦」係忌口，唔係「我想食蝦」。之前 postcondition 直接讀原文，
       // 令 protein postcondition 當用戶想要蝦／雞，反而把其他卡剔走（4 張變 3 張）。
-      const postconditionText = stripAvoidClauses(lastUserText(input.messages) ?? "");
+      const rawPostconditionText = lastUserText(input.messages) ?? "";
+      // 換卡（庫內搜尋／同類別）句子裏面嘅卡名唔係約束：例如「替換『雞胸藜麥
+      // Poke Bowl』」會被 protein postcondition 當成「一定要雞」，把同類別唯一
+      // 候選剔走（production 2026-11-16: removed=1 kept=0 served=0）。換卡只准靠
+      // avoidIngredients（前端＋session＋訊息內 唔要／避免）同 cookTime 過濾。
+      const isLibrarySwapPostcondition =
+        mode === "library" && /庫內搜尋：|同類別：/.test(rawPostconditionText);
+      const postconditionText = isLibrarySwapPostcondition
+        ? ""
+        : stripAvoidClauses(rawPostconditionText);
       const metricPath = isCannedMealPrompt(lastUserText(input.messages))
         || (isStructuralShortFollowUp(lastUserText(input.messages)) && isCannedMealPrompt(previousUserText(input.messages)))
         ? "canned"
@@ -9229,7 +9246,10 @@ export const aiRecipeRouter = router({
       const hardConstraintInput = {
         text: postconditionText,
         cookTimeMax: input.search?.cookTimeMax,
-        avoidIngredients,
+        // 換卡只准靠 avoid：合併前端／session 傳入同訊息內明確「唔要／避免」條款。
+        avoidIngredients: isLibrarySwapPostcondition
+          ? [...new Set([...(input.avoidIngredients ?? []), ...extractTypedAvoid(rawPostconditionText)])]
+          : avoidIngredients,
       };
       if (hardV2 && hasHardConstraint(hardConstraintInput)) {
         const beforeHard = result.recipes.length;
