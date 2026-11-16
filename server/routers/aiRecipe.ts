@@ -9,6 +9,7 @@ import { parseChefConstraints } from "../services/chefConstraints";
 import { applyConstraintGate, buildChefConstraintLayer, computeConstraintShadow } from "../services/chefConstraintLayer";
 import { resolveChefIntent, lastUserText, previousUserText, isCannedMealPrompt, extractMealIngredients, type ChefIntent, type RequestedRole } from "../services/chefIntent";
 import { planChefTurn, isStructuralShortFollowUp } from "../services/chefPlanner";
+import { resolveSwapExplicitCount, swapAllowReuse } from "../services/swapCardPolicy";
 import { buildQueryPlan, type QueryPlan } from "../services/chefQueryPlan";
 import { getLastMealState, saveLastMealState } from "../services/chefMealState";
 import { detectSafetyIntent, safetyQuestion } from "../services/chefSafety";
@@ -6074,7 +6075,7 @@ async function processAIChefChatCore(
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
+      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: swapAllowReuse(lastUserText), seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -6108,7 +6109,7 @@ async function processAIChefChatCore(
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
-      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
+      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: swapAllowReuse(lastUserText), seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -6137,7 +6138,7 @@ async function processAIChefChatCore(
       // 先按 dishType 過濾，再交畀 rowsToSuggested 翻兜；否則會翻兜錯類再被濾走。
       const swapFilteredRows = filterRowsForSwap(singleRows, swapDishType);
       let picked = rowsToSuggested(swapFilteredRows, swapSets, 6, {
-        allowReuse: false,
+        allowReuse: swapAllowReuse(lastUserText),
         seenOrder: seenSplit.seen7d,
         hardExclude: swapHardExcludeNames,
         dishType: swapDishType,
@@ -9358,12 +9359,18 @@ export const aiRecipeRouter = router({
         // 只適用於自由打字：熱鍵／食譜庫／library 呢類結構化入口一律 1 張，
         // 否則上一句「我要 3 道菜」會令之後撳熱鍵出 3 張（OC review 指出）。
         const structuredEntry = Boolean(input.search) || input.mode === "library";
-        const explicitCount = !structuredEntry && askedCount >= 2 ? Math.min(4, askedCount) : 1;
+        const swapTurn = /庫內搜尋：|同類別：/.test(lastUserText(input.messages));
+        const explicitCount = resolveSwapExplicitCount({
+          isSwapTurn: swapTurn,
+          structuredEntry,
+          askedCount,
+          servedCount: result.recipes.length,
+        });
         if (result.recipes.length > explicitCount) {
           console.log(`[AI Chef] single_card_rule capped ${result.recipes.length} -> ${explicitCount} kind=${effectiveIntent.kind}`);
           result.recipes = result.recipes.slice(0, explicitCount);
         }
-        if (explicitCount > 1) {
+        if (!swapTurn && explicitCount > 1) {
           effectiveIntent.requested = {
             total: explicitCount,
             roles: effectiveIntent.requested.roles.slice(0, explicitCount),
