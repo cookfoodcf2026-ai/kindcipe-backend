@@ -4475,6 +4475,20 @@ async function processAIChefChatCore(
     previousTexts,
     previousMeal: storedMeal,
   });
+  // Swap turns are a single-card replacement, never a meal. The production
+  // sentence also contains「最多 3 個替換」, which the classifier reads as a
+  // multi-card request; that bypasses the swap fast path and can re-serve the
+  // excluded card or a different dishType. Pin swap to one role-scoped card.
+  if (isSwapTurn && mode === "library") {
+    const swapRole = (lastUserText.match(/同類別：([a-z]+)/)?.[1] ?? "").trim();
+    chefIntent = {
+      kind: "recipe",
+      wantsCards: true,
+      requested: { total: 1, roles: [(swapRole || "any") as RequestedRole] },
+      confidence: 1,
+      reason: "swap",
+    };
+  }
   console.log(`[AI Chef] intent reason=${chefIntent.reason} kind=${chefIntent.kind} total=${chefIntent.requested.total} roles=${chefIntent.requested.roles.join(",") || "none"}`);
   const pipelineTelemetry: ChefPipelineTelemetry = {
     eligible: false,
@@ -5447,7 +5461,7 @@ async function processAIChefChatCore(
   // ══════════ Free-text multi-card requests：library by role → AI fill missing ══════════
   // This is the server-owned path for requests such as「一肉一甜品」/「3餸1湯」.
   // It never returns after a single library hit; partial results are explicit.
-  if ((mode === "chat" || mode === "library") && wantCards && db && chefIntent.requested.total > 1) {
+  if ((mode === "chat" || mode === "library") && wantCards && db && chefIntent.requested.total > 1 && !(isSwapTurn && mode === "library")) {
     // 素食 meal（例如「素食 3餸1湯」）：直接走素食 scenario 揀 N 張全素，避免逐 role 揀揀到肉/海鮮。
     if (chefIntent.diet) {
       const soupCount = chefIntent.requested.roles.filter((r) => r === "soup").length;
@@ -5575,7 +5589,9 @@ async function processAIChefChatCore(
           const key = normalizeName(String(row?.name ?? "")).toLowerCase();
           return key && !usedSet.has(key) && roleCandidate(row, role);
         });
-        const recipes = rowsToSuggested(filtered, excludeSets, count);
+        // Swap must never reach the role assembler, but if it does, keep it
+        // fail-closed: no recycle of excluded names.
+        const recipes = rowsToSuggested(filtered, excludeSets, count, isSwapTurn && mode === "library" ? { allowReuse: false, hardExclude: [...excludeNames] } : {});
         const picked = recipes
           .filter((recipe) => {
             const key = normalizeName(recipe.name).toLowerCase();
@@ -5751,7 +5767,7 @@ async function processAIChefChatCore(
   if (mode === "library") {
     const libMealIntent = parseMealIntent(inputMessages as Message[]);
     const reqCount = search?.count && search.count > 1 ? search.count : 0;
-    const isMealLib = libMealIntent.isMeal || reqCount > 0 || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText);
+    const isMealLib = !(isSwapTurn && mode === "library") && (libMealIntent.isMeal || reqCount > 0 || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText));
     const cacheKey = familyId ?? 0;
     const cachedPool = LIBRARY_POOL_CACHE.get(cacheKey);
     let rows: Record<string, unknown>[];
@@ -6074,7 +6090,7 @@ async function processAIChefChatCore(
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
+      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, isSwapRequest ? 1 : searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -6087,7 +6103,7 @@ async function processAIChefChatCore(
         return { content, recipes: picked, llmUsed };
       }
       if (isSwapRequest && swapDishType) {
-        const relaxed = await tryRelaxedSwap(swapDishType, search.query ?? "", searchCount);
+        const relaxed = await tryRelaxedSwap(swapDishType, search.query ?? "", isSwapRequest ? 1 : searchCount);
         if (relaxed.cards.length > 0) {
           console.log(`[AI Chef] library swap relaxed: ${relaxed.cards.length} recipes role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}"`);
           await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
@@ -6108,7 +6124,7 @@ async function processAIChefChatCore(
       const filteredRows = logScenarioRows("fallback", safeRows);
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
-      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
+      picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, isSwapRequest ? 1 : searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -6136,7 +6152,7 @@ async function processAIChefChatCore(
       const swapSets = mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames);
       // 先按 dishType 過濾，再交畀 rowsToSuggested 翻兜；否則會翻兜錯類再被濾走。
       const swapFilteredRows = filterRowsForSwap(singleRows, swapDishType);
-      let picked = rowsToSuggested(swapFilteredRows, swapSets, 6, {
+      let picked = rowsToSuggested(swapFilteredRows, swapSets, 1, {
         allowReuse: false,
         seenOrder: seenSplit.seen7d,
         hardExclude: swapHardExcludeNames,
@@ -6151,14 +6167,14 @@ async function processAIChefChatCore(
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}" dishType="${swapDishType}")`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
-        return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 3), llmUsed };
+        return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 1), llmUsed };
       }
       if (swapDishType) {
-        const relaxed = await tryRelaxedSwap(swapDishType, swapQuery, 3);
+        const relaxed = await tryRelaxedSwap(swapDishType, swapQuery, 1);
         if (relaxed.cards.length > 0) {
           console.log(`[AI Chef] library swap relaxed: ${relaxed.cards.length} recipes role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}"`);
           await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
-          return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards.slice(0, 3), llmUsed };
+          return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards.slice(0, 1), llmUsed };
         }
         console.log(`[AI Chef] library swap no_cards role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
         return {
@@ -9343,7 +9359,9 @@ export const aiRecipeRouter = router({
       // Product rule: only an explicit meal / 3餸1湯 request may return more than
       // one card. Every other entry point (快手／清淡／電飯煲／親子／宴客／蛋白／素食／
       // 隨機抽／食譜庫) returns exactly one card — no fallback/insurance top-up.
-      if (!mealRequest) {
+      // A swap is always a single card, even when the sentence contains a meal
+      // shape or 「最多 3 個替換」.
+      if (!mealRequest || (mode === "library" && /庫內搜尋：|同類別：/.test(lastUserText(input.messages) ?? ""))) {
         // 車主規則：用戶明確講數量（「我要 3 道菜」）就按數字出；
         // 冇講數量才 cap 1 張。之前一律 cap 1，令「我要 3 道菜」只出 1 張。
         // 只信「數字＋量詞」；上限定 4（4 卡 = 1 credit 政策），唔信模糊句（幾道菜／多啲）。
