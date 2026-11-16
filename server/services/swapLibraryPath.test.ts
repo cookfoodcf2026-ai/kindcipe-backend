@@ -30,12 +30,15 @@ const chicken = row(14, "豉油雞", "meat");
 const PROMPT = "請從食譜庫提供最多 3 個替換「蒜香牛油三文魚配西蘭花」嘅食譜。庫內搜尋：海鮮；同類別：seafood";
 const EXCLUDE = ["蒜香牛油三文魚配西蘭花"];
 
+type RunOptions = { prompt?: string; structuredSearch?: Record<string, unknown> | undefined };
+
 const run = (
   familyId: number,
   pool: Record<string, unknown>[],
   search: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]> = async () => pool,
+  options: RunOptions = {},
 ) => processAIChefChat(
-  [{ role: "user", content: PROMPT }],
+  [{ role: "user", content: options.prompt ?? PROMPT }],
   familyId,
   undefined,
   "library",
@@ -44,7 +47,7 @@ const run = (
   "zh-TW",
   [],
   false,
-  {},
+  "structuredSearch" in options ? options.structuredSearch : {},
   "replace",
   true,
   true,
@@ -93,4 +96,35 @@ test("swap: credits=0, aiCards=0", async () => {
   assert.equal(result.llmUsed, false);
   assert.equal(aiCards, 0);
   assert.ok((result.recipes ?? []).every((recipe) => (recipe.source ?? "ai") !== "ai"));
+});
+
+test("swap: production payload without 庫內搜尋 search marker never returns the current card", async () => {
+  const prompt = "請從食譜庫提供最多 3 個替換「蒜香牛油三文魚配西蘭花」嘅食譜。同類別：seafood";
+  const result = await run(910005, [replaced, seafoodA, seafoodB], undefined, {
+    prompt,
+    structuredSearch: undefined,
+  });
+
+  assert.ok(
+    (result.recipes ?? []).every((recipe) => recipe.name !== "蒜香牛油三文魚配西蘭花"),
+    "the card being replaced must never be returned",
+  );
+  assert.ok(
+    (result.recipes ?? []).length === 0
+      || (result.recipes ?? []).every((recipe) => recipe.dishType === "seafood"),
+    "a seafood swap must return 0 cards or only seafood cards",
+  );
+});
+
+test("swap: keyword-only swap without 同類別 marker never returns the current card", async () => {
+  const prompt = "請從食譜庫提供最多 3 個替換「蒜香牛油三文魚配西蘭花」嘅食譜。庫內搜尋：海鮮";
+  const result = await run(910006, [replaced, seafoodA, seafoodB], undefined, {
+    prompt,
+    structuredSearch: undefined,
+  });
+
+  assert.ok(
+    (result.recipes ?? []).every((recipe) => recipe.name !== "蒜香牛油三文魚配西蘭花"),
+    "a keyword-only swap may never recycle the current card",
+  );
 });

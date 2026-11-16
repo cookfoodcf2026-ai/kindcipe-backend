@@ -5427,7 +5427,17 @@ async function processAIChefChatCore(
   if (keywordMatches.length > 0) {
     const first = keywordMatches[0];
     const wanted = Math.min(first.rows.length, Math.max(2, search?.count ?? 2));
-    const cards = rowsToSuggested(first.rows, excludeSets, wanted);
+    const swapDishType = isSwapTurn ? (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim() : "";
+    const keywordRows = isSwapTurn ? filterRowsForSwap(first.rows, swapDishType) : first.rows;
+    const keywordSets = isSwapTurn
+      ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
+      : excludeSets;
+    const cards = rowsToSuggested(
+      keywordRows,
+      keywordSets,
+      wanted,
+      isSwapTurn ? { allowReuse: false, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {},
+    );
     if (cards.length >= 2) {
       console.log(`[AI Chef] library keyword_match item="${first.term}" rows=${first.rows.length} served=${cards.length} reason=keyword_match`);
       await recordServedLibraryCards(familyId, cards);
@@ -6188,18 +6198,30 @@ async function processAIChefChatCore(
         };
       }
     } else {
+      const isSwapRequest = /庫內搜尋：|同類別：/.test(lastUserText);
+      const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const rawTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
       const libraryTerm = isSpecificFoodTerm(rawTerm) ? rawTerm : "";
-      const semanticRows = libraryTerm
-        ? safeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
-        : safeRows;
-      picked = rowsToSuggested(semanticRows, excludeSets, 1);
+      const semanticRows = isSwapRequest
+        ? filterRowsForSwap(safeRows, swapDishType)
+        : libraryTerm
+          ? safeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
+          : safeRows;
+      const swapSets = isSwapRequest
+        ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
+        : excludeSets;
+      picked = rowsToSuggested(
+        semanticRows,
+        swapSets,
+        1,
+        isSwapRequest ? { allowReuse: false, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {},
+      );
       if (picked.length > 0) {
         console.log(`[AI Chef] library mode: ${picked.length} recipes term="${libraryTerm || "(generic)"}"`);
         await recordFamilySeenNames(familyId, [picked[0].name]);
         return { content: aiReply(lang, "libOneFrom"), recipes: picked, llmUsed };
       }
-      if (libraryTerm) {
+      if (libraryTerm && !isSwapRequest) {
         console.log(`[AI Chef] library miss term="${libraryTerm}" candidates=${safeRows.length} semantic=${semanticRows.length} -> clarify`);
         return {
           content: libraryMissReply(lang, libraryTerm, safeRows.map((row) => String(row.name ?? "")).filter(Boolean).slice(0, 3)),
