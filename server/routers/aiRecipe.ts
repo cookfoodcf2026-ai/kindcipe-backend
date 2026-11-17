@@ -4513,6 +4513,8 @@ async function processAIChefChatCore(
       requested: { total: 1, roles: [(swapRole || "any") as RequestedRole] },
       confidence: 1,
       reason: "swap",
+      // swap override 唔可以丟失 diet：否則 swap-turn 會繞過素食純度過濾。
+      diet: chefIntent.diet,
     };
   }
   console.log(`[AI Chef] intent reason=${chefIntent.reason} kind=${chefIntent.kind} total=${chefIntent.requested.total} roles=${chefIntent.requested.roles.join(",") || "none"}`);
@@ -5456,7 +5458,8 @@ async function processAIChefChatCore(
       ? 1
       : Math.min(first.rows.length, Math.max(2, search?.count ?? 2));
     const swapDishType = isSwapTurn ? (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim() : "";
-    const keywordRows = isSwapTurn ? filterRowsForSwap(first.rows, swapDishType) : first.rows;
+    const dietKeywordRows = chefIntent.diet ? first.rows.filter(isVegetarianRow) : first.rows;
+    const keywordRows = isSwapTurn ? filterRowsForSwap(dietKeywordRows, swapDishType) : dietKeywordRows;
     const keywordSets = isSwapTurn
       ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
       : excludeSets;
@@ -5809,7 +5812,11 @@ async function processAIChefChatCore(
   }
 
   // ══════════ mode === "library"：快路徑（3餸1湯 → 1湯3餸 + AI補；一般 → 1 個）══════════
-  if (mode === "library") {
+  // 素食（chefIntent.diet）非 swap 唔行 library 快路徑：佢會用字面 term（例如「素食菜式」）
+  // 去 semantic match → 0 hit → library_miss。留返下面嘅素食 scenario 分支處理。
+  // swap-turn 要保留 swap 嘅 exclude／dishType／候選數行為，所以照行快路徑，
+  // 但快路徑內所有 library 出路都會經 dietRows() 過 isVegetarianRow。
+  if (mode === "library" && (!chefIntent.diet || isSwapTurn)) {
     const libMealIntent = parseMealIntent(inputMessages as Message[]);
     const reqCount = search?.count && search.count > 1 ? search.count : 0;
     const isMealLib = !(isSwapTurn && mode === "library") && (libMealIntent.isMeal || reqCount > 0 || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText));
@@ -5850,6 +5857,11 @@ async function processAIChefChatCore(
       return true;
     });
     if (poolFiltered.length >= 2) safeRows = poolFiltered;
+
+    // 素食請求（包括 swap-turn）：任何 library 出路都一定要過 isVegetarianRow。
+    // 只加純度過濾，swap 嘅 exclude／dishType／張數邏輯保持不變。
+    const dietRows = (candidateRows: Record<string, unknown>[]) =>
+      chefIntent.diet ? candidateRows.filter(isVegetarianRow) : candidateRows;
 
     // A swap message carries its own role marker. It must go through the swap
     // path so excludeNames / role filtering / relaxed retry are honoured — the
@@ -5964,9 +5976,10 @@ async function processAIChefChatCore(
           return { ok: found.ok, rows: found.ok ? found.rows : [] };
         },
       });
+      const dietRetryRows = dietRows(retry.rows);
       const safeRoleRows = avoidIngredients.length > 0
-        ? retry.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
-        : retry.rows;
+        ? dietRetryRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+        : dietRetryRows;
       const cards = retry.attempted
         ? rowsToSuggested(safeRoleRows, mkExcludeSets([], []), Math.max(1, count))
         : [];
@@ -6102,8 +6115,8 @@ async function processAIChefChatCore(
         : excludeSets;
       const swapRows = (rows: Record<string, unknown>[]) =>
         isSwapRequest
-          ? excludeRowsByName(filterRowsForSwap(rows, swapDishType), excludeNames)
-          : rows;
+          ? excludeRowsByName(filterRowsForSwap(dietRows(rows), swapDishType), excludeNames)
+          : dietRows(rows);
       const searchCount = search.count ?? 1;
       let searchRows: Record<string, unknown>[] = [];
       if (db) {
@@ -6166,7 +6179,7 @@ async function processAIChefChatCore(
         };
       }
       // 結構化搜尋 0 結果 → 用「已過濾」嘅 generic 池補（確保時間/類別一致，唔會出 90 分鐘湯/甜品/飲品）
-      const filteredRows = logScenarioRows("fallback", safeRows);
+      const filteredRows = logScenarioRows("fallback", dietRows(safeRows));
       const scenarioKey = String(search.scenario ?? "").trim();
       const scenarioFilteredRows = filterStructuredFallbackRows(filteredRows, search);
       picked = rowsToSuggested(swapRows(scenarioFilteredRows), effExcludeSets, isSwapRequest ? 1 : searchCount, isSwapRequest ? { allowReuse: false, seenOrder: seenSplit.seen7d, hardExclude: swapHardExcludeNames, dishType: swapDishType } : {});
@@ -6189,7 +6202,7 @@ async function processAIChefChatCore(
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
       const singleRows = excludeRowsByName(
-        swapSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)),
+        dietRows(swapSearch.rows).filter((row) => !rowContainsAvoid(row, avoidIngredients)),
         excludeNames,
       );
       // 換卡：用「前端傳嚟嘅 exclude」做去重（現卡 + 已換過），而唔係加埋 7 日 seen——
@@ -6237,11 +6250,12 @@ async function processAIChefChatCore(
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const rawTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
       const libraryTerm = isSpecificFoodTerm(rawTerm) ? rawTerm : "";
+      const dietSafeRows = dietRows(safeRows);
       const semanticRows = isSwapRequest
-        ? filterRowsForSwap(safeRows, swapDishType)
+        ? filterRowsForSwap(dietSafeRows, swapDishType)
         : libraryTerm
-          ? safeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
-          : safeRows;
+          ? dietSafeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
+          : dietSafeRows;
       const swapSets = isSwapRequest
         ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
         : excludeSets;
@@ -6275,7 +6289,7 @@ async function processAIChefChatCore(
   const exactFoodTerm = extractedTerms.find((term) => roleForFoodTerm(term) !== "any" && findFoodTerm(term) === term);
   const keyword = exactFoodTerm ?? cleanFoodQuery(lastUserText);
   const isVague = !keyword; // 抽唔到關鍵字 = 模糊想食
-  if (mode === "chat" && !forceNoCards && (requestedCount === null || requestedCount <= 1)) {
+  if ((mode === "chat" || mode === "library") && !forceNoCards && (requestedCount === null || requestedCount <= 1)) {
     // 素食 free text：直接走素食 scenario（同熱鍵一致），唔靠「素食」字面 match。
     if (chefIntent.diet) {
       const vegSearch = await trySearch("素食", 30, undefined, undefined, "vegetarian");
@@ -6283,19 +6297,65 @@ async function processAIChefChatCore(
         console.log(`[AI Chef] lib_search_fail vegetarian single reason=${vegSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
+      // requested role/dishType：補池唔可以亂出角色（素食湯 → 只可湯；素食菜 → 只可蔬菜類）。
+      const declaredRoles = chefIntent.requested.roles.filter((role) => role !== "any");
+      const dietRole: RequestedRole | undefined = declaredRoles.length === 1
+        ? declaredRoles[0]
+        : /湯|汤|soup|broth/i.test(lastUserText)
+          ? "soup"
+          : /甜品|甜點|dessert|糖水/i.test(lastUserText)
+            ? "dessert"
+            : /麵|面|noodle|ramen|pasta/i.test(lastUserText)
+              ? "noodle"
+              : /菜|蔬|veg|salad/i.test(lastUserText)
+                ? "vegetable"
+                : undefined;
+      const roleOk = (row: Record<string, unknown>) =>
+        !dietRole || matchesLibraryRole(row, dietRole);
       const vegRowsRaw = avoidIngredients.length > 0 ? vegSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegSearch.rows;
       // 素食池有雜質：標籤寫 vegetarian 但食材有雞湯／魚露／蠔油嘅卡，一揀中就畀
       // hard_constraint_v2 刪走 → 0 卡。揀之前先剔，剩低嘅才揀。
-      const vegRows = vegRowsRaw.filter(isVegetarianRow);
+      let vegRows = vegRowsRaw.filter((row) => isVegetarianRow(row) && roleOk(row));
+      const vegScenarioFiltered = vegRows.length;
       const vegExcluded = vegRowsRaw.length - vegRows.length;
-      console.log(`[AI Chef] veg_pool_impure path=single familyId=${familyId} dishType=${chefIntent.requested.roles.join("|") || "any"} rows=${vegRowsRaw.length} excluded=${vegExcluded}`);
+      console.log(`[AI Chef] veg_pool_impure path=single familyId=${familyId} role=${dietRole ?? "any"} dishType=${chefIntent.requested.roles.join("|") || "any"} rows=${vegRowsRaw.length} excluded=${vegExcluded}`);
+      // scenario 池只有 30 張（limit）而且可能全部係「標籤素食但食材有肉」嘅雜質，
+      // 剔完就 0 → 靜靜 0 卡。池空先用整個食譜庫補池（限 400 張控制延遲），但仍然
+      // 逐張用 isVegetarianRow ＋ requested role 驗，冇合適角色就回 0，唔准硬出錯角色。
+      let vegWidened = 0;
+      let vegReason = vegRows.length > 0 ? "scenario_pool" : "scenario_pool_empty";
+      if (vegRows.length === 0 && (db || searchOverride)) {
+        const fullPool = await trySearch("", 400);
+        if (fullPool.ok) {
+          const fullRaw = avoidIngredients.length > 0
+            ? fullPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
+            : fullPool.rows;
+          const seenKeys = new Set<string>();
+          const extra = fullRaw.filter((row) => {
+            if (!isVegetarianRow(row) || !roleOk(row) || !rowHasServableSteps(row)) return false;
+            const key = normalizeName(String(row.name ?? "")).toLowerCase();
+            if (!key || seenKeys.has(key)) return false;
+            seenKeys.add(key);
+            return true;
+          });
+          vegRows = extra;
+          vegWidened = extra.length;
+          vegReason = vegWidened > 0 ? "widened_full_library" : "no_qualified_veg_rows";
+          console.log(`[AI Chef][veg] pool widen role=${dietRole ?? "any"} added=${vegWidened} full_rows=${fullRaw.length}`);
+        } else {
+          vegReason = "widen_search_failed";
+        }
+      }
       let vegPicked = rowsToSuggested(vegRows, excludeSets, 1);
       // 素食池細（59 張），一家人 7 日 seen 好快用盡 → 會靜靜 0 卡。
       // 寧願出返重複嘅素食卡，都唔好 0 卡（重複唔係錯，0 卡係錯）。
       if (vegPicked.length === 0 && vegRows.length > 0) {
         console.log(`[AI Chef] veg_seen_exhausted rows=${vegRows.length} → retry without seen`);
         vegPicked = rowsToSuggested(vegRows, mkExcludeSets([], []), 1);
+        if (vegPicked.length > 0) vegReason = `${vegReason}_seen_exhausted_retry`;
+        else vegReason = `${vegReason}_no_servable_steps`;
       }
+      console.log(`[AI Chef][veg] query=素食 role=${dietRole ?? "any"} scenario=vegetarian mode=${mode} rows=${vegRowsRaw.length} filtered=${vegScenarioFiltered} pool=${vegRows.length} picked=${vegPicked.length} widened=${vegWidened} reason=${vegReason}`);
       if (vegPicked.length > 0) {
         await recordFamilySeenNames(familyId, vegPicked.map((r) => r.name));
         return { content: aiReply(lang, "libByKeyword", { kw: "素食" }), recipes: vegPicked, llmUsed };
