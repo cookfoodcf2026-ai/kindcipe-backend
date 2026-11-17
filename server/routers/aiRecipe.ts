@@ -34,6 +34,7 @@ import { assembleRecipeSet, type RecipeCandidate } from "../services/recipeSetAs
 import { translateRecipeContent, translateRecipesForLang } from "../utils/translateContent";
 import { withIngredientTranslations, localizeIngredientNames } from "../utils/recipeTranslations";
 import { normalizeDifficulty } from "../utils/difficulty";
+import { hardIsMeat, isVegetarianRow } from "../utils/vegetarian";
 import { getDb, incrementAiChatUsage, insertCustomRecipe, getTrendingRecipes } from "../db";
 import { normalizeRecipeIngredients } from "../utils/ingredientNormalize";
 import { enforceDiversity, collisionScore } from "../utils/mealDiversity";
@@ -1232,42 +1233,11 @@ const HARD_PROTEIN_GROUPS = [
   /蛋/,
   /豆腐|豆乾|豆卜|腐竹|枝豆|毛豆|豆漿/,
 ];
-const HARD_MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|火腿|煙肉|臘腸|排骨|肉|chicken|beef|pork|lamb|mutton|duck|goose|turkey|bacon|ham|sausage|meat|steak|fish|shrimp|prawn|crab|shellfish|oyster|clam|squid|octopus|tuna|salmon|mackerel|cod|sardine|seafood/i;
-
-export function hardIsMeat(raw: unknown): boolean {
-  const name = String(raw ?? "");
-  if (!name) return false;
-  const trimmed = name.trim();
-  // 「素／齋」開頭一律當植物性（素鮑魚／齋鮑魚／素雞／素肉…）。
-  if (/^[素齋]/.test(trimmed)) return false;
-  if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(trimmed)) return false;
-  // Strip vegetarian-safe words that contain a meat character before testing.
-  // 菇菌／植物名誤殺：羊肚菌、雞腿菇、魚腥草、蟹味菇、蠔菇。
-  const cleaned = trimmed.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|魚腥草|羊肚菌|羊栖菜|雞腿菇|雞髀菇|雞脾菇|雞樅菌|雞油菌|蟹味菇|蠔菇|蚝菇|蝦夷蔥|素鮑魚|齋鮑魚|雞蛋|皮蛋|鹹蛋|鹹鴨蛋|鴨蛋|鵪鶉蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
-  return HARD_MEAT_RE.test(cleaned);
-}
+export { hardIsMeat, isVegetarianRow, rowIngredientNames } from "../utils/vegetarian";
 
 function rowHasServableSteps(row: Record<string, unknown>): boolean {
   const steps = Array.isArray(row.steps) ? row.steps : [];
   return steps.some((step: any) => String(step?.instruction ?? step?.text ?? step ?? "").trim());
-}
-
-function rowIngredientNames(row: Record<string, unknown>): string[] {
-  const ingredients = Array.isArray(row.ingredients) ? row.ingredients : [];
-  return ingredients.map((ingredient: any) =>
-    typeof ingredient === "string" ? ingredient : String(ingredient?.name ?? ""),
-  );
-}
-
-/**
- * A row is vegetarian only when BOTH its name and its ingredient names carry no
- * meat/seafood word. Tag-based vegetarian lies in production (tag says
- * vegetarian but ingredients include 雞湯／魚露／蠔油). hardIsMeat already
- * keeps vegetarian-safe words (素蠔油／素雞／雞蛋／牛奶／牛油果) out of the check.
- */
-export function isVegetarianRow(row: Record<string, unknown>): boolean {
-  if (hardIsMeat(String(row.name ?? ""))) return false;
-  return !rowIngredientNames(row).some((name) => hardIsMeat(name));
 }
 
 /**

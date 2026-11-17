@@ -281,6 +281,33 @@ test("vegetarian: mussels with a valid ingredient name do not qualify", () => {
   assert.equal(vegetarianFor([{ name: "青口" }, { name: "白酒" }]), false);
 });
 
+test("vegetarian: hoisin sauce (海鮮醬) is not seafood", () => {
+  const scenarios = deriveScenarios({
+    name: "香煎蘿蔔糕",
+    ingredients: [{ name: "蘿蔔糕" }, { name: "食油" }, { name: "辣椒醬" }, { name: "海鮮醬" }],
+    steps: ["煎至金黃"],
+  });
+  assert.equal(scenarios.includes("vegetarian"), true, scenarios.join(","));
+});
+
+test("vegetarian: seafood fried rice with shrimp still disqualifies", () => {
+  const scenarios = deriveScenarios({
+    name: "海鮮炒飯",
+    ingredients: [{ name: "白飯" }, { name: "蝦仁" }, { name: "雞蛋" }],
+    steps: ["炒勻"],
+  });
+  assert.equal(scenarios.includes("vegetarian"), false, scenarios.join(","));
+});
+
+test("vegetarian: vegetarian oyster sauce (素蠔油) qualifies", () => {
+  const scenarios = deriveScenarios({
+    name: "素蠔油生菜",
+    ingredients: [{ name: "生菜" }, { name: "素蠔油" }],
+    steps: ["灼熟淋汁"],
+  });
+  assert.equal(scenarios.includes("vegetarian"), true, scenarios.join(","));
+});
+
 test("fail-safe: quantity-only ingredient names disable vegetarian and highProtein", () => {
   const scenarios = deriveScenarios({
     name: "蒜香白酒煮青口",
