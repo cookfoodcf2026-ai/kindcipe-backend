@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { eq, and, or, ilike, desc, lte, gt, sql, notInArray, inArray, not } from "drizzle-orm";
+import { eq, and, or, ilike, desc, asc, lte, gt, sql, notInArray, inArray, not } from "drizzle-orm";
 import { protectedProcedure, familyWriteProcedure, router } from "../_core/trpc";
 import { invokeLLM, extractJSON, extractFirstJson, repairJSON, repairTruncatedJson, salvageJSON, startLlmMeter, Message, MessageContent, TextContent, ImageContent } from "../_core/llm";
 import { aiReply, dishLabel, partialSetReply } from "../_core/aiReply";
@@ -47,7 +47,13 @@ import { assertCustomRecipeLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, type QuotaScope } from "../services/recipeQuota";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
-import { isSelectorShadowEnabled, isTraceEnabled, shadowCompareSelector, type SelectorPoolCard } from "../services/chefSelector";
+import { isSelectorShadowEnabled, isTraceEnabled, shadowCompareSelector, hashSeed, type SelectorPoolCard } from "../services/chefSelector";
+import {
+  FULL_CATEGORY_POOL_LIMIT,
+  isPoolFullCategoryEnabled,
+  libraryPoolVersion,
+  orderFullCategoryPool,
+} from "../services/chefPoolFullCategory";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
@@ -346,7 +352,7 @@ const SEEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 日
 const SEEN_CUSTOM_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 日
 type SeenEntry = { name: string; seenAt: number };
 const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
-const LIBRARY_POOL_CACHE: Map<number, { at: number; rows: Record<string, unknown>[] }> = new Map();
+const LIBRARY_POOL_CACHE: Map<string, { at: number; rows: Record<string, unknown>[] }> = new Map();
 const LIBRARY_POOL_TTL_MS = 60_000;
 const MAX_RECENT_PER_FAMILY = 40;
 // Safety valve for reading the whole 7-day seen window. The window itself is
@@ -1538,10 +1544,14 @@ function scenarioTagsCondition(table: any, scenario: string) {
 }
 
 export async function execSearchRecipes(
-  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan; measurePath?: "swap" | "meal" | "single" | "dispatch" | "insurance" }, familyId?: number
+  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan; measurePath?: "swap" | "meal" | "single" | "dispatch" | "insurance"; fullCategory?: string }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
   const plan = args.plan;
+  // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): when set, ignore the keyword and
+  // return the whole dish_type with a fixed deterministic ordering. The caller
+  // passes a large limit; randomisation stays in the selector layer.
+  const fullCategory = args.fullCategory ? swapRoleDishType(args.fullCategory) : undefined;
   const queryText = plan ? plan.text : args.query;
 
   // 時間約束：單獨抽「N 分鐘」→ cookTime ≤ N；其餘字詞照常 AND 搜尋
@@ -1570,7 +1580,7 @@ export async function execSearchRecipes(
     // fuzzy text/tag conditions (that over-narrows, e.g. healthy = scenario AND text
     // "清淡"). Time (quick) still applies.
     const scenarioPrimary = !!args.scenario || (plan?.scenarios?.length ?? 0) > 0;
-    const textCond = !scenarioPrimary && keywords.length > 0
+    const textCond = !fullCategory && !scenarioPrimary && keywords.length > 0
       ? (mode === "and" ? and : or)(
           ...keywords.map(kw => {
             const variants = getKeywordVariants(kw);
@@ -1584,7 +1594,9 @@ export async function execSearchRecipes(
         )
       : undefined;
     const timeCond = cookTimeMax && cookTimeMax > 0 ? lte(table.cookTime, cookTimeMax) : undefined;
-    const dishTypeCond = plan?.dishTypes?.length ? inArray(table.dishType, plan.dishTypes) : undefined;
+    const dishTypeCond = fullCategory
+      ? eq(table.dishType, fullCategory)
+      : plan?.dishTypes?.length ? inArray(table.dishType, plan.dishTypes) : undefined;
     const scenarioNames = [...new Set([...(args.scenario ? [args.scenario] : []), ...(plan?.scenarios ?? [])])];
     const scenarioCond = scenarioNames.length > 0
       ? or(...scenarioNames.map(scenario => scenarioTagsCondition(table, scenario)))
@@ -1604,7 +1616,9 @@ export async function execSearchRecipes(
       mainCond && timeCond ? or(mainCond, timeCond) : (mainCond ?? timeCond),
       ...extraWhere,
     );
-    return (await db.select(cols).from(table).where(where).orderBy(desc(table.createdAt)).limit(limit)) as Record<string, unknown>[];
+    return (await (fullCategory
+      ? db.select(cols).from(table).where(where).orderBy(asc(table.dishType), asc(table.id)).limit(FULL_CATEGORY_POOL_LIMIT)
+      : db.select(cols).from(table).where(where).orderBy(desc(table.createdAt)).limit(limit))) as Record<string, unknown>[];
   };
 
   const officialCols = {
@@ -4673,7 +4687,7 @@ async function processAIChefChatCore(
     | { ok: true; rows: Record<string, unknown>[] }
     | { ok: false; reason: "timeout" | "throw" };
   let searchFailed = false;
-  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan, scenario?: string, measurePath?: "swap" | "meal" | "single"): Promise<RecipeSearchResult> => {
+  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan, scenario?: string, measurePath?: "swap" | "meal" | "single", fullCategory?: string): Promise<RecipeSearchResult> => {
     if (searchOverride) {
       try {
         const rows = await searchOverride(query, limit, cookTimeMax);
@@ -4687,7 +4701,7 @@ async function processAIChefChatCore(
     // Real transient DB failures/timeouts still return ok:false.
     if (!db) return { ok: true, rows: [] };
     const startedAt = Date.now();
-    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, scenario, measurePath, ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
+    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, scenario, measurePath, ...(fullCategory ? { fullCategory } : {}), ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
     try {
       const res = await run();
       const rows = (res.recipes || []) as Record<string, unknown>[];
@@ -4730,7 +4744,7 @@ async function processAIChefChatCore(
     rows: Record<string, unknown>[],
     ex: ExcludeSets,
     count: number,
-    opts: { allowReuse?: boolean; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean } = {},
+    opts: { allowReuse?: boolean; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean; preserveOrder?: boolean } = {},
   ): SuggestedRecipe[] => {
     const fresh: SuggestedRecipe[] = [];
     const reused: SuggestedRecipe[] = [];
@@ -4818,7 +4832,9 @@ async function processAIChefChatCore(
         seenNames.add(key);
         candidates.push(recipe);
       }
-      const unseen = shuffleArr(candidates.filter((recipe) => !isSeen(recipe)));
+      const unseen = opts.preserveOrder === true
+        ? candidates.filter((recipe) => !isSeen(recipe))
+        : shuffleArr(candidates.filter((recipe) => !isSeen(recipe)));
       // seenOrder is newest-first (0 = most recent), so the highest index is the
       // oldest-seen slice to recycle first.
       const seenFirst = candidates
@@ -4833,7 +4849,10 @@ async function processAIChefChatCore(
     }
     if (opts.allowReuse === false) {
       const seenNames = new Set<string>();
-      const picked = shuffleArr(fresh)
+      const swappedPool = opts.allowReuse === false && opts.preserveOrder === true
+        ? fresh
+        : shuffleArr(fresh);
+      const picked = swappedPool
         .filter((recipe) => {
           const key = normalizeName(recipe.name);
           if (!key || seenNames.has(key)) return false;
@@ -5598,7 +5617,26 @@ async function processAIChefChatCore(
       : Math.min(first.rows.length, Math.max(2, search?.count ?? 2));
     const swapDishType = isSwapTurn ? (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim() : "";
     const dietKeywordRows = chefIntent.diet ? first.rows.filter(isVegetarianRow) : first.rows;
-    const keywordRows = isSwapTurn ? filterRowsForSwap(dietKeywordRows, swapDishType) : dietKeywordRows;
+    let keywordRows = isSwapTurn ? filterRowsForSwap(dietKeywordRows, swapDishType) : dietKeywordRows;
+    // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): a swap must draw from the whole
+    // dish_type; the keyword result only supplies the ranking boost.
+    const fullCategorySwap = isSwapTurn && isPoolFullCategoryEnabled() && Boolean(swapDishType);
+    if (fullCategorySwap && db) {
+      try {
+        const res = await withTimeout(
+          execSearchRecipes(db, { query: "", limit: FULL_CATEGORY_POOL_LIMIT, fullCategory: swapDishType }, familyId),
+          8000, "lib search",
+        );
+        const fullRows = (res.recipes || []) as Record<string, unknown>[];
+        const dietFullRows = chefIntent.diet ? fullRows.filter(isVegetarianRow) : fullRows;
+        keywordRows = orderFullCategoryPool(
+          filterRowsForSwap(dietFullRows, swapDishType),
+          { keyword: first.term, seed: hashSeed([traceId ?? "", first.term, swapDishType]) },
+        );
+      } catch {
+        // Keep the keyword result on any DB failure (flag ON must still serve).
+      }
+    }
     const keywordSets = isSwapTurn
       ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
       : excludeSets;
@@ -5606,7 +5644,10 @@ async function processAIChefChatCore(
       keywordRows,
       keywordSets,
       wanted,
-      isSwapTurn ? swapPickOpts(swapDishType) : {},
+      {
+        ...(isSwapTurn ? swapPickOpts(swapDishType) : {}),
+        ...(fullCategorySwap ? { preserveOrder: true } : {}),
+      },
     );
     if (cards.length >= (isSwapTurn ? 1 : 2)) {
       if (isSwapTurn) shadowSwapSelector("keyword", keywordRows, cards, swapDishType);
@@ -5969,7 +6010,7 @@ async function processAIChefChatCore(
     const libMealIntent = parseMealIntent(inputMessages as Message[]);
     const reqCount = search?.count && search.count > 1 ? search.count : 0;
     const isMealLib = !(isSwapTurn && mode === "library") && (libMealIntent.isMeal || reqCount > 0 || /3\s*餸\s*1\s*湯|4\s*個唔同嘅食譜|肉\/海鮮\/蔬菜\/湯/.test(lastUserText));
-    const cacheKey = familyId ?? 0;
+    const cacheKey = `${familyId ?? 0}:${libraryPoolVersion()}`;
     const cachedPool = LIBRARY_POOL_CACHE.get(cacheKey);
     let rows: Record<string, unknown>[];
     if (cachedPool && Date.now() - cachedPool.at < LIBRARY_POOL_TTL_MS) {
@@ -6269,17 +6310,19 @@ async function processAIChefChatCore(
           : dietRows(rows);
       const searchCount = search.count ?? 1;
       let searchRows: Record<string, unknown>[] = [];
+      const fullCategorySwap = isPoolFullCategoryEnabled() && isSwapRequest && Boolean(swapDishType) && Boolean(db);
       if (db) {
         try {
           const res = await withTimeout(
             execSearchRecipes(db, {
-              query: search.query ?? "",
+              query: fullCategorySwap ? "" : search.query ?? "",
               category: search.category,
               tags: search.tags,
               cookTimeMax: search.cookTimeMax,
               excludeCategories: search.excludeCategories,
               scenario: search.scenario,
-              limit: 30,
+              limit: fullCategorySwap ? FULL_CATEGORY_POOL_LIMIT : 30,
+              ...(fullCategorySwap ? { fullCategory: swapDishType } : {}),
             }, familyId),
             8000, "lib search"
           );
@@ -6298,7 +6341,17 @@ async function processAIChefChatCore(
         console.log(`[AI Chef][scenario] stage=${stage} scenario=${search.scenario ?? "none"} query="${search.query ?? ""}" scenarioTags=${scenarioTagLabel} rows=${rows.length} seen=${seen} filtered=${filtered.length}`);
         return filtered;
       };
-      picked = rowsToSuggested(swapRows(logScenarioRows("direct", searchRows)), effExcludeSets, isSwapRequest ? 1 : searchCount, isSwapRequest ? swapPickOpts(swapDishType, true) : {});
+      let directRows = swapRows(logScenarioRows("direct", searchRows));
+      if (fullCategorySwap) {
+        directRows = orderFullCategoryPool(directRows, {
+          keyword: search.query ?? "",
+          seed: hashSeed([traceId ?? "", search.query ?? "", search.tags?.join(",") ?? "", swapDishType]),
+        });
+      }
+      picked = rowsToSuggested(directRows, effExcludeSets, isSwapRequest ? 1 : searchCount, {
+        ...(isSwapRequest ? swapPickOpts(swapDishType, true) : {}),
+        ...(fullCategorySwap ? { preserveOrder: true } : {}),
+      });
       if (search.rank === "shortestTime" && picked.length > 1) {
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
@@ -6348,7 +6401,13 @@ async function processAIChefChatCore(
       return buildIncompleteSetFallback(lang, llmUsed);
     } else if (swapQuery) {
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
-      const swapSearch = await trySearch(swapQuery, 30, undefined, undefined, undefined, "swap");
+      // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): swap from the whole dish_type
+      // instead of the 30-row keyword result; keyword only boosts ranking.
+      // The harness (searchOverride) has no dish_type SQL, so it stays legacy.
+      const fullCategorySwap = isPoolFullCategoryEnabled() && Boolean(swapDishType) && Boolean(db);
+      const swapSearch = fullCategorySwap
+        ? await trySearch("", FULL_CATEGORY_POOL_LIMIT, undefined, undefined, undefined, "swap", swapDishType)
+        : await trySearch(swapQuery, 30, undefined, undefined, undefined, "swap");
       if (!swapSearch.ok) {
         console.log(`[AI Chef] lib_search_fail swap query="${swapQuery}" reason=${swapSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
@@ -6361,8 +6420,17 @@ async function processAIChefChatCore(
       // 否則類別 pool 被 7 日去重過度收窄，第二次撳換就搜唔到 → 誤 fallback AI。
       const swapSets = mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames);
       // 先按 dishType 過濾，再交畀 rowsToSuggested 翻兜；否則會翻兜錯類再被濾走。
-      const swapFilteredRows = filterRowsForSwap(singleRows, swapDishType);
-      let picked = rowsToSuggested(swapFilteredRows, swapSets, 1, swapPickOpts(swapDishType, true));
+      let swapFilteredRows = filterRowsForSwap(singleRows, swapDishType);
+      if (fullCategorySwap) {
+        swapFilteredRows = orderFullCategoryPool(swapFilteredRows, {
+          keyword: swapQuery,
+          seed: hashSeed([traceId ?? "", swapQuery, swapDishType]),
+        });
+      }
+      let picked = rowsToSuggested(swapFilteredRows, swapSets, 1, {
+        ...swapPickOpts(swapDishType, true),
+        ...(fullCategorySwap ? { preserveOrder: true } : {}),
+      });
       if (picked.length > 1) {
         // 名直接含 swapQuery 嘅排最前（換湯先至係真湯），fresh 優先次序保留喺第二層
         picked = [...picked].sort((a, b) => (b.name.includes(swapQuery) ? 1 : 0) - (a.name.includes(swapQuery) ? 1 : 0));
@@ -6398,12 +6466,33 @@ async function processAIChefChatCore(
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
       const rawTerm = extractMealIngredients(lastUserText)[0] ?? cleanFoodQuery(lastUserText);
       const libraryTerm = isSpecificFoodTerm(rawTerm) ? rawTerm : "";
-      const dietSafeRows = dietRows(safeRows);
-      const semanticRows = isSwapRequest
+      // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): swap from the full dish_type pool
+      // instead of the 400-row meal pool, keyword as a ranking boost only.
+      const fullCategorySwap = isPoolFullCategoryEnabled() && isSwapRequest && Boolean(swapDishType) && Boolean(db);
+      let categoryPoolRows = safeRows;
+      if (fullCategorySwap && db) {
+        try {
+          const res = await withTimeout(
+            execSearchRecipes(db, { query: "", limit: FULL_CATEGORY_POOL_LIMIT, fullCategory: swapDishType }, familyId),
+            8000, "lib search",
+          );
+          categoryPoolRows = (res.recipes || []) as Record<string, unknown>[];
+        } catch {
+          categoryPoolRows = safeRows;
+        }
+      }
+      const dietSafeRows = dietRows(categoryPoolRows);
+      let semanticRows = isSwapRequest
         ? filterRowsForSwap(dietSafeRows, swapDishType)
         : libraryTerm
           ? dietSafeRows.filter((row) => rowMatchesFoodQuery(row, libraryTerm))
           : dietSafeRows;
+      if (fullCategorySwap) {
+        semanticRows = orderFullCategoryPool(semanticRows, {
+          keyword: libraryTerm || rawTerm,
+          seed: hashSeed([traceId ?? "", rawTerm, swapDishType]),
+        });
+      }
       const swapSets = isSwapRequest
         ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
         : excludeSets;
@@ -6411,7 +6500,10 @@ async function processAIChefChatCore(
         semanticRows,
         swapSets,
         1,
-        isSwapRequest ? swapPickOpts(swapDishType) : {},
+        {
+          ...(isSwapRequest ? swapPickOpts(swapDishType) : {}),
+          ...(fullCategorySwap ? { preserveOrder: true } : {}),
+        },
       );
       if (picked.length > 0) {
         if (isSwapRequest) shadowSwapSelector("semantic", semanticRows, picked, swapDishType);
