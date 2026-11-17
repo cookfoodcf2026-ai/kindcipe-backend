@@ -47,7 +47,7 @@ import { assertCustomRecipeLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, type QuotaScope } from "../services/recipeQuota";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
-import { isSelectorShadowEnabled, shadowCompareSelector, type SelectorPoolCard } from "../services/chefSelector";
+import { isSelectorShadowEnabled, isTraceEnabled, shadowCompareSelector, type SelectorPoolCard } from "../services/chefSelector";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
@@ -1538,7 +1538,7 @@ function scenarioTagsCondition(table: any, scenario: string) {
 }
 
 export async function execSearchRecipes(
-  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan }, familyId?: number
+  db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan; measurePath?: "swap" | "meal" | "single" | "dispatch" | "insurance" }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
   const plan = args.plan;
@@ -1680,6 +1680,28 @@ export async function execSearchRecipes(
     merged.push(r);
   }
 
+  if (isTraceEnabled("pool")) {
+    const served = merged.slice(0, limit);
+    const dropped = merged.slice(limit);
+    const perType: Record<string, number> = {};
+    for (const row of merged) {
+      const dishType = classifyDishType(row);
+      perType[dishType] = (perType[dishType] ?? 0) + 1;
+    }
+    console.log(`[AI Chef][pool] path=${args.measurePath ?? "generic"} total=${merged.length} served=${served.length} dropped=${dropped.length} perType=${JSON.stringify(perType)} cap=${limit} subCapped=${officialRows.length >= limit || customRows.length >= limit} q="${String(args.query ?? "").slice(0, 24)}" scenario=${args.scenario ?? "none"}`);
+    if (dropped.length > 0) {
+      // uniqueEligible = dropped cards whose dishType appears exactly once in the
+      // request's whole eligible pool (post category/tags/time/avoid/scenario
+      // filters). Those are the only qualifying card for that hard constraint
+      // slot, so the 400 cap is what makes that slot unavailable.
+      let uniqueEligible = 0;
+      for (const row of dropped) {
+        if (perType[classifyDishType(row)] === 1) uniqueEligible += 1;
+      }
+      const pct = ((uniqueEligible / dropped.length) * 100).toFixed(1);
+      console.log(`[AI Chef][pool] dropped=${dropped.length} uniqueEligible=${uniqueEligible} pct=${pct}% path=${args.measurePath ?? "generic"} cap=${limit}`);
+    }
+  }
   return { count: merged.length, recipes: merged.slice(0, limit) };
 }
 
@@ -4651,7 +4673,7 @@ async function processAIChefChatCore(
     | { ok: true; rows: Record<string, unknown>[] }
     | { ok: false; reason: "timeout" | "throw" };
   let searchFailed = false;
-  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan, scenario?: string): Promise<RecipeSearchResult> => {
+  const trySearch = async (query: string, limit = 24, cookTimeMax?: number, plan?: QueryPlan, scenario?: string, measurePath?: "swap" | "meal" | "single"): Promise<RecipeSearchResult> => {
     if (searchOverride) {
       try {
         const rows = await searchOverride(query, limit, cookTimeMax);
@@ -4665,7 +4687,7 @@ async function processAIChefChatCore(
     // Real transient DB failures/timeouts still return ok:false.
     if (!db) return { ok: true, rows: [] };
     const startedAt = Date.now();
-    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, scenario, ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
+    const run = () => withTimeout(execSearchRecipes(db, { query, limit, cookTimeMax, scenario, measurePath, ...(plan ? { plan } : {}) }, familyId), 8000, "lib search");
     try {
       const res = await run();
       const rows = (res.recipes || []) as Record<string, unknown>[];
@@ -5955,7 +5977,7 @@ async function processAIChefChatCore(
       console.log(`[AI Chef] library pool cache hit (${rows.length})`);
     } else {
       const poolStartedAt = Date.now();
-      const poolSearch = await trySearch("", 400);
+      const poolSearch = await trySearch("", 400, undefined, undefined, undefined, "meal");
       if (!poolSearch.ok) {
         console.log(`[AI Chef] lib_search_fail library_pool reason=${poolSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
@@ -6110,6 +6132,7 @@ async function processAIChefChatCore(
       const cards = retry.attempted
         ? rowsToSuggested(safeRoleRows, mkExcludeSets([], []), Math.max(1, count))
         : [];
+      if (cards.length > 0) shadowSwapSelector("relaxed", safeRoleRows, cards, role);
       console.log(`[AI Chef][swap] relaxed attempted=${retry.attempted ? 1 : 0} role=${role} query="${retry.relaxedQuery ?? ""}" rows=${safeRoleRows.length} served=${cards.length}`);
       return { ...retry, roleRows: safeRoleRows, cards };
     };
@@ -6315,6 +6338,7 @@ async function processAIChefChatCore(
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
       if (picked.length > 0) {
+        if (isSwapRequest) shadowSwapSelector("structuredFallback", scenarioFilteredRows, picked, swapDishType);
         console.log(`[AI Chef] library structured fallback: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
         await recordFamilySeenNames(familyId, picked.filter(r => !r.recycled).map(r => r.name));
         return { content: aiReply(lang, "libOne"), recipes: picked, llmUsed };
@@ -6324,7 +6348,7 @@ async function processAIChefChatCore(
       return buildIncompleteSetFallback(lang, llmUsed);
     } else if (swapQuery) {
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
-      const swapSearch = await trySearch(swapQuery, 30);
+      const swapSearch = await trySearch(swapQuery, 30, undefined, undefined, undefined, "swap");
       if (!swapSearch.ok) {
         console.log(`[AI Chef] lib_search_fail swap query="${swapQuery}" reason=${swapSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };

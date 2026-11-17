@@ -465,6 +465,15 @@ export function selectCards(input: SelectorInput): SelectorResult {
     .map((row) => byId.get(row.id))
     .filter((card): card is SelectorPoolCard => Boolean(card));
 
+  if (isTraceEnabled("select")) {
+    const perTypePicked: Record<string, number> = {};
+    for (const card of cards) {
+      const category = categoryOf(card) ?? "unknown";
+      perTypePicked[category] = (perTypePicked[category] ?? 0) + 1;
+    }
+    console.log(`[AI Chef][select] K=${SELECTOR_TOP_K} pool=${poolSize} afterHard=${afterHard.length} picked=${cards.length} perTypePicked=${JSON.stringify(perTypePicked)} degraded=${afterHard.length < poolSize || cards.length < wanted} cache=na`);
+  }
+
   return {
     cards,
     reason: "ok",
@@ -481,11 +490,30 @@ export function selectCards(input: SelectorInput): SelectorResult {
   };
 }
 
+// ─── Trace gate (AI_CHEF_TRACE, default OFF) ───────────────────────────────
+// off (default) = no output; pool = only library-pool lines; select = only
+// selector-decision lines; all = both. Read at call time so tests/ops can flip
+// it without a rebuild. Logs carry ids/hashes/numbers only (no names/steps).
+export type TraceScope = "pool" | "select";
+
+export function isTraceEnabled(scope: TraceScope): boolean {
+  try {
+    const raw = String(process.env.AI_CHEF_TRACE ?? "").trim().toLowerCase();
+    if (!raw || raw === "off" || raw === "0" || raw === "false") return false;
+    if (raw === "all" || raw === "1" || raw === "true") return true;
+    return raw.split(",").map((part) => part.trim()).includes(scope);
+  } catch {
+    return false;
+  }
+}
+
 // ─── Shadow compare (flag AI_CHEF_SELECTOR_V2, default OFF) ────────────────
 
 export const SHADOW_MAX_LINES = 5000;
 export const SHADOW_MAX_BYTES = 5 * 1024 * 1024;
-export const SHADOW_DEFAULT_SAMPLE = 0.1;
+// Measurement period is 100%: no decision may be silently skipped while the
+// shadow flag is ON. AI_CHEF_SELECTOR_SHADOW_SAMPLE can still lower it.
+export const SHADOW_DEFAULT_SAMPLE = 1;
 
 type ShadowLogState = {
   bytes: number;
@@ -635,6 +663,10 @@ export function shadowCompareSelector(params: ShadowCompareParams): SelectorResu
       path: params.path,
       seedUsed: result.seedUsed,
       poolSize: result.poolSize,
+      afterHard: result.afterHard,
+      picked: newIds.length,
+      legacyPicked: legacyIds.length,
+      overlap,
       countAfterStep1: result.countAfterStep1,
       countAfterStep2: result.countAfterStep2,
       countAfterStep3: result.countAfterStep3,
