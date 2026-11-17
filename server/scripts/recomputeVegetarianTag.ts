@@ -274,9 +274,12 @@ async function postCheck(tx: TxClient, before: ScopeSummary[], expectedApplied: 
     if (post.total !== pre.total) {
       throw new Error(`${context}: row count changed (${pre.total} → ${post.total})`);
     }
-    if (post.vegAfter !== pre.vegAfter || post.added !== pre.added || post.removed !== pre.removed) {
+    if (post.vegAfter !== pre.vegAfter) {
+      throw new Error(`${context}: veg count drift (veg_after ${post.vegAfter}/${pre.vegAfter})`);
+    }
+    if (post.added !== 0 || post.removed !== 0) {
       throw new Error(
-        `${context}: counts mismatch (veg_after ${post.vegAfter}/${pre.vegAfter}, added ${post.added}/${pre.added}, removed ${post.removed}/${pre.removed})`,
+        `${context}: pending changes remain after apply (added ${post.added}, removed ${post.removed})`,
       );
     }
     if (post.changes.length !== 0) {
