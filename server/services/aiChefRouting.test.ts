@@ -207,6 +207,47 @@ test("diet + flag ON + all vegetarian enough: already_satisfied set unchanged", 
   assert.deepEqual(out.recipes.map((recipe) => recipe.name), enough.map((recipe) => recipe.name));
 });
 
+test("diet + flag ON + 4 veg dishes + 1 meat soup: no early return without soup", async () => {
+  const meatSoup = {
+    ...card,
+    name: "老火豬骨湯",
+    dishType: "soup",
+    ingredients: [{ name: "豬骨", quantity: "1", unit: "份" }],
+  };
+  const before = [
+    vegCard,
+    vegDishB,
+    { ...card, name: "番茄炒蛋", tags: ["vegetarian"] },
+    { ...card, name: "清炒菠菜", tags: ["vegetarian"] },
+    meatSoup,
+  ];
+  const { out, logs } = await withLogs(() => runWithDietFlag("1", () =>
+    applyMealShapePostcondition(dietResultWith(before), dietParamsWith(enoughVegPool()))));
+  const soups = out.recipes.filter((recipe) => recipe.dishType === "soup" || /湯|羹/.test(recipe.name)).length;
+  assert.ok(logs.some((line) => line.includes("diet_kept cards=4 soups=0 need_soups=1 -> reshape")), logs.join("\n"));
+  assert.ok(!(out.recipes.length === 4 && soups === 0), "must not early-return 4 dishes with 0 soup");
+  assert.equal(out.recipes.length, 4);
+  assert.equal(soups, 1);
+  assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+});
+
+test("diet + flag ON + 3 veg dishes + 1 veg soup + 1 meat soup: early return keeps soup", async () => {
+  const meatSoup = {
+    ...card,
+    name: "老火豬骨湯",
+    dishType: "soup",
+    ingredients: [{ name: "豬骨", quantity: "1", unit: "份" }],
+  };
+  const before = [vegCard, vegDishB, { ...card, name: "番茄炒蛋", tags: ["vegetarian"] }, vegSoup, meatSoup];
+  const { out, logs } = await withLogs(() => runWithDietFlag("1", () =>
+    applyMealShapePostcondition(dietResultWith(before), dietParamsWith([]))));
+  assert.equal(out.recipes.length, 4);
+  assert.equal(out.recipes.filter((recipe) => recipe.dishType === "soup").length, 1);
+  assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+  assert.ok(logs.some((line) => line.includes("diet_stripped=1")), logs.join("\n"));
+  assert.ok(!logs.some((line) => line.includes("-> reshape")), logs.join("\n"));
+});
+
 test("non-diet + flag ON with shrimp cards equals a43a95d (no filtering)", async () => {
   const result = dietResultWith(fourWithShrimp());
   const out = await runWithDietFlag("1", () =>

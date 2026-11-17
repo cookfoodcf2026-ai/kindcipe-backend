@@ -4164,18 +4164,25 @@ export async function applyMealShapePostcondition(
   // 如果已經湊夠卡（例如 role assembler 已出 3 餸 1 湯），唔好再 reshape，
   // 否則會把已合格嘅卡減少（實測 4 張變 2 張）。
   const planned = (result.intentOverride as any)?.requested?.total ?? shape.dishCount + shape.soupCount;
+  const hasSoupWord = (recipe: SuggestedRecipe) => /湯|羹|煲/.test(String(recipe.name ?? ""));
+  const isSoupSlot = (recipe: SuggestedRecipe) => isPostconditionSoup(recipe) || hasSoupWord(recipe);
   if (planned >= 2 && (result.recipes?.length ?? 0) >= planned) {
     if (dietFix) {
       const before = result.recipes ?? [];
       const kept = before.filter(isVegetarianCard);
+      const keptSoups = kept.filter(isSoupSlot).length;
       if (kept.length < before.length) {
         console.log(`[AI Chef] meal_shape already_satisfied diet_stripped=${before.length - kept.length} kept=${kept.length} planned=${planned}`);
-        if (kept.length >= planned) return { ...result, recipes: kept };
-        // Not enough vegetarian cards left: fall through to reshape / shortfall.
-      } else {
-        console.log(`[AI Chef] meal_shape skip already_satisfied cards=${before.length} planned=${planned}`);
-        return result;
       }
+      // 除咗卡數，仲要夠湯卡（3餸1湯唔可以早退成 4 餸 0 湯）。
+      if (kept.length >= planned && keptSoups >= shape.soupCount) {
+        if (kept.length >= before.length) {
+          console.log(`[AI Chef] meal_shape skip already_satisfied cards=${before.length} planned=${planned}`);
+        }
+        return kept.length < before.length ? { ...result, recipes: kept } : result;
+      }
+      // 唔夠卡或唔夠湯：唔早退，跌落現有 reshape／短卡路徑。
+      console.log(`[AI Chef] meal_shape diet_kept cards=${kept.length} soups=${keptSoups} need_soups=${shape.soupCount} -> reshape`);
     } else {
       console.log(`[AI Chef] meal_shape skip already_satisfied cards=${result.recipes.length} planned=${planned}`);
       return result;
@@ -4184,8 +4191,6 @@ export async function applyMealShapePostcondition(
 
   const allergens = params.knownAllergens
     ?? (params.familyId ? await getFamilyAllergens(params.familyId) : []);
-  const hasSoupWord = (recipe: SuggestedRecipe) => /湯|羹|煲/.test(String(recipe.name ?? ""));
-  const isSoupSlot = (recipe: SuggestedRecipe) => isPostconditionSoup(recipe) || hasSoupWord(recipe);
   const soupScore = (recipe: SuggestedRecipe) => /湯|羹/.test(String(recipe.name ?? "")) ? 0 : isPostconditionSoup(recipe) ? 1 : 2;
   const current = dietFix ? (result.recipes ?? []).filter(isVegetarianCard) : (result.recipes ?? []);
   const selectedNames = new Set(current.map((recipe) => normalizeName(recipe.name)).filter(Boolean));
