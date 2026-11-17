@@ -8,3 +8,4 @@ dist/
 
 # backfill backup snapshots (generated)
 scripts/data/
+logs/

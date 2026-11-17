@@ -47,6 +47,7 @@ import { assertCustomRecipeLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, type QuotaScope } from "../services/recipeQuota";
 import { shouldChargeChefRequest } from "../services/aiChefPolicy";
 import { buildIncompleteSetFallback, filterStructuredFallbackRows } from "../services/chefStructuredFallback";
+import { isSelectorShadowEnabled, shadowCompareSelector, type SelectorPoolCard } from "../services/chefSelector";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
@@ -4523,6 +4524,33 @@ async function processAIChefChatCore(
     swapRecycleV2
       ? { allowReuse: false as const, recycleV2: true, swapContext: true, seenOrder: swapSeenOrder, hardExclude: swapHardExcludeNames, dishType }
       : { allowReuse: false as const, hardExclude: swapHardExcludeNames, dishType, ...(withSeenOrder ? { seenOrder: seenSplit.seen7d } : {}) };
+  // Shadow compare (AI_CHEF_SELECTOR_V2, default OFF). Observation only: the
+  // response keeps using the legacy picked cards; the new selector only writes
+  // one JSONL line when the flag is explicitly ON.
+  const shadowSwapSelector = (
+    path: string,
+    poolRows: Record<string, unknown>[],
+    legacyPicked: SuggestedRecipe[],
+    dishType: string,
+  ): void => {
+    if (!isSelectorShadowEnabled()) return;
+    const excluded = [...new Set([...(swapExcludeNames ?? []), ...excludeNames])].filter(Boolean);
+    const seenIndex = Object.fromEntries(
+      [...new Set([...(swapSeenNames ?? []), ...seenSplit.seen7d])]
+        .map((name) => [normalizeName(String(name)), { count: 1, lastSeenAt: Date.now() }]),
+    );
+    shadowCompareSelector({
+      requestId: traceId,
+      path: `swap:${path}`,
+      pool: poolRows as unknown as SelectorPoolCard[],
+      n: 1,
+      constraints: { category: dishType || null },
+      excludeIds: excluded,
+      seenIndex,
+      now: Date.now(),
+      legacyPickedIds: legacyPicked.map((recipe) => recipe.officialId ?? recipe.name),
+    });
+  };
   const historyHasMealShape = Boolean(
     (previousText && planChefTurn(previousText)?.shape)
     || previousTexts.some((text) => planChefTurn(text)?.shape),
@@ -5559,6 +5587,7 @@ async function processAIChefChatCore(
       isSwapTurn ? swapPickOpts(swapDishType) : {},
     );
     if (cards.length >= (isSwapTurn ? 1 : 2)) {
+      if (isSwapTurn) shadowSwapSelector("keyword", keywordRows, cards, swapDishType);
       console.log(`[AI Chef] library keyword_match item="${first.term}" rows=${first.rows.length} served=${cards.length} reason=keyword_match`);
       // Recycle v2: a card served from the seen window must not be re-recorded,
       // or the swap-only recycle would pollute the non-swap recommendation pool.
@@ -6251,6 +6280,7 @@ async function processAIChefChatCore(
         picked = [...picked].sort((a, b) => (a.cookTime || 999) - (b.cookTime || 999));
       }
       if (picked.length > 0) {
+        if (isSwapRequest) shadowSwapSelector("structured", searchRows, picked, swapDishType);
         console.log(`[AI Chef] library structured: ${picked.length} recipes (${search.query || search.tags?.join("、") || "generic"})`);
         await recordFamilySeenNames(familyId, picked.filter(r => !r.recycled).map(r => r.name));
         const content = search.tags?.join("、") || search.query
@@ -6316,6 +6346,7 @@ async function processAIChefChatCore(
       // 食譜庫換 = 純食譜庫：唔用 AI 生成、唔落 generic 池（避免換錯類 / 變 AI 卡）。
       // 搵唔到同類 → 返回空，由前端決定 repeat 定轉 AI。
       if (picked.length > 0) {
+        shadowSwapSelector("swapQuery", swapFilteredRows, picked, swapDishType);
         console.log(`[AI Chef] library mode: ${picked.length} recipes (swapQuery="${swapQuery}" dishType="${swapDishType}")`);
         await recordFamilySeenNames(familyId, picked.filter(r => !r.recycled).slice(0, 1).map(r => r.name));
         return { content: aiReply(lang, "libOneFrom"), recipes: picked.slice(0, 1), llmUsed };
@@ -6359,6 +6390,7 @@ async function processAIChefChatCore(
         isSwapRequest ? swapPickOpts(swapDishType) : {},
       );
       if (picked.length > 0) {
+        if (isSwapRequest) shadowSwapSelector("semantic", semanticRows, picked, swapDishType);
         console.log(`[AI Chef] library mode: ${picked.length} recipes term="${libraryTerm || "(generic)"}"`);
         await recordFamilySeenNames(familyId, picked.filter(r => !r.recycled).slice(0, 1).map(r => r.name));
         return { content: aiReply(lang, "libOneFrom"), recipes: picked, llmUsed };
