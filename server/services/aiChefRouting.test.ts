@@ -43,31 +43,197 @@ const DIET_CANNED_PROMPT = `請為我設計今晚「3 餸 1 湯」晚餐，總�
 4. 湯水（老火湯）
 素食`;
 
-test("diet meal postcondition does not top up meat/seafood cards", async () => {
+const dietRow = (id: number, name: string, dishType: string) => ({
+  id,
+  name,
+  source: "official",
+  dishType,
+  cookTime: 30,
+  servings: 4,
+  ingredients: [
+    { name: "食材", quantity: "1", unit: "份" },
+    { name: "配料", quantity: "1", unit: "份" },
+  ],
+  steps: ["1", "2"],
+  tags: dishType === "vegetable" ? ["vegetarian"] : [],
+});
+
+const dietPool = () => [
+  dietRow(1, "豉汁蒸排骨", "meat"),
+  dietRow(2, "香煎雞扒", "meat"),
+  dietRow(3, "清蒸鱸魚", "seafood"),
+  dietRow(4, "蒜蓉炒菜心", "vegetable"),
+  dietRow(5, "咕嚕肉", "meat"),
+  dietRow(6, "番茄薯仔湯", "soup"),
+  dietRow(7, "牛肉煲", "meat"),
+];
+
+const vegCard = { ...card, name: "清炒時蔬", description: "vegetarian stir fry", tags: ["vegetarian"] };
+const dietResultWith = (recipes: any[]) => ({ content: "", recipes, llmUsed: false });
+const MEAT_RE = /排骨|雞|魚|牛|豬|蝦|蟹/;
+
+async function runWithDietFlag<T>(flag: string | undefined, fn: () => Promise<T>): Promise<T> {
   const previous = process.env.AI_CHEF_DIET_MEAL_FIX;
-  process.env.AI_CHEF_DIET_MEAL_FIX = "1";
+  if (flag === undefined) delete process.env.AI_CHEF_DIET_MEAL_FIX;
+  else process.env.AI_CHEF_DIET_MEAL_FIX = flag;
   try {
-    const intent = resolveChefIntent(DIET_CANNED_PROMPT, { mode: "library", dietMealFix: true });
-    const vegCard = { ...card, name: "清炒時蔬", description: "vegetarian stir fry", tags: ["vegetarian"] };
-    const dietResult = {
-      content: "",
-      recipes: [vegCard],
-      llmUsed: false,
-      intentOverride: intent,
-    };
-    const out = await applyMealShapePostcondition(dietResult, {
-      text: DIET_CANNED_PROMPT,
-      mode: "library",
-      lang: "zh-TW",
-      avoidIngredients: [],
-    });
-    assert.equal(out, dietResult);
-    assert.deepEqual(out.recipes.map((r) => r.name), ["清炒時蔬"]);
-    assert.ok(!out.recipes.some((r) => /肉|雞|牛|豬|魚|蝦|蟹/.test(r.name)));
+    return await fn();
   } finally {
     if (previous === undefined) delete process.env.AI_CHEF_DIET_MEAL_FIX;
     else process.env.AI_CHEF_DIET_MEAL_FIX = previous;
   }
+}
+
+const dietParams = (mode: string, text = "素食三餸一湯") => ({
+  text,
+  mode,
+  lang: "zh-TW",
+  avoidIngredients: [],
+  searchOverride: async () => dietPool(),
+});
+
+const dietParamsWith = (pool: Record<string, unknown>[], text = "素食三餸一湯") => ({
+  ...dietParams("chat", text),
+  searchOverride: async () => pool,
+});
+
+const vegDishB = { ...card, name: "蒜蓉炒菜心", tags: ["vegetarian"] };
+const vegSoup = { ...card, name: "番茄薯仔湯", dishType: "soup", tags: ["vegetarian"] };
+const shrimpCard = { ...card, name: "蒜蓉炒蝦", ingredients: [{ name: "蝦", quantity: "300", unit: "g" }] };
+const fourWithShrimp = () => [vegCard, vegDishB, vegSoup, shrimpCard];
+const enoughVegPool = () => [...dietPool(), dietRow(8, "清炒菠菜", "vegetable")];
+
+async function withLogs<T>(fn: () => Promise<T>): Promise<{ out: T; logs: string[] }> {
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (...args: any[]) => { logs.push(args.map(String).join(" ")); };
+  try {
+    return { out: await fn(), logs };
+  } finally {
+    console.log = original;
+  }
+}
+
+test("diet + flag ON + short cards has no meat top-up and states the shortfall", async () => {
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (...args: any[]) => { logs.push(args.map(String).join(" ")); };
+  try {
+    const out = await runWithDietFlag("1", () =>
+      applyMealShapePostcondition(dietResultWith([vegCard]), dietParams("chat")));
+    assert.ok(out.recipes.length > 0 && out.recipes.length < 4, `served=${out.recipes.length}`);
+    assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+    assert.match(out.content, /我搵到 \d+ 個，但未能完成你要求嘅 4 個/);
+    assert.ok(logs.some((line) => line.includes("meal_postcondition diet_short need=4")), logs.join("\n"));
+  } finally {
+    console.log = original;
+  }
+});
+
+test("diet + flag ON + enough cards keeps the set unchanged", async () => {
+  const enough = [
+    vegCard,
+    { ...card, name: "蒜蓉炒菜心", tags: ["vegetarian"] },
+    { ...card, name: "番茄炒蛋", tags: ["vegetarian"] },
+    { ...card, name: "番茄薯仔湯", tags: ["vegetarian"] },
+  ];
+  const result = dietResultWith(enough);
+  const out = await runWithDietFlag("1", () =>
+    applyMealShapePostcondition(result, dietParams("chat")));
+  assert.equal(out, result);
+  assert.deepEqual(out.recipes.map((recipe) => recipe.name), enough.map((recipe) => recipe.name));
+});
+
+test("diet + flag ON + mode:\"ai\" follows the same guard (no silent fewer cards)", async () => {
+  const out = await runWithDietFlag("1", () =>
+    applyMealShapePostcondition(dietResultWith([vegCard]), dietParams("ai")));
+  assert.ok(out.recipes.length < 4, `served=${out.recipes.length}`);
+  assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+  assert.match(out.content, /未能完成你要求嘅 4 個/);
+});
+
+test("non-diet + flag ON behaves exactly like flag OFF (a43a95d)", async () => {
+  const run = (flag: string | undefined) => runWithDietFlag(flag, () =>
+    applyMealShapePostcondition(dietResultWith([vegCard]), dietParams("chat", "三餸一湯")));
+  const on = await run("1");
+  const off = await run(undefined);
+  assert.deepEqual(on, off);
+  assert.equal(on.recipes.length, 4);
+  assert.ok(on.recipes.some((recipe) => MEAT_RE.test(recipe.name)));
+});
+
+test("flag OFF keeps a43a95d behaviour for diet and non-diet", async () => {
+  const run = (text: string) => runWithDietFlag(undefined, () =>
+    applyMealShapePostcondition(dietResultWith([vegCard]), dietParams("chat", text)));
+  const diet = await run("素食三餸一湯");
+  const nonDiet = await run("三餸一湯");
+  assert.equal(diet.recipes.length, 4);
+  assert.ok(diet.recipes.some((recipe) => MEAT_RE.test(recipe.name)), "flag OFF must not filter meat");
+  assert.equal(nonDiet.recipes.length, 4);
+  assert.ok(nonDiet.recipes.some((recipe) => MEAT_RE.test(recipe.name)));
+});
+
+test("diet + flag ON + already_satisfied with 1 shrimp card: output has no shrimp (blocking case)", async () => {
+  const out = await runWithDietFlag("1", () =>
+    applyMealShapePostcondition(dietResultWith(fourWithShrimp()), dietParamsWith(enoughVegPool())));
+  assert.equal(out.recipes.length, 4);
+  assert.ok(out.recipes.every((recipe) => recipe.name !== shrimpCard.name), out.recipes.map((recipe) => recipe.name).join(","));
+  assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+});
+
+test("diet + flag ON + strip shrimp but still enough: card count = planned, all vegetarian", async () => {
+  const { out, logs } = await withLogs(() => runWithDietFlag("1", () =>
+    applyMealShapePostcondition(dietResultWith(fourWithShrimp()), dietParamsWith(enoughVegPool()))));
+  assert.equal(out.recipes.length, 4);
+  assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+  assert.ok(logs.some((line) => line.includes("diet_stripped=1")), logs.join("\n"));
+});
+
+test("diet + flag ON + strip shrimp leaves too few: partialSetReply + diet_short", async () => {
+  const { out, logs } = await withLogs(() => runWithDietFlag("1", () =>
+    applyMealShapePostcondition(dietResultWith(fourWithShrimp()), dietParamsWith([]))));
+  assert.equal(out.recipes.length, 3);
+  assert.ok(out.recipes.every((recipe) => !MEAT_RE.test(recipe.name)), out.recipes.map((recipe) => recipe.name).join(","));
+  assert.match(out.content, /我搵到 3 個，但未能完成你要求嘅 4 個/);
+  assert.ok(logs.some((line) => line.includes("meal_postcondition diet_short need=4 got=3")), logs.join("\n"));
+});
+
+test("diet + flag ON + all vegetarian enough: already_satisfied set unchanged", async () => {
+  const enough = [vegCard, vegDishB, vegSoup, { ...card, name: "番茄炒蛋", tags: ["vegetarian"] }];
+  const result = dietResultWith(enough);
+  const out = await runWithDietFlag("1", () =>
+    applyMealShapePostcondition(result, dietParamsWith([])));
+  assert.equal(out, result);
+  assert.deepEqual(out.recipes.map((recipe) => recipe.name), enough.map((recipe) => recipe.name));
+});
+
+test("non-diet + flag ON with shrimp cards equals a43a95d (no filtering)", async () => {
+  const result = dietResultWith(fourWithShrimp());
+  const out = await runWithDietFlag("1", () =>
+    applyMealShapePostcondition(result, dietParamsWith([], "三餸一湯")));
+  assert.equal(out, result);
+  assert.ok(out.recipes.some((recipe) => recipe.name === shrimpCard.name));
+});
+
+test("flag OFF + diet and non-diet already_satisfied both equal a43a95d (shrimp kept)", async () => {
+  const dietRun = async () => {
+    const result = dietResultWith(fourWithShrimp());
+    const out = await runWithDietFlag(undefined, () =>
+      applyMealShapePostcondition(result, dietParamsWith([], "素食三餸一湯")));
+    return { result, out };
+  };
+  const nonDietRun = async () => {
+    const result = dietResultWith(fourWithShrimp());
+    const out = await runWithDietFlag(undefined, () =>
+      applyMealShapePostcondition(result, dietParamsWith([], "三餸一湯")));
+    return { result, out };
+  };
+  const diet = await dietRun();
+  const nonDiet = await nonDietRun();
+  assert.equal(diet.out, diet.result);
+  assert.equal(nonDiet.out, nonDiet.result);
+  assert.ok(diet.out.recipes.some((recipe) => recipe.name === shrimpCard.name));
+  assert.ok(nonDiet.out.recipes.some((recipe) => recipe.name === shrimpCard.name));
 });
 
 test("diet-meal flag OFF keeps the legacy canned roles and diet unset", () => {

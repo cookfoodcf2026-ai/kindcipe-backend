@@ -1250,6 +1250,11 @@ export function isVegetarianSoupRow(row: Record<string, unknown>): boolean {
   return isVegetarianRow(row);
 }
 
+/** Card-level wrapper around isVegetarianRow (no duplicated predicate logic). */
+export function isVegetarianCard(recipe: SuggestedRecipe): boolean {
+  return isVegetarianRow({ name: recipe.name, ingredients: recipe.ingredients });
+}
+
 export function countVegetarianSoups(rows: Record<string, unknown>[]): number {
   const names = new Set<string>();
   for (const row of rows) {
@@ -4149,18 +4154,32 @@ export async function applyMealShapePostcondition(
 ): Promise<CoreResult> {
   if (params.forceText || result.clarifyReason === "safety" || result.clarifyReason === "lib_search_fail") return result;
   const diet = (result.intentOverride as any)?.diet ?? parseChefConstraints(params.text).diet;
-  if (getFeatureFlags().ai_chef_diet_meal_fix && diet) {
-    console.log("[AI Chef] meal_postcondition skip diet");
-    return result;
-  }
+  // diet + flag ON must not skip the whole postcondition (mode:"ai" used to
+  // return early and silently serve fewer cards). Top-up may only draw from
+  // vegetarian rows; a genuinely short vegetarian pool returns the veg cards we
+  // have plus an explicit partial-set reply.
+  const dietFix = getFeatureFlags().ai_chef_diet_meal_fix === true && Boolean(diet);
   const shape = mealShapeForText(params.text, params.mode);
   if (!shape) return result;
   // 如果已經湊夠卡（例如 role assembler 已出 3 餸 1 湯），唔好再 reshape，
   // 否則會把已合格嘅卡減少（實測 4 張變 2 張）。
   const planned = (result.intentOverride as any)?.requested?.total ?? shape.dishCount + shape.soupCount;
   if (planned >= 2 && (result.recipes?.length ?? 0) >= planned) {
-    console.log(`[AI Chef] meal_shape skip already_satisfied cards=${result.recipes.length} planned=${planned}`);
-    return result;
+    if (dietFix) {
+      const before = result.recipes ?? [];
+      const kept = before.filter(isVegetarianCard);
+      if (kept.length < before.length) {
+        console.log(`[AI Chef] meal_shape already_satisfied diet_stripped=${before.length - kept.length} kept=${kept.length} planned=${planned}`);
+        if (kept.length >= planned) return { ...result, recipes: kept };
+        // Not enough vegetarian cards left: fall through to reshape / shortfall.
+      } else {
+        console.log(`[AI Chef] meal_shape skip already_satisfied cards=${before.length} planned=${planned}`);
+        return result;
+      }
+    } else {
+      console.log(`[AI Chef] meal_shape skip already_satisfied cards=${result.recipes.length} planned=${planned}`);
+      return result;
+    }
   }
 
   const allergens = params.knownAllergens
@@ -4168,7 +4187,7 @@ export async function applyMealShapePostcondition(
   const hasSoupWord = (recipe: SuggestedRecipe) => /湯|羹|煲/.test(String(recipe.name ?? ""));
   const isSoupSlot = (recipe: SuggestedRecipe) => isPostconditionSoup(recipe) || hasSoupWord(recipe);
   const soupScore = (recipe: SuggestedRecipe) => /湯|羹/.test(String(recipe.name ?? "")) ? 0 : isPostconditionSoup(recipe) ? 1 : 2;
-  const current = result.recipes ?? [];
+  const current = dietFix ? (result.recipes ?? []).filter(isVegetarianCard) : (result.recipes ?? []);
   const selectedNames = new Set(current.map((recipe) => normalizeName(recipe.name)).filter(Boolean));
   const soups = current.filter(isSoupSlot).sort((a, b) => soupScore(a) - soupScore(b)).slice(0, shape.soupCount);
   const dishes = current.filter((recipe) => !isSoupSlot(recipe)).slice(0, shape.dishCount);
@@ -4176,6 +4195,7 @@ export async function applyMealShapePostcondition(
   const pick = (wantSoup: boolean, count: number, pool: Record<string, unknown>[]): SuggestedRecipe[] => {
     const out: SuggestedRecipe[] = [];
     for (const row of pool) {
+      if (dietFix && !isVegetarianRow(row)) continue;
       if (params.avoidIngredients.length > 0 && rowContainsAvoid(row, params.avoidIngredients)) continue;
       const recipe = rowToSuggestedRecipe(row);
       if (!recipe) continue;
@@ -4204,6 +4224,30 @@ export async function applyMealShapePostcondition(
   const gotSoups = cards.filter(isSoupSlot).length;
   if (cards.length !== shape.total || gotSoups !== shape.soupCount) {
     console.log(`[AI Chef] postcondition_shortfall need=${shape.total} got=${cards.length} soups=${gotSoups}`);
+    if (dietFix) {
+      console.log(`[AI Chef] meal_postcondition diet_short need=${shape.total} got=${cards.length} soups=${gotSoups}`);
+      if (cards.length === 0) {
+        return {
+          ...result,
+          content: aiReply(params.lang, "cantRecommend"),
+          recipes: [],
+          missingRoles: Array.from({ length: shape.total }, (_, i) => (i < shape.soupCount ? "soup" : "any") as RequestedRole),
+          clarifyReason: "library_miss",
+        };
+      }
+      const missingSoups = Math.max(0, shape.soupCount - gotSoups);
+      const missingRoles: RequestedRole[] = [
+        ...Array.from({ length: missingSoups }, () => "soup" as RequestedRole),
+        ...Array.from({ length: Math.max(0, shape.total - cards.length - missingSoups) }, () => "any" as RequestedRole),
+      ];
+      return {
+        ...result,
+        content: partialSetReply(params.lang, { served: cards.length, total: shape.total, missingRoles }),
+        recipes: cards,
+        missingRoles,
+        clarifyReason: undefined,
+      };
+    }
     return {
       ...result,
       content: aiReply(params.lang, "cantRecommend"),
