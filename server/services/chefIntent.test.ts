@@ -285,3 +285,33 @@ test("素菜煲 is a named dish, not a vegetarian scenario", () => {
   assert.notEqual(intent.reason, "vegetarian");
   assert.equal(intent.diet, undefined);
 });
+
+test("素食三餸一湯 with diet-meal fix keeps the soup and makes dishes vegetable", () => {
+  const intent = resolveChefIntent("素食三餸一湯", { mode: "chat", dietMealFix: true });
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.diet, "vegetarian");
+  assert.equal(intent.requested.total, 4);
+  assert.deepEqual(intent.requested.roles, ["vegetable", "vegetable", "vegetable", "soup"]);
+});
+
+test("canned meal prompt + 素食 honours diet with flag ON", () => {
+  const intent = resolveChefIntent(`${CANNED_MEAL_PROMPT}\n素食`, { mode: "library", dietMealFix: true });
+  assert.equal(intent.kind, "meal");
+  assert.equal(intent.diet, "vegetarian");
+  assert.equal(intent.requested.total, 4);
+  assert.deepEqual(intent.requested.roles, ["vegetable", "vegetable", "vegetable", "soup"]);
+});
+
+test("canned meal prompt without diet stays meat/seafood/vegetable/soup (flag ON regression lock)", () => {
+  const intent = resolveChefIntent(CANNED_MEAL_PROMPT, { mode: "library", dietMealFix: true });
+  assert.deepEqual(intent.requested.roles, ["meat", "seafood", "vegetable", "soup"]);
+  assert.equal(intent.diet, undefined);
+});
+
+test("素菜煲 / 素雞 dish names are not diet requests with flag ON", () => {
+  for (const text of ["素菜煲", "素雞", "素肉"]) {
+    const intent = resolveChefIntent(text, { mode: "chat", dietMealFix: true });
+    assert.equal(intent.diet, undefined, text);
+    assert.notEqual(intent.reason, "vegetarian", text);
+  }
+});

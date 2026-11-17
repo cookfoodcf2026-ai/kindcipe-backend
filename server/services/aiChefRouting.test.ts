@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applyChefCardConstraint, applySilentZeroCardClarify, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, inferInsuranceSlots, ingredientMissReply, isPantryIngredientsQuery, isPureEggTofuCard, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applyChefCardConstraint, applyMealShapePostcondition, applySilentZeroCardClarify, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, inferInsuranceSlots, ingredientMissReply, isPantryIngredientsQuery, isPureEggTofuCard, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { claimsRecipeCards } from "./chefResponse";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
@@ -31,6 +31,57 @@ test("new AI Chef flags default OFF", () => {
   assert.equal(flags.ai_chef_incomplete_contract, false);
   assert.equal(flags.ai_chef_single_card_library, false);
   assert.equal(flags.ai_chef_any_library_miss_offer, false);
+  assert.equal(flags.ai_chef_diet_meal_fix, false);
+});
+
+const DIET_CANNED_PROMPT = `請為我設計今晚「3 餸 1 湯」晚餐，總共 4 道菜，適合4人食用。
+煮食時間要求：普通約 1 小時。
+請提供完整 4 個食譜，分類如下：
+1. 肉類主菜（如豬/牛/雞）
+2. 海鮮/其他蛋白主菜（如魚/蝦/豆腐蛋）
+3. 蔬菜/小炒
+4. 湯水（老火湯）
+素食`;
+
+test("diet meal postcondition does not top up meat/seafood cards", async () => {
+  const previous = process.env.AI_CHEF_DIET_MEAL_FIX;
+  process.env.AI_CHEF_DIET_MEAL_FIX = "1";
+  try {
+    const intent = resolveChefIntent(DIET_CANNED_PROMPT, { mode: "library", dietMealFix: true });
+    const vegCard = { ...card, name: "清炒時蔬", description: "vegetarian stir fry", tags: ["vegetarian"] };
+    const dietResult = {
+      content: "",
+      recipes: [vegCard],
+      llmUsed: false,
+      intentOverride: intent,
+    };
+    const out = await applyMealShapePostcondition(dietResult, {
+      text: DIET_CANNED_PROMPT,
+      mode: "library",
+      lang: "zh-TW",
+      avoidIngredients: [],
+    });
+    assert.equal(out, dietResult);
+    assert.deepEqual(out.recipes.map((r) => r.name), ["清炒時蔬"]);
+    assert.ok(!out.recipes.some((r) => /肉|雞|牛|豬|魚|蝦|蟹/.test(r.name)));
+  } finally {
+    if (previous === undefined) delete process.env.AI_CHEF_DIET_MEAL_FIX;
+    else process.env.AI_CHEF_DIET_MEAL_FIX = previous;
+  }
+});
+
+test("diet-meal flag OFF keeps the legacy canned roles and diet unset", () => {
+  const previous = process.env.AI_CHEF_DIET_MEAL_FIX;
+  delete process.env.AI_CHEF_DIET_MEAL_FIX;
+  try {
+    assert.equal(getFeatureFlags().ai_chef_diet_meal_fix, false);
+    const intent = resolveChefIntent(DIET_CANNED_PROMPT, { mode: "library" });
+    assert.equal(intent.kind, "meal");
+    assert.deepEqual(intent.requested.roles, ["meat", "seafood", "vegetable", "soup"]);
+    assert.equal(intent.diet, undefined);
+  } finally {
+    if (previous !== undefined) process.env.AI_CHEF_DIET_MEAL_FIX = previous;
+  }
 });
 
 test("flag OFF returns the exact legacy response object", () => {

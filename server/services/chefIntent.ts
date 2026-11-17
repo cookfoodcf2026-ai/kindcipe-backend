@@ -39,6 +39,8 @@ export type ResolveChefIntentOptions = {
   forceText?: boolean;
   /** Feature flag: classify 湯麵/拉麵/烏冬 as noodle instead of soup. */
   noodleRole?: boolean;
+  /** Feature flag AI_CHEF_DIET_MEAL_FIX: canned meal prompts honour 素食/純素. */
+  dietMealFix?: boolean;
   /** Previous user message, used to inherit a meal request on follow-ups. */
   previousUserText?: string;
   previousTexts?: string[];
@@ -268,11 +270,24 @@ export function resolveChefIntent(
   if (!text) {
     return { kind: "chat", wantsCards: false, requested: empty, confidence: 0.99, reason: "empty" };
   }
+  const diet = parseChefConstraints(text).diet;
   if (isCannedMealPrompt(text)) {
     const parsed = explicitDishSoup(text);
     const total = Math.max(1, parsed?.total ?? 4);
     const base: RequestedRole[] = total >= 4 ? ["meat", "seafood", "vegetable"] : dishRoles(Math.max(0, total - 1));
     const roles = [...base, ...roleList(total - base.length, "soup")].slice(0, total);
+    if (opts.dietMealFix === true && diet) {
+      const dietRoles = roles.map((role) => (role === "soup" ? role : "vegetable" as RequestedRole));
+      console.log(`[AI Chef] canned_diet=${diet} roles=${dietRoles.join(",")}`);
+      return {
+        kind: "meal",
+        wantsCards: true,
+        requested: { total, roles: dietRoles },
+        confidence: 0.98,
+        reason: "canned_meal",
+        diet,
+      };
+    }
     return {
       kind: "meal",
       wantsCards: true,
@@ -295,7 +310,6 @@ export function resolveChefIntent(
   // as the hotkey). Only the diet words (素食/吃素/食素/蛋奶素/純素/全素/vegan/…) trigger
   // this — named dishes like 素菜煲/素雞/素肉 don't contain the diet word and so
   // fall through to named-dish handling below.
-  const diet = parseChefConstraints(text).diet;
   if (diet) {
     const mealShape = explicitDishSoup(text);
     if (mealShape && mealShape.total > 1) {

@@ -4107,7 +4107,10 @@ export function detectMealShapeLoose(text: string): LooseMealShape | null {
 }
 
 function mealShapeForText(text: string, mode: string): LooseMealShape | null {
-  return detectMealShapeLoose(text) ?? mealShapeFromIntent(resolveChefIntent(text, { mode: mode as "chat" | "ai" | "library" }));
+  return detectMealShapeLoose(text) ?? mealShapeFromIntent(resolveChefIntent(text, {
+    mode: mode as "chat" | "ai" | "library",
+    dietMealFix: getFeatureFlags().ai_chef_diet_meal_fix,
+  }));
 }
 
 function isPostconditionSoup(recipe: SuggestedRecipe): boolean {
@@ -4131,7 +4134,7 @@ async function loadMealPool(
   }
 }
 
-async function applyMealShapePostcondition(
+export async function applyMealShapePostcondition(
   result: CoreResult,
   params: {
     text: string;
@@ -4145,6 +4148,11 @@ async function applyMealShapePostcondition(
   },
 ): Promise<CoreResult> {
   if (params.forceText || result.clarifyReason === "safety" || result.clarifyReason === "lib_search_fail") return result;
+  const diet = (result.intentOverride as any)?.diet ?? parseChefConstraints(params.text).diet;
+  if (getFeatureFlags().ai_chef_diet_meal_fix && diet) {
+    console.log("[AI Chef] meal_postcondition skip diet");
+    return result;
+  }
   const shape = mealShapeForText(params.text, params.mode);
   if (!shape) return result;
   // 如果已經湊夠卡（例如 role assembler 已出 3 餸 1 湯），唔好再 reshape，
@@ -4370,7 +4378,7 @@ async function processAIChefChatCore(
   const requestItemLog = extractMealIngredients(earlyUserText).join("|") || "none";
   console.log(`[AI Chef] req mode=${mode} lang=${lang} items=${requestItemLog}`);
   if (earlyUserText) {
-    const earlyIntent = resolveChefIntent(earlyUserText, { mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE });
+    const earlyIntent = resolveChefIntent(earlyUserText, { mode, forceText, noodleRole: AI_CHEF_NOODLE_ROLE, dietMealFix: getFeatureFlags().ai_chef_diet_meal_fix });
     if (!earlyIntent.wantsCards) {
       const faq = lookupFaqAnswer(earlyUserText);
       if (faq) {
@@ -4467,6 +4475,7 @@ async function processAIChefChatCore(
     mode,
     forceText,
     noodleRole: AI_CHEF_NOODLE_ROLE,
+    dietMealFix: getFeatureFlags().ai_chef_diet_meal_fix,
     previousUserText: previousText,
     previousTexts,
     previousMeal: storedMeal,
@@ -5525,7 +5534,7 @@ async function processAIChefChatCore(
         const wantedTotal = chefIntent.requested.total;
         const partial = cards.length < wantedTotal;
         console.log(`[AI Chef] vegetarian meal served=${cards.length} wanted=${wantedTotal} partial=${partial}`);
-        return { content: vegetarianMealReply(lang, cards.length, wantedTotal, dishSetLabel), recipes: cards, llmUsed };
+        return { content: vegetarianMealReply(lang, cards.length, wantedTotal, dishSetLabel), recipes: cards, llmUsed, intentOverride: chefIntent };
       }
       console.warn(`[AI Chef] vegetarian meal 0 cards familyId=${familyId} dishType=meal rows=${vegSafe.length} excluded=${vegExcluded} wanted=${chefIntent.requested.total}`);
       return { content: aiReply(lang, "libNone"), recipes: [], llmUsed, clarifyReason: "library_miss" };
@@ -8813,6 +8822,7 @@ export const aiRecipeRouter = router({
         mode,
         forceText: input.forceText,
         noodleRole: AI_CHEF_NOODLE_ROLE,
+        dietMealFix: getFeatureFlags().ai_chef_diet_meal_fix,
         previousUserText: previousUserText(input.messages),
       });
       const requestedCredits = hasMedia ? 2 : 1;
