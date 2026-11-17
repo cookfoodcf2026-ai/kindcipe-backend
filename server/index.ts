@@ -142,9 +142,12 @@ async function startServer() {
   app.use("/api/v1/trpc", trpcMiddleware);
   app.use("/api/trpc", trpcMiddleware);
 
+  const bootSha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown").slice(0, 7);
+  console.log("[boot] sha=" + bootSha);
+
   // Health check
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", timestamp: new Date().toISOString(), sha: bootSha });
   });
 
   // AI Chef SSE streaming endpoint (removed: unused by frontend & had an

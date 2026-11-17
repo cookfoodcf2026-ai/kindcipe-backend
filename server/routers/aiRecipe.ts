@@ -1237,9 +1237,13 @@ const HARD_MEAT_RE = /豬|牛|羊|雞|鴨|鵝|魚|蝦|蟹|蜆|蠔|帶子|瑤柱|
 export function hardIsMeat(raw: unknown): boolean {
   const name = String(raw ?? "");
   if (!name) return false;
-  if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(name)) return false;
+  const trimmed = name.trim();
+  // 「素／齋」開頭一律當植物性（素鮑魚／齋鮑魚／素雞／素肉…）。
+  if (/^[素齋]/.test(trimmed)) return false;
+  if (/素(蠔油|肉|雞|魚|蝦|排骨|火腿)/.test(trimmed)) return false;
   // Strip vegetarian-safe words that contain a meat character before testing.
-  const cleaned = name.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|雞蛋|皮蛋|鹹蛋|鹹鴨蛋|鴨蛋|鵪鶉蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
+  // 菇菌／植物名誤殺：羊肚菌、雞腿菇、魚腥草、蟹味菇、蠔菇。
+  const cleaned = trimmed.replace(/牛油果|牛蒡|牛肝菌|牛肝蕈|牛至|牛奶|牛油|奶油|牛角包|魚香|魚腥草|羊肚菌|羊栖菜|雞腿菇|雞髀菇|雞脾菇|雞樅菌|雞油菌|蟹味菇|蠔菇|蚝菇|蝦夷蔥|素鮑魚|齋鮑魚|雞蛋|皮蛋|鹹蛋|鹹鴨蛋|鴨蛋|鵪鶉蛋|蛋黃|蛋白|椰漿|椰奶|chicken of the woods|oyster mushroom|chicken eggs?|duck eggs?|quail eggs?|meatless|plant-based meat|vegan meat/gi, "");
   return HARD_MEAT_RE.test(cleaned);
 }
 
@@ -1256,14 +1260,24 @@ function rowIngredientNames(row: Record<string, unknown>): string[] {
 }
 
 /**
+ * A row is vegetarian only when BOTH its name and its ingredient names carry no
+ * meat/seafood word. Tag-based vegetarian lies in production (tag says
+ * vegetarian but ingredients include 雞湯／魚露／蠔油). hardIsMeat already
+ * keeps vegetarian-safe words (素蠔油／素雞／雞蛋／牛奶／牛油果) out of the check.
+ */
+export function isVegetarianRow(row: Record<string, unknown>): boolean {
+  if (hardIsMeat(String(row.name ?? ""))) return false;
+  return !rowIngredientNames(row).some((name) => hardIsMeat(name));
+}
+
+/**
  * A soup is vegetarian when the ingredient names carry no meat/seafood word.
  * Deliberately ingredient-based, not tag-based: production had 37 soups but
  * only 2 tagged vegetarian, while several untagged soups were already meat-free.
  */
 export function isVegetarianSoupRow(row: Record<string, unknown>): boolean {
   if (classifyDishType(row) !== "soup") return false;
-  if (hardIsMeat(String(row.name ?? ""))) return false;
-  return !rowIngredientNames(row).some((name) => hardIsMeat(name));
+  return isVegetarianRow(row);
 }
 
 export function countVegetarianSoups(rows: Record<string, unknown>[]): number {
@@ -1291,6 +1305,18 @@ export function widenVegetarianSoupPool(
     out.push(row);
   }
   return out;
+}
+
+/**
+ * 素食套餐回覆：夠數就講「呢套 N 餸 M 湯」；唔夠數一定要明確講 served/total
+ * 同仲欠幾多，唔准靜靜出短卡。
+ */
+export function vegetarianMealReply(lang: string, served: number, wanted: number, dishLabelText: string): string {
+  if (served < wanted) {
+    const missingRoles = Array.from({ length: Math.max(0, wanted - served) }, () => "vegetable" as const);
+    return partialSetReply(lang, { served, total: wanted, missingRoles });
+  }
+  return aiReply(lang, "libMealSet", { dish: dishLabelText });
 }
 
 export function vegetarianSoupShortfallReply(lang: string, count: number, needed = 1): string {
@@ -5483,7 +5509,12 @@ async function processAIChefChatCore(
         console.log(`[AI Chef] lib_search_fail vegetarian_meal reason=${vegPool.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
-      let vegSafe = avoidIngredients.length > 0 ? vegPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegPool.rows;
+      const vegRaw = avoidIngredients.length > 0 ? vegPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegPool.rows;
+      // 標籤寫 vegetarian 但食材有雞湯／魚露／蠔油嘅雜質卡，揀之前先剔走。
+      // 剔完唔夠卡就照 shortfall 行為，唔准為出卡而放寬。
+      let vegSafe = vegRaw.filter(isVegetarianRow);
+      const vegExcluded = vegRaw.length - vegSafe.length;
+      console.log(`[AI Chef] veg_pool_impure path=meal familyId=${familyId} dishType=meal rows=${vegRaw.length} excluded=${vegExcluded}`);
       // Production had 37 soups but only 2 tagged vegetarian. Widen the soup
       // pool with ingredient-based judgement; never swap a soup slot for a dish.
       if (soupCount > 0 && countVegetarianSoups(vegSafe) < soupCount) {
@@ -5495,7 +5526,7 @@ async function processAIChefChatCore(
           const before = vegSafe.length;
           vegSafe = widenVegetarianSoupPool(vegSafe, extraSafe);
           const available = countVegetarianSoups(vegSafe);
-          console.log(`[AI Chef] vegetarian soup pool widened added=${vegSafe.length - before} available=${available} wanted=${soupCount}`);
+          console.log(`[AI Chef] vegetarian soup pool widened familyId=${familyId} dishType=soup added=${vegSafe.length - before} available=${available} wanted=${soupCount}`);
         } else {
           console.warn(`[AI Chef] lib_search_fail vegetarian_soup_widen reason=${fullPool.reason}`);
         }
@@ -5508,7 +5539,7 @@ async function processAIChefChatCore(
         const servedSoups = cards.filter((card) => isSoupRecipe(card)).length;
         if (soupCount > 0 && servedSoups < soupCount) {
           const available = countVegetarianSoups(vegSafe);
-          console.warn(`[AI Chef] vegetarian soup shortfall available=${available} wanted=${soupCount} served=${servedSoups}`);
+          console.warn(`[AI Chef] vegetarian soup shortfall familyId=${familyId} dishType=soup rows=${vegSafe.length} excluded=${vegExcluded} available=${available} wanted=${soupCount} served=${servedSoups}`);
           return {
             content: vegetarianSoupShortfallReply(lang, available, soupCount),
             recipes: [],
@@ -5518,10 +5549,12 @@ async function processAIChefChatCore(
         }
         await recordFamilySeenNames(familyId, cards.map((r) => r.name));
         const dishSetLabel = dishLabel(dishCount, soupCount, lang);
-        console.log(`[AI Chef] vegetarian meal served=${cards.length} wanted=${chefIntent.requested.total}`);
-        return { content: aiReply(lang, "libMealSet", { dish: dishSetLabel }), recipes: cards, llmUsed };
+        const wantedTotal = chefIntent.requested.total;
+        const partial = cards.length < wantedTotal;
+        console.log(`[AI Chef] vegetarian meal served=${cards.length} wanted=${wantedTotal} partial=${partial}`);
+        return { content: vegetarianMealReply(lang, cards.length, wantedTotal, dishSetLabel), recipes: cards, llmUsed };
       }
-      console.warn(`[AI Chef] vegetarian meal 0 cards wanted=${chefIntent.requested.total}`);
+      console.warn(`[AI Chef] vegetarian meal 0 cards familyId=${familyId} dishType=meal rows=${vegSafe.length} excluded=${vegExcluded} wanted=${chefIntent.requested.total}`);
       return { content: aiReply(lang, "libNone"), recipes: [], llmUsed, clarifyReason: "library_miss" };
     }
     const requested = chefIntent.requested;
@@ -6121,7 +6154,7 @@ async function processAIChefChatCore(
           await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
           return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards, llmUsed };
         }
-        console.log(`[AI Chef] library swap no_cards role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
+        console.log(`[AI Chef] library swap no_cards familyId=${familyId} dishType=${swapDishType} rows=${relaxed.roleRows.length} excluded=${swapExcludeNames?.length ?? 0} query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
         return {
           content: aiReply(lang, "libNone"),
           recipes: [],
@@ -6188,7 +6221,7 @@ async function processAIChefChatCore(
           await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
           return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards.slice(0, 1), llmUsed };
         }
-        console.log(`[AI Chef] library swap no_cards role="${swapDishType}" query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
+        console.log(`[AI Chef] library swap no_cards familyId=${familyId} dishType=${swapDishType} rows=${relaxed.roleRows.length} excluded=${swapExcludeNames?.length ?? 0} query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
         return {
           content: aiReply(lang, "libNone"),
           recipes: [],
@@ -6253,14 +6286,9 @@ async function processAIChefChatCore(
       const vegRowsRaw = avoidIngredients.length > 0 ? vegSearch.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients)) : vegSearch.rows;
       // 素食池有雜質：標籤寫 vegetarian 但食材有雞湯／魚露／蠔油嘅卡，一揀中就畀
       // hard_constraint_v2 刪走 → 0 卡。揀之前先剔，剩低嘅才揀。
-      const vegRows = vegRowsRaw.filter((row: any) => {
-        if (hardIsMeat(String(row?.name ?? ""))) return false;
-        const ings = Array.isArray(row?.ingredients) ? row.ingredients : [];
-        return !ings.some((ing: any) => hardIsMeat(String(ing?.name ?? "")));
-      });
-      if (vegRows.length !== vegRowsRaw.length) {
-        console.log(`[AI Chef] veg_pool_impure removed=${vegRowsRaw.length - vegRows.length} kept=${vegRows.length}`);
-      }
+      const vegRows = vegRowsRaw.filter(isVegetarianRow);
+      const vegExcluded = vegRowsRaw.length - vegRows.length;
+      console.log(`[AI Chef] veg_pool_impure path=single familyId=${familyId} dishType=${chefIntent.requested.roles.join("|") || "any"} rows=${vegRowsRaw.length} excluded=${vegExcluded}`);
       let vegPicked = rowsToSuggested(vegRows, excludeSets, 1);
       // 素食池細（59 張），一家人 7 日 seen 好快用盡 → 會靜靜 0 卡。
       // 寧願出返重複嘅素食卡，都唔好 0 卡（重複唔係錯，0 卡係錯）。
