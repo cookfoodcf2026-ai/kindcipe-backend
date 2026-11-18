@@ -55,6 +55,12 @@ import {
   orderFullCategoryPool,
   swapPoolSeed,
 } from "../services/chefPoolFullCategory";
+import {
+  getGenericPoolLimit,
+  orderPoolForReturn,
+  poolFetchLimit,
+  slicePoolForReturn,
+} from "../services/chefPoolLimit";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
@@ -1555,6 +1561,7 @@ export async function execSearchRecipes(
   db: Db, args: { query: string; category?: string; limit?: number; tags?: string[]; cookTimeMax?: number; excludeCategories?: string[]; scenario?: string; plan?: QueryPlan; measurePath?: "swap" | "meal" | "single" | "dispatch" | "insurance"; fullCategory?: string }, familyId?: number
 ) {
   const limit = args.limit ?? 15;
+  const fetchLimit = poolFetchLimit(limit);
   const plan = args.plan;
   // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): when set, ignore the keyword and
   // return the whole dish_type with a fixed deterministic ordering. The caller
@@ -1626,7 +1633,7 @@ export async function execSearchRecipes(
     );
     return (await (fullCategory
       ? db.select(cols).from(table).where(where).orderBy(asc(table.dishType), asc(table.id)).limit(FULL_CATEGORY_POOL_LIMIT)
-      : db.select(cols).from(table).where(where).orderBy(desc(table.createdAt)).limit(limit))) as Record<string, unknown>[];
+      : db.select(cols).from(table).where(where).orderBy(desc(table.createdAt)).limit(fetchLimit))) as Record<string, unknown>[];
   };
 
   const officialCols = {
@@ -1691,8 +1698,7 @@ export async function execSearchRecipes(
   // custom 先佔最多一半，其餘 official，再補 custom。
   const mapCustom = customRows.map(r => mapRow(r, "custom"));
   const mapOfficial = officialRows.map(r => mapRow(r, "official"));
-  const capCustom = Math.max(1, Math.ceil(limit / 2));
-  const ordered = [...mapCustom.slice(0, capCustom), ...mapOfficial, ...mapCustom.slice(capCustom)];
+  const ordered = orderPoolForReturn(mapCustom, mapOfficial, limit);
   const seen = new Set<string>();
   const merged: Record<string, unknown>[] = [];
   for (const r of ordered) {
@@ -1703,14 +1709,14 @@ export async function execSearchRecipes(
   }
 
   if (isTraceEnabled("pool")) {
-    const served = merged.slice(0, limit);
-    const dropped = merged.slice(limit);
+    const served = slicePoolForReturn(merged, limit);
+    const dropped = merged.slice(served.length);
     const perType: Record<string, number> = {};
     for (const row of merged) {
       const dishType = classifyDishType(row);
       perType[dishType] = (perType[dishType] ?? 0) + 1;
     }
-    console.log(`[AI Chef][pool] path=${args.measurePath ?? "generic"} total=${merged.length} served=${served.length} dropped=${dropped.length} perType=${JSON.stringify(perType)} cap=${limit} subCapped=${officialRows.length >= limit || customRows.length >= limit} q="${String(args.query ?? "").slice(0, 24)}" scenario=${args.scenario ?? "none"}`);
+    console.log(`[AI Chef][pool] path=${args.measurePath ?? "generic"} total=${merged.length} served=${served.length} dropped=${dropped.length} perType=${JSON.stringify(perType)} cap=${fetchLimit} subCapped=${officialRows.length >= fetchLimit || customRows.length >= fetchLimit} q="${String(args.query ?? "").slice(0, 24)}" scenario=${args.scenario ?? "none"}`);
     if (dropped.length > 0) {
       // uniqueEligible = dropped cards whose dishType appears exactly once in the
       // request's whole eligible pool (post category/tags/time/avoid/scenario
@@ -1721,10 +1727,10 @@ export async function execSearchRecipes(
         if (perType[classifyDishType(row)] === 1) uniqueEligible += 1;
       }
       const pct = ((uniqueEligible / dropped.length) * 100).toFixed(1);
-      console.log(`[AI Chef][pool] dropped=${dropped.length} uniqueEligible=${uniqueEligible} pct=${pct}% path=${args.measurePath ?? "generic"} cap=${limit}`);
+      console.log(`[AI Chef][pool] dropped=${dropped.length} uniqueEligible=${uniqueEligible} pct=${pct}% path=${args.measurePath ?? "generic"} cap=${fetchLimit}`);
     }
   }
-  return { count: merged.length, recipes: merged.slice(0, limit) };
+  return { count: merged.length, recipes: slicePoolForReturn(merged, limit) };
 }
 
 async function execGetPantryItems(db: Db, familyId?: number) {
@@ -5870,7 +5876,7 @@ async function processAIChefChatCore(
     if (chefIntent.diet) {
       const soupCount = chefIntent.requested.roles.filter((r) => r === "soup").length;
       const dishCount = Math.max(1, chefIntent.requested.total - soupCount);
-      const vegPool = await trySearch("", 400, undefined, undefined, "vegetarian");
+      const vegPool = await trySearch("", getGenericPoolLimit(), undefined, undefined, "vegetarian");
       if (!vegPool.ok) {
         console.log(`[AI Chef] lib_search_fail vegetarian_meal reason=${vegPool.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
@@ -5884,7 +5890,7 @@ async function processAIChefChatCore(
       // Production had 37 soups but only 2 tagged vegetarian. Widen the soup
       // pool with ingredient-based judgement; never swap a soup slot for a dish.
       if (soupCount > 0 && countVegetarianSoups(vegSafe) < soupCount) {
-        const fullPool = await trySearch("", 400);
+        const fullPool = await trySearch("", getGenericPoolLimit());
         if (fullPool.ok) {
           const extraSafe = avoidIngredients.length > 0
             ? fullPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
@@ -6198,7 +6204,7 @@ async function processAIChefChatCore(
       console.log(`[AI Chef] library pool cache hit (${rows.length})`);
     } else {
       const poolStartedAt = Date.now();
-      const poolSearch = await trySearch("", 400, undefined, undefined, undefined, "meal");
+      const poolSearch = await trySearch("", getGenericPoolLimit(), undefined, undefined, undefined, "meal");
       if (!poolSearch.ok) {
         console.log(`[AI Chef] lib_search_fail library_pool reason=${poolSearch.reason}`);
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
@@ -6816,7 +6822,7 @@ async function processAIChefChatCore(
       let vegWidened = 0;
       let vegReason = vegRows.length > 0 ? "scenario_pool" : "scenario_pool_empty";
       if (vegRows.length === 0 && (db || searchOverride)) {
-        const fullPool = await trySearch("", 400);
+        const fullPool = await trySearch("", getGenericPoolLimit());
         if (fullPool.ok) {
           const fullRaw = avoidIngredients.length > 0
             ? fullPool.rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
@@ -9665,7 +9671,7 @@ export const aiRecipeRouter = router({
               return v > 0 && v <= 120 ? v : 0;
             })();
             const banned = [...avoidIngredients, ...familyAllergens];
-            const pool = await execSearchRecipes(salvageDb, { query: "", limit: 400 }, familyId);
+            const pool = await execSearchRecipes(salvageDb, { query: "", limit: getGenericPoolLimit() }, familyId);
             const rows = (pool.recipes ?? []).filter((card: any) => {
               if (banned.length > 0 && recipeContainsAvoid(card, banned)) return false;
               if (timeLimit > 0 && Number(card.cookTime ?? 0) > timeLimit) return false;
@@ -9915,7 +9921,7 @@ export const aiRecipeRouter = router({
               const refillDb = await getDb();
               if (!refillDb) throw new Error("no db");
               const taken = new Set(result.recipes.map((r) => normalizeName(String(r?.name ?? ""))).filter(Boolean));
-              const pool = await execSearchRecipes(refillDb, { query: "", limit: 400 }, familyId);
+              const pool = await execSearchRecipes(refillDb, { query: "", limit: getGenericPoolLimit() }, familyId);
               const spares: typeof result.recipes = [];
               for (const row of (pool.recipes ?? []) as Record<string, unknown>[]) {
                 if (result.recipes.length + spares.length >= requiredCardsForTopUp) break;
@@ -9943,7 +9949,7 @@ export const aiRecipeRouter = router({
               const taken = new Set(result.recipes.map((r) => normalizeName(String(r?.name ?? ""))).filter(Boolean));
               const pool = await execSearchRecipes(refillDb, {
                 query: "",
-                limit: 400,
+                limit: getGenericPoolLimit(),
                 ...(input.search?.scenario ? { scenario: input.search.scenario } : {}),
                 ...(input.search?.cookTimeMax ? { cookTimeMax: input.search.cookTimeMax } : {}),
               }, familyId);
