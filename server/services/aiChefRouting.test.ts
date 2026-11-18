@@ -3,7 +3,7 @@ import test from "node:test";
 import { getFeatureFlags } from "./aiChefFlags";
 import { resolveChefIntent } from "./chefIntent";
 import { applyTruthfulContract, buildChefReply } from "./aiChefLifecycle";
-import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applyChefCardConstraint, applyMealShapePostcondition, applySilentZeroCardClarify, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, inferInsuranceSlots, ingredientMissReply, isPantryIngredientsQuery, isPureEggTofuCard, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
+import { LIGHT_CHAT_MAX_TOKENS, LIGHT_CHAT_SYSTEM_PROMPT, applyChefCardConstraint, applyMealShapePostcondition, applySilentZeroCardClarify, applyZeroCardInsurance, dropSeenAiCards, getFamilySeenNames, getRecipeRetryReason, hasAiCardsWithoutLlmCalls, inferInsuranceSlots, ingredientMissReply, isPantryIngredientsQuery, isPureEggTofuCard, matchesFreshAiConstraint, mkExcludeSets, pickSoupMeal, processAIChefChat, recordFamilySeenNames, recordServedLibraryCards, retryRecipeOutputOnce, runWithDeadline, swapAiTimeoutReply, zeroCardFoodReply } from "../routers/aiRecipe";
 import { claimsRecipeCards } from "./chefResponse";
 import { startLlmMeter } from "../_core/llm";
 import { aiReply } from "../_core/aiReply";
@@ -1628,4 +1628,121 @@ test("meal shape postcondition matrix holds for Chinese and English", async () =
     assert.equal(result.recipes.length, expectedServed, `${text} served=${result.recipes.length}`);
     assert.equal(result.recipes.filter((recipe) => recipe.dishType === "soup").length, expectedSoups, text);
   }
+});
+
+const insuranceRow = (id: number, name: string) => ({
+  id,
+  name,
+  description: name,
+  ingredients: [{ name: "雞翼" }, { name: "豉油" }, { name: "糖" }],
+  steps: ["洗淨雞翼", "醃好再煮"],
+  cookTime: 25,
+  servings: 2,
+  difficulty: "easy",
+  tags: [] as string[],
+});
+const insurancePool = [
+  insuranceRow(1, "豉油雞翼"),
+  insuranceRow(2, "蜜汁雞翼"),
+  insuranceRow(3, "可樂雞翼"),
+];
+const insuranceTelemetry = (text: string) => ({
+  eligible: true,
+  slots: null,
+  relaxLevel: null,
+  candidates: 0,
+  reason: "test",
+  wantsCards: resolveChefIntent(text, { mode: "chat" }).wantsCards,
+});
+const runInsurance = (text: string, extra: Record<string, unknown> = {}) =>
+  applyZeroCardInsurance(
+    { content: "original", recipes: [], llmUsed: false } as any,
+    {
+      inputMessages: [{ role: "user", content: text }] as any,
+      mode: "chat",
+      lang: "zh-TW",
+      forceText: false,
+      avoidIngredients: [],
+      telemetry: insuranceTelemetry(text) as any,
+      searchOverride: async () => insurancePool,
+      ...extra,
+    } as any,
+  );
+
+test("zero-card insurance: chat question is not topped up with cards", async () => {
+  assert.equal(resolveChefIntent("美式乾醃料是什麼", { mode: "chat" }).wantsCards, false);
+  const out = await runInsurance("美式乾醃料是什麼");
+  assert.deepEqual(out.recipes, []);
+  assert.equal(out.content, "original");
+});
+
+test("zero-card insurance: technique question is not topped up with cards", async () => {
+  assert.equal(resolveChefIntent("醃料點樣用", { mode: "chat" }).wantsCards, false);
+  const out = await runInsurance("醃料點樣用");
+  assert.deepEqual(out.recipes, []);
+  assert.equal(out.content, "original");
+});
+
+test("zero-card insurance invariant: wantsCards=false never serves cards", async () => {
+  for (const text of [
+    "美式乾醃料是什麼",
+    "咩係乾醃料",
+    "乾醃料有咩用",
+    "醃料點樣用",
+    "你建議我用咩火候？",
+    "隨便",
+    "你話事",
+  ]) {
+    assert.equal(resolveChefIntent(text, { mode: "chat" }).wantsCards, false, text);
+    const out = await runInsurance(text);
+    assert.deepEqual(out.recipes, [], text);
+    assert.equal(out.content, "original", text);
+  }
+});
+
+test("小朋友食咩好 intent is recipe/wantsCards=true (may be served)", async () => {
+  const intent = resolveChefIntent("小朋友食咩好", { mode: "chat" });
+  assert.equal(intent.kind, "recipe");
+  assert.equal(intent.wantsCards, true);
+  const out = await runInsurance("小朋友食咩好", {
+    telemetry: { ...insuranceTelemetry("小朋友食咩好"), slots: { keyword: "豉油" } } as any,
+  });
+  assert.ok(out.recipes.length > 0);
+});
+
+test("zero-card insurance: recipe intent still gets rescued", async () => {
+  assert.equal(resolveChefIntent("同我煮一味豉油雞翼", { mode: "chat" }).wantsCards, true);
+  const out = await runInsurance("同我煮一味豉油雞翼");
+  assert.ok(out.recipes.length > 0);
+  assert.notEqual(out.content, "original");
+});
+
+test("zero-card insurance: image turn is not topped up with cards", async () => {
+  const out = await applyZeroCardInsurance(
+    { content: "original", recipes: [], llmUsed: false } as any,
+    {
+      inputMessages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "請辨認食材" },
+          { type: "image_url", image_url: { url: "/r2-storage/recipe-screenshots/f13/a.jpg" } },
+        ],
+      }] as any,
+      mode: "chat",
+      lang: "zh-TW",
+      forceText: false,
+      avoidIngredients: [],
+      telemetry: insuranceTelemetry("請辨認食材") as any,
+      hasImage: true,
+      searchOverride: async () => insurancePool,
+    } as any,
+  );
+  assert.deepEqual(out.recipes, []);
+  assert.equal(out.content, "original");
+});
+
+test("zero-card insurance: legacy explicit-food rescue still serves cards", async () => {
+  assert.equal(resolveChefIntent("想食雞翼", { mode: "chat" }).wantsCards, true);
+  const out = await runInsurance("想食雞翼");
+  assert.ok(out.recipes.length > 0);
 });

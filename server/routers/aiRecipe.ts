@@ -4455,6 +4455,9 @@ export type ChefPipelineTelemetry = {
   relaxLevel: number | null;
   candidates: number;
   reason: string;
+  // The intent's own wantsCards verdict, so postcondition layers can honour a
+  // no-cards chat/technique turn without re-deriving intent from scratch.
+  wantsCards?: boolean;
   // Set only when a category ran dry and already-seen recipes were recycled,
   // e.g. "soup:1,seafood:2". Logged to chef_query_log.reason (no new column).
   recycle?: string;
@@ -4757,6 +4760,7 @@ async function processAIChefChatCore(
     reason: "not_run",
   };
   setChefPipelineTelemetry(inputMessages, pipelineTelemetry);
+  pipelineTelemetry.wantsCards = chefIntent.wantsCards;
   // Oldest-first recycle counts, e.g. Map { soup => 1 }. Flushed into
   // pipelineTelemetry.recycle so chef_query_log.reason can distinguish
   // "no fresh recipes left" from a normal pick.
@@ -7818,6 +7822,14 @@ export async function applyZeroCardInsurance(
     }
 
     if (rows.length > 0) {
+      // A chat/technique turn ("美式乾醃料是什麼") must never be rescued with
+      // recipe cards; insurance only tops up answers that asked for cards.
+      // The parser's slot verdict still wins (tag asks like 「小朋友食咩好」
+      // only carry wantsCards on the parsed slots, not on resolveChefIntent).
+      if (params.telemetry?.wantsCards === false && params.telemetry?.slots?.wantsCards !== true) {
+        console.log("[AI Chef] zero_card_insurance skip reason=no_cards_intent");
+        return result;
+      }
       let trendingNames: string[] = [];
       try {
         trendingNames = (await getTrendingRecipes(30, 30))

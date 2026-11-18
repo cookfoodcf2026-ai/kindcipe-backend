@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { extractMealIngredients, isCannedMealPrompt, resolveChefIntent } from "./chefIntent";
+import type { ChefIntentKind } from "./chefIntent";
 import { parseMealShape } from "./chefPlanner";
 import { FOOD_TERM_FAMILIES, foodFamilyForTerm } from "./foodLexicon";
 
@@ -48,6 +49,44 @@ test("ambiguous food request clarifies instead of cards", () => {
   const intent = resolveChefIntent("我唔知煮咩好", { mode: "chat" });
   assert.equal(intent.kind, "clarify");
   assert.equal(intent.wantsCards, false);
+});
+
+test("intent golden table: kind + wantsCards", () => {
+  const cases: Array<[string, string, boolean]> = [
+    ["美式乾醃料是什麼", "chat", false],
+    ["咩係乾醃料", "chat", false],
+    ["乾醃料有咩用", "chat", false],
+    ["醃料點樣用", "technique", false],
+    ["你建議我用咩火候？", "technique", false],
+    ["今晚食咩好", "recipe", true],
+    ["有咩好食", "recipe", true],
+    ["小朋友食咩好", "recipe", true],
+    ["有咩推介？", "recipe", true],
+    ["隨便", "clarify", false],
+    ["你話事", "clarify", false],
+    ["同我煮一味乾醃料雞翼", "recipe", true],
+    ["純素三餸一湯", "meal", true],
+  ];
+  for (const [text, kind, wantsCards] of cases) {
+    const intent = resolveChefIntent(text, { mode: "chat" });
+    assert.equal(intent.kind, kind, `${text} kind`);
+    assert.equal(intent.wantsCards, wantsCards, `${text} wantsCards`);
+  }
+});
+
+test("food suggestion phrases never become technique", () => {
+  for (const text of ["蒸嘢食咩好", "炒嘢食咩好", "氣炸食咩好", "有咩好食"]) {
+    const intent = resolveChefIntent(text, { mode: "chat" });
+    assert.equal(intent.kind, "recipe", text);
+    assert.equal(intent.wantsCards, true, text);
+  }
+});
+
+test("食咩好 suggestion reaches recipe directly (not planned/explicit)", () => {
+  const intent = resolveChefIntent("今晚食咩好", { mode: "chat" });
+  assert.equal(intent.kind, "recipe");
+  assert.equal(intent.wantsCards, true);
+  assert.equal(intent.reason, "food_suggestion");
 });
 
 test("explicit AI source with food creates cards", () => {
@@ -313,5 +352,32 @@ test("素菜煲 / 素雞 dish names are not diet requests with flag ON", () => {
     const intent = resolveChefIntent(text, { mode: "chat", dietMealFix: true });
     assert.equal(intent.diet, undefined, text);
     assert.notEqual(intent.reason, "vegetarian", text);
+  }
+});
+
+test("open-ended suggestions want cards; definition questions never do", () => {
+  const cases: Array<[string, ChefIntentKind, boolean]> = [
+    ["今晚食咩好", "recipe", true],
+    ["有咩好食", "recipe", true],
+    ["有咩好", "recipe", true],
+    ["有咩推介", "recipe", true],
+    ["有咩建議", "recipe", true],
+    ["小朋友食咩好", "recipe", true],
+    // Definitional / attribute questions must stay card-free.
+    ["美式乾醃料是什麼", "chat", false],
+    ["咩係乾醃料", "chat", false],
+    ["乾醃料有咩用", "chat", false],
+    ["有咩好處", "chat", false],
+    // Technique outranks suggestion words.
+    ["你建議我用咩火候？", "technique", false],
+    ["醃料點樣用", "technique", false],
+    // No direction at all still asks.
+    ["隨便", "clarify", false],
+    ["你話事", "clarify", false],
+  ];
+  for (const [text, kind, wantsCards] of cases) {
+    const intent = resolveChefIntent(text, { mode: "chat" });
+    assert.equal(intent.kind, kind, `${text} kind`);
+    assert.equal(intent.wantsCards, wantsCards, `${text} wantsCards`);
   }
 });

@@ -53,8 +53,11 @@ const CN_NUM: Record<string, number> = {
 };
 
 const SMALL_TALK_RE = /^(hi|hello|hey|how are (you|u)|how r u|i am (so )?sad|i'?m (so )?sad|feeling sad|thanks|thank you|thx|ok|okay|多謝|謝謝|唔該|你好|您好|早晨|晚安|好|好的|得|收到)[.!?。！？\s]*$/i;
-const AMBIGUOUS_FOOD_RE = /(我唔知|唔知|隨便|求其|你話事|食咩好|煮咩好|有咩好|i don'?t know|not sure|surprise me|help me decide)/i;
-const TECHNIQUE_RE = /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|溫度|幾多度|要幾耐|幾多分鐘|點先|點至|how\s*(long|to|many)|temperature|煮幾耐|蒸幾耐|焗幾耐|煎幾耐|煲幾耐)/i;
+// True "no direction": the user has not named any cuisine, ingredient or goal.
+const AMBIGUOUS_FOOD_RE = /(我唔知|唔知|隨便|求其|你話事|i don'?t know|not sure|surprise me|help me decide)/i;
+// Open-ended suggestion: the user wants cards but leaves the choice to us.
+const FOOD_SUGGESTION_RE = /(食咩好|煮咩好|食乜好|煮乜好|有咩好(?![處用嘅])|有咩推介|有咩推薦|有咩介紹|有咩建議|what should i (?:eat|cook)|what to (?:eat|cook)|any (?:suggestions?|recommendations?))/i;
+const TECHNIQUE_RE = /(幾耐|點樣|如何|怎樣|秘訣|技巧|點解|火候|溫度|幾多度|要幾耐|幾多分鐘|點先|點至|how\s*(long|to|many)|temperature|煮幾耐|蒸幾耐|焗幾耐|煎幾耐|煲幾耐)/i;
 const NOODLE_RE = /(?:魚面|魚麵|魚蛋麵|魚蛋面|魚片麵|魚片面|牛腩麵|牛腩面|蝦子麵|蝦子面|車仔麵|車仔面|魚湯粉|湯粉|魚蛋粉|魚片河|牛腩河|湯[麵面]|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|河粉|米粉|noodle|ramen|udon|soba|pasta|laksa|pho)/i;
 // The app's meal-questionnaire sends a long canned prompt, not the user's own
 // ingredient words. Those category labels must never become library anchors.
@@ -299,11 +302,17 @@ export function resolveChefIntent(
   if (SMALL_TALK_RE.test(text)) {
     return { kind: "chat", wantsCards: false, requested: empty, confidence: 0.99, reason: "small_talk" };
   }
+  // Technical questions ("火候／幾耐／幾多度") outrank recipe/suggestion words.
+  if (text.length < 80 && TECHNIQUE_RE.test(text) && !/[?？]?\s*(?:食譜|recipe|一肉|3餸|三餸|甜品)/i.test(text)) {
+    return { kind: "technique", wantsCards: false, requested: empty, confidence: 0.9, reason: "technique" };
+  }
   if (AMBIGUOUS_FOOD_RE.test(text)) {
     return { kind: "clarify", wantsCards: false, requested: empty, confidence: 0.9, reason: "ambiguous_food" };
   }
-  if (text.length < 80 && TECHNIQUE_RE.test(text) && !/[?？]?\s*(?:食譜|recipe|一肉|3餸|三餸|甜品)/i.test(text)) {
-    return { kind: "technique", wantsCards: false, requested: empty, confidence: 0.9, reason: "technique" };
+  // "今晚食咩好／有咩好食": an open-ended request for ideas is a recipe ask,
+  // not a clarification (there is nothing to clarify — any card is acceptable).
+  if (FOOD_SUGGESTION_RE.test(text)) {
+    return { kind: "recipe", wantsCards: true, requested: { total: 1, roles: ["any"] }, confidence: 0.85, reason: "food_suggestion" };
   }
 
   // Vegetarian / vegan diet request: route through the vegetarian scenario (same
