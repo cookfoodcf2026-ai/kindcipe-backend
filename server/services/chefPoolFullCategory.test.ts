@@ -8,6 +8,7 @@ import {
   isPoolFullCategoryEnabled,
   libraryPoolVersion,
   orderFullCategoryPool,
+  swapPoolSeed,
 } from "./chefPoolFullCategory";
 
 type Row = Record<string, unknown>;
@@ -108,4 +109,57 @@ test("all 9 dish types have at least one eligible card", () => {
     const ordered = orderFullCategoryPool(candidates, { keyword: "", seed: 7 });
     assert.equal(ordered.length, candidates.length);
   }
+});
+
+// The production shape: 61 seafood rows, only two names contain the keyword.
+function productionSeafoodPool(): Row[] {
+  const pool = makeRows("seafood", 61, "菜");
+  pool[0] = { ...pool[0], name: "西班牙海鮮鐵鍋飯" };
+  pool[1] = { ...pool[1], name: "韓式海鮮煎餅" };
+  return pool;
+}
+
+// 6. Regression (2026-11-18): a hard keyword tier made 61 seafood rows alternate
+//    between the same two cards. Five consecutive swaps must yield five names.
+test("5 consecutive swaps over 61 seafood rows -> 5 unique names", () => {
+  const pool = productionSeafoodPool();
+  const served: string[] = [];
+  const seeds: number[] = [];
+  for (let swap = 0; swap < 5; swap++) {
+    const seed = swapPoolSeed({
+      requestId: `req-${swap}`,
+      keyword: "海鮮",
+      dishType: "seafood",
+      excludeNames: served,
+    });
+    seeds.push(seed);
+    const ordered = orderFullCategoryPool(pool, { keyword: "海鮮", seed });
+    const next = ordered.find((row) => !served.includes(String(row.name)));
+    assert.ok(next, `swap=${swap} exhausted pool`);
+    served.push(String(next.name));
+  }
+  assert.equal(new Set(seeds).size, 5, "every swap must use a different seed");
+  assert.equal(new Set(served).size, 5, `served=${served.join("|")}`);
+});
+
+// 7. Even when the client only excludes the current card (no accumulated seen
+//    list), the keyword boost must not lock the head to the two keyword rows.
+test("current-card-only exclusion does not alternate between two cards", () => {
+  const pool = productionSeafoodPool();
+  let current = "";
+  const picks: string[] = [];
+  for (let swap = 0; swap < 5; swap++) {
+    const seed = swapPoolSeed({
+      requestId: `req-${swap}`,
+      keyword: "海鮮",
+      dishType: "seafood",
+      excludeNames: current ? [current] : [],
+    });
+    const ordered = orderFullCategoryPool(pool, { keyword: "海鮮", seed });
+    const next = ordered.find((row) => String(row.name) !== current);
+    assert.ok(next, `swap=${swap} exhausted pool`);
+    current = String(next.name);
+    picks.push(current);
+  }
+  assert.ok(new Set(picks).size >= 3, `picks=${picks.join("|")}`);
 });

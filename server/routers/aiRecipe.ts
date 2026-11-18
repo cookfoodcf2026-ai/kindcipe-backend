@@ -53,6 +53,7 @@ import {
   isPoolFullCategoryEnabled,
   libraryPoolVersion,
   orderFullCategoryPool,
+  swapPoolSeed,
 } from "../services/chefPoolFullCategory";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
@@ -5787,7 +5788,16 @@ async function processAIChefChatCore(
         const dietFullRows = chefIntent.diet ? fullRows.filter(isVegetarianRow) : fullRows;
         keywordRows = orderFullCategoryPool(
           filterRowsForSwap(dietFullRows, swapDishType),
-          { keyword: first.term, seed: hashSeed([traceId ?? "", first.term, swapDishType]) },
+          {
+            keyword: first.term,
+            seed: swapPoolSeed({
+              requestId: traceId,
+              keyword: first.term,
+              dishType: swapDishType,
+              excludeNames: swapExcludeNames ?? excludeNames,
+            }),
+            log: true,
+          },
         );
       } catch {
         // Keep the keyword result on any DB failure (flag ON must still serve).
@@ -6504,7 +6514,13 @@ async function processAIChefChatCore(
       if (fullCategorySwap) {
         directRows = orderFullCategoryPool(directRows, {
           keyword: search.query ?? "",
-          seed: hashSeed([traceId ?? "", search.query ?? "", search.tags?.join(",") ?? "", swapDishType]),
+          seed: swapPoolSeed({
+            requestId: traceId,
+            keyword: search.query ?? "",
+            dishType: swapDishType,
+            excludeNames: swapExcludeNames ?? excludeNames,
+          }),
+          log: true,
         });
       }
       picked = rowsToSuggested(directRows, effExcludeSets, isSwapRequest ? 1 : searchCount, {
@@ -6584,7 +6600,13 @@ async function processAIChefChatCore(
       if (fullCategorySwap) {
         swapFilteredRows = orderFullCategoryPool(swapFilteredRows, {
           keyword: swapQuery,
-          seed: hashSeed([traceId ?? "", swapQuery, swapDishType]),
+          seed: swapPoolSeed({
+            requestId: traceId,
+            keyword: swapQuery,
+            dishType: swapDishType,
+            excludeNames: swapExcludeNames ?? excludeNames,
+          }),
+          log: true,
         });
       }
       if (swapPlan.mode === "swap") {
@@ -6701,7 +6723,13 @@ async function processAIChefChatCore(
       if (fullCategorySwap) {
         semanticRows = orderFullCategoryPool(semanticRows, {
           keyword: libraryTerm || rawTerm,
-          seed: hashSeed([traceId ?? "", rawTerm, swapDishType]),
+          seed: swapPoolSeed({
+            requestId: traceId,
+            keyword: libraryTerm || rawTerm,
+            dishType: swapDishType,
+            excludeNames: swapExcludeNames ?? excludeNames,
+          }),
+          log: true,
         });
       }
       const swapSets = isSwapRequest
