@@ -2473,7 +2473,10 @@ function dedupeResponseCards(recipes: SuggestedRecipe[]): SuggestedRecipe[] {
 // A vegetable slot may only serve a real vegetable. Egg / tofu / meat / seafood
 // are not vegetables, even when the DB marks them dish_type=vegetable.
 // Sauce/stock words are stripped first so 蠔油生菜 / 上湯娃娃菜 remain allowed.
-const STRICT_VEG_PLANT_RE = /魚香|鱼香|雞腿菇|鸡腿菇|雞髀菇|鱼髀菇|魚腥草|鱼腥草|素鮑魚|素鲍鱼|齋鮑魚|斋鲍鱼|素雞|素鸡|素肉|素蝦|素虾|素蠔油|素蚝油|杏鮑菇|杏鲍菇|羊肚菌|牛肝菌|牛蒡/g;
+// Explicit whitelist of vegetarian compounds that contain a meat/egg character.
+// Longer terms first (牛油果 before 牛油) so the whole word is stripped. Do NOT
+// add single-character exemptions — 蝦米 / 魚露 etc. must stay blocked.
+const STRICT_VEG_PLANT_RE = /魚香|鱼香|雞腿菇|鸡腿菇|雞髀菇|鱼髀菇|魚腥草|鱼腥草|素鮑魚|素鲍鱼|齋鮑魚|斋鲍鱼|素雞|素鸡|素肉|素蝦|素虾|素蠔油|素蚝油|杏鮑菇|杏鲍菇|羊肚菌|牛肝菌|牛油果|牛油|雞蛋果|鸡蛋果|牛蒡/g;
 const STRICT_VEG_SAUCE_RE = /蠔油|蚝油|魚露|鱼露|雞湯|鸡汤|上湯|上汤|蝦醬|虾酱|鮑汁|鲍汁|瑤柱|瑶柱|雞粉|鸡粉|海鮮醬|海鲜酱|XO醬|xo酱/g;
 const STRICT_VEG_EGG_TOFU_RE = /雞蛋|鸡蛋|蛋|豆腐|豆卜|豆乾|豆干|腐竹|腐皮|tofu|egg/i;
 const STRICT_VEG_MEAT_RE = /豬|猪|牛|羊|鴨|鸭|鵝|鹅|肉|排骨|腩|火腿|叉燒|叉烧|燒肉|烧肉|煙肉|烟肉|培根|香腸|香肠|臘腸|腊肠|肉丸|雞|鸡|meat|pork|beef|chicken|lamb|duck|bacon|ham|sausage/i;
@@ -2483,9 +2486,19 @@ export function isStrictVegetableRow(row: Record<string, unknown>): boolean {
   if (classifyDishType(row) !== "vegetable") return false;
   const name = String(row?.name ?? "").trim();
   if (!name) return false;
-  if (STRICT_VEG_EGG_TOFU_RE.test(name)) return false;
+  // Strip whitelisted plant/diet names BEFORE the egg check so 雞蛋果 is not
+  // mistaken for egg, while 番茄炒蛋 (nothing stripped) is still rejected.
   const stripped = name.replace(STRICT_VEG_PLANT_RE, "").replace(STRICT_VEG_SAUCE_RE, "");
+  if (STRICT_VEG_EGG_TOFU_RE.test(stripped)) return false;
   return !STRICT_VEG_MEAT_RE.test(stripped) && !STRICT_VEG_SEAFOOD_RE.test(stripped);
+}
+
+/**
+ * Single source of truth for the strict vegetable-slot rule: diet meals use it,
+ * swap turns never do (egg/tofu and pure vegetables interchange on a swap).
+ */
+export function shouldUseStrictVegSlots(diet: unknown, isSwapTurn: boolean): boolean {
+  return Boolean(diet) && !isSwapTurn;
 }
 
 export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void, seenMap?: SeenInput, opts: { strictVegDishes?: boolean } = {}): SuggestedRecipe[] {
@@ -6499,7 +6512,10 @@ async function processAIChefChatCore(
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
       // 診斷用（暫時）：如果 avoid 有值但仲出到忌口食材，呢行會顯示 pool 有冇被過濾。
       console.log(`[AI Chef] meal_lib avoid=${avoidIngredients.join("|") || "none"} pool=${safeRows.length} dishes=${libCount.dishCount} soups=${libCount.soupCount}`);
-      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap, { strictVegDishes: chefIntent.diet && !isSwapTurn });
+      // Effective path: isMealLib (line ~6320) excludes swap turns, so
+      // isSwapTurn is always false here; the helper keeps the rule identical to
+      // the swap-guarded call sites anyway.
+      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap, { strictVegDishes: shouldUseStrictVegSlots(chefIntent.diet, isSwapTurn) });
       // OC review：diversify 會再由 pool 揀卡，所以 pool 必須同一個「已剔忌口」版本，
       // 唔可以靠上游巧合。呢個 filter 係 idempotent，重複做無害。
       const poolForDiversify = avoidIngredients.length > 0
@@ -7263,7 +7279,9 @@ async function processAIChefChatCore(
         avoidIngredients,
         (type, n) => libMealRecycle.set(type, (libMealRecycle.get(type) ?? 0) + n),
         seenLruMap,
-        { strictVegDishes: Boolean(chefIntent.diet) },
+        // Swap turns must not apply the strict vegetable rule: during a swap,
+        // egg/tofu and pure vegetables are interchangeable (same as the library path).
+        { strictVegDishes: shouldUseStrictVegSlots(chefIntent.diet, isSwapTurn) },
       );
       // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
       let libMeal = libMealRaw;
