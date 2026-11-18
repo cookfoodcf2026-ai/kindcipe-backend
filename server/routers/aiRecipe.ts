@@ -1145,6 +1145,13 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+export function swapNoAlternativeReply(lang: string): string {
+  if (lang.startsWith("en")) return "I couldn't find a replacement right now. Your current card is kept and no credit was charged.";
+  if (lang.startsWith("fil")) return "Wala akong makitang kapalit ngayon. Mananatili ang kasalukuyang card at walang credit na nabawas.";
+  if (lang.startsWith("id")) return "Saya tidak menemukan pengganti saat ini. Kartu Anda tetap dipertahankan dan tidak ada credit yang dipotong.";
+  return "暫時搵唔到替代菜式。你原本嘅卡會保留，今次冇扣你 credit。";
+}
+
 export function swapAiTimeoutReply(lang: string): string {
   if (lang.startsWith("en")) return "The swap is taking too long. No credit was charged. Please try again.";
   if (lang.startsWith("fil")) return "Masyadong matagal ang pagpapalit. Walang credit na nabawas. Subukan muli.";
@@ -2127,6 +2134,58 @@ function excludeRowsByName(
   return rows.filter((row) => !excluded.has(normalizeName(String(row?.name ?? ""))));
 }
 
+export type PostConditionPlan = {
+  mode: "swap" | "fresh";
+  trimShape: boolean;
+  refill: boolean;
+};
+
+/**
+ * Single decision point for the SWAP_ISOLATION flag (default OFF).
+ * Flag OFF → fresh/trim (legacy behaviour, field-by-field unchanged).
+ * Flag ON + swap turn → swap/no-trim/refill. Shape is validated, never trimmed.
+ */
+export function getPostConditionPlan(ctx: {
+  mode?: string;
+  lastUserText?: string;
+  aiEntry?: string;
+}): PostConditionPlan {
+  const isSwap = ctx.mode === "library"
+    && (ctx.aiEntry === "swap_ai" || /庫內搜尋：|同類別：/.test(ctx.lastUserText ?? ""));
+  if (!isSwap || getFeatureFlags().ai_chef_swap_isolation !== true) {
+    return { mode: "fresh", trimShape: true, refill: false };
+  }
+  return { mode: "swap", trimShape: false, refill: true };
+}
+
+/**
+ * SWAP_ISOLATION: filter the candidate pool BEFORE selection instead of
+ * deleting picked cards afterwards. Avoid/allergen are never negotiable, and a
+ * duplicate name (pool duplicate or retained card) is removed up front so the
+ * selector can fill the slot from the next distinct candidate.
+ */
+export function prefilterSwapPool(
+  rows: Record<string, unknown>[],
+  avoid: string[],
+  allergens: string[],
+  retainedNames: string[] = [],
+): Record<string, unknown>[] {
+  let out = avoid.length > 0 ? rows.filter((row) => !rowContainsAvoid(row, avoid)) : rows;
+  if (allergens.length > 0) {
+    out = out.filter((row) => {
+      const recipe = rowToSuggestedRecipe(row);
+      return !recipe || filterAllergenCards([recipe], allergens).length > 0;
+    });
+  }
+  const seen = new Set([...retainedNames].map((name) => normalizeName(String(name))).filter(Boolean));
+  return out.filter((row) => {
+    const key = normalizeName(String(row?.name ?? ""));
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Quick replies offered when a library-only swap genuinely has no cards. */
 export const SWAP_NO_CARDS_QUICK_REPLIES: ChefQuickReply[] = [
   {
@@ -2295,7 +2354,56 @@ function toAlternativeCards(rows: Record<string, unknown>[], term: string, aller
   return allergens.length > 0 ? filterAllergenCards(cards, allergens) : cards;
 }
 
+/**
+ * P2 (flag AI_CHEF_SWAP_DEDUP_HARD): a single response may never contain the
+ * same recipe twice. Raw-row dedupe happens before selection so a duplicate in
+ * the pool is replaced by the next distinct candidate instead of shrinking the
+ * answer. First occurrence wins (existing ordering / ranking is preserved).
+ */
+function dedupeRawRowsByIdentity(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const id = Number((row as any)?.id);
+    const idKey = Number.isFinite(id) && id > 0
+      ? `${String((row as any)?.source ?? "")}:${id}`
+      : "";
+    const nameKey = normalizeName(String(row?.name ?? ""));
+    if ((idKey && ids.has(idKey)) || (nameKey && names.has(nameKey))) continue;
+    if (idKey) ids.add(idKey);
+    if (nameKey) names.add(nameKey);
+    out.push(row);
+  }
+  return out;
+}
+
+/** Final safety net: drop duplicate cards (id first, then normalized name). */
+function dedupeResponseCards(recipes: SuggestedRecipe[]): SuggestedRecipe[] {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const out: SuggestedRecipe[] = [];
+  for (const recipe of recipes) {
+    const idKey = recipe.officialId
+      ? `official:${recipe.officialId}`
+      : recipe.customId
+        ? `custom:${recipe.customId}`
+        : "";
+    const nameKey = normalizeName(String(recipe.name ?? ""));
+    if ((idKey && ids.has(idKey)) || (nameKey && names.has(nameKey))) continue;
+    if (idKey) ids.add(idKey);
+    if (nameKey) names.add(nameKey);
+    out.push(recipe);
+  }
+  return out;
+}
+
 export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void): SuggestedRecipe[] {
+  // P2 (flag AI_CHEF_SWAP_DEDUP_HARD): collapse duplicate pool rows up front so
+  // the meal builder can never serve the same id/name twice in one response.
+  if (getFeatureFlags().ai_chef_swap_dedup_hard === true) {
+    rows = dedupeRawRowsByIdentity(rows);
+  }
   // 忌口／過敏原喺「揀任何一張卡之前」就要剔走（包括湯）。
   // 之前只有部分 caller 先過濾，library 路徑嘅湯就繞過咗 → 實測出花生湯。
   if (avoid.length > 0) rows = rows.filter((row) => !rowContainsAvoid(row, avoid));
@@ -4199,6 +4307,10 @@ export async function applyMealShapePostcondition(
   const dietFix = getFeatureFlags().ai_chef_diet_meal_fix === true && Boolean(diet);
   const shape = mealShapeForText(params.text, params.mode);
   if (!shape) return result;
+  // SWAP_ISOLATION: a swap is one card. Validate only — never trim/reshape the
+  // set (legacy trim could turn a valid swap into 0 or drop the replacement).
+  const plan = getPostConditionPlan({ mode: params.mode, lastUserText: params.text });
+  if (plan.mode === "swap") return result;
   // 如果已經湊夠卡（例如 role assembler 已出 3 餸 1 湯），唔好再 reshape，
   // 否則會把已合格嘅卡減少（實測 4 張變 2 張）。
   const planned = (result.intentOverride as any)?.requested?.total ?? shape.dishCount + shape.soupCount;
@@ -4436,7 +4548,7 @@ async function processAIChefChatCore(
   slotPipelineOverride?: ChefSlotPipelineOverride,
   traceId?: string,
   swapSeenNames?: string[],
-): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent; status?: "no_cards" | "clarify"; quickReplies?: ChefQuickReply[] }> {
+): Promise<{ content: string; recipes: SuggestedRecipe[]; alternatives?: SuggestedRecipe[]; llmUsed: boolean; missingRoles?: RequestedRole[]; clarifyReason?: "ambiguous_food" | "library_miss" | "ingredient_miss" | "ai_failed" | "ai_partial" | "lib_search_fail" | "safety" | "incomplete_set"; intentOverride?: ChefIntent; status?: "no_cards" | "clarify"; quickReplies?: ChefQuickReply[]; swapFailed?: boolean }> {
   // llmUsed: 呢次請求有冇真係 call 過 LLM（router 用嚟扣 quota —— 純食譜庫唔扣）
   let llmUsed = false;
   // Actual role shortfall from the assembler (router uses this instead of
@@ -4553,13 +4665,18 @@ async function processAIChefChatCore(
   // exclude list can make a swap candidate ineligible; the 7-day/session seen
   // names are used purely to order cards (unseen first, seen oldest-first).
   const swapRecycleV2 = getFeatureFlags().ai_chef_swap_recycle === true;
-  const swapSeenOrder = swapRecycleV2
+  // P2 (flag AI_CHEF_SWAP_DEDUP_HARD, default OFF). Replaces the two-tier
+  // recycle model with ONE scoring model: hard exclusions only, seen = -0.8.
+  const swapDedupHard = getFeatureFlags().ai_chef_swap_dedup_hard === true;
+  const swapSeenOrder = swapRecycleV2 || swapDedupHard
     ? (swapSeenNames && swapSeenNames.length > 0 ? swapSeenNames : (swapExcludeNames ?? excludeNames))
     : seenSplit.seen7d;
-  const swapPickOpts = (dishType: string, withSeenOrder = false): { allowReuse: false; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean } =>
-    swapRecycleV2
-      ? { allowReuse: false as const, recycleV2: true, swapContext: true, seenOrder: swapSeenOrder, hardExclude: swapHardExcludeNames, dishType }
-      : { allowReuse: false as const, hardExclude: swapHardExcludeNames, dishType, ...(withSeenOrder ? { seenOrder: seenSplit.seen7d } : {}) };
+  const swapPickOpts = (dishType: string, withSeenOrder = false): { allowReuse: false; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean; dedupHard?: boolean; seenPenalty?: number } =>
+    swapDedupHard
+      ? { allowReuse: false as const, dedupHard: true, seenPenalty: -0.8, swapContext: true, seenOrder: swapSeenOrder, hardExclude: swapHardExcludeNames, dishType }
+      : swapRecycleV2
+        ? { allowReuse: false as const, recycleV2: true, swapContext: true, seenOrder: swapSeenOrder, hardExclude: swapHardExcludeNames, dishType }
+        : { allowReuse: false as const, hardExclude: swapHardExcludeNames, dishType, ...(withSeenOrder ? { seenOrder: seenSplit.seen7d } : {}) };
   // Shadow compare (AI_CHEF_SELECTOR_V2, default OFF). Observation only: the
   // response keeps using the legacy picked cards; the new selector only writes
   // one JSONL line when the flag is explicitly ON.
@@ -4744,7 +4861,7 @@ async function processAIChefChatCore(
     rows: Record<string, unknown>[],
     ex: ExcludeSets,
     count: number,
-    opts: { allowReuse?: boolean; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean; preserveOrder?: boolean } = {},
+    opts: { allowReuse?: boolean; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean; preserveOrder?: boolean; dedupHard?: boolean; seenPenalty?: number } = {},
   ): SuggestedRecipe[] => {
     const fresh: SuggestedRecipe[] = [];
     const reused: SuggestedRecipe[] = [];
@@ -4805,6 +4922,44 @@ async function processAIChefChatCore(
     // 優先非排除，池盡先翻兜（永遠有卡）。
     // Swap 例外：fresh 優先；唔夠先由「只係喺 7 日 seen window」嘅池
     // oldest-first 翻兜（hardExclude 永不再出）；仍然冇卡就回空，行 no_cards。
+    if (opts.allowReuse === false && opts.dedupHard === true && opts.swapContext === true) {
+      // P2 (flag AI_CHEF_SWAP_DEDUP_HARD): merged seen model, one system only.
+      // Hard exclusions (current card / siblings / last meal) stay ineligible;
+      // a merely-seen card is NEVER excluded — it gets a score penalty
+      // (default -0.8) and may still be served (flagged recycled:true).
+      const hardExclude = new Set(
+        (opts.hardExclude ?? []).map((name) => normalizeName(String(name))).filter(Boolean),
+      );
+      const seenRank = new Map<string, number>();
+      (opts.seenOrder ?? []).forEach((name, index) => {
+        const key = normalizeName(String(name));
+        if (key && !seenRank.has(key)) seenRank.set(key, index);
+      });
+      const penalty = typeof opts.seenPenalty === "number" ? opts.seenPenalty : -0.8;
+      const uniqueNames = new Set<string>();
+      const candidates: SuggestedRecipe[] = [];
+      for (const recipe of [...fresh, ...reused]) {
+        const key = normalizeName(recipe.name);
+        if (!key || hardExclude.has(key) || uniqueNames.has(key)) continue;
+        uniqueNames.add(key);
+        candidates.push(recipe);
+      }
+      const ordered = opts.preserveOrder === true ? candidates : shuffleArr(candidates);
+      const scored = ordered.map((recipe, index) => {
+        const rank = seenRank.get(normalizeName(recipe.name));
+        return {
+          recipe,
+          index,
+          rank: rank ?? -1,
+          score: rank === undefined ? 0 : penalty,
+        };
+      });
+      scored.sort((a, b) => b.score - a.score || b.rank - a.rank || a.index - b.index);
+      const picked = scored.slice(0, count).map((entry) => entry.recipe);
+      const recycledCount = picked.filter((recipe) => seenRank.has(normalizeName(recipe.name))).length;
+      if (recycledCount > 0) noteRecycle(opts.dishType?.trim() || "any", recycledCount);
+      return picked.map((recipe) => (seenRank.has(normalizeName(recipe.name)) ? { ...recipe, recycled: true } : recipe));
+    }
     if (opts.allowReuse === false && opts.recycleV2 === true && opts.swapContext === true) {
       // Recycle v2 is swap-only. All three flags are set together by
       // swapPickOpts(), which is only called from the swap branches
@@ -5618,6 +5773,7 @@ async function processAIChefChatCore(
     const swapDishType = isSwapTurn ? (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim() : "";
     const dietKeywordRows = chefIntent.diet ? first.rows.filter(isVegetarianRow) : first.rows;
     let keywordRows = isSwapTurn ? filterRowsForSwap(dietKeywordRows, swapDishType) : dietKeywordRows;
+    const swapIsolation = getPostConditionPlan({ mode, lastUserText });
     // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): a swap must draw from the whole
     // dish_type; the keyword result only supplies the ranking boost.
     const fullCategorySwap = isSwapTurn && isPoolFullCategoryEnabled() && Boolean(swapDishType);
@@ -5640,6 +5796,9 @@ async function processAIChefChatCore(
     const keywordSets = isSwapTurn
       ? mkExcludeSets(swapExcludeNames ?? excludeNames, swapExcludeNames ?? excludeNames)
       : excludeSets;
+    if (isSwapTurn && swapIsolation.mode === "swap") {
+      keywordRows = prefilterSwapPool(keywordRows, avoidIngredients, allergenList, swapHardExcludeNames);
+    }
     const cards = rowsToSuggested(
       keywordRows,
       keywordSets,
@@ -6401,6 +6560,7 @@ async function processAIChefChatCore(
       return buildIncompleteSetFallback(lang, llmUsed);
     } else if (swapQuery) {
       const swapDishType = (lastUserText.match(/同類別：([a-z]+)/)?.[1] || "").trim();
+      const swapPlan = getPostConditionPlan({ mode, lastUserText });
       // P1 (flag AI_CHEF_POOL_FULL_CATEGORY): swap from the whole dish_type
       // instead of the 30-row keyword result; keyword only boosts ranking.
       // The harness (searchOverride) has no dish_type SQL, so it stays legacy.
@@ -6427,6 +6587,14 @@ async function processAIChefChatCore(
           seed: hashSeed([traceId ?? "", swapQuery, swapDishType]),
         });
       }
+      if (swapPlan.mode === "swap") {
+        swapFilteredRows = prefilterSwapPool(
+          swapFilteredRows,
+          avoidIngredients,
+          allergenList,
+          swapHardExcludeNames,
+        );
+      }
       let picked = rowsToSuggested(swapFilteredRows, swapSets, 1, {
         ...swapPickOpts(swapDishType, true),
         ...(fullCategorySwap ? { preserveOrder: true } : {}),
@@ -6450,7 +6618,50 @@ async function processAIChefChatCore(
           await recordFamilySeenNames(familyId, relaxed.cards.map((recipe) => recipe.name));
           return { content: aiReply(lang, "libOneFrom"), recipes: relaxed.cards.slice(0, 1), llmUsed };
         }
+        // SWAP_ISOLATION: 2 refills max (3 generation attempts total). Attempt 3
+        // draws the whole role pool once more; still pre-filtered, never AI.
+        if (swapPlan.refill && db) {
+          try {
+            const res = await execSearchRecipes(db, {
+              query: "",
+              limit: FULL_CATEGORY_POOL_LIMIT,
+              fullCategory: swapDishType,
+            }, familyId);
+            const refillRows = prefilterSwapPool(
+              excludeRowsByName(
+                filterRowsForSwap(dietRows((res.recipes || []) as Record<string, unknown>[]), swapDishType),
+                [...excludeNames, ...(swapExcludeNames ?? [])],
+              ),
+              avoidIngredients,
+              allergenList,
+              swapHardExcludeNames,
+            );
+            const refillCards = rowsToSuggested(refillRows, swapSets, 1, swapPickOpts(swapDishType, true));
+            if (refillCards.length > 0) {
+              console.log(`[AI Chef][swap] refill served=${refillCards.length} role="${swapDishType}" pool=${refillRows.length}`);
+              await recordFamilySeenNames(familyId, refillCards.map((recipe) => recipe.name));
+              return { content: aiReply(lang, "libOneFrom"), recipes: refillCards.slice(0, 1), llmUsed };
+            }
+          } catch (error) {
+            console.warn("[AI Chef][swap] refill failed:", (error as Error)?.message || error);
+          }
+        }
         console.log(`[AI Chef] library swap no_cards familyId=${familyId} dishType=${swapDishType} rows=${relaxed.roleRows.length} excluded=${swapExcludeNames?.length ?? 0} query="${relaxed.relaxedQuery ?? ""}" attempts=${relaxed.attempted ? 2 : 1}`);
+        if (swapPlan.mode === "swap") {
+          // B: keep the original card (client-side), flag the failed swap, do not
+          // fabricate a card and do not charge. 0 new cards ≠ replacement.
+          console.log(`[AI Chef][swap] isolation failed -> keep original card, no credit`);
+          return {
+            content: swapNoAlternativeReply(lang),
+            recipes: [],
+            alternatives: toAlternativeCards(relaxed.roleRows, relaxed.relaxedQuery || swapQuery, allergenList),
+            llmUsed: false,
+            swapFailed: true,
+            clarifyReason: "library_miss",
+            status: "clarify" as const,
+            quickReplies: SWAP_NO_CARDS_QUICK_REPLIES.map((reply) => ({ ...reply })),
+          };
+        }
         return {
           content: aiReply(lang, "libNone"),
           recipes: [],
@@ -7722,6 +7933,13 @@ export async function processAIChefChat(
   const [inputMessages, familyId, , mode = "chat", , , lang = "zh-TW", avoidIngredients = [], forceText = false, , , , , searchOverride, , , knownAllergens] = args;
   const result = await processAIChefChatCore(...args);
   const telemetry = getChefPipelineTelemetry(inputMessages as any);
+  // SWAP_ISOLATION B: a failed swap keeps the original card on the client. Do
+  // not run shape/insurance postconditions — they could fabricate a replacement
+  // or discard the swapFailed marker.
+  if ((result as any).swapFailed === true) {
+    if (telemetry) attachChefPipelineTelemetry(result, telemetry);
+    return result;
+  }
   // Order matters: relevance filtering must happen BEFORE the meal-shape top-up,
   // otherwise the constraint layer deletes the soup the postcondition just added
   // and a 三餸一湯 answer silently loses its soup.
@@ -7758,6 +7976,12 @@ export async function processAIChefChat(
     hasImage,
     excludeNames: getSwapExclusion(inputMessages as any),
   });
+  // P2 (flag AI_CHEF_SWAP_DEDUP_HARD): final guarantee that one response never
+  // repeats a recipe id/name, regardless of which path produced the cards.
+  // Mutate in place so WeakMap telemetry attached to this object survives.
+  if (getFeatureFlags().ai_chef_swap_dedup_hard === true && Array.isArray(insured.recipes)) {
+    insured.recipes = dedupeResponseCards(insured.recipes);
+  }
   if (telemetry) attachChefPipelineTelemetry(insured, telemetry);
   return insured;
 }
@@ -9447,6 +9671,11 @@ export const aiRecipeRouter = router({
       // Response postconditions run ONCE on result.recipes, before served /
       // aiCards / sources / credits are computed, so the contract, the charge and
       // the logs all describe the cards the user actually receives.
+      const postConditionPlan = getPostConditionPlan({
+        mode,
+        lastUserText: rawPostconditionText,
+        aiEntry: input.aiEntry,
+      });
       const mealRequest = effectiveIntent.kind === "meal" || detectMealShapeLoose(postconditionText) !== null;
 
       // Commit 1 flag: one fail-closed hard-constraint pass for every path.
@@ -9460,7 +9689,7 @@ export const aiRecipeRouter = router({
           ? [...new Set([...(input.avoidIngredients ?? []), ...extractTypedAvoid(rawPostconditionText)])]
           : avoidIngredients,
       };
-      if (hardV2 && hasHardConstraint(hardConstraintInput)) {
+      if (hardV2 && postConditionPlan.trimShape && hasHardConstraint(hardConstraintInput)) {
         const beforeHard = result.recipes.length;
         const keptHard = result.recipes.filter((recipe) => cardPassesHardConstraint(recipe, hardConstraintInput));
         if (keptHard.length !== beforeHard) {
@@ -9631,7 +9860,7 @@ export const aiRecipeRouter = router({
       // 只可以「補足已有嘅餐」，唔可以為 0 卡憑空抽卡（實測『我想食魚』被填成茶碗蒸）。
       // 0 卡要走 no_cards／incomplete_set，唔可以亂補。
       if (mealRequest && result.recipes.length < requiredCardsForTopUp) {
-        if (!hardV2) {
+      if (!hardV2 && postConditionPlan.mode === "fresh") {
           // Legacy: only top up a non-empty set, from the unfiltered library pool.
           if (result.recipes.length > 0) {
             try {
@@ -9803,6 +10032,8 @@ export const aiRecipeRouter = router({
       }
       const incompleteSet = requested > 0 && served < requested;
       // Any food/card request that served zero cards is a failed request, not a
+      // SWAP_ISOLATION B: a flagged failed swap must never consume credit.
+      const swapFailed = (result as any).swapFailed === true;
       // normal text answer. Do not charge it, and never claim cards were prepared.
       const zeroCardFood = served === 0 && effectiveIntent.wantsCards === true && !result.clarifyReason;
       // Also catch a prose answer that explicitly promises cards even if intent
@@ -9830,10 +10061,10 @@ export const aiRecipeRouter = router({
         shouldCharge: baseShouldCharge,
         retryToken: incompleteContractEnabled ? idempotencyMessageId : undefined,
       });
-      const shouldCharge = incompleteContract.shouldCharge;
+      const shouldCharge = !swapFailed && incompleteContract.shouldCharge;
 
       const responseLang = input.lang ?? "zh-TW";
-      if (zeroCardFood || cardClaim) {
+      if (!swapFailed && (zeroCardFood || cardClaim)) {
         result.content = zeroCardFoodReply(responseLang);
       }
       let localizeMs = 0;
@@ -9995,6 +10226,7 @@ export const aiRecipeRouter = router({
           : undefined,
       });
       const finalResponse = finalized.response;
+      if (swapFailed) (finalResponse as any).swapFailed = true;
       if (meterInvariant) {
         finalResponse.llmCalls = meter.calls;
       }
