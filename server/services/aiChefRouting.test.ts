@@ -1746,3 +1746,29 @@ test("zero-card insurance: legacy explicit-food rescue still serves cards", asyn
   const out = await runInsurance("想食雞翼");
   assert.ok(out.recipes.length > 0);
 });
+
+test("zero-card insurance: a parser keyword slot never overrides a no-cards intent", async () => {
+  // 美式乾醃料是什麼 → intent chat (wantsCards false), but the slot parser still
+  // extracts keyword 美式乾醃料 and forces slots.wantsCards=true. That slot flag
+  // must NOT bypass the guard (this is how the card got served in production).
+  const intent = resolveChefIntent("美式乾醃料是什麼", { mode: "chat" });
+  assert.equal(intent.wantsCards, false);
+  const out = await applyZeroCardInsurance(
+    { content: "original", recipes: [], llmUsed: false } as any,
+    {
+      inputMessages: [{ role: "user", content: "美式乾醃料是什麼" }] as any,
+      mode: "chat",
+      lang: "zh-TW",
+      forceText: false,
+      avoidIngredients: [],
+      telemetry: {
+        ...insuranceTelemetry("美式乾醃料是什麼"),
+        slots: { wantsCards: true, keyword: "美式乾醃料" } as any,
+      } as any,
+      hasImage: false,
+      searchOverride: async () => insurancePool,
+    } as any,
+  );
+  assert.deepEqual(out.recipes, []);
+  assert.equal(out.content, "original");
+});

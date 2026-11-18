@@ -7824,9 +7824,10 @@ export async function applyZeroCardInsurance(
     if (rows.length > 0) {
       // A chat/technique turn ("美式乾醃料是什麼") must never be rescued with
       // recipe cards; insurance only tops up answers that asked for cards.
-      // The parser's slot verdict still wins (tag asks like 「小朋友食咩好」
-      // only carry wantsCards on the parsed slots, not on resolveChefIntent).
-      if (params.telemetry?.wantsCards === false && params.telemetry?.slots?.wantsCards !== true) {
+      // Do NOT consult slots.wantsCards here: normalizeChefSlots() forces it to
+      // true whenever the sentence carries any food facet, so trusting it
+      // re-served a card for every definition question.
+      if (params.telemetry?.wantsCards === false) {
         console.log("[AI Chef] zero_card_insurance skip reason=no_cards_intent");
         return result;
       }
