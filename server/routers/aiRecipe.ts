@@ -57,10 +57,19 @@ import {
 } from "../services/chefPoolFullCategory";
 import {
   getGenericPoolLimit,
+  getKeywordPoolLimit,
+  keywordPoolFetchLimit,
   orderPoolForReturn,
   poolFetchLimit,
   slicePoolForReturn,
 } from "../services/chefPoolLimit";
+import {
+  deterministicShuffle,
+  deterministicUnit,
+  normalizeSeenMap,
+  sortBySeenFirst,
+  type SeenInput,
+} from "../services/chefSeenOrder";
 import { applyTruthfulContract, buildChefReply, hashChefPayload, partialResponseWarnings, quickReplyLabel } from "../services/aiChefLifecycle";
 import { validateChefReply, claimsRecipeCards, type ChefQuickReply } from "../services/chefResponse";
 import { createAiChefRequestStore } from "../services/aiChefRequestStore";
@@ -357,7 +366,7 @@ const SEEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 日
 // Custom (user's own) recipes resurface sooner so users keep seeing their own
 // imports; official recipes keep the full 7-day freshness window.
 const SEEN_CUSTOM_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 日
-type SeenEntry = { name: string; seenAt: number };
+type SeenEntry = { name: string; seenAt: number; count?: number };
 const FAMILY_RECENT_RECIPES: Map<number | string, SeenEntry[]> = new Map();
 const LIBRARY_POOL_CACHE: Map<string, { at: number; rows: Record<string, unknown>[] }> = new Map();
 const LIBRARY_POOL_TTL_MS = 60_000;
@@ -446,27 +455,82 @@ export async function getFamilySeenNamesSplit(familyId?: number): Promise<{ seen
   return splitSeenWindowRows(live, now);
 }
 
+export async function getFamilySeenMap(
+  familyId?: number,
+): Promise<Map<string, { count: number; lastSeenAt: number }>> {
+  const out = new Map<string, { count: number; lastSeenAt: number }>();
+  if (familyId === undefined) return out;
+  try {
+    const db = await getDb();
+    if (db) {
+      const rows = await db
+        .select({ name: aiChefSeenRecipes.name, seenAt: aiChefSeenRecipes.seenAt, seenCount: aiChefSeenRecipes.seenCount })
+        .from(aiChefSeenRecipes)
+        .where(eq(aiChefSeenRecipes.familyId, familyId))
+        .orderBy(desc(aiChefSeenRecipes.seenAt))
+        .limit(MAX_SEEN_WINDOW_ROWS);
+      for (const row of rows) {
+        const key = String(row.name ?? "").trim();
+        if (!key) continue;
+        out.set(key, {
+          count: Math.max(1, Number(row.seenCount ?? 1) || 1),
+          lastSeenAt: new Date(row.seenAt).getTime(),
+        });
+      }
+      return out;
+    }
+  } catch (e) {
+    console.warn("[AI Chef] getFamilySeenMap DB failed, fallback memory:", (e as Error)?.message);
+  }
+  for (const entry of FAMILY_RECENT_RECIPES.get(familyId) ?? []) {
+    out.set(entry.name, { count: Math.max(1, entry.count ?? 1), lastSeenAt: entry.seenAt });
+  }
+  return out;
+}
+
 export async function recordFamilySeenNames(familyId: number | undefined, names: string[]): Promise<void> {
   if (familyId === undefined || !names || names.length === 0) return;
   const now = nextSeenTimestamp();
-  // memory 照樣記（fallback 用）
-  const currentMem = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
-  const seen = new Map<string, number>();
-  for (const entry of currentMem) seen.set(entry.name, entry.seenAt);
+  const lruEnabled = getFeatureFlags().ai_chef_seen_lru === true;
+  const uniqueNames: string[] = [];
   for (const n of names) {
     const t = String(n ?? "").trim();
-    if (t) seen.set(t, now); // 重複睇會刷新時間
+    if (t && !uniqueNames.includes(t)) uniqueNames.push(t);
+  }
+  if (uniqueNames.length === 0) return;
+  // memory 照樣記（fallback 用）
+  const currentMem = FAMILY_RECENT_RECIPES.get(familyId) ?? [];
+  const seen = new Map<string, { seenAt: number; count: number }>();
+  for (const entry of currentMem) seen.set(entry.name, { seenAt: entry.seenAt, count: entry.count ?? 1 });
+  for (const t of uniqueNames) {
+    const prev = seen.get(t);
+    seen.set(t, { seenAt: now, count: (prev?.count ?? 0) + 1 });
   }
   const arr = [...seen.entries()]
-    .map(([name, seenAt]) => ({ name, seenAt }))
+    .map(([name, entry]) => ({ name, seenAt: entry.seenAt, count: entry.count }))
     .sort((a, b) => b.seenAt - a.seenAt || a.name.localeCompare(b.name))
     .slice(0, MAX_RECENT_PER_FAMILY);
   FAMILY_RECENT_RECIPES.set(familyId, arr);
 
-  // DB 持久化（upsert + 清過期）
+  // DB 持久化
   try {
     const db = await getDb();
     if (!db) return;
+    if (lruEnabled) {
+      // Batch upsert + cumulative count; no 7-day delete (LRU needs history).
+      await db
+        .insert(aiChefSeenRecipes)
+        .values(uniqueNames.map((name) => ({ familyId, name, seenAt: new Date(now), seenCount: 1 })))
+        .onConflictDoUpdate({
+          target: [aiChefSeenRecipes.familyId, aiChefSeenRecipes.name],
+          set: {
+            seenAt: new Date(now),
+            seenCount: sql`${aiChefSeenRecipes.seenCount} + 1`,
+          },
+        });
+      return;
+    }
+    // Flag OFF: legacy per-name upsert + 7-day cleanup (byte-identical).
     for (const n of names) {
       const t = String(n ?? "").trim();
       if (!t) continue;
@@ -2405,7 +2469,7 @@ function dedupeResponseCards(recipes: SuggestedRecipe[]): SuggestedRecipe[] {
   return out;
 }
 
-export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void): SuggestedRecipe[] {
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void, seenMap?: SeenInput): SuggestedRecipe[] {
   // P2 (flag AI_CHEF_SWAP_DEDUP_HARD): collapse duplicate pool rows up front so
   // the meal builder can never serve the same id/name twice in one response.
   if (getFeatureFlags().ai_chef_swap_dedup_hard === true) {
@@ -2414,6 +2478,11 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   // 忌口／過敏原喺「揀任何一張卡之前」就要剔走（包括湯）。
   // 之前只有部分 caller 先過濾，library 路徑嘅湯就繞過咗 → 實測出花生湯。
   if (avoid.length > 0) rows = rows.filter((row) => !rowContainsAvoid(row, avoid));
+
+  // AI_CHEF_SEEN_LRU: LRU ordering + deterministic shuffles (flag ON only).
+  const seenLruEnabled = seenMap !== undefined;
+  const seenLru = seenLruEnabled ? normalizeSeenMap(seenMap) : undefined;
+  if (seenLruEnabled) rows = sortBySeenFirst(rows, seenLru);
 
   const classify = (r: Record<string, unknown>) => classifyDishType(r);
   const family = (r: Record<string, unknown>) => dishFamily(String(r.name ?? ""));
@@ -2464,7 +2533,7 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
       console.log(`[AI Chef] seen_all_recycled scenario=ricecooker keywordRows=${keywordRows.length}`);
     }
     const seenRank = new Map(seenOrder.map((name, index) => [normalizeName(name), index]));
-    const orderKeywordRows = (arr: Record<string, unknown>[]) => [...arr].sort((a, b) => {
+    const orderKeywordRows = (arr: Record<string, unknown>[]) => seenLruEnabled ? [...arr] : [...arr].sort((a, b) => {
       const nameA = normalizeName(String(a.name ?? ""));
       const nameB = normalizeName(String(b.name ?? ""));
       const ia = seenRank.get(nameA);
@@ -2538,6 +2607,7 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
 
   // custom 優先（段內才 shuffle），令用戶自己嘅食譜排先；同時保留排除去重
   const shuffleLocal = <T,>(a: T[]): T[] => {
+    if (seenLruEnabled) return deterministicShuffle(a, ["pickSoupMeal", scenarioKey]);
     const out = [...a];
     for (let i = out.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -2545,11 +2615,14 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     }
     return out;
   };
-  const customFirst = (arr: Record<string, unknown>[]): Record<string, unknown>[] => [
-    ...shuffleLocal(arr.filter((r) => r.source !== "official")),
-    ...shuffleLocal(arr.filter((r) => r.source === "official")),
-  ];
+  const customFirst = (arr: Record<string, unknown>[]): Record<string, unknown>[] => seenLruEnabled
+    ? [...arr]
+    : [
+        ...shuffleLocal(arr.filter((r) => r.source !== "official")),
+        ...shuffleLocal(arr.filter((r) => r.source === "official")),
+      ];
   const keywordFirst = (arr: Record<string, unknown>[]): Record<string, unknown>[] => {
+    if (seenLruEnabled) return [...arr];
     if (!scenarioKeywordActive) return customFirst(arr);
     const out = shuffleLocal(arr);
     out.sort((a, b) => {
@@ -2624,7 +2697,7 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
       if (ca !== cb) return ca - cb;
       const pa = usedFams.has(dishFamily(String(a.name ?? ""))) ? 1 : 0;
       const pb = usedFams.has(dishFamily(String(b.name ?? ""))) ? 1 : 0;
-      return pa - pb || Math.random() - 0.5;
+      return pa - pb || (seenLruEnabled ? 0 : Math.random() - 0.5);
     });
     const picked = orderFresh(fresh).slice(0, n);
     if (picked.length < n) {
@@ -2660,7 +2733,7 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     ].filter(g => g.arr.length > 0);
     if (groups.length === 0) return addDish(seafoodPool, 1, "seafood");
     const total = groups.reduce((s, g) => s + g.w, 0);
-    let r = Math.random() * total;
+    let r = (seenLruEnabled ? deterministicUnit(["seafood", ...groups.map((g) => g.arr.length)]) : Math.random()) * total;
     for (const g of groups) { r -= g.w; if (r <= 0) return addDish(g.arr, 1, "seafood"); }
     return addDish(groups[groups.length - 1].arr, 1, "seafood");
   };
@@ -2685,16 +2758,18 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   let picked = [...soup, ...dishes];
   // 兜底：唔夠 total 張 → 由全庫非甜品/飲品/主食補（保證有卡，之後 AI 補尾數）
   const totalWanted = dishCount + soupCount;
+  const shuffleRest = (arr: Record<string, unknown>[]) => seenLruEnabled
+    ? deterministicShuffle(arr, ["pickSoupMeal-rest", scenarioKey])
+    : arr.sort(() => Math.random() - 0.5);
   if (picked.length < totalWanted) {
     const already = new Set(picked.map(r => r));
-    const rest = pool.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink")
-      .sort(() => Math.random() - 0.5);
+    const rest = shuffleRest(pool.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink"));
     picked = picked.concat(rest.slice(0, totalWanted - picked.length));
   }
   // 極兜底：全庫都係甜品/飲品/主食先准用
   if (picked.length < totalWanted) {
     const already = new Set(picked.map(r => r));
-    const rest = pool.filter(r => !already.has(r)).sort(() => Math.random() - 0.5);
+    const rest = shuffleRest(pool.filter(r => !already.has(r)));
     picked = picked.concat(rest.slice(0, totalWanted - picked.length));
   }
   if (scenarioKeywordActive) {
@@ -4599,6 +4674,12 @@ async function processAIChefChatCore(
   }
   // Fix2: 合併後端自己記住嘅已推薦名單（唔靠前端 state），確保去重一定生效
   const seenSplit = await getFamilySeenNamesSplit(familyId);
+  // AI_CHEF_SEEN_LRU (default OFF): reorder non-swap library pools by
+  // least-recently-served and raise the keyword scan. OFF keeps legacy order
+  // and the 80-row keyword limit.
+  const seenLruEnabled = getFeatureFlags().ai_chef_seen_lru === true;
+  const seenLruMap = seenLruEnabled ? await getFamilySeenMap(familyId) : undefined;
+  const keywordFetchLimit = seenLruEnabled ? getKeywordPoolLimit() : 80;
   const fusedOfficial = [...new Set([...excludeNames, ...seenSplit.seen7d])];
   const mergedExclude = [...fusedOfficial];
   // 參考「熱門」風格 + 唔重複：攞近期熱門菜名，加入 exclude（AI 唔會出返呢啲），
@@ -4874,6 +4955,10 @@ async function processAIChefChatCore(
     count: number,
     opts: { allowReuse?: boolean; seenOrder?: string[]; hardExclude?: string[]; dishType?: string; recycleV2?: boolean; swapContext?: boolean; preserveOrder?: boolean; dedupHard?: boolean; seenPenalty?: number } = {},
   ): SuggestedRecipe[] => {
+    // LRU is ordering-only and never touches the swap selector core.
+    if (seenLruMap && opts.swapContext !== true) {
+      rows = sortBySeenFirst(rows, seenLruMap);
+    }
     const fresh: SuggestedRecipe[] = [];
     const reused: SuggestedRecipe[] = [];
     for (const r of rows) {
@@ -5903,7 +5988,7 @@ async function processAIChefChatCore(
           console.warn(`[AI Chef] lib_search_fail vegetarian_soup_widen reason=${fullPool.reason}`);
         }
       }
-      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, undefined, seenSplit.seen7d, avoidIngredients, noteRecycle);
+      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, undefined, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap);
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0 ? arr.map((r) => ({ ...r, servings: people })) : arr;
       const cards = applyServings(vegPicked);
@@ -5986,7 +6071,7 @@ async function processAIChefChatCore(
       if (cached) return cached;
       const rows: Record<string, unknown>[] = [];
       for (const query of queries) {
-        const search = await trySearch(query, 80);
+        const search = await trySearch(query, keywordFetchLimit);
         if (!search.ok) {
           roleSearchFailed = true;
           console.log(`[AI Chef] lib_search_fail role query="${query}" reason=${search.reason}`);
@@ -6348,7 +6433,7 @@ async function processAIChefChatCore(
         // Relaxed = same-role keyword only: no keyword, 7-day dedupe, scenario
         // or cook-time filters. Current card names stay excluded.
         search: async (query) => {
-          const found = await trySearch(query, 80);
+          const found = await trySearch(query, keywordFetchLimit);
           return { ok: found.ok, rows: found.ok ? found.rows : [] };
         },
       });
@@ -6377,7 +6462,7 @@ async function processAIChefChatCore(
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
       // 診斷用（暫時）：如果 avoid 有值但仲出到忌口食材，呢行會顯示 pool 有冇被過濾。
       console.log(`[AI Chef] meal_lib avoid=${avoidIngredients.join("|") || "none"} pool=${safeRows.length} dishes=${libCount.dishCount} soups=${libCount.soupCount}`);
-      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle);
+      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap);
       // OC review：diversify 會再由 pool 揀卡，所以 pool 必須同一個「已剔忌口」版本，
       // 唔可以靠上游巧合。呢個 filter 係 idempotent，重複做無害。
       const poolForDiversify = avoidIngredients.length > 0
@@ -7139,6 +7224,7 @@ async function processAIChefChatCore(
         seenSplit.seen7d,
         avoidIngredients,
         (type, n) => libMealRecycle.set(type, (libMealRecycle.get(type) ?? 0) + n),
+        seenLruMap,
       );
       // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
       let libMeal = libMealRaw;
@@ -7156,6 +7242,7 @@ async function processAIChefChatCore(
             seenSplit.seen7d,
             [],
             (type, n) => retryRecycle.set(type, (retryRecycle.get(type) ?? 0) + n),
+            seenLruMap,
           );
           const after = collisionScore(retry as any[]);
           if (retry.length >= libMealRaw.length && after < before) {
@@ -7254,7 +7341,7 @@ async function processAIChefChatCore(
       if (cards.length >= requested.total) break;
       const query = role === "soup" ? "湯" : role === "vegetable" ? "蔬菜" : role === "meat" ? "肉" : role === "seafood" ? "海鮮" : role === "noodle" ? "麵" : role === "dessert" ? "甜品" : "";
       try {
-        const rows = rowsOrEmpty(await trySearch(query, 80), `ai_meal:${role}`);
+        const rows = rowsOrEmpty(await trySearch(query, keywordFetchLimit), `ai_meal:${role}`);
         const safeRows = avoidIngredients.length > 0
           ? rows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
           : rows;

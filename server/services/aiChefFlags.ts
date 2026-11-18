@@ -42,6 +42,7 @@ export function getFeatureFlags(): Record<string, boolean> {
     ai_chef_swap_recycle: flagDefault("AI_CHEF_SWAP_RECYCLE", false),
     ai_chef_swap_dedup_hard: flagDefault("AI_CHEF_SWAP_DEDUP_HARD", false),
     ai_chef_swap_isolation: flagDefault("SWAP_ISOLATION", false),
+    ai_chef_seen_lru: flagDefault("AI_CHEF_SEEN_LRU", false),
   };
 }
 

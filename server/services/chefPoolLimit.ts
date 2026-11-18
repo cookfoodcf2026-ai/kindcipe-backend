@@ -67,3 +67,37 @@ export function slicePoolForReturn<T>(rows: T[], limit: number): T[] {
   if (!Number.isFinite(limit) || limit <= 0) return rows;
   return rows.slice(0, Math.floor(limit));
 }
+
+// ─── AI_CHEF_SEEN_LRU keyword pool ────────────────────────────────────────────
+
+export const KEYWORD_POOL_LIMIT_ENV = "AI_CHEF_KEYWORD_POOL_LIMIT";
+export const DEFAULT_KEYWORD_POOL_LIMIT = 800;
+export const LEGACY_KEYWORD_POOL_LIMIT = 80;
+
+/**
+ * Parse the keyword-pool env value. unset / empty / invalid → 800 (the approved
+ * new default). 0 is also mapped to the 800 default: a keyword scan must stay
+ * bounded, unlike the generic pool where 0 means unlimited.
+ */
+export function parseKeywordPoolLimit(raw: string | undefined | null): number {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed === "") return DEFAULT_KEYWORD_POOL_LIMIT;
+  const value = Number(trimmed);
+  if (!Number.isInteger(value) || value <= 0) return DEFAULT_KEYWORD_POOL_LIMIT;
+  return value;
+}
+
+export function getKeywordPoolLimit(env: NodeJS.ProcessEnv = process.env): number {
+  return parseKeywordPoolLimit(env[KEYWORD_POOL_LIMIT_ENV]);
+}
+
+/**
+ * Flag-gated limit: OFF keeps the legacy 80 so behaviour is byte-identical;
+ * ON uses AI_CHEF_KEYWORD_POOL_LIMIT (unset = 800).
+ */
+export function keywordPoolFetchLimit(
+  enabled: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return enabled ? getKeywordPoolLimit(env) : LEGACY_KEYWORD_POOL_LIMIT;
+}

@@ -778,8 +778,10 @@ export const aiChefSeenRecipes = pgTable("ai_chef_seen_recipes", {
   familyId: integer("family_id").notNull(),
   name: text("name").notNull(),
   seenAt: timestamp("seen_at").defaultNow().notNull(),
+  seenCount: integer("seen_count").default(1).notNull(),
 }, (t) => ({
   familyNameUniq: uniqueIndex("ai_chef_seen_recipes_family_name_unique").on(t.familyId, t.name),
+  familySeenAtIdx: index("ai_chef_seen_recipes_family_seen_at_idx").on(t.familyId, t.seenAt),
 }));
 
 export type AiChefSeenRecipe = typeof aiChefSeenRecipes.$inferSelect;
