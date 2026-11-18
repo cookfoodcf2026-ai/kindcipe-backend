@@ -211,3 +211,152 @@ test("swap: explicit 唔要 term still filters", async () => {
     else process.env.AI_CHEF_HARD_CONSTRAINT_V2 = prev;
   }
 });
+
+// ── named-dish miss bypass on swap turns (production 2026-11-18) ─────────────
+// The swap sentence「…替換「辣炒年糕」…庫內搜尋：飯；同類別：carb」made the
+// keyword search return only the current card (rows=1). The swap then excluded
+// it → 0 served → false library_miss, even though the carb pool held 115 cards.
+
+type CallOptions = {
+  prompt: string;
+  exclude?: string[];
+  mode?: "chat" | "ai" | "library";
+  search?: (query: string, limit: number, cookTimeMax?: number) => Promise<Record<string, unknown>[]>;
+};
+
+const call = (familyId: number, opts: CallOptions) => processAIChefChat(
+  [{ role: "user", content: opts.prompt }],
+  familyId,
+  undefined,
+  opts.mode ?? "library",
+  opts.exclude ?? [],
+  undefined,
+  "zh-TW",
+  [],
+  false,
+  {},
+  "replace",
+  true,
+  true,
+  opts.search ?? (async () => []),
+);
+
+test("swap (1): keyword rows=1 = current card → still serves one same-dishType card", async () => {
+  const current = row(30, "辣炒年糕", "carb");
+  const altA = row(31, "揚州炒飯", "carb");
+  const altB = row(32, "福建炒飯", "carb");
+  const prompt = "請從食譜庫提供最多 3 個替換「辣炒年糕」嘅食譜。庫內搜尋：飯；同類別：carb";
+  const search = async (query: string) =>
+    query.includes("辣炒年糕") ? [current] : [current, altA, altB];
+
+  const result = await call(920001, { prompt, exclude: [current.name], search });
+
+  assert.equal(result.recipes.length, 1, "production case must serve 1 replacement");
+  assert.equal(result.recipes[0]?.dishType, "carb");
+  assert.ok(!["辣炒年糕"].includes(result.recipes[0]?.name ?? ""), "never the current card");
+  assert.notEqual(result.clarifyReason, "library_miss");
+});
+
+test("swap (2): zero cards left after exclusion → existing clarify, no crash/silent empty", async () => {
+  const current = row(33, "辣炒年糕", "carb");
+  const prompt = "請從食譜庫提供最多 3 個替換「辣炒年糕」嘅食譜。庫內搜尋：飯；同類別：carb";
+
+  const result = await call(920002, {
+    prompt,
+    exclude: [current.name],
+    search: async () => [current],
+  });
+
+  assert.ok(Array.isArray(result.recipes), "recipes must be an array, never undefined");
+  assert.ok((result.content ?? "").length > 0, "must carry a clarify message");
+  assert.equal(result.clarifyReason, "library_miss");
+  assert.equal(result.status, "clarify");
+  assert.ok(
+    (result as { swapFailed?: boolean }).swapFailed === true || (result.recipes ?? []).length === 0,
+    "a failed swap must carry the existing clarify marker",
+  );
+});
+
+test("swap (3): non-swap named dish missing from library still clarifies", async () => {
+  const result = await call(920003, {
+    prompt: "請從食譜庫提供「佛跳牆」嘅食譜",
+    search: async () => [],
+  });
+
+  assert.equal(result.clarifyReason, "library_miss");
+  assert.equal((result.recipes ?? []).length, 0);
+});
+
+test("swap (4): mode=ai named dish miss is unchanged (never the library miss gate)", async () => {
+  const result = await call(920004, {
+    prompt: "請從食譜庫提供「佛跳牆」嘅食譜",
+    mode: "ai",
+    search: async () => [],
+  });
+
+  assert.notEqual(result.clarifyReason, "library_miss");
+});
+
+test("swap (5): vegetarian swap only serves vegetarian cards", async () => {
+  const current = { ...row(40, "清炒時蔬", "vegetable"), tags: ["vegetarian"] };
+  const vegA = { ...row(41, "蒜蓉炒西蘭花", "vegetable"), tags: ["vegetarian"] };
+  const vegB = { ...row(42, "金銀蛋莧菜", "vegetable"), tags: ["vegetarian"] };
+  const meat = {
+    ...row(43, "回鍋肉", "vegetable"),
+    ingredients: [
+      { name: "五花腩", quantity: "300", unit: "克" },
+      { name: "椰菜", quantity: "半個", unit: "個" },
+    ],
+    tags: [],
+  };
+  const prompt = "請從食譜庫提供最多 3 個替換「清炒時蔬」嘅食譜。庫內搜尋：蔬菜；同類別：vegetable；素食";
+  const search = async (query: string) =>
+    query.includes("清炒時蔬") ? [current] : [current, vegA, vegB, meat];
+
+  const result = await call(920005, { prompt, exclude: [current.name], search });
+
+  assert.ok(result.recipes.length >= 1, "vegetarian swap must still serve a card");
+  const names = result.recipes.map((recipe) => recipe.name);
+  assert.ok(!names.includes(meat.name), "must never serve a non-vegetarian card");
+  assert.ok(!names.includes(current.name), "must never serve the current card");
+  assert.ok(names.every((name) => [vegA.name, vegB.name].includes(name)));
+});
+
+test("swap (6): library 三餸一湯 still serves 4 cards", async () => {
+  const pool = [
+    row(50, "香煎雞扒", "meat"),
+    row(51, "蒜蓉炒西蘭花", "vegetable"),
+    row(52, "清蒸鱸魚", "seafood"),
+    row(53, "冬瓜排骨湯", "soup"),
+    row(54, "番茄炒蛋", "vegetable"),
+    row(55, "粟米羹", "soup"),
+  ];
+  const result = await call(920006, { prompt: "今晚三餸一湯", search: async () => pool });
+
+  assert.equal(result.recipes.length, 4);
+});
+
+test("swap (7): three consecutive swaps return three different cards", async () => {
+  const pool = [
+    row(60, "揚州炒飯", "carb"),
+    row(61, "福建炒飯", "carb"),
+    row(62, "印尼炒飯", "carb"),
+    row(63, "海南雞飯", "carb"),
+  ];
+  const served: string[] = [];
+  let currentName = "辣炒年糕";
+  let exclude = [currentName];
+
+  for (let i = 0; i < 3; i += 1) {
+    const prompt = `請從食譜庫提供最多 3 個替換「${currentName}」嘅食譜。庫內搜尋：飯；同類別：carb`;
+    const search = async (query: string) => (query.includes(currentName) ? [] : pool);
+    const result = await call(920007, { prompt, exclude, search });
+
+    assert.equal(result.recipes.length, 1, `swap ${i + 1} must serve exactly one card`);
+    served.push(String(result.recipes[0]?.name ?? ""));
+    currentName = String(result.recipes[0]?.name ?? "");
+    exclude = [...exclude, currentName];
+  }
+
+  assert.equal(new Set(served).size, 3, `swaps must not repeat: ${served.join(", ")}`);
+});

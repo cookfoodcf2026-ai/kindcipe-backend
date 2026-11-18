@@ -5747,7 +5747,12 @@ async function processAIChefChatCore(
   const missingDishes: Array<{ term: string; alternatives: string[]; rows: Record<string, unknown>[] }> = [];
   const missingIngredients: Array<{ term: string; alternatives: string[]; rows: Record<string, unknown>[] }> = [];
   const keywordMatches: Array<{ term: string; rows: Record<string, unknown>[] }> = [];
-  if ((db || searchOverride) && wantCards && mode !== "ai" && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount) {
+  const namedDishMissGate = (db || searchOverride) && wantCards && mode !== "ai" && !rawLibraryFallback && !genericMealRequest && requestItems.length > 0 && !hasExplicitRequestCount;
+  // Swap turns must skip the named-dish miss gate: the searched term is usually
+  // the current card itself, which the swap then excludes, so the pool reads as
+  // "miss" (rows=1 → 0 served) even when the dishType pool is full.
+  const swapNamedMissBypassed = isSwapTurn && mode === "library";
+  if (namedDishMissGate && !swapNamedMissBypassed) {
     for (const term of requestItems) {
       const searchResult = await trySearch(term, 12);
       if (!searchResult.ok) {
@@ -5769,6 +5774,8 @@ async function processAIChefChatCore(
       if (foodItemType(term) === "dish") missingDishes.push({ term, alternatives, rows });
       else missingIngredients.push({ term, alternatives, rows });
     }
+  } else if (namedDishMissGate && swapNamedMissBypassed) {
+    console.log(`[AI Chef] swap_named_miss_bypassed item="${requestItems[0]}"`);
   }
   if (keywordMatches.length > 0) {
     const first = keywordMatches[0];
