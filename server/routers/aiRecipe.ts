@@ -2469,7 +2469,26 @@ function dedupeResponseCards(recipes: SuggestedRecipe[]): SuggestedRecipe[] {
   return out;
 }
 
-export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void, seenMap?: SeenInput): SuggestedRecipe[] {
+// ─── Strict vegetable slot (owner rule 2026-11-18) ───────────────────────
+// A vegetable slot may only serve a real vegetable. Egg / tofu / meat / seafood
+// are not vegetables, even when the DB marks them dish_type=vegetable.
+// Sauce/stock words are stripped first so 蠔油生菜 / 上湯娃娃菜 remain allowed.
+const STRICT_VEG_PLANT_RE = /魚香|鱼香|雞腿菇|鸡腿菇|雞髀菇|鱼髀菇|魚腥草|鱼腥草|素鮑魚|素鲍鱼|齋鮑魚|斋鲍鱼|素雞|素鸡|素肉|素蝦|素虾|素蠔油|素蚝油|杏鮑菇|杏鲍菇|羊肚菌|牛肝菌|牛蒡/g;
+const STRICT_VEG_SAUCE_RE = /蠔油|蚝油|魚露|鱼露|雞湯|鸡汤|上湯|上汤|蝦醬|虾酱|鮑汁|鲍汁|瑤柱|瑶柱|雞粉|鸡粉|海鮮醬|海鲜酱|XO醬|xo酱/g;
+const STRICT_VEG_EGG_TOFU_RE = /雞蛋|鸡蛋|蛋|豆腐|豆卜|豆乾|豆干|腐竹|腐皮|tofu|egg/i;
+const STRICT_VEG_MEAT_RE = /豬|猪|牛|羊|鴨|鸭|鵝|鹅|肉|排骨|腩|火腿|叉燒|叉烧|燒肉|烧肉|煙肉|烟肉|培根|香腸|香肠|臘腸|腊肠|肉丸|雞|鸡|meat|pork|beef|chicken|lamb|duck|bacon|ham|sausage/i;
+const STRICT_VEG_SEAFOOD_RE = /魚|鱼|蝦|虾|蟹|蜆|蚬|蠔|蚝|魷|鱿|墨魚|墨鱼|海鮮|海鲜|帶子|带子|扇貝|扇贝|青口|龍蝦|龙虾|鮑魚|鲍鱼|海參|海参|花甲|seafood|fish|shrimp|prawn|crab|squid|oyster|scallop|clam/i;
+
+export function isStrictVegetableRow(row: Record<string, unknown>): boolean {
+  if (classifyDishType(row) !== "vegetable") return false;
+  const name = String(row?.name ?? "").trim();
+  if (!name) return false;
+  if (STRICT_VEG_EGG_TOFU_RE.test(name)) return false;
+  const stripped = name.replace(STRICT_VEG_PLANT_RE, "").replace(STRICT_VEG_SAUCE_RE, "");
+  return !STRICT_VEG_MEAT_RE.test(stripped) && !STRICT_VEG_SEAFOOD_RE.test(stripped);
+}
+
+export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, dishCount = 3, soupCount = 1, scenario?: string, seenOrder: string[] = [], avoid: string[] = [], onRecycle?: (dishType: string, count: number) => void, seenMap?: SeenInput, opts: { strictVegDishes?: boolean } = {}): SuggestedRecipe[] {
   // P2 (flag AI_CHEF_SWAP_DEDUP_HARD): collapse duplicate pool rows up front so
   // the meal builder can never serve the same id/name twice in one response.
   if (getFeatureFlags().ai_chef_swap_dedup_hard === true) {
@@ -2600,7 +2619,8 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   const soupPool = pool.filter(r => classify(r) === "soup" && noCarb(r));
   const meatPool = pool.filter(r => classify(r) === "meat" && noCarb(r));
   const seafoodPool = pool.filter(r => classify(r) === "seafood" && noCarb(r));
-  const vegPool = pool.filter(r => classify(r) === "vegetable" && noCarb(r));
+  const mealHasVegSlot = opts.strictVegDishes === true || dishCount >= 3;
+  const vegPool = pool.filter(r => (mealHasVegSlot ? isStrictVegetableRow(r) : classify(r) === "vegetable") && noCarb(r));
   const otherPool = pool.filter(r => (classify(r) === "other" || classify(r) === "appetizer") && noCarb(r));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
   console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} scenario=${scenarioKey || "none"} scenarioRows=${scenarioRows.length} (raw rows=${rows.length}, source rows=${sourceRows.length}, noSteps=${sourceRows.length - pool.length})`);
@@ -2716,6 +2736,13 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   };
 
   let dishes: Record<string, unknown>[] = [];
+  if (opts.strictVegDishes) {
+    // 素食 meal：所有餸位都係蔬菜位 → 只准真蔬菜；唔夠就短卡，唔用蛋／豆腐補。
+    dishes = addDish(vegPool, dishCount, "vegetable");
+    if (dishes.length < dishCount) {
+      console.warn(`[AI Chef] veg_slot_shortfall path=meal need=${dishCount} got=${dishes.length} reason=no_strict_vegetable`);
+    }
+  } else {
   dishes = dishes.concat(addDish(meatPool, 1, "meat"));
   // 海鮮位：魚/豆腐/蛋 50%、魷魚/蜆/蝦 30%、其他海鮮 20%（weighted，魚豆腐蛋出最多）
   const seafoodSlot = () => {
@@ -2738,7 +2765,11 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     return addDish(groups[groups.length - 1].arr, 1, "seafood");
   };
   dishes = dishes.concat(seafoodSlot());
-  dishes = dishes.concat(addDish(vegPool, 1, "vegetable"));
+  const vegDish = addDish(vegPool, 1, "vegetable");
+  dishes = dishes.concat(vegDish);
+  if (mealHasVegSlot && vegDish.length === 0) {
+    console.warn(`[AI Chef] veg_slot_shortfall path=meal need=1 got=0 reason=no_strict_vegetable`);
+  }
   // 主食（麵/飯）唔做餸（上面 pool 已排除）。先 1肉+1海鮮+1菜，缺就先由 otherPool 補，再到全 dishPool 補齊 dishCount 餸
   let want = dishCount - dishes.length;
   if (want > 0) {
@@ -2749,10 +2780,6 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
     const already = new Set(dishes.map(r => r));
     dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length, "dish"));
   }
-  // 極兜底：連非主食餸都唔夠先准用主食（保證唔少過 dishCount 餸）
-  if (dishes.length < dishCount) {
-    const already = new Set(dishes.map(r => r));
-    dishes = dishes.concat(addDish(dishPool.filter(r => !already.has(r)), dishCount - dishes.length, "dish"));
   }
 
   let picked = [...soup, ...dishes];
@@ -2761,16 +2788,18 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   const shuffleRest = (arr: Record<string, unknown>[]) => seenLruEnabled
     ? deterministicShuffle(arr, ["pickSoupMeal-rest", scenarioKey])
     : arr.sort(() => Math.random() - 0.5);
-  if (picked.length < totalWanted) {
-    const already = new Set(picked.map(r => r));
-    const rest = shuffleRest(pool.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink"));
-    picked = picked.concat(rest.slice(0, totalWanted - picked.length));
-  }
-  // 極兜底：全庫都係甜品/飲品/主食先准用
-  if (picked.length < totalWanted) {
-    const already = new Set(picked.map(r => r));
-    const rest = shuffleRest(pool.filter(r => !already.has(r)));
-    picked = picked.concat(rest.slice(0, totalWanted - picked.length));
+  if (!opts.strictVegDishes) {
+    if (picked.length < totalWanted) {
+      const already = new Set(picked.map(r => r));
+      const rest = shuffleRest(pool.filter(r => !already.has(r) && !isCarb(r) && classify(r) !== "dessert" && classify(r) !== "drink" && (!mealHasVegSlot || classify(r) === "soup" || !STRICT_VEG_EGG_TOFU_RE.test(String(r.name ?? "")))));
+      picked = picked.concat(rest.slice(0, totalWanted - picked.length));
+    }
+    // 極兜底：全庫都係甜品/飲品/主食先准用
+    if (picked.length < totalWanted) {
+      const already = new Set(picked.map(r => r));
+      const rest = shuffleRest(pool.filter(r => !already.has(r) && (!mealHasVegSlot || classify(r) === "soup" || !STRICT_VEG_EGG_TOFU_RE.test(String(r.name ?? "")))));
+      picked = picked.concat(rest.slice(0, totalWanted - picked.length));
+    }
   }
   if (scenarioKeywordActive) {
     picked = [...picked].sort((a, b) => Number(!hasElectricKeyword(a)) - Number(!hasElectricKeyword(b)));
@@ -4398,10 +4427,18 @@ export async function applyMealShapePostcondition(
   const planned = (result.intentOverride as any)?.requested?.total ?? shape.dishCount + shape.soupCount;
   const hasSoupWord = (recipe: SuggestedRecipe) => /湯|羹|煲/.test(String(recipe.name ?? ""));
   const isSoupSlot = (recipe: SuggestedRecipe) => isPostconditionSoup(recipe) || hasSoupWord(recipe);
+  // 蔬菜位只准真蔬菜：湯位照舊只驗素食，餸位要過 strict vegetable。
+  const strictVegCard = (recipe: SuggestedRecipe) => isStrictVegetableRow({
+    name: recipe.name,
+    tags: recipe.tags,
+    dishType: recipe.dishType,
+    soupType: recipe.soupType,
+  } as unknown as Record<string, unknown>);
+  const dietCardAllowed = (recipe: SuggestedRecipe) => isSoupSlot(recipe) ? isVegetarianCard(recipe) : strictVegCard(recipe);
   if (planned >= 2 && (result.recipes?.length ?? 0) >= planned) {
     if (dietFix) {
       const before = result.recipes ?? [];
-      const kept = before.filter(isVegetarianCard);
+      const kept = before.filter(dietCardAllowed);
       const keptSoups = kept.filter(isSoupSlot).length;
       if (kept.length < before.length) {
         console.log(`[AI Chef] meal_shape already_satisfied diet_stripped=${before.length - kept.length} kept=${kept.length} planned=${planned}`);
@@ -4424,7 +4461,7 @@ export async function applyMealShapePostcondition(
   const allergens = params.knownAllergens
     ?? (params.familyId ? await getFamilyAllergens(params.familyId) : []);
   const soupScore = (recipe: SuggestedRecipe) => /湯|羹/.test(String(recipe.name ?? "")) ? 0 : isPostconditionSoup(recipe) ? 1 : 2;
-  const current = dietFix ? (result.recipes ?? []).filter(isVegetarianCard) : (result.recipes ?? []);
+  const current = dietFix ? (result.recipes ?? []).filter(dietCardAllowed) : (result.recipes ?? []);
   const selectedNames = new Set(current.map((recipe) => normalizeName(recipe.name)).filter(Boolean));
   const soups = current.filter(isSoupSlot).sort((a, b) => soupScore(a) - soupScore(b)).slice(0, shape.soupCount);
   const dishes = current.filter((recipe) => !isSoupSlot(recipe)).slice(0, shape.dishCount);
@@ -4432,7 +4469,7 @@ export async function applyMealShapePostcondition(
   const pick = (wantSoup: boolean, count: number, pool: Record<string, unknown>[]): SuggestedRecipe[] => {
     const out: SuggestedRecipe[] = [];
     for (const row of pool) {
-      if (dietFix && !isVegetarianRow(row)) continue;
+      if (dietFix && (wantSoup ? !isVegetarianRow(row) : !isStrictVegetableRow(row))) continue;
       if (params.avoidIngredients.length > 0 && rowContainsAvoid(row, params.avoidIngredients)) continue;
       const recipe = rowToSuggestedRecipe(row);
       if (!recipe) continue;
@@ -5988,7 +6025,7 @@ async function processAIChefChatCore(
           console.warn(`[AI Chef] lib_search_fail vegetarian_soup_widen reason=${fullPool.reason}`);
         }
       }
-      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, undefined, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap);
+      const vegPicked = pickSoupMeal(vegSafe, excludeSets, dishCount, soupCount, undefined, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap, { strictVegDishes: true });
       const people = extractPeopleCount(lastUserText);
       const applyServings = (arr: SuggestedRecipe[]) => people && people > 0 ? arr.map((r) => ({ ...r, servings: people })) : arr;
       const cards = applyServings(vegPicked);
@@ -6056,7 +6093,7 @@ async function processAIChefChatCore(
         if (isTofuOrEgg(text) && !hasMeatMarker(name)) return false;
         return type === "meat" && hasMeatMarker(text);
       }
-      if (role === "vegetable") return type === "vegetable" && hasVegMarker(name) && !isTofuOrEgg(name);
+      if (role === "vegetable") return isStrictVegetableRow(row);
       if (role === "seafood") return type === "seafood";
       if (role === "soup") return type === "soup";
       if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
@@ -6462,7 +6499,7 @@ async function processAIChefChatCore(
       // 1) 先從庫揀 N 餸 + M 湯（可能唔夠）
       // 診斷用（暫時）：如果 avoid 有值但仲出到忌口食材，呢行會顯示 pool 有冇被過濾。
       console.log(`[AI Chef] meal_lib avoid=${avoidIngredients.join("|") || "none"} pool=${safeRows.length} dishes=${libCount.dishCount} soups=${libCount.soupCount}`);
-      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap);
+      const libPickedRaw = pickSoupMeal(safeRows, excludeSets, libCount.dishCount, libCount.soupCount, search?.scenario, seenSplit.seen7d, avoidIngredients, noteRecycle, seenLruMap, { strictVegDishes: chefIntent.diet && !isSwapTurn });
       // OC review：diversify 會再由 pool 揀卡，所以 pool 必須同一個「已剔忌口」版本，
       // 唔可以靠上游巧合。呢個 filter 係 idempotent，重複做無害。
       const poolForDiversify = avoidIngredients.length > 0
@@ -7211,9 +7248,10 @@ async function processAIChefChatCore(
         return { content: searchFailureReply(lang), recipes: [], llmUsed: false, clarifyReason: "lib_search_fail" };
       }
       const libRows = libSearch.rows;
-      const safeLibRows = avoidIngredients.length > 0
+      let safeLibRows = avoidIngredients.length > 0
         ? libRows.filter((row) => !rowContainsAvoid(row, avoidIngredients))
         : libRows;
+      if (chefIntent.diet) safeLibRows = safeLibRows.filter(isVegetarianRow);
       const libMealRecycle = new Map<string, number>();
       const libMealRaw = pickSoupMeal(
         safeLibRows,
@@ -7225,6 +7263,7 @@ async function processAIChefChatCore(
         avoidIngredients,
         (type, n) => libMealRecycle.set(type, (libMealRecycle.get(type) ?? 0) + n),
         seenLruMap,
+        { strictVegDishes: Boolean(chefIntent.diet) },
       );
       // 結構規則（chat library-first）：撞板就排除現有名再抽一次，分數有改善才用
       let libMeal = libMealRaw;
@@ -7319,7 +7358,7 @@ async function processAIChefChatCore(
       if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
       if (role === "meat") return type === "meat" || type === "other";
       if (role === "seafood") return type === "seafood" || type === "other";
-      if (role === "vegetable") return type === "vegetable";
+      if (role === "vegetable") return isStrictVegetableRow({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
       if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
       return true;
     };
@@ -7352,7 +7391,8 @@ async function processAIChefChatCore(
           if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
           if (role === "soup") return type === "soup" || isSoupRecipe({ name: nm, tags: Array.isArray(row?.tags) ? row.tags.map(String) : [], source: "official" } as SuggestedRecipe);
           if (role === "noodle") return type === "carb" || dishFamily(nm) === "noodle";
-          return type === expectedType || (role !== "vegetable" && type === "other");
+          if (role === "vegetable") return isStrictVegetableRow(row);
+          return type === expectedType || type === "other";
         });
         const pick = rowsToSuggested(roleRows, excludeSets, 1).filter((recipe) => !cards.some((c) => normalizeName(c.name) === normalizeName(recipe.name)));
         if (pick.length > 0) {

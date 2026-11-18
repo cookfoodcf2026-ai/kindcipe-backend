@@ -68,7 +68,7 @@ const dietPool = () => [
   dietRow(7, "牛肉煲", "meat"),
 ];
 
-const vegCard = { ...card, name: "清炒時蔬", description: "vegetarian stir fry", tags: ["vegetarian"] };
+const vegCard = { ...card, name: "清炒時蔬", description: "vegetarian stir fry", dishType: "vegetable", tags: ["vegetarian"] };
 const dietResultWith = (recipes: any[]) => ({ content: "", recipes, llmUsed: false });
 const MEAT_RE = /排骨|雞|魚|牛|豬|蝦|蟹/;
 
@@ -97,7 +97,7 @@ const dietParamsWith = (pool: Record<string, unknown>[], text = "素食三餸一
   searchOverride: async () => pool,
 });
 
-const vegDishB = { ...card, name: "蒜蓉炒菜心", tags: ["vegetarian"] };
+const vegDishB = { ...card, name: "蒜蓉炒菜心", dishType: "vegetable", tags: ["vegetarian"] };
 const vegSoup = { ...card, name: "番茄薯仔湯", dishType: "soup", tags: ["vegetarian"] };
 const shrimpCard = { ...card, name: "蒜蓉炒蝦", ingredients: [{ name: "蝦", quantity: "300", unit: "g" }] };
 const fourWithShrimp = () => [vegCard, vegDishB, vegSoup, shrimpCard];
@@ -134,7 +134,7 @@ test("diet + flag ON + enough cards keeps the set unchanged", async () => {
   const enough = [
     vegCard,
     { ...card, name: "蒜蓉炒菜心", tags: ["vegetarian"] },
-    { ...card, name: "番茄炒蛋", tags: ["vegetarian"] },
+    { ...card, name: "蒜蓉炒芥蘭", dishType: "vegetable", tags: ["vegetarian"] },
     { ...card, name: "番茄薯仔湯", tags: ["vegetarian"] },
   ];
   const result = dietResultWith(enough);
@@ -199,7 +199,7 @@ test("diet + flag ON + strip shrimp leaves too few: partialSetReply + diet_short
 });
 
 test("diet + flag ON + all vegetarian enough: already_satisfied set unchanged", async () => {
-  const enough = [vegCard, vegDishB, vegSoup, { ...card, name: "番茄炒蛋", tags: ["vegetarian"] }];
+  const enough = [vegCard, vegDishB, vegSoup, { ...card, name: "蒜蓉炒芥蘭", dishType: "vegetable", tags: ["vegetarian"] }];
   const result = dietResultWith(enough);
   const out = await runWithDietFlag("1", () =>
     applyMealShapePostcondition(result, dietParamsWith([])));
@@ -217,7 +217,7 @@ test("diet + flag ON + 4 veg dishes + 1 meat soup: no early return without soup"
   const before = [
     vegCard,
     vegDishB,
-    { ...card, name: "番茄炒蛋", tags: ["vegetarian"] },
+    { ...card, name: "蒜蓉炒芥蘭", dishType: "vegetable", tags: ["vegetarian"] },
     { ...card, name: "清炒菠菜", tags: ["vegetarian"] },
     meatSoup,
   ];
@@ -238,7 +238,7 @@ test("diet + flag ON + 3 veg dishes + 1 veg soup + 1 meat soup: early return kee
     dishType: "soup",
     ingredients: [{ name: "豬骨", quantity: "1", unit: "份" }],
   };
-  const before = [vegCard, vegDishB, { ...card, name: "番茄炒蛋", tags: ["vegetarian"] }, vegSoup, meatSoup];
+  const before = [vegCard, vegDishB, { ...card, name: "蒜蓉炒芥蘭", dishType: "vegetable", tags: ["vegetarian"] }, vegSoup, meatSoup];
   const { out, logs } = await withLogs(() => runWithDietFlag("1", () =>
     applyMealShapePostcondition(dietResultWith(before), dietParamsWith([]))));
   assert.equal(out.recipes.length, 4);
