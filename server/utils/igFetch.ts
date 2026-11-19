@@ -18,6 +18,7 @@ export type IgFetchResult = {
   chars: number;
   text: string;
   thumbnail: string | null;
+  author: string;
   finalUrl: string;
   ms: number;
 };
@@ -28,6 +29,7 @@ const empty = (status: number, ms: number): IgFetchResult => ({
   chars: 0,
   text: "",
   thumbnail: null,
+  author: "",
   finalUrl: "",
   ms,
 });
@@ -50,13 +52,14 @@ export async function fetchInstagramOembed(url: string, timeoutMs = 5000): Promi
     const resp = await safeFetch(endpoint, {
       headers: { "user-agent": IG_MOBILE_UA, accept: "application/json" },
       maxBytes: 1_000_000,
+      maxRedirects: 6,
       signal: AbortSignal.timeout(timeoutMs),
     } as any);
     const ms = Date.now() - started;
     if (!resp.ok) return { ...empty(resp.status, ms), finalUrl: resp.url || endpoint };
 
     const data = (await resp.json().catch(() => null)) as
-      | { title?: string; thumbnail_url?: string }
+      | { title?: string; author_name?: string; thumbnail_url?: string }
       | null;
     const text = decodeHtmlEntities(String(data?.title ?? "")).trim();
     const thumbnail = data?.thumbnail_url ? String(data.thumbnail_url) : null;
@@ -66,6 +69,7 @@ export async function fetchInstagramOembed(url: string, timeoutMs = 5000): Promi
       chars: text.length,
       text,
       thumbnail,
+      author: String(data?.author_name ?? ""),
       finalUrl: resp.url || endpoint,
       ms,
     };
@@ -81,6 +85,7 @@ export async function fetchInstagramOg(url: string, timeoutMs = 8000): Promise<I
     const resp = await safeFetch(url, {
       headers: { "user-agent": IG_MOBILE_UA, "accept-language": "zh-TW,zh;q=0.9,en;q=0.8" },
       maxBytes: 3_000_000,
+      maxRedirects: 6,
       signal: AbortSignal.timeout(timeoutMs),
     } as any);
     const ms = Date.now() - started;
@@ -108,6 +113,7 @@ export async function fetchInstagramOg(url: string, timeoutMs = 8000): Promise<I
       chars: text.length,
       text,
       thumbnail: thumbMatch ? decodeHtmlEntities(thumbMatch[1]) : null,
+      author: "",
       finalUrl: resp.url || url,
       ms,
     };

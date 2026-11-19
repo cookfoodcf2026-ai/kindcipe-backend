@@ -1428,9 +1428,10 @@ export async function fetchPageContent(url: string): Promise<{ text: string; thu
       if (!igCaption) {
         const oembed = await fetchInstagramOembed(url, 5000);
         igOembedDiag = `status=${oembed.status} chars=${oembed.chars} ms=${oembed.ms}`;
-        if (oembed.ok) {
+        if (oembed.text) {
           igCaption = oembed.text;
           if (!igThumbnail && oembed.thumbnail) igThumbnail = oembed.thumbnail;
+          if (!igAuthor && oembed.author) igAuthor = oembed.author;
         }
       }
 
