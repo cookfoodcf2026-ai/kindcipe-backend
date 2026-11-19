@@ -2469,9 +2469,12 @@ function dedupeResponseCards(recipes: SuggestedRecipe[]): SuggestedRecipe[] {
   return out;
 }
 
-// ─── Strict vegetable slot (owner rule 2026-11-18) ───────────────────────
-// A vegetable slot may only serve a real vegetable. Egg / tofu / meat / seafood
-// are not vegetables, even when the DB marks them dish_type=vegetable.
+// ─── Vegetable slots ─────────────────────────────────────────────────────
+// Owner rule 2026-11-19: a vegetable slot trusts dish_type. Do NOT scan
+// ingredients — 蝦米煮節瓜 / 冬瓜煮肉粒 are still vegetable dishes.
+// Vegetarian meals are the exception: they keep the strict ingredient scan
+// below (fail-closed) so meat/seafood never reaches a vegetarian user.
+// isStrictVegetableRow: strict predicate for vegetarian meals only.
 // Sauce/stock words are stripped first so 蠔油生菜 / 上湯娃娃菜 remain allowed.
 // Explicit whitelist of vegetarian compounds that contain a meat/egg character.
 // Longer terms first (牛油果 before 牛油) so the whole word is stripped. Do NOT
@@ -2491,6 +2494,16 @@ export function isStrictVegetableRow(row: Record<string, unknown>): boolean {
   const stripped = name.replace(STRICT_VEG_PLANT_RE, "").replace(STRICT_VEG_SAUCE_RE, "");
   if (STRICT_VEG_EGG_TOFU_RE.test(stripped)) return false;
   return !STRICT_VEG_MEAT_RE.test(stripped) && !STRICT_VEG_SEAFOOD_RE.test(stripped);
+}
+
+/**
+ * Vegetable-slot membership (owner rule 2026-11-19): trust the dish type and
+ * never scan ingredients/name for meat. 蝦米煮節瓜 / 冬瓜煮肉粒 belong in the
+ * vegetable slot. Vegetarian meals must NOT use this predicate — they stay
+ * fail-closed via isVegetarianRow / isStrictVegetableRow.
+ */
+export function isVegetableSlotRow(row: Record<string, unknown>): boolean {
+  return classifyDishType(row) === "vegetable";
 }
 
 /**
@@ -2633,7 +2646,10 @@ export function pickSoupMeal(rows: Record<string, unknown>[], ex: ExcludeSets, d
   const meatPool = pool.filter(r => classify(r) === "meat" && noCarb(r));
   const seafoodPool = pool.filter(r => classify(r) === "seafood" && noCarb(r));
   const mealHasVegSlot = opts.strictVegDishes === true || dishCount >= 3;
-  const vegPool = pool.filter(r => (mealHasVegSlot ? isStrictVegetableRow(r) : classify(r) === "vegetable") && noCarb(r));
+  // Vegetarian meals keep the strict ingredient scan; every other vegetable
+  // slot trusts dish_type (owner rule 2026-11-19) and never scans ingredients.
+  const vegPredicate = opts.strictVegDishes ? isStrictVegetableRow : isVegetableSlotRow;
+  const vegPool = pool.filter(r => (mealHasVegSlot ? vegPredicate(r) : classify(r) === "vegetable") && noCarb(r));
   const otherPool = pool.filter(r => (classify(r) === "other" || classify(r) === "appetizer") && noCarb(r));
   const dishPool = [...meatPool, ...seafoodPool, ...vegPool, ...otherPool];
   console.log(`[pickSoupMeal] pool=${pool.length} soup=${soupPool.length} meat=${meatPool.length} seafood=${seafoodPool.length} veg=${vegPool.length} other=${otherPool.length} scenario=${scenarioKey || "none"} scenarioRows=${scenarioRows.length} (raw rows=${rows.length}, source rows=${sourceRows.length}, noSteps=${sourceRows.length - pool.length})`);
@@ -6106,7 +6122,7 @@ async function processAIChefChatCore(
         if (isTofuOrEgg(text) && !hasMeatMarker(name)) return false;
         return type === "meat" && hasMeatMarker(text);
       }
-      if (role === "vegetable") return isStrictVegetableRow(row);
+      if (role === "vegetable") return chefIntent.diet ? isStrictVegetableRow(row) : isVegetableSlotRow(row);
       if (role === "seafood") return type === "seafood";
       if (role === "soup") return type === "soup";
       if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
@@ -7376,7 +7392,9 @@ async function processAIChefChatCore(
       if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
       if (role === "meat") return type === "meat" || type === "other";
       if (role === "seafood") return type === "seafood" || type === "other";
-      if (role === "vegetable") return isStrictVegetableRow({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
+      if (role === "vegetable") return chefIntent.diet
+        ? isStrictVegetableRow({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>)
+        : isVegetableSlotRow({ name: recipe.name, tags: recipe.tags, dishType: recipe.dishType, soupType: recipe.soupType } as unknown as Record<string, unknown>);
       if (role === "noodle") return type === "carb" || /麵|面|拉麵|拉面|烏冬|乌冬|米線|米线|意粉|noodle|ramen|udon|soba|pasta/i.test(name);
       return true;
     };
@@ -7409,7 +7427,7 @@ async function processAIChefChatCore(
           if (role === "any") return type !== "soup" && type !== "dessert" && type !== "drink";
           if (role === "soup") return type === "soup" || isSoupRecipe({ name: nm, tags: Array.isArray(row?.tags) ? row.tags.map(String) : [], source: "official" } as SuggestedRecipe);
           if (role === "noodle") return type === "carb" || dishFamily(nm) === "noodle";
-          if (role === "vegetable") return isStrictVegetableRow(row);
+          if (role === "vegetable") return chefIntent.diet ? isStrictVegetableRow(row) : isVegetableSlotRow(row);
           return type === expectedType || type === "other";
         });
         const pick = rowsToSuggested(roleRows, excludeSets, 1).filter((recipe) => !cards.some((c) => normalizeName(c.name) === normalizeName(recipe.name)));

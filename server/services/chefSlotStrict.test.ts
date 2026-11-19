@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   applyMealShapePostcondition,
   isStrictVegetableRow,
+  isVegetableSlotRow,
   isVegetarianRow,
   mkExcludeSets,
   pickSoupMeal,
@@ -59,9 +60,10 @@ test("1000 次三餸一湯（含素食 200 次）蔬菜位 0 次出蛋／豆腐�
         if (!isStrictVegetableRow(dish as unknown as Record<string, unknown>)) violations += 1;
       }
     } else {
-      // 標準 3 餸：肉、海鮮、蔬菜；第三個餸 = 蔬菜位。
+      // 標準 3 餸：肉、海鮮、蔬菜；第三個餸 = 蔬菜位。蔬菜位信 dish_type，
+      // 所以唔再用 strict 食材掃描（蝦米煮節瓜都算蔬菜位）。
       const vegSlot = dishes[2];
-      if (vegSlot && !isStrictVegetableRow(vegSlot as unknown as Record<string, unknown>)) violations += 1;
+      if (vegSlot && !isVegetableSlotRow(vegSlot as unknown as Record<string, unknown>)) violations += 1;
     }
   }
   assert.equal(violations, 0, `vegetable slot violations=${violations}/1000`);
@@ -182,7 +184,7 @@ test("library mode 三餸一湯：蔬菜位只出真蔬菜", async () => {
   const dishes = result.recipes.filter((recipe) => !isSoup(recipe));
   assert.equal(dishes.length, 3);
   assert.equal(
-    isStrictVegetableRow(dishes[2] as unknown as Record<string, unknown>),
+    isVegetableSlotRow(dishes[2] as unknown as Record<string, unknown>),
     true,
     `蔬菜位出咗 ${dishes[2]?.name}`,
   );
@@ -235,7 +237,7 @@ for (const mode of ["chat", "ai"] as const) {
   });
 }
 
-test("冇真蔬菜時寧願短卡，並有 veg_slot_shortfall reason log", () => {
+test("素食 meal 冇真蔬菜時寧願短卡，並有 veg_slot_shortfall reason log", () => {
   const logs: string[] = [];
   const original = console.warn;
   console.warn = (...args: any[]) => { logs.push(args.map(String).join(" ")); };
@@ -246,10 +248,69 @@ test("冇真蔬菜時寧願短卡，並有 veg_slot_shortfall reason log", () =>
       row(12, "蒸水蛋", "vegetable", ["雞蛋"]),
       row(8, "番茄薯仔湯", "soup", ["番茄", "薯仔"]),
     ];
-    const picked = pickSoupMeal(pool, mkExcludeSets([], []), 3, 1);
+    // strictVegDishes=true = 素食 meal：素食過濾唔准放寬，蛋／豆腐唔可以用嚟補位。
+    const picked = pickSoupMeal(pool, mkExcludeSets([], []), 3, 1, undefined, [], [], undefined, undefined, { strictVegDishes: true });
     assert.ok(picked.length < 4, `唔應該用蛋補位：served=${picked.length}`);
     assert.ok(logs.some((line) => line.includes("veg_slot_shortfall") && line.includes("no_strict_vegetable")), logs.join("\n"));
   } finally {
     console.warn = original;
   }
+});
+
+// ─── Owner rule 2026-11-19: veg slot trusts dish_type, vegetarian stays strict ───
+
+test("① 蝦米煮節瓜（dish_type=vegetable + 蝦米）入蔬菜位", () => {
+  const pool = [
+    row(1, "香煎雞扒", "meat", ["雞扒"]),
+    row(3, "清蒸鱸魚", "seafood", ["鱸魚"]),
+    row(30, "蝦米煮節瓜", "vegetable", ["節瓜", "蝦米"]),
+    row(8, "番茄薯仔湯", "soup", ["番茄", "薯仔"]),
+  ];
+  const picked = pickSoupMeal(pool, mkExcludeSets([], []), 3, 1);
+  const vegSlot = picked.filter((recipe) => !isSoup(recipe))[2];
+  assert.equal(vegSlot?.name, "蝦米煮節瓜", `蔬菜位出咗 ${vegSlot?.name}`);
+  assert.equal(isVegetableSlotRow(vegSlot as unknown as Record<string, unknown>), true);
+});
+
+test("② 素食用戶唔會見到蝦米煮節瓜（掃食材 fail-closed）", () => {
+  const shrimpVeg = row(30, "蝦米煮節瓜", "vegetable", ["節瓜", "蝦米"]);
+  assert.equal(isVegetarianRow(shrimpVeg), false, "蝦米 = 海鮮，素食過濾要剔");
+  // 就算池未預先過濾，strictVegDishes 仍然要剔走佢。
+  const pool = [
+    row(1, "香煎雞扒", "meat", ["雞扒"]),
+    shrimpVeg,
+    row(8, "番茄薯仔湯", "soup", ["番茄", "薯仔"]),
+  ];
+  const picked = pickSoupMeal(pool, mkExcludeSets([], []), 3, 1, undefined, [], [], undefined, undefined, { strictVegDishes: true });
+  assert.ok(!picked.some((recipe) => recipe.name === "蝦米煮節瓜"), "素食 meal 唔准出蝦米煮節瓜");
+});
+
+test("③ 純菜照舊入蔬菜位", () => {
+  const pureVeg = row(6, "蒜蓉炒菜心", "vegetable", ["菜心", "蒜"]);
+  assert.equal(isVegetableSlotRow(pureVeg), true);
+  const pool = [
+    row(1, "香煎雞扒", "meat", ["雞扒"]),
+    row(3, "清蒸鱸魚", "seafood", ["鱸魚"]),
+    pureVeg,
+    row(8, "番茄薯仔湯", "soup", ["番茄", "薯仔"]),
+  ];
+  const picked = pickSoupMeal(pool, mkExcludeSets([], []), 3, 1);
+  const vegSlot = picked.filter((recipe) => !isSoup(recipe))[2];
+  assert.equal(vegSlot?.name, "蒜蓉炒菜心", `蔬菜位出咗 ${vegSlot?.name}`);
+});
+
+test("④ swap turn 行為不變（素食 swap 唔套 strict，非素食單卡照 dish_type）", () => {
+  assert.equal(shouldUseStrictVegSlots("vegetarian", true), false);
+  assert.equal(shouldUseStrictVegSlots(undefined, true), false);
+
+  const eggVeg = row(10, "番茄炒蛋", "vegetable", ["番茄", "雞蛋"]);
+  const pool = [eggVeg, row(8, "番茄薯仔湯", "soup", ["番茄", "薯仔"])];
+  // 素食 swap turn：strict 關閉，蛋／素可以互通（與改動前一致）。
+  const swapPicked = pickSoupMeal(pool, mkExcludeSets([], []), 1, 0, undefined, [], [], undefined, undefined, {
+    strictVegDishes: shouldUseStrictVegSlots("vegetarian", true),
+  });
+  assert.ok(swapPicked.some((recipe) => recipe.name === "番茄炒蛋"), "swap turn 應該可以用蛋補蔬菜位");
+  // 非素食單卡蔬菜位：信 dish_type，蛋類蔬菜卡照出。
+  const singlePicked = pickSoupMeal(pool, mkExcludeSets([], []), 1, 0);
+  assert.equal(isVegetableSlotRow(singlePicked[0] as unknown as Record<string, unknown>), true);
 });
