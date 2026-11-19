@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { registerImportCanary } from "./ops/importCanary";
 import express from "express";
 import { createServer } from "http";
 import cors from "cors";
@@ -144,6 +145,9 @@ async function startServer() {
 
   const bootSha = (process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown").slice(0, 7);
   console.log("[boot] sha=" + bootSha);
+
+  // Import canary (secret-gated, no LLM/DB/quota)
+  registerImportCanary(app);
 
   // Health check
   app.get("/health", (_req, res) => {

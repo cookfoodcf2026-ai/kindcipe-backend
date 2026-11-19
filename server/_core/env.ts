@@ -34,6 +34,8 @@ export const ENV = {
 
   // External APIs
   rapidApiKey: process.env.RAPIDAPI_KEY ?? "",
+  // Shared secret for the import canary endpoint (unset = endpoint returns 404)
+  canarySecret: process.env.CANARY_SECRET ?? "",
   youtubeApiKey: process.env.YOUTUBE_API_KEY ?? "",
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "Kindcipe <onboarding@resend.dev>",

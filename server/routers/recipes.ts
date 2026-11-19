@@ -44,6 +44,7 @@ import { eq, and, or, asc, desc, like, ilike, lte, count, not, gte, sql } from "
 import crypto from "crypto";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
+import { fetchInstagramOembed, fetchInstagramOg } from "../utils/igFetch";
 import { assertSafeUrl, safeFetch } from "../utils/safeUrl";
 
 // ─── 智能搜尋：分詞詞典、同義詞歸一化、多語言、模糊匹配、關鍵字分割 ──────────────
@@ -1422,65 +1423,30 @@ export async function fetchPageContent(url: string): Promise<{ text: string; thu
         } catch { /* continue to fallback */ }
       }
 
-      // Step 2: Fallback — Instagram oEmbed API (free, no key)
+      // Step 2: Fallback — Instagram oEmbed (www/api/v1; api.instagram.com 302s to a login page)
+      let igOembedDiag = "skipped";
       if (!igCaption) {
-        try {
-          const oResp = await fetch(
-            `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}`,
-            { signal: AbortSignal.timeout(5000) }
-          );
-          if (oResp.ok) {
-            const oData = await oResp.json() as { title?: string; author_name?: string; thumbnail_url?: string };
-            igCaption = oData.title ?? "";
-            igAuthor = oData.author_name ?? "";
-            if (!igThumbnail) igThumbnail = oData.thumbnail_url ?? "";
-          }
-        } catch { /* continue to page scrape */ }
+        const oembed = await fetchInstagramOembed(url, 5000);
+        igOembedDiag = `status=${oembed.status} chars=${oembed.chars} ms=${oembed.ms}`;
+        if (oembed.ok) {
+          igCaption = oembed.text;
+          if (!igThumbnail && oembed.thumbnail) igThumbnail = oembed.thumbnail;
+        }
       }
 
-      // Step 3: Fallback — fetch page meta (og/twitter) for caption **同** 縮圖（解耦：只要缺任何一樣就試）
+      // Step 3: Fallback — page meta (og/twitter). Decoupled: needed when either is missing.
+      let igOgDiag = "skipped";
       if (!igCaption || !igThumbnail) {
-        try {
-          const resp = await fetch(url, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-              "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-            },
-            signal: AbortSignal.timeout(8000),
-          });
-          if (resp.ok) {
-            const html = await resp.text();
-            if (!igCaption) {
-              const ogDesc = html.match(/property="og:description" content="([\s\S]*?)"/) ||
-                             html.match(/content="([\s\S]*?)" property="og:description"/);
-              if (ogDesc) {
-                igCaption = ogDesc[1]
-                  .replace(/&#x([0-9a-fA-F]+);/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)))
-                  .replace(/&quot;/g, '"')
-                  .replace(/&amp;/g, "&")
-                  .replace(/&lt;/g, "<")
-                  .replace(/&gt;/g, ">")
-                  .replace(/^[\d.KM]+ likes[^:]*:\s*"?/i, "")
-                  .replace(/"?\s*$/, "")
-                  .trim();
-              }
-            }
-            if (!igThumbnail) {
-              const thumbMatch =
-                html.match(/property="og:image" content="([^"]+)"/) ||
-                html.match(/content="([^"]+)" property="og:image"/) ||
-                html.match(/name="twitter:image" content="([^"]+)"/) ||
-                html.match(/content="([^"]+)" name="twitter:image"/);
-              if (thumbMatch) igThumbnail = thumbMatch[1].replace(/&amp;/g, "&");
-              // 最後掃 HTML 內任何 Instagram CDN 圖
-              if (!igThumbnail) {
-                const cdnMatch = html.match(/https:\/\/[^"'\s]*?cdninstagram\.com\/[^"'\s]+\.jpg[^"'\s]*/);
-                if (cdnMatch) igThumbnail = cdnMatch[0].replace(/&amp;/g, "&");
-              }
-            }
-          }
-        } catch { /* continue */ }
+        const og = await fetchInstagramOg(url, 8000);
+        igOgDiag = `status=${og.status} chars=${og.chars} ms=${og.ms}`;
+        if (og.text && !igCaption) igCaption = og.text;
+        if (og.thumbnail && !igThumbnail) igThumbnail = og.thumbnail;
       }
+
+      // One line that makes a failed import diagnosable (429 / login wall / moved endpoint).
+      console.log(
+        `[parseUrl][instagram] oembed{${igOembedDiag}} og{${igOgDiag}} caption=${igCaption ? igCaption.length : 0} thumb=${igThumbnail ? 1 : 0}`,
+      );
 
       // Fallback: use Instagram's direct image URL pattern (works for most posts)
       if (shortcode && !igThumbnail) {
