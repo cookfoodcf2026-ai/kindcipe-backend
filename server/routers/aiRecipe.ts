@@ -8659,6 +8659,26 @@ export async function runFillIngredients(
   if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
   if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
   deps.startLlmMeter({ familyId, userId, route: "ai_fill_ingredients", requestId: deps.newRequestId() });
+
+  // 解析失敗補償：免費補齊（每日 6 次／用戶），唔扣 credit
+  if ((input as { freeFill?: boolean }).freeFill) {
+    const claimed = await claimAiPhotoUsage({ userId, kind: "free_fill", day: hongKongDay(), limit: 6 });
+    if (!claimed) {
+      throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今日免費補齊次數已用完，請用 AI 生成或手動輸入。" });
+    }
+    const result = await deps.generate(input);
+    if (!result || result.length < 3) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補材料失敗，請再試。" });
+    }
+    try { await deps.incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
+    let freeIngredients = result;
+    try {
+      const localized = await deps.localizeIngredients(result);
+      if (Array.isArray(localized) && localized.length === result.length) freeIngredients = localized;
+    } catch { /* 翻譯失敗 → 用原文 */ }
+    return { ingredients: freeIngredients, aiGenerated: true };
+  }
+
   try {
     const generated = await deps.runWithUsage(
       {
@@ -8943,6 +8963,8 @@ export const aiRecipeRouter = router({
       description: z.string().optional(),
       ingredients: z.array(z.object({ name: z.string(), quantity: z.string().optional(), unit: z.string().optional() })).min(1),
       steps: z.array(z.string()).default([]),
+      // 解析失敗補償：每日限量免費補齊（唔扣 credit）
+      freeFill: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });
@@ -8952,6 +8974,22 @@ export const aiRecipeRouter = router({
       if (!ent) throw new TRPCError({ code: "NOT_FOUND", message: "找不到家庭廚房" });
       if (ent.readOnly) throw new TRPCError({ code: "FORBIDDEN", message: "你目前只可檢視此廚房。" });
       startLlmMeter({ familyId, userId, route: "ai_fill", requestId: randomUUID() });
+
+      // 解析失敗補償：免費補步驟（每日 6 次／用戶），唔扣 credit
+      if (input.freeFill) {
+        const claimed = await claimAiPhotoUsage({ userId, kind: "free_fill", day: hongKongDay(), limit: 6 });
+        if (!claimed) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今日免費補齊次數已用完，請用 AI 生成或手動輸入。" });
+        }
+        const generated = await fillStepsLLM(input);
+        if (!generated || !Array.isArray(generated.steps) || generated.steps.length === 0) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補齊失敗，請再試。" });
+        }
+        try { await incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
+        const localizedFree = await localizeSuggestedRecipe(generated);
+        return { recipe: localizedFree };
+      }
+
       try {
         const recipe = await runWithUsage(
           {
@@ -8985,6 +9023,8 @@ export const aiRecipeRouter = router({
       description: z.string().max(2000).optional(),
       sourceUrl: z.string().url().max(500).optional(),
       sourceText: z.string().max(4000).optional(),
+      // 解析失敗補償：每日限量免費補齊（唔扣 credit）
+      freeFill: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "請先加入家庭廚房" });

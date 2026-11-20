@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { aiPhotoUsage } from "../../drizzle/schema";
 
-export type AiPhotoKind = "analyze" | "generate";
+export type AiPhotoKind = "analyze" | "generate" | "free_fill";
 
 export function hongKongDay(date = new Date()): string {
   return new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
