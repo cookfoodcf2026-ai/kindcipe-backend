@@ -24,6 +24,7 @@ import { dedupeIngredients, markQuantityProvenance } from "../services/ingredien
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
 import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, hasKana, localizedName } from "../utils/recipeTranslations";
+import { mergeDanglingSteps } from "../utils/steps";
 import { assertSafeRecipeTranslations } from "../utils/recipeTranslationGuard";
 import { translateRecipeWithQwenMt } from "../services/qwenMtTranslator";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
@@ -1229,10 +1230,12 @@ function extractStepsFromTranscript(text: string): string[] {
     .replace(/\s+/g, " ")
     .trim();
   if (!normalized) return [];
-  const steps = normalized
-    .split(/(?<=[。！？.!?])\s+/)
-    .map(cleanStepLine)
-    .filter((step) => step.length >= 8);
+  const steps = mergeDanglingSteps(
+    normalized
+      .split(/(?<=[。！？.!?])\s+/)
+      .map(cleanStepLine)
+      .filter((step) => step.length >= 8),
+  );
   return steps.length >= 2 ? steps.slice(0, 20) : [];
 }
 
@@ -1887,7 +1890,7 @@ async function recipeFromJsonLd(jl: any, thumbnail: string): Promise<any | null>
   try {
     const srcLang = /[\u4e00-\u9fff]/.test(jl.name + (jl.description ?? "") + jl.ingredients.join(" ")) ? "zh-TW" : "en";
     const ingredients = (jl.ingredients as string[]).map(parseIngredientLine);
-    const steps = (jl.steps as string[]).map((instruction: string) => ({ instruction }));
+    const steps = mergeDanglingSteps((jl.steps as string[]).map((instruction: string) => ({ instruction })));
     const built = await buildAllLangs({ name: jl.name, description: jl.description, steps, ingredients, srcLang });
     const dishType = await classifyRecipeDishTypeLLM({
       name: built.name, description: built.description, ingredients: built.ingredients, tags: [], category: undefined,
@@ -2463,9 +2466,11 @@ export async function buildAllLangs(params: {
 
   const tr = await translateRecipeContent(zhName, zhStepText, zhDesc);
 
-  const baseSteps = isZh
-    ? (params.steps ?? [])   // 中文：保留原物件（連 duration/tip）
-    : zhStepText.map((instruction) => ({ instruction }));
+  const baseSteps = mergeDanglingSteps(
+    isZh
+      ? (params.steps ?? [])   // 中文：保留原物件（連 duration/tip）
+      : zhStepText.map((instruction) => ({ instruction })),
+  );
 
   const out: any = {
     name: zhName,
