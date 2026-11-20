@@ -39,7 +39,7 @@ import { startRecipeImportMeter } from "../services/recipeImportMeter";
 import { commitUsage, refundUsage, reserveUsage, usageLimitToTRPC } from "../services/usage";
 import { assertCustomRecipeLimit, assertImportLimit } from "../services/limitEnforcement";
 import { recordCustomRecipeCreate, recordImportCreate, type QuotaScope } from "../services/recipeQuota";
-import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users } from "../../drizzle/schema";
+import { customRecipes, officialRecipes, userRecipeCollections, kolCreators, users, familyMembers } from "../../drizzle/schema";
 import { eq, and, or, asc, desc, like, ilike, lte, count, not, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { storagePut } from "../storage";
@@ -3843,9 +3843,27 @@ ${TAGS_RULE}`;
       inputLang: z.string().optional(),
       // 用戶主動「先儲存（名＋連結）」時允許無食材/步驟，仍標記為未完整（讀取時依內容判斷）
       allowIncomplete: z.boolean().optional(),
+      // 客戶端明確指定目標廚房（優先於 X-Family-Id header）
+      familyId: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
+
+      // B1: 指定廚房時驗成員並覆寫 ambient activeFamilyId。
+      // Feature flag: 預設 OFF（等於舊行為）；IMPORT_FAMILY_OVERRIDE=1 才啟用。
+      // 出事可以即刻用環境變數關掉，唔需要 redeploy code。
+      const familyOverrideEnabled = process.env.IMPORT_FAMILY_OVERRIDE === "1";
+      if (familyOverrideEnabled && input.familyId && input.familyId !== ctx.activeFamilyId) {
+        const dbCheck = await getDb();
+        if (!dbCheck) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const member = await dbCheck
+          .select({ id: familyMembers.id })
+          .from(familyMembers)
+          .where(and(eq(familyMembers.familyId, input.familyId), eq(familyMembers.userId, String(ctx.user.id))))
+          .limit(1);
+        if (member.length === 0) throw new TRPCError({ code: "FORBIDDEN", message: "你唔屬於呢個廚房" });
+        (ctx as { activeFamilyId: number | null }).activeFamilyId = input.familyId;
+      }
       const familyId = ctx.activeFamilyId;
       const userId = String(ctx.user.id);
       const ent = await getFamilyEntitlements(familyId, userId);

@@ -126,6 +126,12 @@ async function startServer() {
   const trpcMiddleware = createExpressMiddleware({
     router: appRouter,
     createContext,
+    // Echo the family actually used so clients can detect a stale X-Family-Id
+    // (root cause of drafts landing in the wrong kitchen, 2026-11-20).
+    responseMeta({ ctx }) {
+      const familyId = (ctx as { activeFamilyId?: number | null } | undefined)?.activeFamilyId;
+      return familyId ? { headers: { "X-Active-Family-Id": String(familyId) } } : {};
+    },
     onError: ({ error, path, type, ctx }) => {
       const userId = ctx?.user?.id ?? "anon";
       const familyId = ctx?.activeFamilyId ?? "-";

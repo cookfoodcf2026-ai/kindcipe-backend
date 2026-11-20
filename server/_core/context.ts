@@ -74,7 +74,8 @@ export async function createContext(
         if (firstMember.length > 0) {
           activeFamilyId = firstMember[0].familyId;
           activeFamilyRole = firstMember[0].familyRole;
-          await setDefaultFamily(String(user.id), firstMember[0].familyId);
+          // 2026-11-20: 唔再自動 setDefaultFamily。舊行為會把 fallback 揀到嘅廚房永久寫成
+          // default，令之後每次 fallback 都落同一個錯廚房。
         }
       }
     }
