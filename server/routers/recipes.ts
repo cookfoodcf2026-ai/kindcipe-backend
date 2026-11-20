@@ -3844,7 +3844,11 @@ ${TAGS_RULE}`;
       // 用戶主動「先儲存（名＋連結）」時允許無食材/步驟，仍標記為未完整（讀取時依內容判斷）
       allowIncomplete: z.boolean().optional(),
       // 客戶端明確指定目標廚房（優先於 X-Family-Id header）
-      familyId: z.number().int().positive().optional(),
+      // 前端 activeFamilyId 來自 AsyncStorage，係 string；兩種都收，統一轉 number
+      familyId: z
+        .union([z.number().int().positive(), z.string().regex(/^\d+$/)])
+        .transform((v) => Number(v))
+        .optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.activeFamilyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not in a family" });
