@@ -18,6 +18,11 @@ export function hasHan(text: string): boolean {
   return /[\u4e00-\u9fff]/.test(String(text ?? ""));
 }
 
+// 日文假名（平假名／片假名）。日文名稱含漢字，唔可以只靠 hasHan 判斷「已係中文」。
+export function hasKana(text: string): boolean {
+  return /[\u3040-\u30ff\u31f0-\u31ff]/.test(String(text ?? ""));
+}
+
 export function needsChineseBase(text: string): boolean {
   const value = String(text ?? "").trim();
   return value.length > 0 && !hasHan(value);

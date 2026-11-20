@@ -23,7 +23,7 @@ import { computeScenarioTags, serializeUserScenarioTags } from "../utils/scenari
 import { dedupeIngredients, markQuantityProvenance } from "../services/ingredientQuality";
 import { generateRecipeImage } from "../utils/imageGen";
 import { translateRecipeContent, translateToChinese } from "../utils/translateContent";
-import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, localizedName } from "../utils/recipeTranslations";
+import { buildTranslationPatch, withIngredientTranslations, localizeIngredientNames, hasHan, hasKana, localizedName } from "../utils/recipeTranslations";
 import { assertSafeRecipeTranslations } from "../utils/recipeTranslationGuard";
 import { translateRecipeWithQwenMt } from "../services/qwenMtTranslator";
 import { extractRecipeJsonLd, findOutboundRecipeUrl } from "../utils/recipeJsonLd";
@@ -1808,12 +1808,15 @@ async function ensureChineseBase(result: any, srcLang?: string): Promise<any> {
   if (!result || !String(result.name ?? "").trim()) return markTranslationPending(result);
   const name = String(result.name ?? "").trim();
   if (result.name === "無法解析" || result.name === "需要手動輸入") return markTranslationPending(result);
-  if (hasHan(name)) return markTranslationPending(result);
   const stepTexts = (Array.isArray(result.steps) ? result.steps : [])
     .map((s: any) => (typeof s === "string" ? s : String(s?.instruction ?? ""))).filter(Boolean);
+  // 日文有漢字：一定要連假名一齊檢查，否則日文步驟會被當成中文而跳過翻譯
+  const rawStepText = stepTexts.join(" ");
+  const looksJapanese = hasKana(name) || hasKana(rawStepText);
+  if (hasHan(name) && !looksJapanese) return markTranslationPending(result);
   const ingredients = Array.isArray(result.ingredients) ? result.ingredients : [];
   const ingredientNames = ingredients.map((i: any) => String(i?.name ?? "").trim()).filter(Boolean);
-  const zh = await translateToChinese(name, stepTexts, result.description ?? undefined, ingredientNames, srcLang ?? "en");
+  const zh = await translateToChinese(name, stepTexts, result.description ?? undefined, ingredientNames, srcLang ?? (looksJapanese ? "ja" : "en"));
   if (zh.name) result.name = zh.name;
   if (zh.description) result.description = zh.description;
   if (zh.steps && zh.steps.length === stepTexts.length) result.steps = zh.steps;
