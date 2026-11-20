@@ -8662,13 +8662,21 @@ export async function runFillIngredients(
 
   // 解析失敗補償：免費補齊（每日 6 次／用戶），唔扣 credit
   if ((input as { freeFill?: boolean }).freeFill) {
-    const claimed = await claimAiPhotoUsage({ userId, kind: "free_fill", day: hongKongDay(), limit: 6 });
+    const freeDay = hongKongDay();
+    const claimed = await claimAiPhotoUsage({ userId, kind: "free_fill", day: freeDay, limit: 6 });
     if (!claimed) {
       throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今日免費補齊次數已用完，請用 AI 生成或手動輸入。" });
     }
-    const result = await deps.generate(input);
-    if (!result || result.length < 3) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補材料失敗，請再試。" });
+    let result: Awaited<ReturnType<typeof deps.generate>>;
+    try {
+      result = await deps.generate(input);
+      if (!result || result.length < 3) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補材料失敗，請再試。" });
+      }
+    } catch (error) {
+      // 失敗唔應該消耗免費額度（OC review 2026-11-20）
+      await releaseAiPhotoUsage({ userId, kind: "free_fill", day: freeDay }).catch(() => {});
+      throw error;
     }
     try { await deps.incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
     let freeIngredients = result;
@@ -8977,13 +8985,20 @@ export const aiRecipeRouter = router({
 
       // 解析失敗補償：免費補步驟（每日 6 次／用戶），唔扣 credit
       if (input.freeFill) {
-        const claimed = await claimAiPhotoUsage({ userId, kind: "free_fill", day: hongKongDay(), limit: 6 });
+        const freeDay = hongKongDay();
+        const claimed = await claimAiPhotoUsage({ userId, kind: "free_fill", day: freeDay, limit: 6 });
         if (!claimed) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "今日免費補齊次數已用完，請用 AI 生成或手動輸入。" });
         }
-        const generated = await fillStepsLLM(input);
-        if (!generated || !Array.isArray(generated.steps) || generated.steps.length === 0) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補齊失敗，請再試。" });
+        let generated: Awaited<ReturnType<typeof fillStepsLLM>>;
+        try {
+          generated = await fillStepsLLM(input);
+          if (!generated || !Array.isArray(generated.steps) || generated.steps.length === 0) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 補齊失敗，請再試。" });
+          }
+        } catch (error) {
+          await releaseAiPhotoUsage({ userId, kind: "free_fill", day: freeDay }).catch(() => {});
+          throw error;
         }
         try { await incrementAiChatUsage(familyId, userId, 1); } catch { /* history */ }
         const localizedFree = await localizeSuggestedRecipe(generated);
